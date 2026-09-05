@@ -67,7 +67,7 @@ huxerui run linux                  # HuxerUI CLI 流程（构建到 .huxerui/bui
 | `llmswitch.store` | `src/store.cppm` + `src/store.cpp` | ProviderStore：config.json 读写、CRUD、switchTo 切换（原子写+备份）、detectCurrent/importLive、导出导入 |
 | `llmswitch::ui`（普通 C++） | `src/ui/*.cpp` | app（壳：MinimalDark/Light 主题+标题栏+图标侧栏+IndexedPages+托盘）/ common（岛屿原语、页面骨架/卡片/弹窗卡片、providerStore() 全局实例）/ providers_page（Claude/Codex 共用供应商页）/ settings_page（主题/路径/导入导出/关于）/ ui.h（内部声明） |
 | `src/app.cpp` | 普通 TU | `Application{AppRoot, AppOptions}`（Custom chrome，标题栏 24pt，1080×720 / min 560×480） |
-| 平台入口 | `platform/linux/main.cpp` | 薄入口 `huxerui::RunApplication()`（暂无 CLI 分流；Windows/macOS 分支形状保留在顶层 CMake） |
+| 平台入口 | `platform/{linux,windows,macos}/main.cpp` | 薄入口 `huxerui::RunApplication()`（无 CLI 分流；顶层 CMake 按 WIN32/APPLE/Linux 分支选用） |
 
 ## 领域层设计要点
 
@@ -122,12 +122,32 @@ huxerui run linux                  # HuxerUI CLI 流程（构建到 .huxerui/bui
 8. **响应式**：`UseViewportClass()` Compact(<600) 收窄侧栏(44pt)/一级岛内边距
    （PageScaffold）；窗口最小 560×480。
 
+## 多平台 / CI
+
+- 平台入口：platform/{linux,windows,macos}/main.cpp 均为薄 GUI 入口（无 CLI
+  分流）；顶层 CMakeLists 的 WIN32/APPLE 分支按平台把对应入口追加进 SOURCES。
+- `.github/workflows/build.yml`（蓝本 Clash-Flux 同名文件，按其已跑通配方
+  适配）：三个桌面 job + release。build-linux（ubuntu:26.04 容器 + clang-21/
+  libc++-21 + pip cmake==4.4.2 + libc++.modules.json 路径改写 + gtk4/epoxy/
+  libsoup3 开发包，正式）；build-windows（MSVC + choco ninja）与 build-macos
+  （brew llvm + 手写 libc++.modules.json + 内联 P0960 补丁）为实验性
+  continue-on-error——首次全量编译未在 CI 验证过，连续绿后再摘标记。
+- 三个 job 都把 HuxerUI 上游钉在 commit `c00e72a`（"refresh prebuilt host
+  tools"）clone 到 third_party/huxerui 走源码通道；本项目无 OpenSSL/mihomo/
+  Android（蓝本相关步骤已删）。
+- 打包：Linux tar.gz（二进制 + llm-switch.resources + lib/libhuxerui.so +
+  libc++ 三件套 + patchelf `$ORIGIN/lib`）、Windows zip（exe + 旁挂 dll +
+  resources）、macOS tar.gz（.app bundle）；push tag `v*` 时 release job
+  （`if: always()`，job 级 `contents: write`）下载已存在的产物经
+  softprops/action-gh-release 挂到 release。
+
 ## 里程碑状态（2026-09-05）
 
 - ✅ M1：构建脚手架（HuxerUI 双通道、llmswitch_json、test_smoke/test_store）+
   领域层三模块（config/models/store）+ 领域层测试全绿。
 - ✅ M2：完整 UI（应用壳+托盘切换菜单、Claude/Codex 供应商页 CRUD/切换/预设
   模板、设置页主题/路径/导入导出）、GUI 冒烟通过。
+- ✅ M3：跨平台 CI（三桌面 job + tag release）+ Windows/macOS 平台入口补齐。
 - ⬜ 待做：托盘图标是灰色双向箭头占位（正式图标待设计）；codex 内置预设仅
   OpenRouter/DeepSeek 两家可扩充；未做「关闭最小化到托盘」（SDK 有
   `OnCloseRequest` 范式，sdk 文档 navigation-and-window.md）；无 CLI 分流、

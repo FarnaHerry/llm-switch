@@ -41,6 +41,11 @@ ctest --test-dir build --output-on-failure
 ./run.sh                 # 或 huxerui run linux（CLI 流程）
 ```
 
+CI（GitHub Actions，`.github/workflows/build.yml`）提供 Linux / Windows /
+macOS 三平台构建产物：日常构建在 Actions 页面下载压缩包（保留 14 天），
+push `v*` tag 会自动建 release 并挂上各平台包（Windows/macOS 为实验性
+job，失败时 release 只挂实际产出的包）。
+
 ## 配置存储位置
 
 - llm-switch 自身配置库：`~/.local/share/llm-switch/config.json`
