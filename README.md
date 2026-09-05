@@ -1,0 +1,58 @@
+# llm-switch
+
+[cc-switch](https://github.com/farion1231/cc-switch) 的 C++ 重写：Claude Code /
+Codex 供应商配置切换工具。C++23 modules + HuxerUI 桌面壳，无 Electron、
+无运行时依赖（除系统 GTK4 运行库）。
+
+## 功能
+
+- **供应商管理**：Claude Code / Codex 两组各自维护供应商列表（新增 / 编辑 /
+  复制 / 删除），内置 DeepSeek / Kimi / GLM / OpenRouter 等预设模板。
+- **一键切换**：把选中供应商写进工具的 live 配置文件——
+  Claude Code 深合并 `~/.claude/settings.json` 的 env 块
+  （`ANTHROPIC_BASE_URL` / `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_MODEL`，其余字段
+  原样保留）；Codex 写 `~/.codex/auth.json` 的 `OPENAI_API_KEY`，并可整段替换
+  `~/.codex/config.toml`。
+- **安全兜底**：改写任何 live 文件前自动备份（每工具每文件保留最近 10 份），
+  所有写入原子化（tmp + rename）；配置文件损坏自动隔离不崩溃。
+- **收编与探测**：首次启动自动把当前生效配置收编为「当前配置」供应商；
+  列表实时标记 live 文件命中的「使用中」项。
+- **系统托盘**：托盘菜单按工具分组列出供应商，点击直接切换。
+- **导入 / 导出**：整个配置库导出为 JSON（系统文件对话框或固定目录），
+  导入按 id 合并且导入前自动备份。
+- 极简黑白主题（深色 / 浅色 / 跟随系统）。
+
+## 构建前提
+
+- CMake ≥ 3.30（本机用 4.4，`import std` 的 experimental UUID 见
+  `cmake/CxxImportStdGate.cmake`）、GCC ≥ 16（libstdc++）、Ninja
+- HuxerUI 0.2.0：已安装 SDK（`HUXERUI_HOME` 指向前缀）或源码（clone 到
+  `third_party/huxerui/`），都没有时用仓库内 Linux 离线包兜底
+- HuxerUI 源码通道编译需要 gtk4 / libepoxy / libsoup3 开发包
+  （Fedora：`sudo dnf install gtk4-devel libepoxy-devel libsoup3-devel`）；
+  SDK 通道只需要运行时库
+
+## 构建 / 运行 / 测试
+
+```bash
+cmake -B build -G Ninja
+cmake --build build -j
+ctest --test-dir build --output-on-failure
+./run.sh                 # 或 huxerui run linux（CLI 流程）
+```
+
+## 配置存储位置
+
+- llm-switch 自身配置库：`~/.local/share/llm-switch/config.json`
+  （遵循 XDG；`$XDG_DATA_HOME/llm-switch/`），备份在
+  `~/.local/share/llm-switch/backups/`。
+- 操作的 live 文件（工具实际读取的配置）：
+  - Claude Code：`~/.claude/settings.json`
+  - Codex：`~/.codex/auth.json` 与 `~/.codex/config.toml`
+  - 三个路径均支持环境变量覆盖（`LLMSWITCH_CLAUDE_SETTINGS` /
+    `LLMSWITCH_CODEX_AUTH` / `LLMSWITCH_CODEX_CONFIG`），供测试与非常规
+    安装使用。
+
+## 开发
+
+见 [CLAUDE.md](CLAUDE.md)（架构、领域层设计要点、UI 硬约束）。
