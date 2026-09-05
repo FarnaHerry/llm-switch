@@ -61,3 +61,5 @@ job，失败时 release 只挂实际产出的包）。
 ## 开发
 
 见 [CLAUDE.md](CLAUDE.md)（架构、领域层设计要点、UI 硬约束）。
+图标来源与许可见 [resources/README.md](resources/README.md)
+（Claude / OpenAI logo 来自 simple-icons，CC0）。
