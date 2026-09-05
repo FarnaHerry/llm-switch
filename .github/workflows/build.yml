@@ -2,9 +2,9 @@
 #
 # 形态蓝本：姊妹项目 Clash-Flux 的 .github/workflows/build.yml（已跑通的
 # HuxerUI + C++23 modules + import std 解法），按本仓库适配：目标名
-# llm-switch、依赖极简（仅 nlohmann::json + HuxerUI——无 OpenSSL/curl/
-# IXWebSocket/SQLiteCpp，故去掉 choco/brew OpenSSL 与 libssl-dev）、
-# 无 mihomo 内核下载、无 Android job；新增 tag 触发与 release job。
+# llm-switch、依赖 nlohmann::json + curl/OpenSSL（模型列表拉取）+ HuxerUI
+# （无 IXWebSocket/SQLiteCpp）、无 mihomo 内核下载、无 Android job；新增
+# tag 触发与 release job。
 #
 # HuxerUI SDK 来源假设（关键）：
 #   * 上游 https://github.com/HuxerUI/HuxerUI.git 公开可匿名 clone —— 三个桌面
@@ -23,7 +23,7 @@
 #   * build-windows / build-macos：platform/{windows,macos}/main.cpp 入口已落地、
 #     configure 可过；首次全量编译 MSVC / brew-llvm-libc++ 尚未跑绿，等连续
 #     绿后再摘掉 continue-on-error。工具链沿用 Clash-Flux 实证配方
-#     （Windows=MSVC + choco ninja；macOS=brew llvm/libc++ + 手写
+#     （Windows=MSVC + choco ninja/OpenSSL；macOS=brew llvm/libc++ + 手写
 #     libc++.modules.json + 内联 P0960 补丁）。
 #
 # 已知风险：
@@ -92,10 +92,10 @@ jobs:
 
       - name: Install dependencies
         run: |
-          # 本项目无 OpenSSL 依赖（不装 libssl-dev）；patchelf 打包改 rpath 用
+          # patchelf 打包改 rpath 用；libssl-dev 供 curl（OpenSSL 后端）
           apt-get install -y --no-install-recommends \
             clang-21 libc++-21-dev g++ ninja-build pkg-config file gzip \
-            python3 python3-pip patchelf \
+            python3 python3-pip patchelf libssl-dev \
             libgtk-4-dev libepoxy-dev libsoup-3.0-dev
           # 26.04 的 apt cmake 是 3.31（GNU import-std 发现不行），固定 pip 4.4.2
           python3 -m pip install --break-system-packages -q cmake==4.4.2
@@ -168,7 +168,7 @@ jobs:
   # 实验性（continue-on-error）：platform/windows/main.cpp 已落地、configure
   # 可过，首次全量编译尚未连续跑绿；绿后摘掉 continue-on-error。
   # 工具链沿用 Clash-Flux 实证：MSVC（VS2022，C++23 模块 + import std）+
-  # choco ninja；本项目无 OpenSSL 依赖（蓝本的 choco openssl 步骤已删）。
+  # choco ninja + choco OpenSSL（curl 的 TLS 后端）。
   build-windows:
     name: build-windows-x86_64
     runs-on: windows-latest
@@ -193,13 +193,21 @@ jobs:
           cmake --version | Select-Object -First 1
           choco install ninja -y --no-progress
 
+      - name: Install OpenSSL
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          choco install openssl -y --no-progress
+          Write-Host "OPENSSL_ROOT_DIR=C:/Program Files/OpenSSL" | Out-File -FilePath $env:GITHUB_ENV -Append
+
       - name: Set up MSVC environment
         uses: ilammy/msvc-dev-cmd@v1
 
       - name: Configure
         shell: pwsh
         run: |
-          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release `
+            "-DOPENSSL_ROOT_DIR=$env:OPENSSL_ROOT_DIR"
 
       - name: Build release
         run: cmake --build build --config Release --parallel
@@ -248,8 +256,8 @@ jobs:
   # CMake 的 C++20 模块扫描支持）。brew llvm 不带 libc++.modules.json，按
   # 上游 schema 生成。上游 window.h 的 CrossAlign(...) 函数式转型依赖
   # P0960（clang 的 ObjC++ 模式未实现），CI 内联打补丁（仓库不持有
-  # cmake/patches）。本项目无 OpenSSL 依赖（蓝本的 brew openssl@3 与
-  # -DOPENSSL_ROOT_DIR 已删）。
+  # cmake/patches）。OpenSSL 用 brew openssl@3（curl 的 TLS 后端），
+  # configure 显式传 -DOPENSSL_ROOT_DIR。
   build-macos:
     name: build-macos-arm64
     runs-on: macos-15
@@ -286,8 +294,9 @@ jobs:
              /// Constructs a title bar from ordinary View children.
           PATCH
 
-      - name: Install dependencies (brew llvm)
+      - name: Install dependencies (brew llvm + openssl)
         run: |
+          brew list openssl@3 &>/dev/null || brew install openssl@3
           brew install llvm
           llvm_prefix="$(brew --prefix llvm)"
           mod_dir="$llvm_prefix/share/libc++/v1"
@@ -327,7 +336,8 @@ jobs:
             -DCMAKE_SHARED_LINKER_FLAGS="-stdlib=libc++ -L$LLVM_PREFIX/lib/c++ -L$LLVM_PREFIX/lib/unwind -lc++ -lc++abi -lunwind" \
             -DCMAKE_MODULE_LINKER_FLAGS="-stdlib=libc++ -L$LLVM_PREFIX/lib/c++ -L$LLVM_PREFIX/lib/unwind -lc++ -lc++abi -lunwind" \
             -DCMAKE_CXX_STDLIB_MODULES_JSON="$LLVM_PREFIX/lib/libc++.modules.json" \
-            -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
+            -DOPENSSL_ROOT_DIR=/opt/homebrew/opt/openssl@3
 
       - name: Build release
         run: cmake --build build --config Release --parallel

@@ -9,7 +9,8 @@ llm-switch 是 **cc-switch**（GitHub: farion1231/cc-switch）的 **C++23 模块
 （`~/.claude/settings.json` 的 env 块 / `~/.codex/auth.json` + `config.toml` /
 opencode.json additive upsert / pi 的 models.json + settings.json /
 Claude Desktop 3p profile 组），并提供收编、备份、导入导出。用 **HuxerUI**（组件式声明 UI）
-做桌面壳，全程 C++，无网络/数据库依赖。构建系统 CMake（脚手架与姊妹项目
+做桌面壳，全程 C++；网络依赖仅 curl/OpenSSL（按供应商 baseUrl+key 拉模型
+列表，llmswitch.net），无数据库。构建系统 CMake（脚手架与姊妹项目
 `../Clash-Flux` 同源）。分层：UI（src/ui/*.cpp 普通源走 hcg codegen）/
 领域层（llmswitch.config/models/store 三个 C++23 模块）。
 
@@ -54,12 +55,16 @@ huxerui run linux                  # HuxerUI CLI 流程（构建到 .huxerui/bui
   experimental：UUID 表在 `cmake/CxxImportStdGate.cmake`）。
 - **依赖极简**：nlohmann::json 3.12.0 以 single header 提交在
   `third_party/json/`（配 `cmake/nlohmann.json.cppm` 提供 `import nlohmann.json`，
-  静态库目标 `llmswitch_json`）；HuxerUI 0.2.0 走双通道（见上）。无
-  curl/SQLite/OpenSSL（本项目无网络与数据库需求）。
+  静态库目标 `llmswitch_json`）；curl 8.22.0 以 tarball vendor 构建
+  （OpenSSL 后端静态库；OpenSSL 优先系统包，Linux x86_64 回落
+  `third_party/tarballs/openssl-3.5.1-linux-x86_64.tar.gz` 静态包，解析段在
+  `add_subdirectory(third_party)` 之前）；HuxerUI 0.2.0 走双通道（见上）。
+  无 SQLite/IXWebSocket。
 - 测试目标独立：`test_smoke`（编译+运行冒烟）、`test_store`（领域层断言式
-  测试，无框架，非零即败；全程 setenv 隔离到临时目录）。测试目标经
-  FILE_SET 显式追加领域模块接口 + `src/store.cpp` 实现单元（glob 只进 app
-  目标），链接 `llmswitch_json`。
+  测试，无框架，非零即败；全程 setenv 隔离到临时目录）、`test_net`
+  （llmswitch.net 的 parseModelIds 纯函数；不测真实网络）。测试目标经
+  FILE_SET 显式追加领域模块接口 + `src/store.cpp` / `src/net.cpp` 实现单元
+  （glob 只进 app 目标），链接 `llmswitch_json`（test_net 另链 curl/OpenSSL）。
 
 ## 架构
 
@@ -68,6 +73,7 @@ huxerui run linux                  # HuxerUI CLI 流程（构建到 .huxerui/bui
 | `llmswitch.config` | `src/config.cppm` | 数据目录（~/.local/share/llm-switch）/ config.json 与 backups/ 路径 / live 配置文件解析（含 LLMSWITCH_* 环境变量覆盖）/ 深色检测 |
 | `llmswitch.models` | `src/models.cppm` | 工具注册表（ToolSpec/toolRegistry/findTool：claude-code/claude/codex/opencode/pi）+ Provider/ProviderGroup/AppConfig（groups 以注册表 id 为键的 map，旧格式顶层 claude/codex 自动迁移）+ JSON 序列化 + 内置预设（builtinPresets） |
 | `llmswitch.store` | `src/store.cppm` + `src/store.cpp` | ProviderStore：config.json 读写、CRUD、switchTo 按工具 id 分发五个 writer（原子写+备份）、detectCurrent/importLive、导出导入 |
+| `llmswitch.net` | `src/net.cppm` + `src/net.cpp` | fetchModels（curl 阻塞调用，调用方负责线程；anthropic 走 {base}/v1/models 双鉴权头，其余 {base}/models Bearer；10s 超时）+ parseModelIds 纯函数（data/models 两种形状，去重保序） |
 | `llmswitch::ui`（普通 C++） | `src/ui/*.cpp` | app（壳：MinimalDark/Light 主题+标题栏+顶级图标侧栏+IndexedPages+托盘）/ agent_page（Agent 管理：二级工具图标栏+ProvidersPage 宿主）/ common（岛屿原语、页面骨架/卡片/弹窗卡片、providerStore() 全局实例）/ providers_page（5 工具共用供应商页，表单按 ToolSpec 适配）/ settings_page（主题/路径/导入导出/关于）/ ui.h（内部声明） |
 | `src/app.cpp` | 普通 TU | `Application{AppRoot, AppOptions}`（Custom chrome，标题栏 24pt，1080×720 / min 560×480） |
 | 平台入口 | `platform/{linux,windows,macos}/main.cpp` | 薄入口 `huxerui::RunApplication()`（无 CLI 分流；顶层 CMake 按 WIN32/APPLE/Linux 分支选用） |
@@ -117,9 +123,13 @@ huxerui run linux                  # HuxerUI CLI 流程（构建到 .huxerui/bui
    稳定 `.Key(...)`（供应商卡 `.Key(id)`）。
 4. **线程契约**：State 只在 UI 线程读写。store 无内部锁，**UI 线程独占**是
    设计前提——live 文件读写是微秒级本地 IO，CRUD/切换/导入导出直接在 UI
-   线程回调里做，没有 task_bridge；FilePicker 的 async API 恢复点本就在 UI
-   线程。**事件处理器内禁止同步写会导致点击节点被卸载的 State**——经
-   `tasks.Launch` + `co_await Delay(0)` 推迟（开弹窗、切页同理）。
+   线程回调里做；FilePicker 的 async API 恢复点本就在 UI 线程。唯一的阻塞
+   调用是 llmswitch.net::fetchModels（拉模型列表），经 SDK 自带的
+   `huxerui::RunWorker` 派到 worker 线程（co_await 恢复点恒为 UI 线程，
+   组合卸载自动取消）——**不要**从 Clash-Flux 复制 task_bridge.h，那是它
+   在 SDK 提供 RunWorker 之前的自造轮子。**事件处理器内禁止同步写会导致
+   点击节点被卸载的 State**——经 `tasks.Launch` + `co_await Delay(0)` 推迟
+   （开弹窗、切页同理）。
 5. **占位不能用 Spacer().With(Frame)**（Spacer 自带 Grow(1) 会平分空间）——
    用空 `Row{}`/`Column{}`；页面根要 `Grow(1.0F)` + `CrossAlign(Stretch)`。
 6. **全局 revision 计数**：AppRoot 持有 `State<int> revision`，任何写库操作
@@ -140,12 +150,15 @@ huxerui run linux                  # HuxerUI CLI 流程（构建到 .huxerui/bui
 - `.github/workflows/build.yml`（蓝本 Clash-Flux 同名文件，按其已跑通配方
   适配）：三个桌面 job + release。build-linux（ubuntu:26.04 容器 + clang-21/
   libc++-21 + pip cmake==4.4.2 + libc++.modules.json 路径改写 + gtk4/epoxy/
-  libsoup3 开发包，正式）；build-windows（MSVC + choco ninja）与 build-macos
+  libsoup3 开发包 + libssl-dev，正式）；build-windows（MSVC + choco ninja +
+  choco openssl）与 build-macos
   （brew llvm + 手写 libc++.modules.json + 内联 P0960 补丁）为实验性
   continue-on-error——首次全量编译未在 CI 验证过，连续绿后再摘标记。
 - 三个 job 都把 HuxerUI 上游钉在 commit `c00e72a`（"refresh prebuilt host
-  tools"）clone 到 third_party/huxerui 走源码通道；本项目无 OpenSSL/mihomo/
-  Android（蓝本相关步骤已删）。
+  tools"）clone 到 third_party/huxerui 走源码通道；OpenSSL 三平台各自提供
+  （linux apt libssl-dev / windows choco openssl + `-DOPENSSL_ROOT_DIR` /
+  macos brew openssl@3 + `-DOPENSSL_ROOT_DIR`）；无 mihomo/Android
+  （蓝本相关步骤已删）。
 - 打包：Linux tar.gz（二进制 + llm-switch.resources + lib/libhuxerui.so +
   libc++ 三件套 + patchelf `$ORIGIN/lib`）、Windows zip（exe + 旁挂 dll +
   resources）、macOS tar.gz（.app bundle）；push tag `v*` 时 release job
@@ -172,6 +185,20 @@ huxerui run linux                  # HuxerUI CLI 流程（构建到 .huxerui/bui
   桌面端白名单 route id（claude-(sonnet|opus|haiku|fable)-*，对齐 cc-switch
   上游 is_claude_safe_model_id），非白名单模型名借用 claude-sonnet-4-6 并把
   真名放 labelOverride。
+- ✅ 拉模型列表 阶段A（2026-09-06）：curl/OpenSSL 依赖回归（vendor curl
+  8.22.0 静态库 + OpenSSL 系统优先/Linux x86_64 静态包回落；Windows
+  POST_BUILD 补 OpenSSL/CRT/huxerui.dll 旁挂，抄自 apitab）；新模块
+  llmswitch.net（fetchModels 阻塞调用 + parseModelIds 纯函数）+ test_net。
+  UI 入口（表单「拉取模型」按钮、任务线程包裹）属阶段B。
+- ✅ 拉模型列表 阶段B（2026-09-06）：供应商表单模型字段旁加「获取模型」
+  按钮——用表单当前 baseUrl/apiKey/apiFormat（无 apiFormat 字段的工具按
+  工具推断：claude-code/claude→anthropic，codex→OpenAI 兼容）经
+  `huxerui::RunWorker` 调 llmswitch.net::fetchModels（阻塞调用全程不在 UI
+  线程）；拉取中按钮转「获取中…」禁用态，baseUrl/apiKey 空缺时禁用 +
+  tooltip 提示；成功弹 ModelPickerContent 选择列表点选回填 model，失败
+  toast 中文错误。未复制 Clash-Flux 的 task_bridge.h——SDK 0.2.0 自带的
+  RunWorker 就是同一语义（skill fundamentals.md 推荐），task_bridge 是
+  Clash-Flux 在 RunWorker 出现前的自造轮子。
 - ⬜ 待做：托盘图标是灰色双向箭头占位（正式图标待设计）；codex 内置预设仅
   OpenRouter/DeepSeek 两家可扩充；未做「关闭最小化到托盘」（SDK 有
   `OnCloseRequest` 范式，sdk 文档 navigation-and-window.md）；无 CLI 分流、

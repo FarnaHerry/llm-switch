@@ -3,7 +3,10 @@
 // 掩码 apiKey / 备注 /「使用中」徽章（group.current 或 detectCurrent 命中），
 // 操作：切换 / 编辑 / 复制 / 删除（删除走内置确认框）。顶部：新增供应商 +
 // 预设模板入口。表单按 ToolSpec 适配：codex 显示 config.toml 原文、
-// needsModel（opencode/pi）模型必填、hasApiFormat 显示 API 协议分段选择。
+// needsModel（opencode/pi）模型必填、hasApiFormat 显示 API 协议分段选择；
+// 模型字段旁「获取模型」按当前 baseUrl/apiKey/apiFormat 经 llmswitch.net
+// 拉取模型列表（阻塞网络调用经 huxerui::RunWorker 派到 worker 线程，
+// 结果回 UI 线程写 State），成功弹选择列表回填 model 字段。
 //
 // 数据流：所有 store 读写都在 UI 线程（store 无内部锁，UI 线程独占是契约；
 // live 文件读写为微秒级本地 IO，不经任务线程）。写操作后 revision+1，
@@ -18,6 +21,7 @@
 #include "ui.h"
 
 import llmswitch.models;
+import llmswitch.net;
 import llmswitch.store;
 
 namespace llmswitch::ui {
@@ -57,6 +61,60 @@ std::string ApiFormatFromIndex(int index) {
     return "";
 }
 
+// 工具没有 apiFormat 字段时按工具推断默认协议：claude-code / claude 走
+// anthropic 协议（{base}/v1/models + x-api-key），codex 走 OpenAI 兼容。
+std::string DefaultApiFormat(std::string_view tool) {
+    if (tool == "claude-code" || tool == "claude") return "anthropic";
+    return "";
+}
+
+// 模型选择弹窗内容（composable）：拉取成功的模型列表，点选回填 model 字段。
+[[huxerui::composable]] huxerui::View ModelPickerContent(
+    std::vector<std::string> models,
+    huxerui::State<huxerui::TextEditingValue> modelState,
+    huxerui::DialogContext ctx) {
+    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    std::vector<huxerui::View> items;
+    for (const auto& id : models) {
+        items.push_back(
+            huxerui::Text(id)
+                .Style(huxerui::TextStyle{
+                    huxerui::Font::Monospace(font_size::kBody),
+                    theme.colors.on_surface})
+                .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(10.0F, 6.0F)),
+                      huxerui::CornerRadius(8.0F))
+                .OnClick([ctx, modelState, id] {
+                    modelState = huxerui::TextEditingValue{id};
+                    ctx.Dismiss();
+                }));
+    }
+    return DialogCard(huxerui::Column {
+        huxerui::Text("选择模型", huxerui::TextRole::Title),
+        huxerui::ScrollView(
+            huxerui::Column(std::move(items))
+                .With(huxerui::Spacing(2.0F),
+                      huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)))
+            .With(huxerui::Frame{.height = 320.0F}),
+        huxerui::Row {
+            huxerui::Spacer(),
+            huxerui::Button("取消").OnClick([ctx] { ctx.Dismiss(); }),
+        },
+    }.With(huxerui::Spacing(12.0F),
+           huxerui::Frame{.width = 380.0F},
+           huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)));
+}
+
+// 打开模型选择弹窗（普通函数：dialog.Show 的工厂转发到 composable 内容）。
+void ShowModelPicker(huxerui::DialogHandle dialog, std::vector<std::string> models,
+                     huxerui::State<huxerui::TextEditingValue> modelState) {
+    dialog.Show(
+        [models = std::move(models), modelState](
+            huxerui::DialogContext ctx) -> huxerui::View {
+            return ModelPickerContent(models, modelState, ctx);
+        },
+        huxerui::DialogOptions{});
+}
+
 // 新增/编辑供应商弹窗内容（composable：UseTheme 等组合函数只能在
 // composable 体内调用，dialog 工厂只是转发到这里）。editingId 为空 = 新增
 // （store 生成 id/createdAt）。校验：名称必填；非 codex 组 baseUrl 必填；
@@ -67,10 +125,16 @@ std::string ApiFormatFromIndex(int index) {
     huxerui::DialogContext ctx, huxerui::ToastHandle toast,
     huxerui::State<int> revision) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    auto tasks = huxerui::UseTaskScope();
+    auto dialog = huxerui::UseDialog();
     const auto* spec = models::findTool(tool);
     const bool isCodex = tool == "codex";
     const bool needsModel = spec != nullptr && spec->needsModel;
     const bool hasApiFormat = spec != nullptr && spec->hasApiFormat;
+    // 「获取模型」拉取状态：fetching 驱动按钮加载态；fetchedModels 缓存本次
+    // 表单会话内最后一次拉取结果（重新打开表单不保留，每次编辑重新拉）。
+    auto fetching = huxerui::UseState(false);
+    auto fetchedModels = huxerui::UseState<std::vector<std::string>>({});
     std::vector<huxerui::View> fields;
     fields.push_back(huxerui::Text(title, huxerui::TextRole::Title));
     fields.push_back(huxerui::TextField(fs.name.Get())
@@ -93,10 +157,53 @@ std::string ApiFormatFromIndex(int index) {
         const char* modelLabel = needsModel ? "模型（必填）"
             : tool == "claude-code"    ? "模型（可选，写入 ANTHROPIC_MODEL）"
                                        : "模型（可选）";
-        fields.push_back(huxerui::TextField(fs.model.Get())
-            .Label(modelLabel)
-            .Variant(huxerui::TextFieldVariant::Outlined)
-            .OnChanged([fs](const huxerui::TextEditingValue& v) { fs.model = v; }));
+        // 「获取模型」：用表单当前的 baseUrl/apiKey/apiFormat（无 apiFormat
+        // 字段的工具按 DefaultApiFormat 推断）调 llmswitch.net::fetchModels。
+        // fetchModels 是阻塞网络调用，经 huxerui::RunWorker 派到 worker 线程；
+        // 协程恢复点恒为 UI 线程，State 写回安全（State 只在 UI 线程写）。
+        const bool canFetch = !fetching.Get() && !fs.baseUrl.Get().text.empty() &&
+                              !fs.apiKey.Get().text.empty();
+        fields.push_back(huxerui::Row {
+            huxerui::TextField(fs.model.Get())
+                .Label(modelLabel)
+                .Variant(huxerui::TextFieldVariant::Outlined)
+                .OnChanged([fs](const huxerui::TextEditingValue& v) { fs.model = v; })
+                .With(huxerui::Grow(1.0F)),
+            huxerui::Button(fetching.Get() ? "获取中…" : "获取模型")
+                .OnClick([=] {
+                    const std::string u = fs.baseUrl.Get().text;
+                    const std::string k = fs.apiKey.Get().text;
+                    const std::string f = hasApiFormat
+                                              ? ApiFormatFromIndex(fs.apiFormat.Get())
+                                              : DefaultApiFormat(tool);
+                    fetching = true;
+                    tasks.Launch([=]() -> huxerui::Task<void> {
+                        try {
+                            auto models = co_await huxerui::RunWorker(
+                                [](const std::string& u, const std::string& k,
+                                   const std::string& f) {
+                                    return net::fetchModels(u, k, f);
+                                },
+                                u, k, f);
+                            fetching = false;
+                            fetchedModels = models;
+                            if (models.empty()) {
+                                toast.Show("模型列表为空");
+                                co_return;
+                            }
+                            ShowModelPicker(dialog, std::move(models), fs.model);
+                        } catch (const std::exception& e) {
+                            fetching = false;
+                            toast.Show(e.what());
+                        }
+                    });
+                })
+                .With(huxerui::Enabled(canFetch),
+                      huxerui::Tooltip(canFetch
+                                           ? "按当前 Base URL + API Key 拉取模型列表"
+                                           : "请先填写 Base URL 与 API Key")),
+        }.With(huxerui::Spacing(8.0F),
+               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)));
     }
     if (hasApiFormat) {
         // API 协议：写进 opencode 的 npm 段 / pi 的 api 字段（见 store）。

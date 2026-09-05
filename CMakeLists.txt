@@ -199,6 +199,27 @@ elseif (APPLE AND NOT IOS)
 endif ()
 
 if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
+    # ---- OpenSSL 解析（必须在 add_subdirectory(third_party) 前：imported target
+    # 要对 curl 子项目全局可见）------------------------------------------------
+    # 优先系统 OpenSSL；系统没有时，linux x86_64 使用 vendor 的静态 3.5.1。
+    find_package(OpenSSL QUIET)
+    if (NOT OpenSSL_FOUND)
+        if (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR MATCHES "(x86_64|AMD64)")
+            llmswitch_extract(openssl
+                "${CMAKE_CURRENT_SOURCE_DIR}/third_party/tarballs/openssl-3.5.1-linux-x86_64.tar.gz"
+                "d749ee7ec6bda301dba4a67dc7196d4a04b310f664dc360d6ab2e49298b731cf"
+                "openssl-3.5.1-linux-x86_64")
+            set(OPENSSL_ROOT_DIR "${openssl_SOURCE_DIR}" CACHE PATH "vendored OpenSSL" FORCE)
+            set(OPENSSL_USE_STATIC_LIBS TRUE CACHE BOOL "" FORCE)
+            find_package(OpenSSL REQUIRED)
+            message(STATUS "llm-switch: using vendored OpenSSL ${OPENSSL_VERSION} (static)")
+        else ()
+            message(FATAL_ERROR
+                "未找到 OpenSSL 开发头文件/库。请安装系统 OpenSSL（libssl-dev / "
+                "openssl@3 / vcpkg openssl），或为该平台补充 third_party/tarballs 下的静态包。")
+        endif ()
+    endif ()
+
     add_subdirectory(third_party)
 endif ()
 
@@ -232,6 +253,7 @@ set(HUXERUI_LIBRARY_GRAPH_OUTPUT
 set(LLMSWITCH_MODULE_UNITS
     src/config.cppm
     src/models.cppm
+    src/net.cppm
     src/store.cppm
 )
 
@@ -274,6 +296,9 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
     target_include_directories(llm-switch PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
     target_link_libraries(llm-switch PRIVATE
         llmswitch_json
+        CURL::libcurl
+        OpenSSL::SSL
+        OpenSSL::Crypto
         Threads::Threads
     )
 
@@ -297,6 +322,83 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
                 "${CMAKE_BINARY_DIR}/huxerui-resources/llm-switch/package"
                 "$<TARGET_FILE_DIR:llm-switch>/llm-switch.resources"
         COMMENT "Copying assets and the merged HuxerUI resource package next to llm-switch")
+    if (WIN32)
+        # HuxerUI 运行时 DLL 需在 exe 旁（抄自姊妹项目 apitab 顶层 WIN32 段）。
+        # 源码通道没有 HUXERUI_SDK_DIR，且 dll 实际落在构建树 RUNTIME 输出
+        # （多配置时还带 config 子目录），只有 $<TARGET_FILE:> 能跨两种通道、
+        # 跨生成器解析；目标缺失（如静态框架构建）时回落 SDK 路径，两处都没有
+        # 就跳过。
+        set(LLMSWITCH_HUXERUI_DLL "")
+        if (TARGET HuxerUI::huxerui)
+            get_target_property(LLMSWITCH_HUXERUI_DLL_TYPE HuxerUI::huxerui TYPE)
+            if (LLMSWITCH_HUXERUI_DLL_TYPE STREQUAL "SHARED_LIBRARY")
+                set(LLMSWITCH_HUXERUI_DLL "$<TARGET_FILE:HuxerUI::huxerui>")
+            endif ()
+        endif ()
+        if (NOT LLMSWITCH_HUXERUI_DLL AND HUXERUI_SDK_DIR
+                AND EXISTS "${HUXERUI_SDK_DIR}/bin/huxerui.dll")
+            set(LLMSWITCH_HUXERUI_DLL "${HUXERUI_SDK_DIR}/bin/huxerui.dll")
+        endif ()
+        if (LLMSWITCH_HUXERUI_DLL)
+            add_custom_command(TARGET llm-switch POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                        "${LLMSWITCH_HUXERUI_DLL}" "$<TARGET_FILE_DIR:llm-switch>"
+                COMMENT "Copying huxerui.dll next to llm-switch")
+        endif ()
+
+        # OpenSSL 运行库：系统/安装版 OpenSSL（CI chocolatey）是共享库，
+        # llm-switch.exe 直接导入 libssl-N-x64.dll/libcrypto-N-x64.dll，干净
+        # Windows 上没有，必须随 exe 带出。静态 OpenSSL 时 bin 下无 dll，
+        # glob 为空自然跳过。DLL 统一在 <OpenSSL根>/bin（根由 include 目录推导）。
+        if (OPENSSL_INCLUDE_DIR)
+            get_filename_component(_llmswitch_openssl_root "${OPENSSL_INCLUDE_DIR}" DIRECTORY)
+            file(GLOB _llmswitch_openssl_dlls
+                "${_llmswitch_openssl_root}/bin/libssl-*.dll"
+                "${_llmswitch_openssl_root}/bin/libcrypto-*.dll")
+            if (_llmswitch_openssl_dlls)
+                add_custom_command(TARGET llm-switch POST_BUILD
+                    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                            ${_llmswitch_openssl_dlls} "$<TARGET_FILE_DIR:llm-switch>"
+                    COMMENT "Copying OpenSSL runtime DLLs next to llm-switch")
+            elseif (NOT OPENSSL_USE_STATIC_LIBS)
+                message(WARNING
+                    "llm-switch: 未在 ${_llmswitch_openssl_root}/bin 找到 OpenSSL 运行库 dll，"
+                    "发布包缺 libssl/libcrypto 将无法在干净 Windows 上启动")
+            endif ()
+        endif ()
+
+        # MSVC 桌面 CRT：llm-switch.exe/huxerui.dll 都按 /MD 链接，导入
+        # msvcp140/vcruntime140/vcruntime140_1；没装 VC++ redist 的机器直接
+        # 起不来，随 exe 带出（许可允许 app-local 分发）。vcvars 环境（CI 的
+        # ilammy/msvc-dev-cmd、本机 VS 开发者命令行）提供 VCToolsRedistDir；
+        # 多版本目录并存时取最后一个（glob 字典序 = 版本序）。
+        if (MSVC AND NOT CMAKE_MSVC_RUNTIME_LIBRARY MATCHES "Static")
+            set(_llmswitch_crt_dir "")
+            if (DEFINED ENV{VCToolsRedistDir})
+                file(TO_CMAKE_PATH "$ENV{VCToolsRedistDir}" _llmswitch_redist)
+                file(GLOB _llmswitch_crt_dirs LIST_DIRECTORIES true
+                    "${_llmswitch_redist}/x64/Microsoft.VC*.CRT")
+                foreach (_dir IN LISTS _llmswitch_crt_dirs)
+                    if (EXISTS "${_dir}/msvcp140.dll")
+                        set(_llmswitch_crt_dir "${_dir}")
+                    endif ()
+                endforeach()
+            endif ()
+            if (_llmswitch_crt_dir)
+                add_custom_command(TARGET llm-switch POST_BUILD
+                    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                            "${_llmswitch_crt_dir}/msvcp140.dll"
+                            "${_llmswitch_crt_dir}/vcruntime140.dll"
+                            "${_llmswitch_crt_dir}/vcruntime140_1.dll"
+                            "$<TARGET_FILE_DIR:llm-switch>"
+                    COMMENT "Copying MSVC CRT runtime DLLs next to llm-switch")
+            else ()
+                message(WARNING
+                    "llm-switch: 未定位 MSVC CRT redist（VCToolsRedistDir 未设置），"
+                    "发布包缺 msvcp140/vcruntime140*.dll 将无法在干净 Windows 上启动")
+            endif ()
+        endif ()
+    endif ()
 
     # 仓库根的 compile_commands.json 软链（给 clangd 用；.gitignore 已忽略）
     # 并行测试/多构建并发时多个 build 目录同时创建同一软链接会竞态；已存在则跳过
@@ -330,5 +432,17 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
         target_compile_features(test_store PRIVATE cxx_std_23)
         target_link_libraries(test_store PRIVATE llmswitch_json Threads::Threads)
         add_test(NAME store COMMAND test_store)
+
+        # 网络层测试：只测 parseModelIds 纯函数（不碰真实网络）；net.cpp 实现
+        # 单元引用了 curl 符号，须链接 CURL::libcurl + OpenSSL。
+        add_executable(test_net tests/test_net.cpp src/net.cpp)
+        target_sources(test_net PRIVATE FILE_SET llmswitch_modules TYPE CXX_MODULES
+            BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+            FILES src/net.cppm)
+        set_target_properties(test_net PROPERTIES CXX_MODULE_STD ON CXX_SCAN_FOR_MODULES ON)
+        target_compile_features(test_net PRIVATE cxx_std_23)
+        target_link_libraries(test_net PRIVATE
+            llmswitch_json CURL::libcurl OpenSSL::SSL OpenSSL::Crypto Threads::Threads)
+        add_test(NAME net COMMAND test_net)
     endif ()
 endif ()
