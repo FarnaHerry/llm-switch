@@ -2,9 +2,12 @@
 // 全程隔离在临时目录：HOME / XDG_DATA_HOME / LLMSWITCH_* 指向
 // temp_directory_path()/llmswitch-test-<pid>，live 文件与 dataDir 都不碰真实环境。
 //
-// 覆盖：空载默认值、首次导入收编、claude 切换深合并（保留非 env 字段）、
-// codex 切换（auth.json + config.toml 整段替换）、备份生成、detectCurrent、
-// 导出/导入回滚、损坏 config.json 挪走不崩溃。
+// 覆盖：空载默认值、首次导入收编、claude-code 切换深合并（保留非 env 字段）、
+// codex 切换（auth.json + config.toml 整段替换）、opencode（additive upsert、
+// 顶层 model、anthropic 变体、JSON5 报错不碰文件）、pi（双文件、权限位、
+// apiFormat 映射）、claude desktop（Linux 不支持报错 + 覆盖后四文件）、
+// 备份生成、detectCurrent、导出/导入回滚、旧格式 config.json 迁移、
+// 损坏 config.json 挪走不崩溃。
 #include <cstdio>    // stderr（std 模块不导出 stdout/stderr 宏）
 #include <cstdlib>   // setenv
 #include <unistd.h>  // getpid
@@ -40,6 +43,12 @@ nlohmann::json readJson(const std::filesystem::path& path) {
                                              std::istreambuf_iterator<char>()));
 }
 
+std::string readText(const std::filesystem::path& path) {
+    std::ifstream in(path, std::ios::binary);
+    return std::string(std::istreambuf_iterator<char>(in),
+                       std::istreambuf_iterator<char>());
+}
+
 // 目录下匹配 <prefix>.<时间戳>.bak 的文件数。
 int countBackups(const std::filesystem::path& dir, const std::string& prefix) {
     std::error_code ec;
@@ -71,17 +80,32 @@ int main() {
     const fs::path claudeSettings = home / ".claude" / "settings.json";
     const fs::path codexAuth = home / ".codex" / "auth.json";
     const fs::path codexConfig = home / ".codex" / "config.toml";
+    const fs::path opencodeConfig = root / "opencode" / "opencode.json";
+    const fs::path piDir = root / "pi-agent";
+    const fs::path piModels = piDir / "models.json";
+    const fs::path piSettings = piDir / "settings.json";
     ::setenv("LLMSWITCH_CLAUDE_SETTINGS", claudeSettings.c_str(), 1);
     ::setenv("LLMSWITCH_CODEX_AUTH", codexAuth.c_str(), 1);
     ::setenv("LLMSWITCH_CODEX_CONFIG", codexConfig.c_str(), 1);
+    ::setenv("LLMSWITCH_OPENCODE_CONFIG", opencodeConfig.c_str(), 1);
+    ::setenv("LLMSWITCH_PI_DIR", piDir.c_str(), 1);
+    ::unsetenv("PI_CODING_AGENT_DIR");
+    ::unsetenv("LLMSWITCH_CLAUDE_DESKTOP_DIR");  // 默认 Linux 不支持
 
     // 1. 空环境 load → 默认空配置
     {
         auto s = store::ProviderStore::load();
-        CHECK(s.config().claude.providers.empty());
-        CHECK(s.config().codex.providers.empty());
+        CHECK(s.config().groups.empty());
         CHECK(s.config().themeMode == "system");
-        CHECK(s.detectCurrent(store::kToolClaude).empty());
+        CHECK(s.detectCurrent("claude-code").empty());
+        CHECK(s.detectCurrent("claude").empty());  // Linux 无桌面目录 → 空
+        // 注册表自检：5 个工具、id 可互查
+        CHECK(models::toolRegistry().size() == 5);
+        CHECK(models::findTool("claude-code") != nullptr);
+        CHECK(models::findTool("opencode")->needsModel);
+        CHECK(models::findTool("pi")->hasApiFormat);
+        CHECK(!models::findTool("codex")->needsModel);
+        CHECK(models::findTool("nope") == nullptr);
     }
 
     // 2. 写入假 settings.json（含非 env 字段）→ 首次 load 自动收编成「当前配置」
@@ -95,20 +119,18 @@ int main() {
 }
 )json");
     auto s = store::ProviderStore::load();
-    std::string liveId;
     {
-        CHECK(s.config().claude.providers.size() == 1);
-        const auto& p = s.config().claude.providers.front();
+        CHECK(s.group("claude-code").providers.size() == 1);
+        const auto& p = s.group("claude-code").providers.front();
         CHECK(p.name == "当前配置");
         CHECK(p.baseUrl == "https://live.example.com/anthropic");
         CHECK(p.apiKey == "sk-live-token");
         CHECK(p.model == "claude-live");
-        CHECK(s.config().claude.current == p.id);
-        CHECK(s.detectCurrent(store::kToolClaude) == p.id);
-        liveId = p.id;
+        CHECK(s.group("claude-code").current == p.id);
+        CHECK(s.detectCurrent("claude-code") == p.id);
         // 再次 load：已有收编项，不重复建
         auto again = store::ProviderStore::load();
-        CHECK(again.config().claude.providers.size() == 1);
+        CHECK(again.group("claude-code").providers.size() == 1);
     }
 
     // 3. addProvider 两个 + switchTo：env 三字段写入、permissions 保留
@@ -119,14 +141,14 @@ int main() {
     models::Provider pb{.name = "供应商B",
                         .baseUrl = "https://b.example.com",
                         .apiKey = "sk-b"};  // model 留空
-    s.addProvider(store::kToolClaude, pa);
-    s.addProvider(store::kToolClaude, pb);
-    CHECK(s.config().claude.providers.size() == 3);
-    const std::string idA = s.config().claude.providers[1].id;
-    const std::string idB = s.config().claude.providers[2].id;
+    s.addProvider("claude-code", pa);
+    s.addProvider("claude-code", pb);
+    CHECK(s.group("claude-code").providers.size() == 3);
+    const std::string idA = s.group("claude-code").providers[1].id;
+    const std::string idB = s.group("claude-code").providers[2].id;
     CHECK(!idA.empty() && !idB.empty() && idA != idB);
 
-    s.switchTo(store::kToolClaude, idB);
+    s.switchTo("claude-code", idB);
     {
         const auto j = readJson(claudeSettings);
         CHECK(j["env"]["ANTHROPIC_BASE_URL"] == "https://b.example.com");
@@ -135,14 +157,14 @@ int main() {
         CHECK(j["env"]["ANTHROPIC_MODEL"] == "claude-live");
         // 非 env 字段原样保留
         CHECK(j["permissions"]["allow"][0] == "Bash(*)");
-        CHECK(s.config().claude.current == idB);
-        CHECK(s.detectCurrent(store::kToolClaude) == idB);
+        CHECK(s.group("claude-code").current == idB);
+        CHECK(s.detectCurrent("claude-code") == idB);
     }
-    s.switchTo(store::kToolClaude, idA);
+    s.switchTo("claude-code", idA);
     {
         const auto j = readJson(claudeSettings);
         CHECK(j["env"]["ANTHROPIC_MODEL"] == "model-a");
-        CHECK(s.config().claude.current == idA);
+        CHECK(s.group("claude-code").current == idA);
     }
 
     // 4. codex：switchTo 写 auth.json 的 OPENAI_API_KEY + config.toml 原文替换
@@ -153,24 +175,21 @@ int main() {
                         .baseUrl = "https://openrouter.ai/api/v1",
                         .apiKey = "sk-or-key",
                         .codexConfigToml = "model_provider = \"openrouter\"\n"};
-    s.addProvider(store::kToolCodex, pc);
-    const std::string idC = s.config().codex.providers.back().id;
-    s.switchTo(store::kToolCodex, idC);
+    s.addProvider("codex", pc);
+    const std::string idC = s.group("codex").providers.back().id;
+    s.switchTo("codex", idC);
     {
         const auto j = readJson(codexAuth);
         CHECK(j["OPENAI_API_KEY"] == "sk-or-key");
-        std::ifstream in(codexConfig, std::ios::binary);
-        const std::string toml((std::istreambuf_iterator<char>(in)),
-                               std::istreambuf_iterator<char>());
-        CHECK(toml == "model_provider = \"openrouter\"\n");
-        CHECK(s.config().codex.current == idC);
-        CHECK(s.detectCurrent(store::kToolCodex) == idC);
+        CHECK(readText(codexConfig) == "model_provider = \"openrouter\"\n");
+        CHECK(s.group("codex").current == idC);
+        CHECK(s.detectCurrent("codex") == idC);
     }
 
-    // 5. 备份生成在 backups 目录（claude 切了两次 → ≥2 份；codex auth/config 各 1 份）
+    // 5. 备份生成在 backups 目录（claude-code 切了两次 → ≥2 份；codex 各 1 份）
     {
         const auto backups = cfg::backupsDir();
-        CHECK(countBackups(backups / "claude", "settings.json") >= 2);
+        CHECK(countBackups(backups / "claude-code", "settings.json") >= 2);
         CHECK(countBackups(backups / "codex", "auth.json") == 1);
         CHECK(countBackups(backups / "codex", "config.toml") == 1);
     }
@@ -178,36 +197,236 @@ int main() {
     // 6. detectCurrent：不匹配 → 空串；live 文件改回匹配值 → 恢复命中
     writeFile(claudeSettings, R"json({"env": {"ANTHROPIC_BASE_URL": "https://elsewhere.example.com", "ANTHROPIC_AUTH_TOKEN": "sk-unknown"}}
 )json");
-    CHECK(s.detectCurrent(store::kToolClaude).empty());
+    CHECK(s.detectCurrent("claude-code").empty());
     writeFile(claudeSettings, R"json({"env": {"ANTHROPIC_BASE_URL": "https://a.example.com", "ANTHROPIC_AUTH_TOKEN": "sk-a"}}
 )json");
-    CHECK(s.detectCurrent(store::kToolClaude) == idA);
+    CHECK(s.detectCurrent("claude-code") == idA);
 
-    // 7. exportTo → 改库 → importFrom 恢复（导入前自动备份 config.json）
+    // 7. opencode：additive upsert + 顶层 model + anthropic 变体 + JSON5 报错
+    writeFile(opencodeConfig, R"json({
+  "$schema": "https://opencode.ai/config.json",
+  "theme": "opencode",
+  "provider": {"existing": {"npm": "@ai-sdk/openai-compatible"}}
+}
+)json");
+    models::Provider po{.name = "DeepSeek",
+                        .baseUrl = "https://api.deepseek.com/v1",
+                        .apiKey = "sk-oc",
+                        .model = "deepseek-chat"};
+    s.addProvider("opencode", po);
+    const std::string idO = s.group("opencode").providers.back().id;
+    s.switchTo("opencode", idO);
+    {
+        const auto j = readJson(opencodeConfig);
+        // 既有顶层字段与既有 provider 条目保留
+        CHECK(j["theme"] == "opencode");
+        CHECK(j["provider"].contains("existing"));
+        const auto& entry = j["provider"][idO];
+        CHECK(entry["npm"] == "@ai-sdk/openai-compatible");
+        CHECK(entry["options"]["baseURL"] == "https://api.deepseek.com/v1");
+        CHECK(entry["options"]["apiKey"] == "sk-oc");
+        CHECK(entry["models"].contains("deepseek-chat"));
+        CHECK(j["model"] == idO + "/deepseek-chat");
+        CHECK(s.detectCurrent("opencode") == idO);
+        CHECK(countBackups(cfg::backupsDir() / "opencode", "opencode.json") == 1);
+    }
+    // anthropic 变体：npm 段切到 @ai-sdk/anthropic
+    {
+        models::Provider updated = s.group("opencode").providers.back();
+        updated.apiFormat = "anthropic";
+        s.updateProvider("opencode", updated);
+        s.switchTo("opencode", idO);
+        const auto j = readJson(opencodeConfig);
+        CHECK(j["provider"][idO]["npm"] == "@ai-sdk/anthropic");
+    }
+    // JSON5（带注释）→ switchTo 抛错且不碰原文件
+    {
+        const std::string json5 = "{\n  // 官方允许注释\n  \"theme\": \"opencode\"\n}\n";
+        writeFile(opencodeConfig, json5);
+        bool threw = false;
+        try {
+            s.switchTo("opencode", idO);
+        } catch (const std::exception& e) {
+            threw = true;
+            CHECK(std::string_view(e.what()).contains("JSON5"));
+        }
+        CHECK(threw);
+        CHECK(readText(opencodeConfig) == json5);  // 原文件未被修改
+        CHECK(s.detectCurrent("opencode").empty());  // 解析失败按无内容
+    }
+
+    // 8. pi：双文件写入、权限位、apiFormat 映射、detectCurrent、备份
+    // 预置既有内容：验证 upsert/深合并不破坏无关字段，且首次切换即有备份。
+    writeFile(piModels, R"json({"providers": {"pre-existing": {"baseUrl": "https://x.example.com", "apiKey": "k", "api": "openai-completions"}}}
+)json");
+    writeFile(piSettings, R"json({"timeout": 30}
+)json");
+    models::Provider pp{.name = "Kimi",
+                        .baseUrl = "https://api.moonshot.cn/v1",
+                        .apiKey = "sk-pi",
+                        .model = "kimi-k2-0905-preview",
+                        .apiFormat = "openai-responses"};
+    s.addProvider("pi", pp);
+    const std::string idP = s.group("pi").providers.back().id;
+    s.switchTo("pi", idP);
+    {
+        const auto models = readJson(piModels);
+        const auto& entry = models["providers"][idP];
+        CHECK(models["providers"].contains("pre-existing"));  // 无关条目保留
+        CHECK(entry["baseUrl"] == "https://api.moonshot.cn/v1");
+        CHECK(entry["apiKey"] == "sk-pi");
+        CHECK(entry["api"] == "openai-responses");  // apiFormat 映射
+        CHECK(entry["models"][0] == "kimi-k2-0905-preview");
+        const auto settings = readJson(piSettings);
+        CHECK(settings["defaultProvider"] == idP);
+        CHECK(settings["defaultModel"] == "kimi-k2-0905-preview");
+        CHECK(settings["timeout"] == 30);  // 深合并保留无关字段
+        // 权限：目录 0700、文件 0600
+        CHECK((fs::status(piDir).permissions() & fs::perms::all) ==
+              fs::perms::owner_all);
+        CHECK((fs::status(piModels).permissions() & fs::perms::all) ==
+              (fs::perms::owner_read | fs::perms::owner_write));
+        CHECK((fs::status(piSettings).permissions() & fs::perms::all) ==
+              (fs::perms::owner_read | fs::perms::owner_write));
+        CHECK(s.detectCurrent("pi") == idP);
+        CHECK(countBackups(cfg::backupsDir() / "pi", "models.json") == 1);
+        CHECK(countBackups(cfg::backupsDir() / "pi", "settings.json") == 1);
+    }
+    // anthropic → anthropic-messages 映射 + detectCurrent 的 apiKey/baseUrl 回退
+    {
+        models::Provider pa2{.name = "Claude 直连",
+                             .baseUrl = "https://api.anthropic.com",
+                             .apiKey = "sk-pi-ant",
+                             .apiFormat = "anthropic"};
+        s.addProvider("pi", pa2);
+        const std::string idP2 = s.group("pi").providers.back().id;
+        s.switchTo("pi", idP2);
+        CHECK(readJson(piModels)["providers"][idP2]["api"] == "anthropic-messages");
+        // defaultProvider 指向未知 id 时按 apiKey+baseUrl 匹配命中：把
+        // models.json 换成只有「外部键 + pa2 凭据」的条目，消除 idP 的歧义。
+        writeFile(piSettings, R"json({"defaultProvider": "ghost"}
+)json");
+        writeFile(piModels, R"json({"providers": {"ext-key": {"baseUrl": "https://api.anthropic.com", "apiKey": "sk-pi-ant", "api": "anthropic-messages"}}}
+)json");
+        CHECK(s.detectCurrent("pi") == idP2);
+    }
+
+    // 9. claude desktop：Linux 默认不支持（抛错）；设覆盖目录后写四个文件
+    models::Provider pd{.name = "桌面网关",
+                        .baseUrl = "https://desktop.example.com/anthropic",
+                        .apiKey = "sk-desk",
+                        .model = "kimi-k2-0905-preview"};  // 非白名单模型名
+    s.addProvider("claude", pd);
+    const std::string idD = s.group("claude").providers.back().id;
+    {
+        bool threw = false;
+        try {
+            s.switchTo("claude", idD);
+        } catch (const std::exception& e) {
+            threw = true;
+            CHECK(std::string_view(e.what()).contains("不支持 Linux"));
+        }
+        CHECK(threw);
+    }
+    const fs::path deskDir = root / "Claude";
+    ::setenv("LLMSWITCH_CLAUDE_DESKTOP_DIR", deskDir.c_str(), 1);
+    // 既有配置里放无关字段，验证深合并保留
+    writeFile(deskDir / "claude_desktop_config.json",
+              R"json({"theme": "dark", "deploymentMode": "1p"}
+)json");
+    s.switchTo("claude", idD);
+    {
+        const fs::path threepDir = root / "Claude-3p";
+        const auto normal = readJson(deskDir / "claude_desktop_config.json");
+        CHECK(normal["deploymentMode"] == "3p");
+        CHECK(normal["theme"] == "dark");  // 其余字段保留
+        const auto threep = readJson(threepDir / "claude_desktop_config.json");
+        CHECK(threep["deploymentMode"] == "3p");
+        const auto profile = readJson(
+            threepDir / "configLibrary" /
+            "00000000-0000-4000-8000-000000157210.json");
+        CHECK(profile["inferenceProvider"] == "gateway");
+        CHECK(profile["inferenceGatewayBaseUrl"] ==
+              "https://desktop.example.com/anthropic");
+        CHECK(profile["inferenceGatewayApiKey"] == "sk-desk");
+        CHECK(profile["inferenceGatewayAuthScheme"] == "bearer");
+        CHECK(profile["disableDeploymentModeChooser"] == true);
+        CHECK(profile["coworkEgressAllowedHosts"][0] == "*");
+        // 非白名单模型名：借用安全 route id，真名放 labelOverride（对齐
+        // cc-switch 上游：桌面端只认 claude-(sonnet|opus|haiku|fable)-*）
+        CHECK(profile["inferenceModels"][0]["name"] == "claude-sonnet-4-6");
+        CHECK(profile["inferenceModels"][0]["labelOverride"] ==
+              "kimi-k2-0905-preview");
+        const auto meta = readJson(threepDir / "configLibrary" / "_meta.json");
+        CHECK(meta["appliedId"] == "00000000-0000-4000-8000-000000157210");
+        CHECK(meta["entries"][0]["name"] == "llm-switch");
+        CHECK(s.group("claude").current == idD);
+        CHECK(s.detectCurrent("claude") == idD);
+        CHECK(countBackups(cfg::backupsDir() / "claude",
+                           "claude_desktop_config.json") == 1);
+    }
+    // 白名单模型名：直接作为 name，不写 labelOverride
+    {
+        models::Provider pd2{.name = "官方安全名",
+                             .baseUrl = "https://desktop2.example.com",
+                             .apiKey = "sk-desk2",
+                             .model = "claude-opus-4-8"};
+        s.addProvider("claude", pd2);
+        const std::string idD2 = s.group("claude").providers.back().id;
+        s.switchTo("claude", idD2);
+        const auto profile = readJson(
+            root / "Claude-3p" / "configLibrary" /
+            "00000000-0000-4000-8000-000000157210.json");
+        CHECK(profile["inferenceModels"][0]["name"] == "claude-opus-4-8");
+        CHECK(!profile["inferenceModels"][0].contains("labelOverride"));
+    }
+
+    // 10. exportTo → 改库 → importFrom 恢复（导入前自动备份 config.json）
     const fs::path exportPath = root / "export.json";
     s.exportTo(exportPath);
     CHECK(fs::exists(exportPath));
-    s.removeProvider(store::kToolClaude, idA);
-    CHECK(s.config().claude.providers.size() == 2);
+    s.removeProvider("claude-code", idA);
+    CHECK(s.group("claude-code").providers.size() == 2);
     s.importFrom(exportPath);
     {
-        CHECK(s.config().claude.providers.size() == 3);
+        CHECK(s.group("claude-code").providers.size() == 3);
         bool found = false;
-        for (const auto& p : s.config().claude.providers) {
+        for (const auto& p : s.group("claude-code").providers) {
             if (p.id == idA) found = true;
         }
         CHECK(found);
         CHECK(countBackups(cfg::backupsDir(), "config.json") >= 1);
     }
 
-    // 8. 损坏的 config.json → load 不崩溃，坏文件被挪到 .corrupt-<时间戳>
-    fs::remove(claudeSettings);  // 避免首次导入干扰空配置断言
-    fs::remove(codexAuth);
+    // 11. 旧格式 config.json（顶层 claude/codex）→ load 自动迁移成 groups 键
+    // 迁移前先清掉所有 live 文件，避免首次导入收编干扰断言。
+    fs::remove_all(home / ".claude");
+    fs::remove_all(home / ".codex");
+    fs::remove_all(root / "opencode");
+    fs::remove_all(piDir);
+    fs::remove_all(deskDir);
+    fs::remove_all(root / "Claude-3p");
+    writeFile(cfg::configFile(), R"json({
+  "claude": {"providers": [{"id": "old-1", "name": "旧Claude", "baseUrl": "https://old.example.com", "apiKey": "sk-old"}], "current": "old-1"},
+  "codex": {"providers": [{"id": "old-2", "name": "旧Codex", "apiKey": "sk-old-codex"}], "current": ""},
+  "themeMode": "dark"
+}
+)json");
+    {
+        auto migrated = store::ProviderStore::load();
+        CHECK(migrated.group("claude-code").providers.size() == 1);
+        CHECK(migrated.group("claude-code").providers[0].id == "old-1");
+        CHECK(migrated.group("claude-code").current == "old-1");
+        CHECK(migrated.group("codex").providers.size() == 1);
+        CHECK(migrated.group("codex").providers[0].id == "old-2");
+        CHECK(migrated.config().themeMode == "dark");
+    }
+
+    // 12. 损坏的 config.json → load 不崩溃，坏文件被挪到 .corrupt-<时间戳>
     writeFile(cfg::configFile(), "这不是 JSON {{{\n");
     {
         auto broken = store::ProviderStore::load();
-        CHECK(broken.config().claude.providers.empty());
-        CHECK(broken.config().codex.providers.empty());
+        CHECK(broken.config().groups.empty());
         CHECK(!fs::exists(cfg::configFile()));  // 已被挪走且未重建
         bool corruptMoved = false;
         for (const auto& entry : fs::directory_iterator(cfg::dataDir())) {
@@ -218,7 +437,7 @@ int main() {
         CHECK(corruptMoved);
     }
 
-    // 9. 清理临时目录
+    // 13. 清理临时目录
     {
         std::error_code ec;
         fs::remove_all(root, ec);

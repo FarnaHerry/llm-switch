@@ -3,9 +3,15 @@
 //
 // live 配置文件（被切换工具实际读取的文件）默认在 ~ 下，全部支持环境变量覆盖，
 // 测试把 HOME 与 LLMSWITCH_* 指到临时目录即可完全隔离：
-//   LLMSWITCH_CLAUDE_SETTINGS → ~/.claude/settings.json
-//   LLMSWITCH_CODEX_AUTH      → ~/.codex/auth.json
-//   LLMSWITCH_CODEX_CONFIG    → ~/.codex/config.toml
+//   LLMSWITCH_CLAUDE_SETTINGS     → ~/.claude/settings.json        （claude-code）
+//   LLMSWITCH_CODEX_AUTH          → ~/.codex/auth.json             （codex）
+//   LLMSWITCH_CODEX_CONFIG        → ~/.codex/config.toml           （codex）
+//   LLMSWITCH_OPENCODE_CONFIG     → ~/.config/opencode/opencode.json（opencode）
+//   LLMSWITCH_PI_DIR              → ~/.pi/agent/                   （pi；官方
+//                                   PI_CODING_AGENT_DIR 亦受尊重，优先级低于前者）
+//   LLMSWITCH_CLAUDE_DESKTOP_DIR  → macOS ~/Library/Application Support/Claude /
+//                                   Windows %LOCALAPPDATA%/Claude  （claude desktop，
+//                                   Linux 不支持；3p 目录取其兄弟 <dir>-3p）
 module;
 
 #ifdef _WIN32
@@ -133,6 +139,68 @@ export std::filesystem::path codexConfigFile() {
         return std::filesystem::path(e);
     }
     return homeDir() / ".codex" / "config.toml";
+}
+
+// opencode 主配置（全平台 ~/.config/opencode/opencode.json；additive 模式——
+// 往顶层 provider map upsert，其余顶层字段保留。官方文件可能是 JSON5 带注释，
+// store 层解析失败会明确报错，不静默覆盖）。
+export std::filesystem::path opencodeConfigFile() {
+    if (const char* e = std::getenv("LLMSWITCH_OPENCODE_CONFIG"); e && *e) {
+        return std::filesystem::path(e);
+    }
+    return homeDir() / ".config" / "opencode" / "opencode.json";
+}
+
+// pi-mono coding agent 目录（默认 ~/.pi/agent；官方 PI_CODING_AGENT_DIR 优先于
+// 默认路径，LLMSWITCH_PI_DIR 优先于两者——测试覆盖用）。
+export std::filesystem::path piAgentDir() {
+    if (const char* e = std::getenv("LLMSWITCH_PI_DIR"); e && *e) {
+        return std::filesystem::path(e);
+    }
+    if (const char* e = std::getenv("PI_CODING_AGENT_DIR"); e && *e) {
+        return std::filesystem::path(e);
+    }
+    return homeDir() / ".pi" / "agent";
+}
+
+// pi 的 providers 注册表（顶层 providers map upsert）。
+export std::filesystem::path piModelsFile() {
+    return piAgentDir() / "models.json";
+}
+
+// pi 的全局设置（深合并 defaultProvider / defaultModel）。
+export std::filesystem::path piSettingsFile() {
+    return piAgentDir() / "settings.json";
+}
+
+// Claude Desktop 配置目录（3p Direct 模式；**Linux 不支持**，返回空路径——
+// store 层据此报「不支持」错误。LLMSWITCH_CLAUDE_DESKTOP_DIR 覆盖供测试与
+// 非常规安装，覆盖即放行平台门）。
+export std::filesystem::path claudeDesktopDir() {
+    if (const char* e = std::getenv("LLMSWITCH_CLAUDE_DESKTOP_DIR"); e && *e) {
+        return std::filesystem::path(e);
+    }
+#ifdef _WIN32
+    if (const char* a = std::getenv("LOCALAPPDATA"); a && *a) {
+        return std::filesystem::path(a) / "Claude";
+    }
+    return {};
+#elif defined(__APPLE__)
+    if (const auto h = homeDir(); !h.empty()) {
+        return h / "Library" / "Application Support" / "Claude";
+    }
+    return {};
+#else
+    return {};  // Linux 不支持
+#endif
+}
+
+// Claude Desktop 的 3p 数据目录（Claude 的兄弟目录 Claude-3p；
+// 覆盖变量生效时取 <覆盖目录>-3p 兄弟路径）。
+export std::filesystem::path claudeDesktop3pDir() {
+    const std::filesystem::path base = claudeDesktopDir();
+    if (base.empty()) return {};
+    return base.parent_path() / (base.filename().string() + "-3p");
 }
 
 // 系统是否偏好深色（"跟随系统"主题模式用）。启动时读取一次即可。

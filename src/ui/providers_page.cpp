@@ -1,7 +1,9 @@
-// providers_page.cpp — 供应商列表页：Claude Code / Codex 两页共用同一组件
-// （参数化 tool）。每个供应商一张卡片：名称 / baseUrl / 掩码 apiKey / 备注 /
-// 「使用中」徽章（group.current 或 detectCurrent 命中），操作：切换 / 编辑 /
-// 复制 / 删除（删除走内置确认框）。顶部：新增供应商 + 预设模板入口。
+// providers_page.cpp — 供应商列表页：各 agent 工具组共用同一组件（参数化
+// tool，注册表见 models::toolRegistry()）。每个供应商一张卡片：名称 / baseUrl /
+// 掩码 apiKey / 备注 /「使用中」徽章（group.current 或 detectCurrent 命中），
+// 操作：切换 / 编辑 / 复制 / 删除（删除走内置确认框）。顶部：新增供应商 +
+// 预设模板入口。表单按 ToolSpec 适配：codex 显示 config.toml 原文、
+// needsModel（opencode/pi）模型必填、hasApiFormat 显示 API 协议分段选择。
 //
 // 数据流：所有 store 读写都在 UI 线程（store 无内部锁，UI 线程独占是契约；
 // live 文件读写为微秒级本地 IO，不经任务线程）。写操作后 revision+1，
@@ -22,7 +24,8 @@ namespace llmswitch::ui {
 namespace {
 
 // 表单字段集合：新增/编辑共用一组 State 句柄（State 是可拷贝句柄，
-// 归打开弹窗的组合作用域所有）。
+// 归打开弹窗的组合作用域所有）。apiFormat 为选项下标（0=OpenAI 兼容（默认，
+// 存空串）/ 1=anthropic / 2=openai-responses），仅 hasApiFormat 工具展示。
 struct FormStates {
     huxerui::State<huxerui::TextEditingValue> name;
     huxerui::State<huxerui::TextEditingValue> baseUrl;
@@ -31,6 +34,7 @@ struct FormStates {
     huxerui::State<huxerui::TextEditingValue> website;
     huxerui::State<huxerui::TextEditingValue> notes;
     huxerui::State<huxerui::TextEditingValue> toml;  // 仅 codex 组展示
+    huxerui::State<int> apiFormat;                   // 仅 opencode / pi 展示
 };
 
 void FillForm(const FormStates& fs, const models::Provider& p) {
@@ -41,18 +45,32 @@ void FillForm(const FormStates& fs, const models::Provider& p) {
     fs.website = huxerui::TextEditingValue{p.website};
     fs.notes = huxerui::TextEditingValue{p.notes};
     fs.toml = huxerui::TextEditingValue{p.codexConfigToml};
+    fs.apiFormat = p.apiFormat == "anthropic"      ? 1
+                   : p.apiFormat == "openai-responses" ? 2
+                                                       : 0;
+}
+
+// apiFormat 下标 → Provider.apiFormat 存储值（0 = 默认 OpenAI 兼容，存空串）。
+std::string ApiFormatFromIndex(int index) {
+    if (index == 1) return "anthropic";
+    if (index == 2) return "openai-responses";
+    return "";
 }
 
 // 新增/编辑供应商弹窗内容（composable：UseTheme 等组合函数只能在
 // composable 体内调用，dialog 工厂只是转发到这里）。editingId 为空 = 新增
-// （store 生成 id/createdAt）。校验：名称必填；claude 组 baseUrl 必填；
-// codex 组 apiKey 必填。成功才关弹窗（失败 toast 提示，表单保留）。
+// （store 生成 id/createdAt）。校验：名称必填；非 codex 组 baseUrl 必填；
+// codex 组 apiKey 必填；needsModel 组模型必填。成功才关弹窗（失败 toast
+// 提示，表单保留）。
 [[huxerui::composable]] huxerui::View ProviderFormContent(
     std::string title, std::string tool, FormStates fs, std::string editingId,
     huxerui::DialogContext ctx, huxerui::ToastHandle toast,
     huxerui::State<int> revision) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
-    const bool isCodex = tool == store::kToolCodex;
+    const auto* spec = models::findTool(tool);
+    const bool isCodex = tool == "codex";
+    const bool needsModel = spec != nullptr && spec->needsModel;
+    const bool hasApiFormat = spec != nullptr && spec->hasApiFormat;
     std::vector<huxerui::View> fields;
     fields.push_back(huxerui::Text(title, huxerui::TextRole::Title));
     fields.push_back(huxerui::TextField(fs.name.Get())
@@ -71,10 +89,28 @@ void FillForm(const FormStates& fs, const models::Provider& p) {
         .Secure()
         .OnChanged([fs](const huxerui::TextEditingValue& v) { fs.apiKey = v; }));
     if (!isCodex) {
+        // needsModel（opencode / pi）：切换生效依赖默认模型，必填。
+        const char* modelLabel = needsModel ? "模型（必填）"
+            : tool == "claude-code"    ? "模型（可选，写入 ANTHROPIC_MODEL）"
+                                       : "模型（可选）";
         fields.push_back(huxerui::TextField(fs.model.Get())
-            .Label("模型（可选，写入 ANTHROPIC_MODEL）")
+            .Label(modelLabel)
             .Variant(huxerui::TextFieldVariant::Outlined)
             .OnChanged([fs](const huxerui::TextEditingValue& v) { fs.model = v; }));
+    }
+    if (hasApiFormat) {
+        // API 协议：写进 opencode 的 npm 段 / pi 的 api 字段（见 store）。
+        fields.push_back(huxerui::Text("API 协议")
+            .Style(huxerui::TextStyle{
+                huxerui::Font::System(font_size::kCaption),
+                theme.colors.on_surface_variant}));
+        fields.push_back(
+            huxerui::SegmentedButton(
+                {"OpenAI 兼容", "Anthropic", "OpenAI Responses"},
+                static_cast<std::size_t>(fs.apiFormat.Get()))
+                .OnChanged([fs](std::size_t index) {
+                    fs.apiFormat = static_cast<int>(index);
+                }));
     }
     fields.push_back(huxerui::TextField(fs.website.Get())
         .Label("官网（可选）")
@@ -102,6 +138,7 @@ void FillForm(const FormStates& fs, const models::Provider& p) {
                 const std::string name = fs.name.Get().text;
                 const std::string baseUrl = fs.baseUrl.Get().text;
                 const std::string apiKey = fs.apiKey.Get().text;
+                const std::string model = fs.model.Get().text;
                 if (name.empty()) {
                     toast.Show("名称不能为空");
                     return;
@@ -114,15 +151,20 @@ void FillForm(const FormStates& fs, const models::Provider& p) {
                     toast.Show("API Key 不能为空");
                     return;
                 }
+                if (needsModel && model.empty()) {
+                    toast.Show("模型不能为空");
+                    return;
+                }
                 models::Provider p;
                 p.id = editingId;
                 p.name = name;
                 p.baseUrl = baseUrl;
                 p.apiKey = apiKey;
-                p.model = fs.model.Get().text;
+                p.model = model;
                 p.website = fs.website.Get().text;
                 p.notes = fs.notes.Get().text;
                 p.codexConfigToml = fs.toml.Get().text;
+                p.apiFormat = ApiFormatFromIndex(fs.apiFormat.Get());
                 try {
                     if (editingId.empty()) {
                         providerStore().addProvider(tool, std::move(p));
@@ -179,7 +221,8 @@ void ShowProviderForm(huxerui::DialogHandle dialog, huxerui::ToastHandle toast,
                         huxerui::UseState(huxerui::TextEditingValue{""}),
                         huxerui::UseState(huxerui::TextEditingValue{""}),
                         huxerui::UseState(huxerui::TextEditingValue{""}),
-                        huxerui::UseState(huxerui::TextEditingValue{""})};
+                        huxerui::UseState(huxerui::TextEditingValue{""}),
+                        huxerui::UseState(0)};
     const std::string id = provider.id;
     const std::string name = provider.name;
 
@@ -305,7 +348,8 @@ void ShowProviderForm(huxerui::DialogHandle dialog, huxerui::ToastHandle toast,
                         huxerui::UseState(huxerui::TextEditingValue{""}),
                         huxerui::UseState(huxerui::TextEditingValue{""}),
                         huxerui::UseState(huxerui::TextEditingValue{""}),
-                        huxerui::UseState(huxerui::TextEditingValue{""})};
+                        huxerui::UseState(huxerui::TextEditingValue{""}),
+                        huxerui::UseState(0)};
 
     // 订阅全局变更计数：托盘切换 / 设置页导入后本页重读。
     (void)revision.Get();

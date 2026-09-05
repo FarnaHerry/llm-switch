@@ -2,8 +2,9 @@
 //   标题栏：应用名 + 拖拽区，框架在其右侧渲染窗口按钮；收窄为 24px 高、去背景
 //     直接融入窗口底色。主题为极简 AI 黑白风（MinimalDark/MinimalLightThemeSpec，
 //     与 Clash-Flux 同配色：深色近纯黑 + 纯白主色；浅色海面白 + 近黑主色）。
-//   下方：左侧图标侧边栏（无岛屿包裹，直接落在窗口背景上）｜内容区（页面自己的
-//   一级岛屿划分区域——PageScaffold，外壳不再套岛）。根节点刷整窗海面底色
+//   下方：左侧顶级图标侧边栏（Agent 管理 / 设置，无岛屿包裹，直接落在窗口背景
+//   上）｜内容区（Agent 管理页内再分二级工具栏 + 页面自己的一级岛屿——
+//   PageScaffold，外壳不再套岛）。根节点刷整窗海面底色
 //   （rootSpec.colors.background——AppRoot 在主题 provider 之上，UseTheme 只能
 //   拿到默认浅色 spec，须按 dark 自选；子树在 provider 之下 UseTheme 正常）。
 //
@@ -29,9 +30,8 @@ namespace llmswitch::ui {
 namespace pages {
 
 enum PageIndex : std::size_t {
-    kClaude = 0,
-    kCodex = 1,
-    kSettings = 2,
+    kAgents = 0,
+    kSettings = 1,
 };
 
 } // namespace pages
@@ -182,9 +182,11 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(huxerui::WindowHandle window,
                                               huxerui::State<int> revision) {
     std::vector<huxerui::MenuEntry> entries;
     auto& st = providerStore();
-    for (const std::string_view tool : {store::kToolClaude, store::kToolCodex}) {
+    // 按注册表列出全部工具组（阶段A 通用代码，自然覆盖 5 个工具）。
+    for (const auto& spec : models::toolRegistry()) {
+        const std::string tool(spec.id);
         entries.push_back(
-            huxerui::MenuItem(std::string(ToolName(tool)), [] {}).Enabled(false));
+            huxerui::MenuItem(std::string(spec.displayName), [] {}).Enabled(false));
         const auto& g = st.group(tool);
         if (g.providers.empty()) {
             entries.push_back(huxerui::MenuItem("（无供应商）", [] {}).Enabled(false));
@@ -225,10 +227,10 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(huxerui::WindowHandle window,
         const char* tooltip;
         std::size_t page;
     };
-    const std::array<Item, 3> items{
-        Item{app::images::claude, app::images::claude_selected, "Claude Code",
-             pages::kClaude},
-        Item{app::images::codex, app::images::codex_selected, "Codex", pages::kCodex},
+    // 顶级侧栏：Agent 管理（内嵌二级工具栏）+ 设置。
+    const std::array<Item, 2> items{
+        Item{app::images::agents, app::images::agents_selected, "Agent 管理",
+             pages::kAgents},
         Item{app::images::settings, app::images::settings_selected, "设置",
              pages::kSettings},
     };
@@ -276,7 +278,7 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(huxerui::WindowHandle window,
         if (saved == "light") initialThemeMode = 2;
     }
     auto themeMode = huxerui::UseState<int>(std::move(initialThemeMode));
-    auto navPage = huxerui::UseState<std::size_t>(pages::kClaude);
+    auto navPage = huxerui::UseState<std::size_t>(pages::kAgents);
     // 全局变更计数：任何写库操作（含托盘切换）后 +1，驱动托盘菜单重建
     // （Lifecycle 依赖）与页面重读。
     auto revision = huxerui::UseState<int>(0);
@@ -302,10 +304,7 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(huxerui::WindowHandle window,
     const IslandTheme rootIslands = ResolveIslandTheme(rootSpec);
 
     std::vector<huxerui::View> pages;
-    pages.push_back(ProvidersPage(std::string(store::kToolClaude), revision)
-                        .Key("claude").With(huxerui::Grow(1.0F)));
-    pages.push_back(ProvidersPage(std::string(store::kToolCodex), revision)
-                        .Key("codex").With(huxerui::Grow(1.0F)));
+    pages.push_back(AgentPage(revision).Key("agents").With(huxerui::Grow(1.0F)));
     pages.push_back(SettingsPage(themeMode, revision)
                         .Key("settings").With(huxerui::Grow(1.0F)));
 

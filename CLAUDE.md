@@ -3,9 +3,12 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 llm-switch 是 **cc-switch**（GitHub: farion1231/cc-switch）的 **C++23 模块化重写**：
-管理 Claude Code / Codex 两款 AI CLI 的供应商配置切换——把选中的供应商写进
-工具的 live 配置文件（`~/.claude/settings.json` 的 env 块 / `~/.codex/auth.json`
-+ `config.toml`），并提供收编、备份、导入导出。用 **HuxerUI**（组件式声明 UI）
+管理多款 AI agent 工具的供应商配置切换——阶段A 领域层已泛化到 5 个工具
+（claude-code / claude desktop / codex / opencode / pi，注册表见
+`models::toolRegistry()`），把选中的供应商写进工具的 live 配置文件
+（`~/.claude/settings.json` 的 env 块 / `~/.codex/auth.json` + `config.toml` /
+opencode.json additive upsert / pi 的 models.json + settings.json /
+Claude Desktop 3p profile 组），并提供收编、备份、导入导出。用 **HuxerUI**（组件式声明 UI）
 做桌面壳，全程 C++，无网络/数据库依赖。构建系统 CMake（脚手架与姊妹项目
 `../Clash-Flux` 同源）。分层：UI（src/ui/*.cpp 普通源走 hcg codegen）/
 领域层（llmswitch.config/models/store 三个 C++23 模块）。
@@ -63,20 +66,27 @@ huxerui run linux                  # HuxerUI CLI 流程（构建到 .huxerui/bui
 | 模块 | 文件 | 职责 |
 |------|------|------|
 | `llmswitch.config` | `src/config.cppm` | 数据目录（~/.local/share/llm-switch）/ config.json 与 backups/ 路径 / live 配置文件解析（含 LLMSWITCH_* 环境变量覆盖）/ 深色检测 |
-| `llmswitch.models` | `src/models.cppm` | Provider/ProviderGroup/AppConfig 数据模型 + JSON 序列化 + 内置预设（builtinPresets） |
-| `llmswitch.store` | `src/store.cppm` + `src/store.cpp` | ProviderStore：config.json 读写、CRUD、switchTo 切换（原子写+备份）、detectCurrent/importLive、导出导入 |
-| `llmswitch::ui`（普通 C++） | `src/ui/*.cpp` | app（壳：MinimalDark/Light 主题+标题栏+图标侧栏+IndexedPages+托盘）/ common（岛屿原语、页面骨架/卡片/弹窗卡片、providerStore() 全局实例）/ providers_page（Claude/Codex 共用供应商页）/ settings_page（主题/路径/导入导出/关于）/ ui.h（内部声明） |
+| `llmswitch.models` | `src/models.cppm` | 工具注册表（ToolSpec/toolRegistry/findTool：claude-code/claude/codex/opencode/pi）+ Provider/ProviderGroup/AppConfig（groups 以注册表 id 为键的 map，旧格式顶层 claude/codex 自动迁移）+ JSON 序列化 + 内置预设（builtinPresets） |
+| `llmswitch.store` | `src/store.cppm` + `src/store.cpp` | ProviderStore：config.json 读写、CRUD、switchTo 按工具 id 分发五个 writer（原子写+备份）、detectCurrent/importLive、导出导入 |
+| `llmswitch::ui`（普通 C++） | `src/ui/*.cpp` | app（壳：MinimalDark/Light 主题+标题栏+顶级图标侧栏+IndexedPages+托盘）/ agent_page（Agent 管理：二级工具图标栏+ProvidersPage 宿主）/ common（岛屿原语、页面骨架/卡片/弹窗卡片、providerStore() 全局实例）/ providers_page（5 工具共用供应商页，表单按 ToolSpec 适配）/ settings_page（主题/路径/导入导出/关于）/ ui.h（内部声明） |
 | `src/app.cpp` | 普通 TU | `Application{AppRoot, AppOptions}`（Custom chrome，标题栏 24pt，1080×720 / min 560×480） |
 | 平台入口 | `platform/{linux,windows,macos}/main.cpp` | 薄入口 `huxerui::RunApplication()`（无 CLI 分流；顶层 CMake 按 WIN32/APPLE/Linux 分支选用） |
 
 ## 领域层设计要点
 
-- **live 文件**（被切换工具实际读取的文件）：claude 切换 = 深合并
+- **live 文件**（被切换工具实际读取的文件）：claude-code 切换 = 深合并
   `~/.claude/settings.json` 的 `env.ANTHROPIC_BASE_URL` / `ANTHROPIC_AUTH_TOKEN`
   （model 非空时写 `ANTHROPIC_MODEL`），permissions 等其余字段原样保留；codex
   切换 = 深合并 `~/.codex/auth.json` 的 `OPENAI_API_KEY`，且
   `Provider.codexConfigToml` 非空时**整体替换** `~/.codex/config.toml`（TOML
-  不做结构化合并，原文即模板）。
+  不做结构化合并，原文即模板）。opencode = opencode.json 顶层 provider map
+  additive upsert（npm 段按 apiFormat 选 `@ai-sdk/anthropic` /
+  `@ai-sdk/openai-compatible`；官方文件允许 JSON5 注释，改写用 readJsonStrict
+  解析失败抛错、绝不碰原文件）；pi = models.json providers upsert（api 映射
+  anthropic→anthropic-messages 等）+ settings.json 深合并
+  defaultProvider/defaultModel（目录 0700、文件 0600）；claude desktop =
+  3p 直连（两份 claude_desktop_config.json 置 deploymentMode=3p +
+  configLibrary 固定 id profile/_meta.json，**Linux 不支持**）。
 - **文件安全约定**（store.cpp 匿名命名空间三件套）：`atomicWrite`（`.tmp` →
   rename，失败回落 remove+rename）；`readJsonOrNull`（解析失败把坏文件挪到
   `<file>.corrupt-<毫秒>` 再按无内容继续，绝不崩溃）；`backupLiveFile`（改写
@@ -88,7 +98,8 @@ huxerui run linux                  # HuxerUI CLI 流程（构建到 .huxerui/bui
 - **detectCurrent**：读 live 文件与组内 provider 匹配（claude 按
   baseUrl+apiKey，codex 按 apiKey），只读不改配置。
 - **测试友好**：live 路径全部支持环境变量覆盖（`LLMSWITCH_CLAUDE_SETTINGS` /
-  `LLMSWITCH_CODEX_AUTH` / `LLMSWITCH_CODEX_CONFIG`），`~` 展开只认 HOME，
+  `LLMSWITCH_CODEX_AUTH` / `LLMSWITCH_CODEX_CONFIG` / `LLMSWITCH_OPENCODE_CONFIG`
+  / `LLMSWITCH_PI_DIR` / `LLMSWITCH_CLAUDE_DESKTOP_DIR`），`~` 展开只认 HOME，
   dataDir 走 XDG_DATA_HOME/HOME——test_store 用 setenv 指到
   `temp/llmswitch-test-<pid>` 即可完全隔离。
 - ProviderStore **不强制单例**（测试可实例化）；UI 侧的全局实例在
@@ -148,6 +159,19 @@ huxerui run linux                  # HuxerUI CLI 流程（构建到 .huxerui/bui
 - ✅ M2：完整 UI（应用壳+托盘切换菜单、Claude/Codex 供应商页 CRUD/切换/预设
   模板、设置页主题/路径/导入导出）、GUI 冒烟通过。
 - ✅ M3：跨平台 CI（三桌面 job + tag release）+ Windows/macOS 平台入口补齐。
+- ✅ 阶段A（2026-09-06）：领域层泛化到 5 工具注册表（claude-code / claude
+  desktop / codex / opencode / pi），config.json 改 groups map（旧格式自动
+  迁移），store 按工具 id 分发五个 writer + 各自 detectCurrent/importLive，
+  UI 仅做最小适配（侧栏/供应商页仍只有 Claude Code / Codex，托盘菜单已
+  通用列出全部组）——导航重写属阶段B。
+- ✅ 阶段B（2026-09-06）：两级侧边栏导航（顶级 Agent 管理/设置 + Agent 页内
+  二级工具图标栏，遍历注册表）、5 工具图标补齐（claudecode 自绘终端 /
+  claude 官方星芒 / codex 结绳不动 / opencode simple-icons / pi pi.dev
+  logo）、表单按 ToolSpec 适配（API 协议分段选择、needsModel 必填）。
+  另修正阶段A 遗留：Claude Desktop profile 的 inferenceModels name 必须是
+  桌面端白名单 route id（claude-(sonnet|opus|haiku|fable)-*，对齐 cc-switch
+  上游 is_claude_safe_model_id），非白名单模型名借用 claude-sonnet-4-6 并把
+  真名放 labelOverride。
 - ⬜ 待做：托盘图标是灰色双向箭头占位（正式图标待设计）；codex 内置预设仅
   OpenRouter/DeepSeek 两家可扩充；未做「关闭最小化到托盘」（SDK 有
   `OnCloseRequest` 范式，sdk 文档 navigation-and-window.md）；无 CLI 分流、

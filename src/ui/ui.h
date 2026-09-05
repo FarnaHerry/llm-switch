@@ -61,9 +61,11 @@ IslandTheme ResolveIslandTheme(const huxerui::ThemeSpec& theme);
 huxerui::View IslandSurface(huxerui::View content, IslandLevel level = IslandLevel::Base);
 
 // ---- 页面（定义在各自 .cpp，均为 [[huxerui::composable]]）----
-// 供应商列表页：Claude Code / Codex 共用同一组件，tool 取 store::kToolClaude /
-// store::kToolCodex。revision 是全局变更计数（AppRoot 持有）：任何写库操作后
-// +1，驱动本页重读与托盘菜单重建。
+// Agent 管理页：二级图标侧栏（5 个 agent 工具）+ 右侧 ProvidersPage。
+huxerui::View AgentPage(huxerui::State<int> revision);
+// 供应商列表页：各工具组共用同一组件，tool 取 models::toolRegistry() 的
+// 注册表 id（claude-code / codex / ...）。revision 是全局变更计数（AppRoot
+// 持有）：任何写库操作后 +1，驱动本页重读与托盘菜单重建。
 huxerui::View ProvidersPage(std::string tool, huxerui::State<int> revision);
 // 设置页持有主题模式 State（AppRoot 传入）。
 huxerui::View SettingsPage(huxerui::State<int> themeMode, huxerui::State<int> revision);

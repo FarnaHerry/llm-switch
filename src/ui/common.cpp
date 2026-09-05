@@ -27,7 +27,9 @@ std::string MaskedApiKey(const std::string& key) {
 }
 
 std::string_view ToolName(std::string_view tool) {
-    return tool == store::kToolClaude ? "Claude Code" : "Codex";
+    // 展示名以注册表为准；未注册（不应发生）原样回显 id。
+    if (const auto* spec = models::findTool(tool)) return spec->displayName;
+    return tool;
 }
 
 IslandTheme ResolveIslandTheme(const huxerui::ThemeSpec& theme) {
