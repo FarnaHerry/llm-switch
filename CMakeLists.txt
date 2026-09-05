@@ -255,6 +255,10 @@ set(LLMSWITCH_MODULE_UNITS
     src/models.cppm
     src/net.cppm
     src/store.cppm
+    src/router.cppm
+    src/mcp.cppm
+    src/skills.cppm
+    src/sessions.cppm
 )
 
 huxerui_add_app(llm-switch
@@ -296,6 +300,7 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
     target_include_directories(llm-switch PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
     target_link_libraries(llm-switch PRIVATE
         llmswitch_json
+        llmswitch_httplib
         CURL::libcurl
         OpenSSL::SSL
         OpenSSL::Crypto
@@ -444,5 +449,47 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
         target_link_libraries(test_net PRIVATE
             llmswitch_json CURL::libcurl OpenSSL::SSL OpenSSL::Crypto Threads::Threads)
         add_test(NAME net COMMAND test_net)
+
+        # 本地路由测试：httplib 假上游 + 路由转发/换 key/故障转移/统计日志。
+        add_executable(test_router tests/test_router.cpp src/router.cpp)
+        target_sources(test_router PRIVATE FILE_SET llmswitch_modules TYPE CXX_MODULES
+            BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+            FILES src/router.cppm src/config.cppm src/models.cppm)
+        set_target_properties(test_router PROPERTIES CXX_MODULE_STD ON CXX_SCAN_FOR_MODULES ON)
+        target_compile_features(test_router PRIVATE cxx_std_23)
+        target_link_libraries(test_router PRIVATE
+            llmswitch_json llmswitch_httplib
+            CURL::libcurl OpenSSL::SSL OpenSSL::Crypto Threads::Threads)
+        add_test(NAME router COMMAND test_router)
+
+        # MCP 管理测试：统一清单读写 + 各工具 live 配置写入。
+        add_executable(test_mcp tests/test_mcp.cpp src/mcp.cpp)
+        target_sources(test_mcp PRIVATE FILE_SET llmswitch_modules TYPE CXX_MODULES
+            BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+            FILES src/mcp.cppm src/config.cppm src/models.cppm)
+        set_target_properties(test_mcp PROPERTIES CXX_MODULE_STD ON CXX_SCAN_FOR_MODULES ON)
+        target_compile_features(test_mcp PRIVATE cxx_std_23)
+        target_link_libraries(test_mcp PRIVATE llmswitch_json Threads::Threads)
+        add_test(NAME mcp COMMAND test_mcp)
+
+        # Skills 管理测试：中央库 + 符号链接同步 + 扫描。
+        add_executable(test_skills tests/test_skills.cpp src/skills.cpp)
+        target_sources(test_skills PRIVATE FILE_SET llmswitch_modules TYPE CXX_MODULES
+            BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+            FILES src/skills.cppm src/config.cppm)
+        set_target_properties(test_skills PROPERTIES CXX_MODULE_STD ON CXX_SCAN_FOR_MODULES ON)
+        target_compile_features(test_skills PRIVATE cxx_std_23)
+        target_link_libraries(test_skills PRIVATE llmswitch_json Threads::Threads)
+        add_test(NAME skills COMMAND test_skills)
+
+        # 会话管理测试：扫描/摘要/删除各工具历史会话。
+        add_executable(test_sessions tests/test_sessions.cpp src/sessions.cpp)
+        target_sources(test_sessions PRIVATE FILE_SET llmswitch_modules TYPE CXX_MODULES
+            BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+            FILES src/sessions.cppm src/config.cppm)
+        set_target_properties(test_sessions PROPERTIES CXX_MODULE_STD ON CXX_SCAN_FOR_MODULES ON)
+        target_compile_features(test_sessions PRIVATE cxx_std_23)
+        target_link_libraries(test_sessions PRIVATE llmswitch_json Threads::Threads)
+        add_test(NAME sessions COMMAND test_sessions)
     endif ()
 endif ()

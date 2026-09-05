@@ -1,18 +1,35 @@
 # llm-switch
 
 [cc-switch](https://github.com/farion1231/cc-switch) 的 C++ 重写：Claude Code /
-Codex 供应商配置切换工具。C++23 modules + HuxerUI 桌面壳，无 Electron、
-无运行时依赖（除系统 GTK4 运行库）。
+Claude Desktop / Codex / opencode / pi 五款 AI 编程工具的供应商配置切换，
+附本地路由、用量查询、MCP / Skills / 会话管理。C++23 modules + HuxerUI
+桌面壳，无 Electron、无运行时依赖（除系统 GTK4 运行库）。
 
 ## 功能
 
-- **供应商管理**：Claude Code / Codex 两组各自维护供应商列表（新增 / 编辑 /
-  复制 / 删除），内置 DeepSeek / Kimi / GLM / OpenRouter 等预设模板。
+- **供应商管理**：五个工具组各自维护供应商列表（新增 / 编辑 / 复制 /
+  删除），内置 DeepSeek / Kimi / GLM / OpenRouter 等预设模板；API 协议三档
+  （OpenAI Chat Completions / OpenAI Responses / Anthropic Messages）。
 - **一键切换**：把选中供应商写进工具的 live 配置文件——
   Claude Code 深合并 `~/.claude/settings.json` 的 env 块
   （`ANTHROPIC_BASE_URL` / `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_MODEL`，其余字段
   原样保留）；Codex 写 `~/.codex/auth.json` 的 `OPENAI_API_KEY`，并可整段替换
-  `~/.codex/config.toml`。
+  `~/.codex/config.toml`；opencode 顶层 provider map additive upsert；
+  pi 写 models.json + settings.json；Claude Desktop 3p profile（仅
+  macOS / Windows）。
+- **本地路由**：内置反向代理监听 `http://127.0.0.1:<port>/<tool>/`（默认
+  15731），转发到该工具当前供应商并自动替换鉴权头；上游 429/5xx 可选故障
+  转移；支持开机自启。
+- **使用统计**：按请求记录状态码 / 耗时 / token 用量，JSONL 持久化
+  （`~/.local/share/llm-switch/router/requests.jsonl`），统计页看汇总与
+  按供应商分布。
+- **用量查询**：为供应商配置用量端点（DeepSeek 等内置模板一键填充），
+  卡片上直接显示余额，支持自动轮询与手动刷新。
+- **MCP 服务器**：统一清单管理，启停即同步到 Claude Code / Codex /
+  opencode 的实际配置。
+- **Skills**：中央库维护技能，符号链接同步到 Claude Code / Codex 的
+  skills 目录。
+- **会话管理**：浏览 / 删除 / 导出 Claude Code 与 Codex 的历史会话。
 - **安全兜底**：改写任何 live 文件前自动备份（每工具每文件保留最近 10 份），
   所有写入原子化（tmp + rename）；配置文件损坏自动隔离不崩溃。
 - **收编与探测**：首次启动自动把当前生效配置收编为「当前配置」供应商；
@@ -48,15 +65,27 @@ job，失败时 release 只挂实际产出的包）。
 
 ## 配置存储位置
 
-- llm-switch 自身配置库：`~/.local/share/llm-switch/config.json`
-  （遵循 XDG；`$XDG_DATA_HOME/llm-switch/`），备份在
-  `~/.local/share/llm-switch/backups/`。
+- llm-switch 自身数据目录：`~/.local/share/llm-switch/`（遵循 XDG；
+  `$XDG_DATA_HOME/llm-switch/`）——`config.json`（配置库）、`backups/`、
+  `mcp.json`（MCP 统一清单）、`skills-store/`（Skills 中央库）、
+  `router/requests.jsonl`（路由请求统计）。
 - 操作的 live 文件（工具实际读取的配置）：
-  - Claude Code：`~/.claude/settings.json`
+  - Claude Code：`~/.claude/settings.json`（另有 MCP 写 `~/.claude.json`）
   - Codex：`~/.codex/auth.json` 与 `~/.codex/config.toml`
-  - 三个路径均支持环境变量覆盖（`LLMSWITCH_CLAUDE_SETTINGS` /
-    `LLMSWITCH_CODEX_AUTH` / `LLMSWITCH_CODEX_CONFIG`），供测试与非常规
-    安装使用。
+  - opencode：`~/.config/opencode/opencode.json`
+  - pi：`~/.pi/agent/models.json` 与 `~/.pi/agent/settings.json`
+  - Claude Desktop：macOS `~/Library/Application Support/Claude` /
+    Windows `%LOCALAPPDATA%\Claude`（Linux 不支持）
+- Skills 同步目标：`~/.claude/skills`、`~/.codex/skills`；
+  会话扫描：`~/.claude/projects`、`~/.codex/sessions`。
+- 以上路径均支持 `LLMSWITCH_*` 环境变量覆盖
+  （`LLMSWITCH_CLAUDE_SETTINGS` / `LLMSWITCH_CODEX_AUTH` /
+  `LLMSWITCH_CODEX_CONFIG` / `LLMSWITCH_OPENCODE_CONFIG` / `LLMSWITCH_PI_DIR` /
+  `LLMSWITCH_CLAUDE_DESKTOP_DIR` / `LLMSWITCH_CLAUDE_JSON` /
+  `LLMSWITCH_SKILLS_STORE` / `LLMSWITCH_CLAUDE_SKILLS` /
+  `LLMSWITCH_CODEX_SKILLS` / `LLMSWITCH_CLAUDE_PROJECTS` /
+  `LLMSWITCH_CODEX_SESSIONS` / `LLMSWITCH_STATS_DIR`），供测试与非常规
+  安装使用。
 
 ## 开发
 

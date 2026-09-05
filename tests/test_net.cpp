@@ -75,6 +75,40 @@ int main() {
         CHECK(ids[0] == "a" && ids[1] == "b" && ids[2] == "c");
     }
 
+    // 7. extractByPath：嵌套对象
+    CHECK(net::extractByPath(R"json({"a":{"b":{"c":"deep"}}})json", "a.b.c") ==
+          "deep");
+
+    // 8. extractByPath：数组下标 + 字符串值原样返回（DeepSeek balance 形状）
+    CHECK(net::extractByPath(
+              R"json({"balance_infos":[{"total_balance":"9.90","currency":"CNY"}]})json",
+              "balance_infos.0.total_balance") == "9.90");
+
+    // 9. extractByPath：数字 / 布尔标量
+    CHECK(net::extractByPath(R"json({"a":{"n":10}})json", "a.n") == "10");
+    CHECK(net::extractByPath(R"json({"a":{"n":9.9}})json", "a.n") == "9.9");
+    CHECK(net::extractByPath(R"json({"a":{"n":10.0}})json", "a.n") == "10");
+    CHECK(net::extractByPath(R"json({"a":{"ok":true}})json", "a.ok") == "true");
+
+    // 10. extractByPath：错误情形（缺键 / 越界 / 坏 JSON / 非标量终值）
+    {
+        const auto throws = [](std::string_view body, std::string_view path) {
+            try {
+                (void)net::extractByPath(body, path);
+            } catch (const std::runtime_error&) {
+                return true;
+            }
+            return false;
+        };
+        CHECK(throws(R"json({"a":{}})json", "a.missing"));
+        CHECK(throws(R"json({"a":[1,2]})json", "a.5"));
+        CHECK(throws(R"json({"a":[1,2]})json", "a.x"));  // 数组段非数字
+        CHECK(throws("这不是 JSON {{{", "a.b"));
+        CHECK(throws(R"json({"a":{"b":{"c":1}}})json", "a.b"));  // 终值是对象
+        CHECK(throws(R"json({"a":[1]})json", "a"));  // 终值是数组
+        CHECK(throws(R"json({"a":null})json", "a"));  // 终值是 null
+    }
+
     if (g_failures == 0) {
         std::println("test_net: ok");
         return 0;

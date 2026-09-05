@@ -7,6 +7,10 @@
 // 模型字段旁「获取模型」按当前 baseUrl/apiKey/apiFormat 经 llmswitch.net
 // 拉取模型列表（阻塞网络调用经 huxerui::RunWorker 派到 worker 线程，
 // 结果回 UI 线程写 State），成功弹选择列表回填 model 字段。
+// 用量查询：表单三字段（URL/取值路径/单位标签，「自动填充」按 baseUrl 套
+// models::suggestUsageQuery 模板）；usageUrl 非空的卡片显示用量文本 + 手动
+// 刷新按钮；页面可见期间按 config 的 usageEnabled/usageRefreshMinutes 轮询
+// 全部配置了 usageUrl 的供应商，缓存为页面级 State（只在 UI 线程写）。
 //
 // 数据流：所有 store 读写都在 UI 线程（store 无内部锁，UI 线程独占是契约；
 // live 文件读写为微秒级本地 IO，不经任务线程）。写操作后 revision+1，
@@ -14,6 +18,7 @@
 #include <huxerui/huxerui.h>
 
 #include <chrono>
+#include <map>
 #include <string>
 #include <utility>
 #include <vector>
@@ -30,6 +35,7 @@ namespace {
 // 表单字段集合：新增/编辑共用一组 State 句柄（State 是可拷贝句柄，
 // 归打开弹窗的组合作用域所有）。apiFormat 为选项下标（0=OpenAI 兼容（默认，
 // 存空串）/ 1=anthropic / 2=openai-responses），仅 hasApiFormat 工具展示。
+// usageUrl/usagePath/usageLabel 为用量查询三字段（usageUrl 空 = 不查询）。
 struct FormStates {
     huxerui::State<huxerui::TextEditingValue> name;
     huxerui::State<huxerui::TextEditingValue> baseUrl;
@@ -39,6 +45,9 @@ struct FormStates {
     huxerui::State<huxerui::TextEditingValue> notes;
     huxerui::State<huxerui::TextEditingValue> toml;  // 仅 codex 组展示
     huxerui::State<int> apiFormat;                   // 仅 opencode / pi 展示
+    huxerui::State<huxerui::TextEditingValue> usageUrl;
+    huxerui::State<huxerui::TextEditingValue> usagePath;
+    huxerui::State<huxerui::TextEditingValue> usageLabel;
 };
 
 void FillForm(const FormStates& fs, const models::Provider& p) {
@@ -52,6 +61,35 @@ void FillForm(const FormStates& fs, const models::Provider& p) {
     fs.apiFormat = p.apiFormat == "anthropic"      ? 1
                    : p.apiFormat == "openai-responses" ? 2
                                                        : 0;
+    fs.usageUrl = huxerui::TextEditingValue{p.usageUrl};
+    fs.usagePath = huxerui::TextEditingValue{p.usagePath};
+    fs.usageLabel = huxerui::TextEditingValue{p.usageLabel};
+}
+
+// 用量缓存：providerId → 展示文本（含「查询失败：…」错误文本），页面级 State，
+// 只在 UI 线程写（RunWorker 协程恢复点恒为 UI 线程）。
+using UsageCache = huxerui::State<std::map<std::string, std::string>>;
+
+// 拉单个供应商的用量并格式化成展示文本（worker 线程跑阻塞 fetchUsage，
+// 恢复点在 UI 线程；本函数不写 State）。
+huxerui::Task<std::string> FetchUsageText(models::Provider p) {
+    try {
+        const std::string value = co_await huxerui::RunWorker(
+            [](std::string u, std::string k, std::string path) {
+                return net::fetchUsage(u, k, path);
+            },
+            p.usageUrl, p.apiKey, p.usagePath);
+        co_return p.usageLabel.empty() ? value
+                                       : std::format("{} {}", value, p.usageLabel);
+    } catch (const std::exception& e) {
+        co_return std::format("查询失败：{}", e.what());
+    }
+}
+
+void WriteUsageCache(UsageCache cache, const std::string& id, std::string text) {
+    auto m = cache.Get();
+    m[id] = std::move(text);
+    cache = std::move(m);
 }
 
 // apiFormat 下标 → Provider.apiFormat 存储值（0 = 默认 OpenAI 兼容，存空串）。
@@ -219,6 +257,43 @@ void ShowModelPicker(huxerui::DialogHandle dialog, std::vector<std::string> mode
                     fs.apiFormat = static_cast<int>(index);
                 }));
     }
+    // 用量查询（可选；usageUrl 空 = 不查询）。「自动填充」按当前 baseUrl 匹配
+    // models::suggestUsageQuery 的内置端点模板。
+    fields.push_back(huxerui::Text("用量查询（可选）")
+        .Style(huxerui::TextStyle{
+            huxerui::Font::System(font_size::kCaption),
+            theme.colors.on_surface_variant}));
+    fields.push_back(huxerui::Row {
+        huxerui::TextField(fs.usageUrl.Get())
+            .Label("用量 URL")
+            .Placeholder("https://...（留空 = 不查询）")
+            .Variant(huxerui::TextFieldVariant::Outlined)
+            .OnChanged([fs](const huxerui::TextEditingValue& v) { fs.usageUrl = v; })
+            .With(huxerui::Grow(1.0F)),
+        huxerui::Button("自动填充")
+            .OnClick([fs, toast] {
+                const auto suggested =
+                    models::suggestUsageQuery(fs.baseUrl.Get().text);
+                if (!suggested) {
+                    toast.Show("该供应商暂无内置用量端点模板，请手动填写");
+                    return;
+                }
+                fs.usageUrl = huxerui::TextEditingValue{suggested->first};
+                fs.usagePath = huxerui::TextEditingValue{suggested->second};
+            })
+            .With(huxerui::Tooltip("按 Base URL 匹配内置用量端点模板")),
+    }.With(huxerui::Spacing(8.0F),
+           huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)));
+    fields.push_back(huxerui::TextField(fs.usagePath.Get())
+        .Label("取值路径")
+        .Placeholder("balance_infos.0.total_balance")
+        .Variant(huxerui::TextFieldVariant::Outlined)
+        .OnChanged([fs](const huxerui::TextEditingValue& v) { fs.usagePath = v; }));
+    fields.push_back(huxerui::TextField(fs.usageLabel.Get())
+        .Label("单位标签")
+        .Placeholder("如 CNY")
+        .Variant(huxerui::TextFieldVariant::Outlined)
+        .OnChanged([fs](const huxerui::TextEditingValue& v) { fs.usageLabel = v; }));
     fields.push_back(huxerui::TextField(fs.website.Get())
         .Label("官网（可选）")
         .Variant(huxerui::TextFieldVariant::Outlined)
@@ -272,6 +347,9 @@ void ShowModelPicker(huxerui::DialogHandle dialog, std::vector<std::string> mode
                 p.notes = fs.notes.Get().text;
                 p.codexConfigToml = fs.toml.Get().text;
                 p.apiFormat = ApiFormatFromIndex(fs.apiFormat.Get());
+                p.usageUrl = fs.usageUrl.Get().text;
+                p.usagePath = fs.usagePath.Get().text;
+                p.usageLabel = fs.usageLabel.Get().text;
                 try {
                     if (editingId.empty()) {
                         providerStore().addProvider(tool, std::move(p));
@@ -317,7 +395,7 @@ void ShowProviderForm(huxerui::DialogHandle dialog, huxerui::ToastHandle toast,
 [[huxerui::composable]] huxerui::View ProviderCard(
     std::string tool, const models::Provider& provider, bool active, bool isCurrent,
     huxerui::TaskScope tasks, huxerui::ToastHandle toast,
-    huxerui::State<int> revision) {
+    huxerui::State<int> revision, UsageCache usageCache) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     const IslandTheme islands = ResolveIslandTheme(theme);
     auto dialog = huxerui::UseDialog();
@@ -329,9 +407,25 @@ void ShowProviderForm(huxerui::DialogHandle dialog, huxerui::ToastHandle toast,
                         huxerui::UseState(huxerui::TextEditingValue{""}),
                         huxerui::UseState(huxerui::TextEditingValue{""}),
                         huxerui::UseState(huxerui::TextEditingValue{""}),
-                        huxerui::UseState(0)};
+                        huxerui::UseState(0),
+                        huxerui::UseState(huxerui::TextEditingValue{""}),
+                        huxerui::UseState(huxerui::TextEditingValue{""}),
+                        huxerui::UseState(huxerui::TextEditingValue{""})};
     const std::string id = provider.id;
     const std::string name = provider.name;
+
+    // 用量展示：usageUrl 非空才显示；缓存未命中显示占位，错误文本用 error 色。
+    std::string usageText;
+    bool usageError = false;
+    if (!provider.usageUrl.empty()) {
+        const auto& cache = usageCache.Get();
+        if (const auto it = cache.find(id); it != cache.end()) {
+            usageText = it->second;
+            usageError = it->second.starts_with("查询失败");
+        } else {
+            usageText = "用量待查询";
+        }
+    }
 
     auto bump = [revision] { revision = revision.Get() + 1; };
 
@@ -391,6 +485,27 @@ void ShowProviderForm(huxerui::DialogHandle dialog, huxerui::ToastHandle toast,
         huxerui::Text("密钥 " + MaskedApiKey(provider.apiKey))
             .Style(huxerui::TextStyle{huxerui::Font::Monospace(font_size::kChip),
                                       theme.colors.on_surface_variant}),
+        provider.usageUrl.empty()
+            ? huxerui::View{huxerui::Row{}}
+            : huxerui::View{huxerui::Row {
+                  huxerui::Text(usageText)
+                      .Style(huxerui::TextStyle{
+                          huxerui::Font::System(font_size::kCaption),
+                          usageError ? theme.colors.error
+                                     : theme.colors.on_surface_variant}),
+                  huxerui::Button("刷新")
+                      .OnClick([tasks, usageCache, provider] {
+                          // fetchUsage 阻塞最长 10s：RunWorker 跑，恢复点回 UI
+                          // 线程后写缓存 State。
+                          tasks.Launch([usageCache,
+                                        provider]() -> huxerui::Task<void> {
+                              WriteUsageCache(usageCache, provider.id,
+                                              co_await FetchUsageText(provider));
+                          });
+                      })
+                      .With(huxerui::Tooltip("重新查询用量")),
+              }.With(huxerui::Spacing(8.0F),
+                     huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center))},
         provider.notes.empty()
             ? huxerui::View{huxerui::Row{}}
             : huxerui::View{huxerui::Text(provider.notes)
@@ -456,7 +571,44 @@ void ShowProviderForm(huxerui::DialogHandle dialog, huxerui::ToastHandle toast,
                         huxerui::UseState(huxerui::TextEditingValue{""}),
                         huxerui::UseState(huxerui::TextEditingValue{""}),
                         huxerui::UseState(huxerui::TextEditingValue{""}),
-                        huxerui::UseState(0)};
+                        huxerui::UseState(0),
+                        huxerui::UseState(huxerui::TextEditingValue{""}),
+                        huxerui::UseState(huxerui::TextEditingValue{""}),
+                        huxerui::UseState(huxerui::TextEditingValue{""})};
+
+    // 用量缓存（页面级）+ 自动轮询：页面可见期间运行（TaskScope 随页面卸载
+    // 取消）。每个周期在 UI 线程重读 config：usageEnabled 且
+    // usageRefreshMinutes>0 时立即拉一轮所有配置了 usageUrl 的供应商（全部分组，
+    // 不只当前工具）再睡一个间隔；关闭/仅手动时按 30s 轻量再检查（设置页改动
+    // 至多 30s 生效，避免睡死在一个长间隔里）。State 只在 UI 线程写。
+    auto usageCache = huxerui::UseState<std::map<std::string, std::string>>({});
+    huxerui::Lifecycle(
+        [tasks, usageCache] {
+            tasks.Launch([usageCache]() -> huxerui::Task<void> {
+                while (true) {
+                    const auto& config = providerStore().config();
+                    if (!config.usageEnabled || config.usageRefreshMinutes <= 0) {
+                        co_await huxerui::Delay(std::chrono::duration<double>{30});
+                        continue;
+                    }
+                    std::vector<models::Provider> targets;
+                    for (const auto& [toolId, grp] : config.groups) {
+                        for (const auto& p : grp.providers) {
+                            if (!p.usageUrl.empty()) targets.push_back(p);
+                        }
+                    }
+                    // 顺序拉取（每次最长 10s），每个完成即回写缓存。
+                    for (const auto& p : targets) {
+                        WriteUsageCache(usageCache, p.id,
+                                        co_await FetchUsageText(p));
+                    }
+                    co_await huxerui::Delay(std::chrono::duration<double>{
+                        config.usageRefreshMinutes * 60.0});
+                }
+            });
+            return [] {};
+        },
+        0);
 
     // 订阅全局变更计数：托盘切换 / 设置页导入后本页重读。
     (void)revision.Get();
@@ -530,7 +682,8 @@ void ShowProviderForm(huxerui::DialogHandle dialog, huxerui::ToastHandle toast,
         const bool isCurrent = g.current == p.id;
         const bool active = isCurrent || detected.Get() == p.id;
         cards.push_back(
-            ProviderCard(tool, p, active, isCurrent, tasks, toast, revision));
+            ProviderCard(tool, p, active, isCurrent, tasks, toast, revision,
+                         usageCache));
     }
 
     const std::string title = std::string(ToolName(tool)) + " 供应商";

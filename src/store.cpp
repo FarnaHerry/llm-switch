@@ -226,10 +226,13 @@ std::string jsonStr(const nlohmann::json& j, std::string_view key) {
 
 // ---- 各工具 live 文件读写 ------------------------------------------------------
 
-// pi 的 api 字段映射：llm-switch 的 apiFormat → pi models.json 的 api 取值。
+// pi 的 api 字段映射（三档，经 models::normalizeApiFormat 归一）：
+// anthropic → anthropic-messages；openai-responses → openai-responses；
+// 其余（openai-chat / 默认）→ openai-completions。
 std::string piApiValue(std::string_view apiFormat) {
-    if (apiFormat == "anthropic") return "anthropic-messages";
-    if (apiFormat == "openai-responses") return "openai-responses";
+    const auto f = models::normalizeApiFormat(apiFormat);
+    if (f == "anthropic") return "anthropic-messages";
+    if (f == "openai-responses") return "openai-responses";
     return "openai-completions";
 }
 
@@ -237,8 +240,18 @@ std::string piApiValue(std::string_view apiFormat) {
 std::string piApiFormatValue(std::string_view api) {
     if (api == "anthropic-messages") return "anthropic";
     if (api == "openai-responses") return "openai-responses";
-    if (api == "openai-completions") return "openai";
+    if (api == "openai-completions") return "openai-chat";
     return "";
+}
+
+// opencode 的 npm 适配器映射（三档）：anthropic → @ai-sdk/anthropic；
+// openai-responses → @ai-sdk/openai；其余（openai-chat / 默认）→
+// @ai-sdk/openai-compatible。
+std::string_view opencodeNpmValue(std::string_view apiFormat) {
+    const auto f = models::normalizeApiFormat(apiFormat);
+    if (f == "anthropic") return "@ai-sdk/anthropic";
+    if (f == "openai-responses") return "@ai-sdk/openai";
+    return "@ai-sdk/openai-compatible";
 }
 
 // pi 目录/文件权限：目录 0700、文件 0600（对齐官方对凭据目录的约定）。
@@ -384,6 +397,31 @@ void ProviderStore::setThemeMode(std::string mode) {
     save();
 }
 
+void ProviderStore::setUsageEnabled(bool enabled) {
+    config_.usageEnabled = enabled;
+    save();
+}
+
+void ProviderStore::setUsageRefreshMinutes(int minutes) {
+    config_.usageRefreshMinutes = minutes;
+    save();
+}
+
+void ProviderStore::setRouterEnabled(bool enabled) {
+    config_.routerEnabled = enabled;
+    save();
+}
+
+void ProviderStore::setRouterPort(int port) {
+    config_.routerPort = port;
+    save();
+}
+
+void ProviderStore::setRouterFailover(bool enabled) {
+    config_.routerFailover = enabled;
+    save();
+}
+
 void ProviderStore::addProvider(std::string_view tool, models::Provider provider) {
     auto& g = groupRef(tool);
     if (provider.id.empty()) provider.id = generateId();
@@ -474,9 +512,7 @@ void ProviderStore::switchTo(std::string_view tool, const std::string& id) {
         if (!doc.is_object()) doc = nlohmann::json::object();
         backupLiveFile(tool, file);
         nlohmann::json entry;
-        entry["npm"] = target->apiFormat == "anthropic"
-                           ? "@ai-sdk/anthropic"
-                           : "@ai-sdk/openai-compatible";
+        entry["npm"] = opencodeNpmValue(target->apiFormat);
         entry["options"]["baseURL"] = target->baseUrl;
         entry["options"]["apiKey"] = target->apiKey;
         if (!target->model.empty()) {

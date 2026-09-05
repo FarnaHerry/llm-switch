@@ -235,4 +235,84 @@ export bool systemPrefersDark() {
 #endif
 }
 
+// ---- 本地路由统计（llmswitch.router）----
+
+// 路由统计目录：默认 dataDir()/router/；LLMSWITCH_STATS_DIR 覆盖（测试隔离用）。
+export std::filesystem::path statsDir() {
+    if (const char* e = std::getenv("LLMSWITCH_STATS_DIR"); e && *e) {
+        return std::filesystem::path(e);
+    }
+    return dataDir() / "router";
+}
+
+// 请求统计 JSONL 文件 statsDir()/requests.jsonl（确保父目录存在）。
+// llmswitch.router 每请求追加一行，启动时从它回填内存统计。
+export std::filesystem::path statsFile() {
+    const std::filesystem::path dir = statsDir();
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec);
+    return dir / "requests.jsonl";
+}
+
+// ---- MCP 管理（llmswitch.mcp）----
+
+// Claude Code 全局用户配置（顶层 mcpServers map 写这里；**不是** settings.json）。
+export std::filesystem::path claudeJsonFile() {
+    if (const char* e = std::getenv("LLMSWITCH_CLAUDE_JSON"); e && *e) {
+        return std::filesystem::path(e);
+    }
+    return homeDir() / ".claude.json";
+}
+
+// MCP 服务器统一清单（SSOT）：dataDir()/mcp.json（确保父目录存在）。
+export std::filesystem::path mcpStoreFile() {
+    const std::filesystem::path dir = dataDir();
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec);
+    return dir / "mcp.json";
+}
+
+// ---- Skills / 会话管理（llmswitch.skills / llmswitch.sessions）----
+
+// skills 中央库：dataDir()/skills-store/<name>/（SKILL.md + 附带文件），
+// 通过符号链接同步到各工具的 skills 目录（见 llmswitch.skills）。
+export std::filesystem::path skillsStoreDir() {
+    if (const char* e = std::getenv("LLMSWITCH_SKILLS_STORE"); e && *e) {
+        return std::filesystem::path(e);
+    }
+    return dataDir() / "skills-store";
+}
+
+// Claude Code 的 skills 目录（~/.claude/skills）。
+export std::filesystem::path claudeSkillsDir() {
+    if (const char* e = std::getenv("LLMSWITCH_CLAUDE_SKILLS"); e && *e) {
+        return std::filesystem::path(e);
+    }
+    return homeDir() / ".claude" / "skills";
+}
+
+// Codex 的 skills 目录（~/.codex/skills）。
+export std::filesystem::path codexSkillsDir() {
+    if (const char* e = std::getenv("LLMSWITCH_CODEX_SKILLS"); e && *e) {
+        return std::filesystem::path(e);
+    }
+    return homeDir() / ".codex" / "skills";
+}
+
+// Claude Code 历史会话根（~/.claude/projects/<项目>/*.jsonl）。
+export std::filesystem::path claudeProjectsDir() {
+    if (const char* e = std::getenv("LLMSWITCH_CLAUDE_PROJECTS"); e && *e) {
+        return std::filesystem::path(e);
+    }
+    return homeDir() / ".claude" / "projects";
+}
+
+// Codex 历史会话根（~/.codex/sessions/<年>/<月>/<日>/*.jsonl）。
+export std::filesystem::path codexSessionsDir() {
+    if (const char* e = std::getenv("LLMSWITCH_CODEX_SESSIONS"); e && *e) {
+        return std::filesystem::path(e);
+    }
+    return homeDir() / ".codex" / "sessions";
+}
+
 } // namespace cfg

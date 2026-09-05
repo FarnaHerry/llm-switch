@@ -14,4 +14,10 @@ HuxerUI 资源根（`huxerui_add_app` 以 `app` 命名空间注册，codegen 生
 | `opencode.svg` / `opencode_selected.svg` | opencode 官方 logo，simple-icons develop 分支 `opencode`（同改黑色 + 透明度变体，fill-rule evenodd 保留镂空） | CC0 1.0 |
 | `pi.svg` / `pi_selected.svg` | pi-mono 官方 logo，[pi.dev](https://pi.dev) `logo-auto.svg`（等比缩到 24x24 + 黑色 + 透明度变体） | MIT（[pi-mono 仓库](https://github.com/badlogic/pi-mono)） |
 | `settings.svg` / `settings_selected.svg` | 姊妹项目 Clash-Flux（Material 风格手绘） | 同本仓库 |
+| `router.svg` / `router_selected.svg` | 本仓库自绘双向交换箭头（顶级「本地路由」入口） | 同本仓库 |
+| `stats.svg` / `stats_selected.svg` | 本仓库自绘柱状图（顶级「使用统计」入口） | 同本仓库 |
+| `mcp.svg` / `mcp_selected.svg` | 本仓库自绘三方块连接（顶级「MCP 服务器」入口） | 同本仓库 |
+| `skills.svg` / `skills_selected.svg` | 本仓库自绘魔法棒 + 星星（顶级「Skills」入口） | 同本仓库 |
+| `sessions.svg` / `sessions_selected.svg` | 本仓库自绘时钟（顶级「会话」入口） | 同本仓库 |
+| `about.svg` / `about_selected.svg` | 本仓库自绘圆圈 i（顶级「关于」入口） | 同本仓库 |
 | `tray*.png` | 本仓库自绘双向箭头（SVG 源栅格化） | 同本仓库 |

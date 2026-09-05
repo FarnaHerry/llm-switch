@@ -39,23 +39,13 @@ std::string trimTrailingSlash(std::string_view base) {
     return s;
 }
 
-} // namespace
-
-std::vector<std::string> fetchModels(std::string_view baseUrl,
-                                     std::string_view apiKey,
-                                     std::string_view apiFormat) {
-    const std::string base = trimTrailingSlash(baseUrl);
-    if (base.empty()) {
-        throw std::runtime_error("拉取模型列表失败：Base URL 为空");
-    }
-    const bool anthropic = apiFormat == "anthropic";
-    // 端点规则：anthropic → {base}/v1/models；其余（openai / openai-responses）
-    // → {base}/models。
-    const std::string url = base + (anthropic ? "/v1/models" : "/models");
-
+// 通用 GET：Bearer 鉴权，anthropicHeaders=true 时补 x-api-key / anthropic-version。
+// context 用于拼错误消息（"{}失败：…"）。
+std::string httpGet(const std::string& url, std::string_view apiKey,
+                    bool anthropicHeaders, std::string_view context) {
     CURL* easy = curl_easy_init();
     if (easy == nullptr) {
-        throw std::runtime_error("拉取模型列表失败：curl 初始化失败");
+        throw std::runtime_error(std::format("{}失败：curl 初始化失败", context));
     }
     struct Guard {
         CURL* h;
@@ -71,7 +61,7 @@ std::vector<std::string> fetchModels(std::string_view baseUrl,
     if (!apiKey.empty()) {
         const std::string bearer = "Authorization: Bearer " + std::string(apiKey);
         headers = curl_slist_append(headers, bearer.c_str());
-        if (anthropic) {
+        if (anthropicHeaders) {
             // 网关两种鉴权都常见，x-api-key 与 Bearer 都给。
             const std::string xkey = "x-api-key: " + std::string(apiKey);
             headers = curl_slist_append(headers, xkey.c_str());
@@ -97,16 +87,99 @@ std::vector<std::string> fetchModels(std::string_view baseUrl,
     const CURLcode rc = curl_easy_perform(easy);
     if (rc != CURLE_OK) {
         throw std::runtime_error(std::format(
-            "拉取模型列表失败：{}（{}）", curl_easy_strerror(rc), url));
+            "{}失败：{}（{}）", context, curl_easy_strerror(rc), url));
     }
     long status = 0;
     curl_easy_getinfo(easy, CURLINFO_RESPONSE_CODE, &status);
     if (status < 200 || status >= 300) {
         throw std::runtime_error(std::format(
-            "拉取模型列表失败：HTTP {}（{}）—— {}", status, url,
+            "{}失败：HTTP {}（{}）—— {}", context, status, url,
             body.substr(0, 200)));
     }
-    return parseModelIds(body);
+    return body;
+}
+
+} // namespace
+
+std::vector<std::string> fetchModels(std::string_view baseUrl,
+                                     std::string_view apiKey,
+                                     std::string_view apiFormat) {
+    const std::string base = trimTrailingSlash(baseUrl);
+    if (base.empty()) {
+        throw std::runtime_error("拉取模型列表失败：Base URL 为空");
+    }
+    const bool anthropic = apiFormat == "anthropic";
+    // 端点规则：anthropic → {base}/v1/models；其余（openai-chat /
+    // openai-responses）→ {base}/models。
+    const std::string url = base + (anthropic ? "/v1/models" : "/models");
+    return parseModelIds(httpGet(url, apiKey, anthropic, "拉取模型列表"));
+}
+
+std::string fetchUsage(std::string_view url, std::string_view apiKey,
+                       std::string_view jsonPath) {
+    const std::string body =
+        httpGet(std::string(url), apiKey, false, "查询用量");
+    return extractByPath(body, jsonPath);
+}
+
+std::string extractByPath(std::string_view body, std::string_view dottedPath) {
+    const auto j = nlohmann::json::parse(body, nullptr, false);
+    if (j.is_discarded()) {
+        throw std::runtime_error("用量响应不是有效 JSON");
+    }
+    const nlohmann::json* cur = &j;
+    size_t pos = 0;
+    while (pos <= dottedPath.size()) {
+        const size_t dot = dottedPath.find('.', pos);
+        const std::string_view seg = dottedPath.substr(
+            pos, dot == std::string_view::npos ? std::string_view::npos
+                                               : dot - pos);
+        if (seg.empty()) {
+            throw std::runtime_error(
+                std::format("用量路径无效：{}", dottedPath));
+        }
+        if (cur->is_object()) {
+            const auto it = cur->find(std::string(seg));
+            if (it == cur->end()) {
+                throw std::runtime_error(
+                    std::format("响应中找不到路径：{}", dottedPath));
+            }
+            cur = &*it;
+        } else if (cur->is_array()) {
+            if (!std::ranges::all_of(seg, [](unsigned char c) {
+                    return std::isdigit(c) != 0;
+                })) {
+                throw std::runtime_error(
+                    std::format("响应中找不到路径：{}", dottedPath));
+            }
+            const size_t idx = std::stoull(std::string(seg));
+            if (idx >= cur->size()) {
+                throw std::runtime_error(
+                    std::format("响应中找不到路径：{}", dottedPath));
+            }
+            cur = &(*cur)[idx];
+        } else {
+            throw std::runtime_error(
+                std::format("响应中找不到路径：{}", dottedPath));
+        }
+        if (dot == std::string_view::npos) break;
+        pos = dot + 1;
+    }
+    if (cur->is_string()) {
+        return cur->get<std::string>();
+    }
+    if (cur->is_number_integer() || cur->is_number_unsigned()) {
+        return std::to_string(cur->get<long long>());
+    }
+    if (cur->is_number_float()) {
+        // "{}" 走最短往返表示：10.0 → "10"，9.9 → "9.9"。
+        return std::format("{}", cur->get<double>());
+    }
+    if (cur->is_boolean()) {
+        return cur->get<bool>() ? "true" : "false";
+    }
+    throw std::runtime_error(
+        std::format("路径 {} 指向的不是标量", dottedPath));
 }
 
 std::vector<std::string> parseModelIds(std::string_view body) {

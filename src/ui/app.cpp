@@ -2,8 +2,9 @@
 //   标题栏：应用名 + 拖拽区，框架在其右侧渲染窗口按钮；收窄为 24px 高、去背景
 //     直接融入窗口底色。主题为极简 AI 黑白风（MinimalDark/MinimalLightThemeSpec，
 //     与 Clash-Flux 同配色：深色近纯黑 + 纯白主色；浅色海面白 + 近黑主色）。
-//   下方：左侧顶级图标侧边栏（Agent 管理 / 设置，无岛屿包裹，直接落在窗口背景
-//   上）｜内容区（Agent 管理页内再分二级工具栏 + 页面自己的一级岛屿——
+//   下方：左侧顶级图标侧边栏（Agent 管理 / 本地路由 / 使用统计 / MCP 服务器 /
+//   Skills / 会话 / 设置 / 关于，无岛屿包裹，直接落在窗口背景上）｜内容区
+//   （Agent 管理页内再分二级工具栏 + 页面自己的一级岛屿——
 //   PageScaffold，外壳不再套岛）。根节点刷整窗海面底色
 //   （rootSpec.colors.background——AppRoot 在主题 provider 之上，UseTheme 只能
 //   拿到默认浅色 spec，须按 dark 自选；子树在 provider 之下 UseTheme 正常）。
@@ -31,7 +32,13 @@ namespace pages {
 
 enum PageIndex : std::size_t {
     kAgents = 0,
-    kSettings = 1,
+    kRouter = 1,
+    kStats = 2,
+    kMcp = 3,
+    kSkills = 4,
+    kSessions = 5,
+    kSettings = 6,
+    kAbout = 7,
 };
 
 } // namespace pages
@@ -227,12 +234,25 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(huxerui::WindowHandle window,
         const char* tooltip;
         std::size_t page;
     };
-    // 顶级侧栏：Agent 管理（内嵌二级工具栏）+ 设置。
-    const std::array<Item, 2> items{
+    // 顶级侧栏（8 区块）：Agent 管理（内嵌二级工具栏）/ 本地路由 / 使用统计 /
+    // MCP 服务器 / Skills / 会话 / 设置 / 关于。
+    const std::array<Item, 8> items{
         Item{app::images::agents, app::images::agents_selected, "Agent 管理",
              pages::kAgents},
+        Item{app::images::router, app::images::router_selected, "本地路由",
+             pages::kRouter},
+        Item{app::images::stats, app::images::stats_selected, "使用统计",
+             pages::kStats},
+        Item{app::images::mcp, app::images::mcp_selected, "MCP 服务器",
+             pages::kMcp},
+        Item{app::images::skills, app::images::skills_selected, "Skills",
+             pages::kSkills},
+        Item{app::images::sessions, app::images::sessions_selected, "会话",
+             pages::kSessions},
         Item{app::images::settings, app::images::settings_selected, "设置",
              pages::kSettings},
+        Item{app::images::about, app::images::about_selected, "关于",
+             pages::kAbout},
     };
 
     std::vector<huxerui::View> buttons;
@@ -298,6 +318,22 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(huxerui::WindowHandle window,
             revision);
     }
 
+    // 路由自动启动（任务G）：首组合一次。config().routerEnabled 且路由器未运行
+    // 时按 config().routerPort 启动；start 失败抛 std::runtime_error，toast 提示。
+    huxerui::Lifecycle(
+        [toast] {
+            const auto& config = providerStore().config();
+            if (config.routerEnabled && !routerInstance().running()) {
+                try {
+                    routerInstance().start(config.routerPort);
+                } catch (const std::exception& e) {
+                    toast.Show(e.what());
+                }
+            }
+            return [] {};
+        },
+        0);
+
     const bool dark =
         themeMode.Get() == 1 || (themeMode.Get() == 0 && cfg::systemPrefersDark());
     const huxerui::ThemeSpec rootSpec = dark ? MinimalDarkThemeSpec() : MinimalLightThemeSpec();
@@ -305,8 +341,14 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(huxerui::WindowHandle window,
 
     std::vector<huxerui::View> pages;
     pages.push_back(AgentPage(revision).Key("agents").With(huxerui::Grow(1.0F)));
+    pages.push_back(RouterPage().Key("router").With(huxerui::Grow(1.0F)));
+    pages.push_back(StatsPage().Key("stats").With(huxerui::Grow(1.0F)));
+    pages.push_back(McpPage().Key("mcp").With(huxerui::Grow(1.0F)));
+    pages.push_back(SkillsPage().Key("skills").With(huxerui::Grow(1.0F)));
+    pages.push_back(SessionsPage().Key("sessions").With(huxerui::Grow(1.0F)));
     pages.push_back(SettingsPage(themeMode, revision)
                         .Key("settings").With(huxerui::Grow(1.0F)));
+    pages.push_back(AboutPage().Key("about").With(huxerui::Grow(1.0F)));
 
     huxerui::View content = huxerui::Column {
         // 自定义标题栏：应用名 + 拖拽区（框架在其右侧渲染窗口按钮）。收窄 +

@@ -65,6 +65,27 @@ export const ToolSpec* findTool(std::string_view id) {
     return nullptr;
 }
 
+// ---- API 协议（三档）-----------------------------------------------------------
+// Provider.apiFormat 语义 = 供应商端点所说的协议。序列化存原值（"" 即默认档），
+// 判定/显示/映射一律经 normalizeApiFormat 归一，各处不各自解释字符串。
+
+// 归一化到三档之一："openai-chat"（OpenAI Chat Completions，默认）/
+// "openai-responses"（OpenAI Responses）/ "anthropic"（Anthropic Messages
+// 原生）。旧值 "openai" 与未知值都归到默认档。
+export std::string_view normalizeApiFormat(std::string_view apiFormat) {
+    if (apiFormat == "anthropic") return "anthropic";
+    if (apiFormat == "openai-responses") return "openai-responses";
+    return "openai-chat";
+}
+
+// 显示名（表单/详情用）。
+export std::string_view apiFormatLabel(std::string_view apiFormat) {
+    const auto f = normalizeApiFormat(apiFormat);
+    if (f == "anthropic") return "Anthropic Messages（原生）";
+    if (f == "openai-responses") return "OpenAI Responses";
+    return "OpenAI Chat Completions";
+}
+
 // ---- 数据模型 -----------------------------------------------------------------
 
 export struct Provider {
@@ -76,8 +97,13 @@ export struct Provider {
     std::string website;
     std::string notes;
     std::string codexConfigToml;  // 仅 codex 组用：config.toml 整段原文（空 = 切换时不改 config.toml）
-    std::string apiFormat;        // 仅 opencode / pi 组用："" / "openai"（默认）/
+    std::string apiFormat;        // 仅 opencode / pi 组用："" / "openai-chat"（默认）/
                                   // "openai-responses" / "anthropic"
+    // 用量查询（可选；usageUrl 空 = 不查）：
+    std::string usageUrl;    // 用量查询端点（GET + Bearer）
+    std::string usagePath;   // 响应 JSON 点分取值路径（支持数组下标，如
+                             // balance_infos.0.total_balance）
+    std::string usageLabel;  // 显示单位/说明（如 "CNY 余额"）
     std::int64_t createdAt = 0;   // 毫秒
 
     bool operator==(const Provider&) const = default;
@@ -96,6 +122,13 @@ export struct AppConfig {
     // 用 map 而非固定字段，新增工具不改序列化结构。
     std::map<std::string, ProviderGroup> groups;
     std::string themeMode = "system";  // system / dark / light
+    // 用量查询全局设置（Provider.usageUrl 非空的供应商才参与）：
+    bool usageEnabled = true;      // 总开关
+    int usageRefreshMinutes = 10;  // 轮询间隔；0 = 仅手动刷新
+    // 本地路由（llmswitch.router）设置：
+    bool routerEnabled = false;    // 启动应用时自动开启本地路由
+    int routerPort = 15731;        // 监听 127.0.0.1:<port>
+    bool routerFailover = true;    // 上游 429/5xx 时故障转移到组内下一个供应商
 
     bool operator==(const AppConfig&) const = default;
 };
@@ -113,6 +146,9 @@ export nlohmann::json toJson(const Provider& p) {
     j["notes"] = p.notes;
     j["codexConfigToml"] = p.codexConfigToml;
     j["apiFormat"] = p.apiFormat;
+    j["usageUrl"] = p.usageUrl;
+    j["usagePath"] = p.usagePath;
+    j["usageLabel"] = p.usageLabel;
     j["createdAt"] = p.createdAt;
     return j;
 }
@@ -129,6 +165,9 @@ export Provider providerFromJson(const nlohmann::json& j) {
     p.notes = j.value("notes", "");
     p.codexConfigToml = j.value("codexConfigToml", "");
     p.apiFormat = j.value("apiFormat", "");
+    p.usageUrl = j.value("usageUrl", "");
+    p.usagePath = j.value("usagePath", "");
+    p.usageLabel = j.value("usageLabel", "");
     p.createdAt = j.value("createdAt", std::int64_t{0});
     return p;
 }
@@ -160,6 +199,11 @@ export nlohmann::json toJson(const AppConfig& c) {
         j["groups"][id] = toJson(g);
     }
     j["themeMode"] = c.themeMode;
+    j["usageEnabled"] = c.usageEnabled;
+    j["usageRefreshMinutes"] = c.usageRefreshMinutes;
+    j["routerEnabled"] = c.routerEnabled;
+    j["routerPort"] = c.routerPort;
+    j["routerFailover"] = c.routerFailover;
     return j;
 }
 
@@ -181,6 +225,12 @@ export AppConfig fromJson(const nlohmann::json& j) {
         c.groups["codex"] = groupFromJson(j["codex"]);
     }
     c.themeMode = j.value("themeMode", "system");
+    // 旧配置缺字段 → 默认值。
+    c.usageEnabled = j.value("usageEnabled", true);
+    c.usageRefreshMinutes = j.value("usageRefreshMinutes", 10);
+    c.routerEnabled = j.value("routerEnabled", false);
+    c.routerPort = j.value("routerPort", 15731);
+    c.routerFailover = j.value("routerFailover", true);
     return c;
 }
 
@@ -205,8 +255,9 @@ export std::vector<Provider> builtinPresets(std::string_view tool) {
     }
     if (tool == "codex") {
         // OpenAI 兼容端点（Codex 走 auth.json 的 OPENAI_API_KEY + config.toml 的
-        // model_providers 段；wire_api 用各家都支持的 chat completions，model
-        // 以注释提示，避免写死一个用户没有的模型）。
+        // model_providers 段；wire_api 两种取值："chat"（OpenAI Chat
+        // Completions，各家都支持）或 "responses"（OpenAI Responses）——模板
+        // 默认 chat；model 以注释提示，避免写死一个用户没有的模型）。
         return {
             Provider{.name = "OpenRouter",
                      .baseUrl = "https://openrouter.ai/api/v1",
@@ -250,6 +301,21 @@ wire_api = "chat"
     }
     // claude（Claude Desktop 3p 直连）：暂无可靠公共端点预设。
     return {};
+}
+
+// ---- 用量查询模板 ---------------------------------------------------------------
+// 已知厂商的用量查询建议（只收有官方文档的，没把握的不编）。
+// 返回 {usageUrl, usagePath}（usageLabel 由调用方决定，如 "CNY"）；
+// 不认识该 baseUrl 返回 std::nullopt。
+export std::optional<std::pair<std::string, std::string>> suggestUsageQuery(
+    std::string_view baseUrl) {
+    // DeepSeek 官方：GET /user/balance（Bearer），响应
+    // {"balance_infos": [{"total_balance": "...", ...}]}。
+    if (baseUrl.find("api.deepseek.com") != std::string_view::npos) {
+        return std::pair{std::string("https://api.deepseek.com/user/balance"),
+                         std::string("balance_infos.0.total_balance")};
+    }
+    return std::nullopt;
 }
 
 } // namespace models

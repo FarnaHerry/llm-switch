@@ -6,7 +6,8 @@
 // codex 切换（auth.json + config.toml 整段替换）、opencode（additive upsert、
 // 顶层 model、anthropic 变体、JSON5 报错不碰文件）、pi（双文件、权限位、
 // apiFormat 映射）、claude desktop（Linux 不支持报错 + 覆盖后四文件）、
-// 备份生成、detectCurrent、导出/导入回滚、旧格式 config.json 迁移、
+// 备份生成、detectCurrent、导出/导入回滚、apiFormat 三档映射与归一、
+// usage 三字段与全局设置持久化、旧格式 config.json 迁移、
 // 损坏 config.json 挪走不崩溃。
 #include <cstdio>    // stderr（std 模块不导出 stdout/stderr 宏）
 #include <cstdlib>   // setenv
@@ -239,6 +240,20 @@ int main() {
         const auto j = readJson(opencodeConfig);
         CHECK(j["provider"][idO]["npm"] == "@ai-sdk/anthropic");
     }
+    // openai-responses 变体：npm 段切到 @ai-sdk/openai；未知值回落默认档
+    {
+        models::Provider updated = s.group("opencode").providers.back();
+        updated.apiFormat = "openai-responses";
+        s.updateProvider("opencode", updated);
+        s.switchTo("opencode", idO);
+        CHECK(readJson(opencodeConfig)["provider"][idO]["npm"] ==
+              "@ai-sdk/openai");
+        updated.apiFormat = "weird";
+        s.updateProvider("opencode", updated);
+        s.switchTo("opencode", idO);
+        CHECK(readJson(opencodeConfig)["provider"][idO]["npm"] ==
+              "@ai-sdk/openai-compatible");
+    }
     // JSON5（带注释）→ switchTo 抛错且不碰原文件
     {
         const std::string json5 = "{\n  // 官方允许注释\n  \"theme\": \"opencode\"\n}\n";
@@ -291,6 +306,17 @@ int main() {
         CHECK(s.detectCurrent("pi") == idP);
         CHECK(countBackups(cfg::backupsDir() / "pi", "models.json") == 1);
         CHECK(countBackups(cfg::backupsDir() / "pi", "settings.json") == 1);
+    }
+    // 默认档（apiFormat 留空）→ openai-completions
+    {
+        models::Provider pp3{.name = "旧协议",
+                             .baseUrl = "https://legacy.example.com/v1",
+                             .apiKey = "sk-pi-legacy"};  // apiFormat 默认 ""
+        s.addProvider("pi", pp3);
+        const std::string idP3 = s.group("pi").providers.back().id;
+        s.switchTo("pi", idP3);
+        CHECK(readJson(piModels)["providers"][idP3]["api"] ==
+              "openai-completions");
     }
     // anthropic → anthropic-messages 映射 + detectCurrent 的 apiKey/baseUrl 回退
     {
@@ -398,7 +424,60 @@ int main() {
         CHECK(countBackups(cfg::backupsDir(), "config.json") >= 1);
     }
 
-    // 11. 旧格式 config.json（顶层 claude/codex）→ load 自动迁移成 groups 键
+    // 11. models 层三档直测 + usage 字段持久化 + usage 全局设置
+    {
+        CHECK(models::normalizeApiFormat("") == "openai-chat");
+        CHECK(models::normalizeApiFormat("openai") == "openai-chat");
+        CHECK(models::normalizeApiFormat("openai-chat") == "openai-chat");
+        CHECK(models::normalizeApiFormat("openai-responses") ==
+              "openai-responses");
+        CHECK(models::normalizeApiFormat("anthropic") == "anthropic");
+        CHECK(models::apiFormatLabel("openai-chat") == "OpenAI Chat Completions");
+        CHECK(models::apiFormatLabel("openai-responses") == "OpenAI Responses");
+        CHECK(models::apiFormatLabel("anthropic") ==
+              "Anthropic Messages（原生）");
+        const auto sug =
+            models::suggestUsageQuery("https://api.deepseek.com/v1");
+        CHECK(sug.has_value());
+        CHECK(sug->first == "https://api.deepseek.com/user/balance");
+        CHECK(sug->second == "balance_infos.0.total_balance");
+        CHECK(!models::suggestUsageQuery("https://x.example.com").has_value());
+    }
+    {
+        // usage 三字段随落盘持久
+        models::Provider pu{.name = "带用量",
+                            .baseUrl = "https://api.deepseek.com/v1",
+                            .apiKey = "sk-usage",
+                            .usageUrl = "https://api.deepseek.com/user/balance",
+                            .usagePath = "balance_infos.0.total_balance",
+                            .usageLabel = "CNY"};
+        s.addProvider("claude-code", pu);
+        const std::string idU = s.group("claude-code").providers.back().id;
+        auto reloaded = store::ProviderStore::load();
+        bool found = false;
+        for (const auto& p : reloaded.group("claude-code").providers) {
+            if (p.id == idU) {
+                found = true;
+                CHECK(p.usageUrl == "https://api.deepseek.com/user/balance");
+                CHECK(p.usagePath == "balance_infos.0.total_balance");
+                CHECK(p.usageLabel == "CNY");
+            }
+        }
+        CHECK(found);
+        // 全局 usage 设置：默认值 + setter 落盘
+        CHECK(reloaded.config().usageEnabled);
+        CHECK(reloaded.config().usageRefreshMinutes == 10);
+        reloaded.setUsageEnabled(false);
+        reloaded.setUsageRefreshMinutes(0);
+        auto again = store::ProviderStore::load();
+        CHECK(!again.config().usageEnabled);
+        CHECK(again.config().usageRefreshMinutes == 0);
+        // 恢复默认，不干扰后续用例
+        again.setUsageEnabled(true);
+        again.setUsageRefreshMinutes(10);
+    }
+
+    // 12. 旧格式 config.json（顶层 claude/codex）→ load 自动迁移成 groups 键
     // 迁移前先清掉所有 live 文件，避免首次导入收编干扰断言。
     fs::remove_all(home / ".claude");
     fs::remove_all(home / ".codex");
@@ -420,9 +499,12 @@ int main() {
         CHECK(migrated.group("codex").providers.size() == 1);
         CHECK(migrated.group("codex").providers[0].id == "old-2");
         CHECK(migrated.config().themeMode == "dark");
+        // 旧文件无 usage 字段 → 默认值
+        CHECK(migrated.config().usageEnabled);
+        CHECK(migrated.config().usageRefreshMinutes == 10);
     }
 
-    // 12. 损坏的 config.json → load 不崩溃，坏文件被挪到 .corrupt-<时间戳>
+    // 13. 损坏的 config.json → load 不崩溃，坏文件被挪到 .corrupt-<时间戳>
     writeFile(cfg::configFile(), "这不是 JSON {{{\n");
     {
         auto broken = store::ProviderStore::load();
@@ -437,7 +519,7 @@ int main() {
         CHECK(corruptMoved);
     }
 
-    // 13. 清理临时目录
+    // 14. 清理临时目录
     {
         std::error_code ec;
         fs::remove_all(root, ec);

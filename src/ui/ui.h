@@ -8,6 +8,7 @@
 #include <string_view>
 
 import llmswitch.models;
+import llmswitch.router;  // 任务E：routerInstance() 声明需要 router::LocalRouter
 import llmswitch.store;
 
 namespace llmswitch::ui {
@@ -84,5 +85,29 @@ huxerui::View Card(huxerui::View content);
 // 内容加底板（只有标题+消息的内置形态才有 DialogStyle），统一包一层：
 // overlay 表面 + 阴影 + 描边 + 16pt 圆角 + 内边距。
 huxerui::View DialogCard(huxerui::View content);
+
+// ---- 路由/统计页面（router_page.cpp / stats_page.cpp）----
+// 本地路由页：运行状态/启用开关/端口/故障转移控制、各工具接入地址、最近请求日志。
+huxerui::View RouterPage();
+// 使用统计页：汇总指标、按供应商分布、刷新/清空统计。
+huxerui::View StatsPage();
+
+// 进程级 LocalRouter 单例（定义在 router_page.cpp）：resolver 回调读
+// providerStore() 的组快照，首次访问按 config().routerFailover 设置故障转移。
+// app.cpp 首组合时若 config().routerEnabled 且 !routerInstance().running()，
+// 则 try { routerInstance().start(config().routerPort); } catch 后 toast 中文错误。
+router::LocalRouter& routerInstance();
+
+// ---- MCP/Skills/会话页面（mcp_page.cpp / skills_page.cpp / sessions_page.cpp）----
+// MCP 服务器管理页（页面级持有 mcp::McpStore）。
+huxerui::View McpPage();
+// Skills 管理页（页面级持有 skills::SkillsStore）。
+huxerui::View SkillsPage();
+// 历史会话管理页（页面级持有会话列表 State）。
+huxerui::View SessionsPage();
+
+// ---- 关于页（about_page.cpp）----
+// 应用名/版本/简介 + 链接 + 技术栈 + 许可致谢。
+huxerui::View AboutPage();
 
 } // namespace llmswitch::ui
