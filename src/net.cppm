@@ -33,4 +33,10 @@ export std::string fetchUsage(std::string_view url, std::string_view apiKey,
 // "true"/"false"。坏 JSON / 路径不存在 / 终值非标量抛 std::runtime_error。
 export std::string extractByPath(std::string_view body, std::string_view dottedPath);
 
+// 连通性检测：GET baseUrl（不带鉴权、丢弃响应体），收到任何 HTTP 响应
+// （含 4xx/5xx）都算连通，返回全程耗时毫秒（CURLINFO_TOTAL_TIME）；传输层
+// 失败（DNS / 连接拒绝 / 超时）抛 std::runtime_error（中文消息）。同步阻塞
+// （连接 5s / 全程 10s），调用方负责线程（同 fetchModels）。
+export double pingLatencyMs(std::string_view baseUrl);
+
 } // namespace net

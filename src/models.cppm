@@ -24,6 +24,9 @@ export struct ToolSpec {
     std::string_view iconName;      // resources 图标名（app::images::<iconName>）
     bool needsModel;    // 是否有「默认模型」字段（opencode / pi）
     bool hasApiFormat;  // 是否有 apiFormat 字段（opencode / pi）
+    // 是否有三档模型映射字段 haiku/sonnet/opus（claude-code 写
+    // ANTHROPIC_DEFAULT_*_MODEL env；claude desktop 写 inferenceModels 映射条目）
+    bool hasModelMappings;
 };
 
 // 注册表顺序即 UI 侧栏/托盘菜单顺序。
@@ -32,27 +35,32 @@ export constexpr std::array<ToolSpec, 5> kToolRegistry{{
              .displayName = "Claude Code",
              .iconName = "claudecode",
              .needsModel = false,
-             .hasApiFormat = false},
+             .hasApiFormat = false,
+             .hasModelMappings = true},
     ToolSpec{.id = "claude",
              .displayName = "Claude Desktop",
              .iconName = "claude",
              .needsModel = false,
-             .hasApiFormat = false},
+             .hasApiFormat = false,
+             .hasModelMappings = true},
     ToolSpec{.id = "codex",
              .displayName = "Codex",
              .iconName = "codex",
              .needsModel = false,
-             .hasApiFormat = false},
+             .hasApiFormat = false,
+             .hasModelMappings = false},
     ToolSpec{.id = "opencode",
              .displayName = "opencode",
              .iconName = "opencode",
              .needsModel = true,
-             .hasApiFormat = true},
+             .hasApiFormat = true,
+             .hasModelMappings = false},
     ToolSpec{.id = "pi",
              .displayName = "Pi",
              .iconName = "pi",
              .needsModel = true,
-             .hasApiFormat = true},
+             .hasApiFormat = true,
+             .hasModelMappings = false},
 }};
 
 export std::span<const ToolSpec> toolRegistry() { return kToolRegistry; }
@@ -94,6 +102,12 @@ export struct Provider {
     std::string baseUrl;
     std::string apiKey;
     std::string model;          // 可选，空 = 切换时不写 env.ANTHROPIC_MODEL
+    // 三档模型映射（仅 hasModelMappings 工具：claude-code / claude，均选填）：
+    // claude-code 切换时写 env.ANTHROPIC_DEFAULT_HAIKU/SONNET/OPUS_MODEL；
+    // claude desktop 切换时每档写成 inferenceModels 的一个映射条目。
+    std::string haikuModel;
+    std::string sonnetModel;
+    std::string opusModel;
     std::string website;
     std::string notes;
     std::string codexConfigToml;  // 仅 codex 组用：config.toml 整段原文（空 = 切换时不改 config.toml）
@@ -142,6 +156,9 @@ export nlohmann::json toJson(const Provider& p) {
     j["baseUrl"] = p.baseUrl;
     j["apiKey"] = p.apiKey;
     j["model"] = p.model;
+    j["haikuModel"] = p.haikuModel;
+    j["sonnetModel"] = p.sonnetModel;
+    j["opusModel"] = p.opusModel;
     j["website"] = p.website;
     j["notes"] = p.notes;
     j["codexConfigToml"] = p.codexConfigToml;
@@ -161,6 +178,9 @@ export Provider providerFromJson(const nlohmann::json& j) {
     p.baseUrl = j.value("baseUrl", "");
     p.apiKey = j.value("apiKey", "");
     p.model = j.value("model", "");
+    p.haikuModel = j.value("haikuModel", "");
+    p.sonnetModel = j.value("sonnetModel", "");
+    p.opusModel = j.value("opusModel", "");
     p.website = j.value("website", "");
     p.notes = j.value("notes", "");
     p.codexConfigToml = j.value("codexConfigToml", "");
@@ -240,7 +260,8 @@ export AppConfig fromJson(const nlohmann::json& j) {
 // 参数为注册表工具 id。
 export std::vector<Provider> builtinPresets(std::string_view tool) {
     if (tool == "claude-code") {
-        // Anthropic 兼容端点（Claude Code 走 ANTHROPIC_BASE_URL）。
+        // Anthropic 兼容端点（Claude Code 走 ANTHROPIC_BASE_URL）；官方端点
+        // 由列表常驻「官方」卡承担（officialVendorName），不在预设里重复。
         return {
             Provider{.name = "DeepSeek",
                      .baseUrl = "https://api.deepseek.com/anthropic",
@@ -299,8 +320,17 @@ wire_api = "chat"
                      .website = "https://platform.moonshot.cn"},
         };
     }
-    // claude（Claude Desktop 3p 直连）：暂无可靠公共端点预设。
+    // claude（Claude Desktop 3p 直连）：暂无第三方预设（官方走常驻卡）。
     return {};
+}
+
+// ---- 官方厂商 -----------------------------------------------------------------
+// 工具的官方厂商名：供应商列表首位常驻「官方」卡用（切换 = store 的
+// restoreOfficial 还原厂商原生状态）。空串 = 该工具无官方默认状态。
+export std::string_view officialVendorName(std::string_view tool) {
+    if (tool == "claude-code" || tool == "claude") return "Anthropic 官方";
+    if (tool == "codex") return "OpenAI 官方";
+    return "";
 }
 
 // ---- 用量查询模板 ---------------------------------------------------------------

@@ -29,11 +29,17 @@ inline constexpr float kTitleBarContentHeight = 24.0F;
 // UI 线程的组合/回调里；live 文件读写是微秒级本地 IO，不需要任务线程）。
 store::ProviderStore& providerStore();
 
-// apiKey 掩码显示：前 4 后 4，中间星号；短于 9 位整体打星。
-std::string MaskedApiKey(const std::string& key);
-
 // 工具显示名（侧边栏提示 / 托盘菜单分组标题 / 页面标题）。
 std::string_view ToolName(std::string_view tool);
+
+// ToolSpec.iconName → 图标资源对（普通半透明 / 选中实心变体，
+// resources/README.md 有来源与许可表）。未知名回退 agents 图标。
+// 供应商页工具栏与会话页过滤组共用。
+struct IconPair {
+    huxerui::ImageResource normal;
+    huxerui::ImageResource selected;
+};
+IconPair ToolIcon(std::string_view iconName);
 
 // ---- 岛屿结构（对齐 Clash-Flux island 模型）----
 // 语义层级：页面通过层级选表面，不直接依赖 Material 的 surface_container_* 命名；
@@ -62,12 +68,15 @@ IslandTheme ResolveIslandTheme(const huxerui::ThemeSpec& theme);
 huxerui::View IslandSurface(huxerui::View content, IslandLevel level = IslandLevel::Base);
 
 // ---- 页面（定义在各自 .cpp，均为 [[huxerui::composable]]）----
-// Agent 管理页：二级图标侧栏（5 个 agent 工具）+ 右侧 ProvidersPage。
+// Agent 管理页：薄宿主，持有当前工具 State 并转交 ProvidersPage（工具图标栏
+// 在供应商岛屿内部顶部）。
 huxerui::View AgentPage(huxerui::State<int> revision);
-// 供应商列表页：各工具组共用同一组件，tool 取 models::toolRegistry() 的
-// 注册表 id（claude-code / codex / ...）。revision 是全局变更计数（AppRoot
-// 持有）：任何写库操作后 +1，驱动本页重读与托盘菜单重建。
-huxerui::View ProvidersPage(std::string tool, huxerui::State<int> revision);
+// 供应商列表页：各工具组共用同一组件，currentTool 取 models::toolRegistry()
+// 的注册表 id（claude-code / codex / ...），岛屿内部顶部渲染工具图标栏。
+// revision 是全局变更计数（AppRoot 持有）：任何写库操作后 +1，驱动本页重读
+// 与托盘菜单重建。
+huxerui::View ProvidersPage(huxerui::State<std::string> currentTool,
+                            huxerui::State<int> revision);
 // 设置页持有主题模式 State（AppRoot 传入）。
 huxerui::View SettingsPage(huxerui::State<int> themeMode, huxerui::State<int> revision);
 

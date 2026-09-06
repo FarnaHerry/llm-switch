@@ -254,6 +254,114 @@ std::string_view opencodeNpmValue(std::string_view apiFormat) {
     return "@ai-sdk/openai-compatible";
 }
 
+// ---- codex config.toml 顶层 model 键 -----------------------------------------
+// TOML 顶层键必须出现在任何 [table] 节之前，因此两个 helper 只扫第一个 `[`
+// 节头之前的行，节内内容一律不碰。
+
+// 去掉前导空白。
+std::string_view trimLeft(std::string_view s) {
+    const auto it = std::ranges::find_if(
+        s, [](unsigned char c) { return !std::isspace(c); });
+    return s.substr(static_cast<std::size_t>(it - s.begin()));
+}
+
+// 行级解析顶层 model 键：去掉前导空白与可选的 `#` 注释前缀后，若余下文本以
+// `model` + 空白/`=` 开头则返回等号右侧的原始值文本（trim 后，不去引号）。
+// 不是 model 行返回空；commentedOut 传出该行是否为注释行。
+std::string codexModelLineValue(std::string_view line, bool& commentedOut) {
+    std::string_view s = trimLeft(line);
+    commentedOut = false;
+    if (s.starts_with('#')) {
+        commentedOut = true;
+        s = trimLeft(s.substr(1));
+    }
+    if (!s.starts_with("model")) return "";
+    s.remove_prefix(5);
+    if (!s.empty() && s.front() != '=' &&
+        !std::isspace(static_cast<unsigned char>(s.front()))) {
+        return "";  // model_provider 等前缀键不算
+    }
+    s = trimLeft(s);
+    if (!s.starts_with('=')) return "";
+    s = trimLeft(s.substr(1));
+    return std::string(s);
+}
+
+// 读顶层 model = "..." 的值（只认未注释行；best-effort，读不到返回空串）。
+std::string parseCodexModel(std::string_view toml) {
+    std::istringstream in{std::string(toml)};
+    for (std::string line; std::getline(in, line);) {
+        const auto trimmed = trimLeft(line);
+        if (trimmed.starts_with('[')) break;  // 顶层结束
+        bool commentedOut = false;
+        const std::string value = codexModelLineValue(line, commentedOut);
+        if (value.empty() || commentedOut) continue;
+        if (value.size() >= 2 && value.front() == '"' && value.back() == '"') {
+            return value.substr(1, value.size() - 2);
+        }
+        return "";
+    }
+    return "";
+}
+
+// 把顶层 model = "<model>" 写进 config.toml 文本：有未注释 model 行就替换值；
+// 否则替换第一条 `# model = ...` 注释行；都没有则在文件开头插入。model 为空
+// 返回原文。其余内容（含所有 [table] 节）原样保留。
+std::string applyCodexModel(std::string_view toml, std::string_view model) {
+    if (model.empty()) return std::string(toml);
+    std::string escaped;
+    for (const char c : model) {
+        if (c == '\\' || c == '"') escaped += '\\';
+        escaped += c;
+    }
+    const std::string newLine = "model = \"" + escaped + "\"";
+    std::string out;
+    std::istringstream in{std::string(toml)};
+    std::string line;
+    bool inSection = false;    // 已进入 [table] 节区，停止 model 行匹配
+    bool replaced = false;     // 已写入未注释 model 行
+    bool sawCommented = false;
+    std::string::size_type commentedPos = 0;
+    while (std::getline(in, line)) {
+        if (inSection || replaced) {
+            out += line;
+            out += '\n';
+            continue;
+        }
+        if (trimLeft(line).starts_with('[')) {
+            inSection = true;  // 进入节区，停止扫描
+            out += line;
+            out += '\n';
+            continue;
+        }
+        bool commentedOut = false;
+        if (!codexModelLineValue(line, commentedOut).empty()) {
+            if (!commentedOut) {
+                out += newLine;
+                out += '\n';
+                replaced = true;
+                continue;
+            }
+            if (!sawCommented) {
+                sawCommented = true;
+                commentedPos = out.size();
+            }
+        }
+        out += line;
+        out += '\n';
+    }
+    if (!replaced) {  // 顶层没有未注释 model 行
+        if (sawCommented) {
+            // 整行替换第一条注释行（行末必带 \n）。
+            const auto nl = out.find('\n', commentedPos);
+            out.replace(commentedPos, nl - commentedPos, newLine);
+        } else {
+            out.insert(0, newLine + "\n");
+        }
+    }
+    return out;
+}
+
 // pi 目录/文件权限：目录 0700、文件 0600（对齐官方对凭据目录的约定）。
 void restrictPiDir(const std::filesystem::path& dir) {
     std::error_code ec;
@@ -306,6 +414,21 @@ bool isClaudeSafeModelId(std::string model) {
         if (tail.starts_with(role) && tail.size() > role.size()) return true;
     }
     return false;
+}
+
+// 组一条 inferenceModels 条目：actual 本身是白名单 route id 就直接写 name；
+// 否则借用 borrowedId（该档的安全角色名），真实模型名放 labelOverride 显示
+// （供应商模型名如 kimi-k2 直写会触发桌面端 fail-all 拒收整组）。
+nlohmann::json claudeDesktopModelEntry(const std::string& actual,
+                                       std::string_view borrowedId) {
+    nlohmann::json m;
+    if (isClaudeSafeModelId(actual)) {
+        m["name"] = actual;
+    } else {
+        m["name"] = borrowedId;
+        m["labelOverride"] = actual;
+    }
+    return m;
 }
 
 // 工具的 live 文件是否已存在（load() 首次导入判定用）。
@@ -486,11 +609,22 @@ void ProviderStore::switchTo(std::string_view tool, const std::string& id) {
         patch["env"]["ANTHROPIC_BASE_URL"] = target->baseUrl;
         patch["env"]["ANTHROPIC_AUTH_TOKEN"] = target->apiKey;
         if (!target->model.empty()) patch["env"]["ANTHROPIC_MODEL"] = target->model;
+        // 三档模型映射（官方 env，均选填）。
+        if (!target->haikuModel.empty()) {
+            patch["env"]["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = target->haikuModel;
+        }
+        if (!target->sonnetModel.empty()) {
+            patch["env"]["ANTHROPIC_DEFAULT_SONNET_MODEL"] = target->sonnetModel;
+        }
+        if (!target->opusModel.empty()) {
+            patch["env"]["ANTHROPIC_DEFAULT_OPUS_MODEL"] = target->opusModel;
+        }
         deepMerge(settings, patch);
         atomicWrite(file, settings.dump(2) + "\n");
     } else if (tool == "codex") {
         // auth.json 只深合并 OPENAI_API_KEY；codexConfigToml 非空时
-        // config.toml 整段替换（TOML 不做结构化合并，原文即模板）。
+        // config.toml 整段替换（TOML 不做结构化合并，原文即模板）；model
+        // 非空时再行级重写顶层 model 键（其余内容原样保留）。
         const auto authFile = cfg::codexAuthFile();
         nlohmann::json auth = readJsonOrNull(authFile);
         if (!auth.is_object()) auth = nlohmann::json::object();
@@ -502,7 +636,8 @@ void ProviderStore::switchTo(std::string_view tool, const std::string& id) {
         if (!target->codexConfigToml.empty()) {
             const auto tomlFile = cfg::codexConfigFile();
             backupLiveFile(tool, tomlFile);
-            atomicWrite(tomlFile, target->codexConfigToml);
+            atomicWrite(tomlFile,
+                        applyCodexModel(target->codexConfigToml, target->model));
         }
     } else if (tool == "opencode") {
         // additive 模式：往顶层 provider map upsert 本工具条目，其余顶层字段
@@ -589,18 +724,28 @@ void ProviderStore::switchTo(std::string_view tool, const std::string& id) {
         profile["inferenceGatewayAuthScheme"] = "bearer";
         profile["inferenceGatewayBaseUrl"] = target->baseUrl;
         profile["inferenceProvider"] = "gateway";
+        // inferenceModels：主模型（直连官方时通常就这一条）+ 三档映射（每档
+        // 映射到供应商真实模型名）。name 必须是桌面端白名单 route id（见
+        // claudeDesktopModelEntry / isClaudeSafeModelId）。
+        nlohmann::json inferenceModels = nlohmann::json::array();
         if (!target->model.empty()) {
-            // inferenceModels 的 name 必须是桌面端白名单 route id（见
-            // isClaudeSafeModelId）；供应商模型名（kimi-k2 等）会被 fail-all
-            // 拒收，此时借用安全角色名，真实模型名放 labelOverride 显示。
-            nlohmann::json m;
-            if (isClaudeSafeModelId(target->model)) {
-                m["name"] = target->model;
-            } else {
-                m["name"] = "claude-sonnet-4-6";
-                m["labelOverride"] = target->model;
-            }
-            profile["inferenceModels"] = nlohmann::json::array({m});
+            inferenceModels.push_back(
+                claudeDesktopModelEntry(target->model, "claude-sonnet-4-6"));
+        }
+        if (!target->haikuModel.empty()) {
+            inferenceModels.push_back(
+                claudeDesktopModelEntry(target->haikuModel, "claude-haiku-4-5"));
+        }
+        if (!target->sonnetModel.empty()) {
+            inferenceModels.push_back(
+                claudeDesktopModelEntry(target->sonnetModel, "claude-sonnet-4-6"));
+        }
+        if (!target->opusModel.empty()) {
+            inferenceModels.push_back(
+                claudeDesktopModelEntry(target->opusModel, "claude-opus-4-8"));
+        }
+        if (!inferenceModels.empty()) {
+            profile["inferenceModels"] = std::move(inferenceModels);
         }
         backupLiveFile(tool, profileFile);
         atomicWrite(profileFile, profile.dump(2) + "\n");
@@ -701,6 +846,115 @@ std::string ProviderStore::detectCurrent(std::string_view tool) const {
     throw std::runtime_error(std::format("未知的工具：{}", tool));
 }
 
+void ProviderStore::restoreOfficial(std::string_view tool) {
+    auto& g = groupRef(tool);  // 未注册工具抛错
+
+    if (tool == "claude-code") {
+        // 回到官方 OAuth 登录：撤掉 env 块里本应用写入的三个覆盖键，其余
+        // env 键与 permissions 等字段原样保留。
+        const auto file = cfg::claudeSettingsFile();
+        std::error_code ec;
+        if (std::filesystem::exists(file, ec)) {
+            nlohmann::json settings = readJsonOrNull(file);
+            if (settings.is_object()) {
+                backupLiveFile(tool, file);
+                if (settings.contains("env") && settings["env"].is_object()) {
+                    auto& env = settings["env"];
+                    env.erase("ANTHROPIC_BASE_URL");
+                    env.erase("ANTHROPIC_AUTH_TOKEN");
+                    env.erase("ANTHROPIC_MODEL");
+                    env.erase("ANTHROPIC_DEFAULT_HAIKU_MODEL");
+                    env.erase("ANTHROPIC_DEFAULT_SONNET_MODEL");
+                    env.erase("ANTHROPIC_DEFAULT_OPUS_MODEL");
+                }
+                atomicWrite(file, settings.dump(2) + "\n");
+            }
+        }
+    } else if (tool == "codex") {
+        // 回到官方 ChatGPT 登录：auth.json 删 OPENAI_API_KEY（tokens 等其余
+        // 字段保留；删完为空对象则删文件）。config.toml 仅当内容与组内某
+        // provider 的 codexConfigToml 完全一致（本应用写入且未被手改）才删，
+        // 用户手改过的文件不动。
+        const auto authFile = cfg::codexAuthFile();
+        std::error_code ec;
+        if (std::filesystem::exists(authFile, ec)) {
+            nlohmann::json auth = readJsonOrNull(authFile);
+            if (auth.is_object()) {
+                backupLiveFile(tool, authFile);
+                auth.erase("OPENAI_API_KEY");
+                if (auth.empty()) {
+                    std::filesystem::remove(authFile, ec);
+                } else {
+                    atomicWrite(authFile, auth.dump(2) + "\n");
+                }
+            }
+        }
+        const auto tomlFile = cfg::codexConfigFile();
+        if (std::filesystem::exists(tomlFile, ec)) {
+            const std::string current = readTextFile(tomlFile);
+            for (const auto& p : g.providers) {
+                if (!p.codexConfigToml.empty() &&
+                    (current == p.codexConfigToml ||
+                     current == applyCodexModel(p.codexConfigToml, p.model))) {
+                    backupLiveFile(tool, tomlFile);
+                    std::filesystem::remove(tomlFile, ec);
+                    break;
+                }
+            }
+        }
+    } else if (tool == "claude") {
+        // 撤掉 3p 直连：两份 claude_desktop_config.json 删 deploymentMode 键；
+        // _meta.json 移除本应用 profile 条目并清 appliedId（profile 文件本体
+        // 保留，未被引用即无害）。Linux 不支持。
+        const auto baseDir = cfg::claudeDesktopDir();
+        if (baseDir.empty()) {
+            throw std::runtime_error(
+                "Claude Desktop 不支持 Linux（仅 macOS / Windows）");
+        }
+        const auto threepDir = cfg::claudeDesktop3pDir();
+        std::error_code ec;
+        for (const auto& file :
+             {baseDir / "claude_desktop_config.json",
+              threepDir / "claude_desktop_config.json"}) {
+            if (!std::filesystem::exists(file, ec)) continue;
+            nlohmann::json doc = readJsonOrNull(file);
+            if (!doc.is_object()) continue;
+            backupLiveFile(tool, file);
+            doc.erase("deploymentMode");
+            atomicWrite(file, doc.dump(2) + "\n");
+        }
+        const auto profileFile = claudeDesktopProfileFile();
+        const auto metaFile = profileFile.parent_path() / "_meta.json";
+        if (std::filesystem::exists(metaFile, ec)) {
+            nlohmann::json meta = readJsonOrNull(metaFile);
+            if (meta.is_object()) {
+                backupLiveFile(tool, metaFile);
+                if (meta.contains("entries") && meta["entries"].is_array()) {
+                    nlohmann::json entries = nlohmann::json::array();
+                    for (const auto& e : meta["entries"]) {
+                        if (jsonStr(e, "id") != kClaudeDesktopProfileId) {
+                            entries.push_back(e);
+                        }
+                    }
+                    meta["entries"] = entries;
+                }
+                if (jsonStr(meta, "appliedId") == kClaudeDesktopProfileId) {
+                    meta.erase("appliedId");
+                }
+                atomicWrite(metaFile, meta.dump(2) + "\n");
+            }
+        }
+    } else {
+        const auto* spec = models::findTool(tool);
+        throw std::runtime_error(std::format(
+            "{} 没有官方默认状态可恢复",
+            spec != nullptr ? spec->displayName : tool));
+    }
+
+    g.current.clear();
+    save();
+}
+
 models::Provider ProviderStore::importLive(std::string_view tool) {
     auto& g = groupRef(tool);
     std::error_code ec;
@@ -730,6 +984,9 @@ models::Provider ProviderStore::importLive(std::string_view tool) {
         p.baseUrl = claudeEnvValue(j, "ANTHROPIC_BASE_URL");
         p.apiKey = claudeEnvValue(j, "ANTHROPIC_AUTH_TOKEN");
         p.model = claudeEnvValue(j, "ANTHROPIC_MODEL");
+        p.haikuModel = claudeEnvValue(j, "ANTHROPIC_DEFAULT_HAIKU_MODEL");
+        p.sonnetModel = claudeEnvValue(j, "ANTHROPIC_DEFAULT_SONNET_MODEL");
+        p.opusModel = claudeEnvValue(j, "ANTHROPIC_DEFAULT_OPUS_MODEL");
         return adopt(std::move(p));
     }
     if (tool == "codex") {
@@ -738,6 +995,11 @@ models::Provider ProviderStore::importLive(std::string_view tool) {
         const auto j = readJsonOrNull(file);
         models::Provider p;
         p.apiKey = jsonStr(j, "OPENAI_API_KEY");
+        // 顺带从 config.toml 顶层 model 键收回模型（best-effort，读不到为空）。
+        const auto tomlFile = cfg::codexConfigFile();
+        if (std::filesystem::exists(tomlFile, ec)) {
+            p.model = parseCodexModel(readTextFile(tomlFile));
+        }
         // codex 组只凭 apiKey 匹配（无 baseUrl），这里直接内联复用逻辑。
         for (const auto& cur : g.providers) {
             if (cur.apiKey == p.apiKey) {
@@ -814,6 +1076,28 @@ models::Provider ProviderStore::importLive(std::string_view tool) {
         models::Provider p;
         p.baseUrl = jsonStr(j, "inferenceGatewayBaseUrl");
         p.apiKey = jsonStr(j, "inferenceGatewayApiKey");
+        // 收回 inferenceModels：条目真实名 = labelOverride（有）否则 name；
+        // 按 route id 前缀归到三档映射字段，第一条同时填 model。best-effort。
+        if (j.contains("inferenceModels") && j["inferenceModels"].is_array()) {
+            bool first = true;
+            for (const auto& m : j["inferenceModels"]) {
+                const std::string label = jsonStr(m, "labelOverride");
+                const std::string name = jsonStr(m, "name");
+                const std::string& actual = label.empty() ? name : label;
+                if (actual.empty()) continue;
+                if (first) {
+                    p.model = actual;
+                    first = false;
+                }
+                if (name.starts_with("claude-haiku-")) {
+                    p.haikuModel = actual;
+                } else if (name.starts_with("claude-sonnet-")) {
+                    p.sonnetModel = actual;
+                } else if (name.starts_with("claude-opus-")) {
+                    p.opusModel = actual;
+                }
+            }
+        }
         return adopt(std::move(p));
     }
     throw std::runtime_error(std::format("未知的工具：{}", tool));

@@ -1,6 +1,6 @@
-// settings_page.cpp — 设置页：外观主题（跟随系统/深色/浅色，存 AppConfig.themeMode
-// 并即时生效）、用量查询（总开关 usageEnabled + 刷新间隔 usageRefreshMinutes，
-// 变更即落盘）、live 配置文件路径展示、导入/导出、关于。
+// settings_page.cpp — 设置页：外观主题（跟随系统/玄墨/宣纸，存 AppConfig.themeMode
+// 的 system/dark/light 并即时生效）、用量查询（总开关 usageEnabled + 刷新间隔
+// usageRefreshMinutes，变更即落盘）、live 配置文件路径展示、导入/导出、关于。
 //
 // 导入/导出优先走 FilePicker 系统文件对话框（SaveFileAsync/OpenFileAsync）；
 // 平台不可用（CanSaveFiles/CanOpenFiles 为 false，如无 xdg-desktop-portal）时
@@ -21,7 +21,9 @@ import llmswitch.store;
 namespace llmswitch::ui {
 namespace {
 
-const std::vector<huxerui::StringVariant> kThemeNames{"跟随系统", "深色", "浅色"};
+// 主题显示名：水墨风命名（玄墨=深色、宣纸=浅色），存值仍是 system/dark/light。
+const std::vector<huxerui::StringVariant> kThemeNames{"跟随系统", "玄墨（深色）",
+                                                      "宣纸（浅色）"};
 const std::vector<std::string> kThemeModes{"system", "dark", "light"};
 
 // 用量查询刷新间隔选项（下标 ↔ AppConfig.usageRefreshMinutes 分钟数，0=仅手动）。

@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="120" viewBox="0 0 640 120">
+  <!-- 窗口背景水墨长卷（底部横带）：三层淡墨山脊 + 落日朱砂 + 归鸟。
+       以 Background(ImageFill) 垫在整窗内容之下，底部留出「海面」横带露出。
+       透明底、淡墨半透明色，深浅主题通用。 -->
+  <!-- 落日（低垂山脊之上，只露大半） -->
+  <circle cx="512" cy="88" r="11" fill="#B5462E" fill-opacity="0.75"/>
+  <!-- 归鸟两笔 -->
+  <path d="M470 62 q4 -4 8 0 M482 56 q4 -4 8 0" fill="none" stroke="#57534A"
+        stroke-opacity="0.5" stroke-width="1.2" stroke-linecap="round"/>
+  <!-- 远山 -->
+  <path d="M0 96 L60 62 L110 88 L170 56 L230 90 L300 66 L360 92 L430 60 L470 84
+           L560 70 L640 94 L640 120 L0 120 Z"
+        fill="#6E695C" fill-opacity="0.16"/>
+  <!-- 中山 -->
+  <path d="M0 106 L48 82 L96 100 L150 76 L210 102 L268 84 L330 104 L392 80
+           L452 102 L520 90 L580 104 L640 92 L640 120 L0 120 Z"
+        fill="#6E695C" fill-opacity="0.26"/>
+  <!-- 近山 -->
+  <path d="M0 114 L40 98 L86 112 L140 94 L196 112 L250 100 L310 114 L370 96
+           L430 112 L486 102 L548 114 L600 104 L640 112 L640 120 L0 120 Z"
+        fill="#57534A" fill-opacity="0.40"/>
+  <!-- 水线 -->
+  <path d="M0 118.5 H640" stroke="#57534A" stroke-opacity="0.45" stroke-width="1"/>
+</svg>

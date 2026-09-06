@@ -4,7 +4,8 @@
 //   - title 只读文件前 ~64KB；claude 取第一条 type=="user" 且文本非命令/系统样
 //     （不以 '/' 或 '<' 开头）的行的 text，截取 80 字符（按 UTF-8 边界截断）；
 //     codex rollout 结构不同，尽力从 payload 里取 user 文本，取不到用文件 stem；
-//   - messageCount 是 jsonl 行数，数到 10000 封顶；
+//   - messageCount 是 jsonl 行数（64KB 块读数换行，比 getline 逐行快一个
+//     量级；末行无换行符也算一行），数到 10000 封顶；
 //   - mtime 用 file_clock → system_clock 近似换算，只用于排序与展示。
 // nlohmann::json 模块下禁用 .items() 结构化绑定，遍历用 it.key()/it.value()。
 module llmswitch.sessions;
@@ -39,8 +40,19 @@ std::size_t countLines(const std::filesystem::path& file) {
     std::ifstream in(file, std::ios::binary);
     if (!in) return 0;
     std::size_t n = 0;
-    std::string line;
-    while (n < kMaxCountLines && std::getline(in, line)) ++n;
+    char last = '\n';
+    std::array<char, 64 * 1024> buf;
+    while (n < kMaxCountLines) {
+        in.read(buf.data(), static_cast<std::streamsize>(buf.size()));
+        const auto got = static_cast<std::size_t>(in.gcount());
+        if (got == 0) break;
+        last = buf[got - 1];
+        n += static_cast<std::size_t>(
+            std::count(buf.data(), buf.data() + got, '\n'));
+    }
+    if (n > kMaxCountLines) n = kMaxCountLines;
+    // 末行无换行符也算一行（与原 getline 计数口径一致）。
+    if (n < kMaxCountLines && last != '\n') ++n;
     return n;
 }
 

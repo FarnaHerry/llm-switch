@@ -11,7 +11,7 @@ const huxerui::Application application{
         .window = {
             .title = "llm-switch",
             .initial_size = {1080.0F, 720.0F},
-            .minimum_size = huxerui::Size{560.0F, 480.0F},
+            .minimum_size = huxerui::Size{800.0F, 600.0F},
             .chrome_mode = huxerui::WindowChromeMode::Custom,
             .title_bar_height = 24.0F,
         }},

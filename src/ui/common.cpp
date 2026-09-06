@@ -6,6 +6,7 @@
 #include <string_view>
 
 #include "ui.h"
+#include "app_resources.h"
 
 import llmswitch.config;
 import llmswitch.models;
@@ -19,11 +20,23 @@ store::ProviderStore& providerStore() {
     return store;
 }
 
-std::string MaskedApiKey(const std::string& key) {
-    if (key.empty()) return "未设置";
-    if (key.size() < 9) return "****";
-    return std::format("{}…{}…{}", key.substr(0, 4), std::string(6, '*'),
-                       key.substr(key.size() - 4));
+IconPair ToolIcon(std::string_view iconName) {
+    if (iconName == "claudecode") {
+        return {app::images::claudecode, app::images::claudecode_selected};
+    }
+    if (iconName == "claude") {
+        return {app::images::claude, app::images::claude_selected};
+    }
+    if (iconName == "codex") {
+        return {app::images::codex, app::images::codex_selected};
+    }
+    if (iconName == "opencode") {
+        return {app::images::opencode, app::images::opencode_selected};
+    }
+    if (iconName == "pi") {
+        return {app::images::pi, app::images::pi_selected};
+    }
+    return {app::images::agents, app::images::agents_selected};
 }
 
 std::string_view ToolName(std::string_view tool) {
@@ -93,6 +106,8 @@ huxerui::Color IslandColor(const IslandTheme& islands, IslandLevel level) {
            huxerui::Spacing(theme.spacing.medium),
            huxerui::Background(islands.base),
            huxerui::CornerRadius(islands.island_radius),
+           huxerui::Border(islands.outline_soft, 1.0F),
+           huxerui::ClipChildren(),
            huxerui::Grow(1.0F),
            huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 }
@@ -100,11 +115,14 @@ huxerui::Color IslandColor(const IslandTheme& islands, IslandLevel level) {
 [[huxerui::composable]] huxerui::View Card(huxerui::View content) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     const IslandTheme islands = ResolveIslandTheme(theme);
-    // 二级岛：raised 表面（比一级岛高一层级）+ 8pt 同心圆角。
+    // 二级岛：raised 表面（比一级岛高一层级）+ 8pt 同心圆角 + 细墨边（墨韵
+    // 参考的白卡细边风）。
     return huxerui::Column { std::move(content) }
         .With(huxerui::Padding(islands.island_padding),
               huxerui::Background(islands.raised),
               huxerui::CornerRadius(islands.nested_radius),
+              huxerui::Border(islands.outline_soft, 1.0F),
+              huxerui::ClipChildren(),
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 }
 

@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "ui.h"
+#include "app_resources.h"
 
 namespace llmswitch::ui {
 namespace {
@@ -50,16 +51,23 @@ const std::string kVersionLine = std::format("llm-switch v{}", LLMSWITCH_VERSION
         huxerui::Row{},
         huxerui::ScrollView(
             huxerui::Column {
-                Card(huxerui::Column {
-                    huxerui::Text(kVersionLine).Style(huxerui::TextStyle{
-                        huxerui::Font::System(font_size::kTitle)
-                            .WithWeight(huxerui::FontWeight::Bold),
-                        theme.colors.on_surface}),
-                    BodyLine("AI 编程工具（Claude Code / Codex / opencode / pi 等）"
-                             "的供应商切换器：一个配置库，多工具一键切换，"
-                             "附本地路由、用量查询与请求统计。"),
-                }.With(huxerui::Spacing(8.0F),
-                       huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))),
+                Card(huxerui::Row {
+                    huxerui::Image(app::images::taiji)
+                        .With(huxerui::Frame{.width = 44.0F, .height = 44.0F}),
+                    huxerui::Column {
+                        huxerui::Text(kVersionLine).Style(huxerui::TextStyle{
+                            huxerui::Font::System(font_size::kTitle)
+                                .WithWeight(huxerui::FontWeight::Bold),
+                            theme.colors.on_surface}),
+                        BodyLine("AI 编程工具（Claude Code / Codex / opencode / pi 等）"
+                                 "的供应商切换器：一个配置库，多工具一键切换，"
+                                 "附本地路由、用量查询与请求统计。"),
+                    }.With(huxerui::Spacing(8.0F),
+                           huxerui::Grow(1.0F),
+                           huxerui::CrossAlign(
+                               huxerui::CrossAxisAlignment::Stretch)),
+                }.With(huxerui::Spacing(14.0F),
+                       huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center))),
 
                 Card(huxerui::Column {
                     AboutSectionTitle("链接"),

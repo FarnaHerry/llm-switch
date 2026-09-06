@@ -122,6 +122,43 @@ std::string fetchUsage(std::string_view url, std::string_view apiKey,
     return extractByPath(body, jsonPath);
 }
 
+double pingLatencyMs(std::string_view baseUrl) {
+    const std::string url = trimTrailingSlash(baseUrl);
+    if (url.empty()) {
+        throw std::runtime_error("连通检测失败：Base URL 为空");
+    }
+    CURL* easy = curl_easy_init();
+    if (easy == nullptr) {
+        throw std::runtime_error("连通检测失败：curl 初始化失败");
+    }
+    struct Guard {
+        CURL* h;
+        ~Guard() { curl_easy_cleanup(h); }
+    } guard{easy};
+
+    std::string sink;  // 响应体丢弃，只关心可达性与耗时
+    curl_easy_setopt(easy, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(easy, CURLOPT_PROTOCOLS_STR, "https,http");
+    curl_easy_setopt(easy, CURLOPT_WRITEFUNCTION, &onBodyWrite);
+    curl_easy_setopt(easy, CURLOPT_WRITEDATA, &sink);
+    curl_easy_setopt(easy, CURLOPT_FOLLOWLOCATION, 1L);
+    curl_easy_setopt(easy, CURLOPT_CONNECTTIMEOUT, 5L);
+    curl_easy_setopt(easy, CURLOPT_TIMEOUT, 10L);
+    curl_easy_setopt(easy, CURLOPT_NOSIGNAL, 1L);
+    curl_easy_setopt(easy, CURLOPT_USERAGENT,
+                     "llm-switch/" LLMSWITCH_VERSION);
+
+    const CURLcode rc = curl_easy_perform(easy);
+    if (rc != CURLE_OK) {
+        throw std::runtime_error(std::format(
+            "连通检测失败：{}（{}）", curl_easy_strerror(rc), url));
+    }
+    // 收到任何 HTTP 状态（含 401/404）都算连通——服务器可达即可。
+    double totalSec = 0;
+    curl_easy_getinfo(easy, CURLINFO_TOTAL_TIME, &totalSec);
+    return totalSec * 1000.0;
+}
+
 std::string extractByPath(std::string_view body, std::string_view dottedPath) {
     const auto j = nlohmann::json::parse(body, nullptr, false);
     if (j.is_discarded()) {

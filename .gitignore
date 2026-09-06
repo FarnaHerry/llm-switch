@@ -24,3 +24,6 @@ third_party/huxerui-tools/
 
 # huxerui_add_app 生成物
 .agents/
+
+# 运行时 trace 转储
+traces/

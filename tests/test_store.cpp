@@ -3,11 +3,14 @@
 // temp_directory_path()/llmswitch-test-<pid>，live 文件与 dataDir 都不碰真实环境。
 //
 // 覆盖：空载默认值、首次导入收编、claude-code 切换深合并（保留非 env 字段）、
-// codex 切换（auth.json + config.toml 整段替换）、opencode（additive upsert、
-// 顶层 model、anthropic 变体、JSON5 报错不碰文件）、pi（双文件、权限位、
-// apiFormat 映射）、claude desktop（Linux 不支持报错 + 覆盖后四文件）、
-// 备份生成、detectCurrent、导出/导入回滚、apiFormat 三档映射与归一、
-// usage 三字段与全局设置持久化、旧格式 config.json 迁移、
+// codex 切换（auth.json + config.toml 整段替换 + 顶层 model 行级重写）、
+// opencode（additive upsert、顶层 model、anthropic 变体、JSON5 报错不碰文件）、
+// pi（双文件、权限位、apiFormat 映射）、claude desktop（Linux 不支持报错 +
+// 覆盖后四文件）、备份生成、detectCurrent、导出/导入回滚、apiFormat 三档
+// 映射与归一、usage 三字段与全局设置持久化、restoreOfficial 三工具还原
+// （codex 模型收回）、官方厂商名（officialVendorName）与预设列表、
+// claude 系三档模型映射（env 六键 /
+// desktop inferenceModels / 收编 / 擦除）、旧格式 config.json 迁移、
 // 损坏 config.json 挪走不崩溃。
 #include <cstdio>    // stderr（std 模块不导出 stdout/stderr 宏）
 #include "test_env.h"  // setenv/getpid/unsetenv 可移植封装
@@ -106,6 +109,9 @@ int main() {
         CHECK(models::findTool("opencode")->needsModel);
         CHECK(models::findTool("pi")->hasApiFormat);
         CHECK(!models::findTool("codex")->needsModel);
+        CHECK(models::findTool("claude-code")->hasModelMappings);
+        CHECK(models::findTool("claude")->hasModelMappings);
+        CHECK(!models::findTool("codex")->hasModelMappings);
         CHECK(models::findTool("nope") == nullptr);
     }
 
@@ -482,7 +488,249 @@ int main() {
         again.setUsageRefreshMinutes(10);
     }
 
-    // 12. 旧格式 config.json（顶层 claude/codex）→ load 自动迁移成 groups 键
+    // 12. codex 模型行级重写（switchTo 时 Provider.model 写进 config.toml
+    // 顶层 model 键）+ importLive 收回模型
+    {
+        // a) 已有未注释 model 行 → 替换值，节区原样保留
+        models::Provider pm1{.name = "M1",
+                             .apiKey = "sk-m1",
+                             .model = "gpt-5-codex",
+                             .codexConfigToml =
+                                 "model = \"old\"\nmodel_provider = \"x\"\n\n"
+                                 "[model_providers.x]\nname = \"X\"\n"};
+        s.addProvider("codex", pm1);
+        const std::string idM1 = s.group("codex").providers.back().id;
+        s.switchTo("codex", idM1);
+        CHECK(readText(codexConfig) ==
+              "model = \"gpt-5-codex\"\nmodel_provider = \"x\"\n\n"
+              "[model_providers.x]\nname = \"X\"\n");
+        // b) 只有注释行 → 注释行整行替换
+        models::Provider pm2{.name = "M2",
+                             .apiKey = "sk-m2",
+                             .model = "gpt-5.1",
+                             .codexConfigToml =
+                                 "model_provider = \"openai\"\n"
+                                 "# model = \"gpt-5\"   # 按需填写\n\n"
+                                 "[model_providers.openai]\n"
+                                 "wire_api = \"responses\"\n"};
+        s.addProvider("codex", pm2);
+        const std::string idM2 = s.group("codex").providers.back().id;
+        s.switchTo("codex", idM2);
+        CHECK(readText(codexConfig) ==
+              "model_provider = \"openai\"\nmodel = \"gpt-5.1\"\n\n"
+              "[model_providers.openai]\nwire_api = \"responses\"\n");
+        // c) 无 model 行 → 文件开头插入
+        models::Provider pm3{.name = "M3",
+                             .apiKey = "sk-m3",
+                             .model = "deepseek-chat",
+                             .codexConfigToml = "model_provider = \"deepseek\"\n"};
+        s.addProvider("codex", pm3);
+        const std::string idM3 = s.group("codex").providers.back().id;
+        s.switchTo("codex", idM3);
+        CHECK(readText(codexConfig) ==
+              "model = \"deepseek-chat\"\nmodel_provider = \"deepseek\"\n");
+        // d) model 为空 → config.toml 原文不动
+        models::Provider pm4{.name = "M4",
+                             .apiKey = "sk-m4",
+                             .codexConfigToml = "model_provider = \"raw\"\n"};
+        s.addProvider("codex", pm4);
+        const std::string idM4 = s.group("codex").providers.back().id;
+        s.switchTo("codex", idM4);
+        CHECK(readText(codexConfig) == "model_provider = \"raw\"\n");
+        // importLive 顺带收回 config.toml 顶层 model
+        writeFile(codexAuth, R"json({"OPENAI_API_KEY": "sk-imported"}
+)json");
+        writeFile(codexConfig, "model = \"imp-model\"\nmodel_provider = \"z\"\n");
+        const auto imported = s.importLive("codex");
+        CHECK(imported.name == "当前配置");
+        CHECK(imported.apiKey == "sk-imported");
+        CHECK(imported.model == "imp-model");
+        CHECK(s.group("codex").current == imported.id);
+    }
+
+    // 13. restoreOfficial：撤掉本应用写入的 live 覆盖，current 清空
+    {
+        // claude-code：env 三键删除，其余 env 键与 permissions 保留
+        writeFile(claudeSettings, R"json({
+  "permissions": {"allow": ["Bash(*)"]},
+  "env": {
+    "ANTHROPIC_BASE_URL": "https://a.example.com",
+    "ANTHROPIC_AUTH_TOKEN": "sk-a",
+    "ANTHROPIC_MODEL": "model-a",
+    "OTHER": "keep"
+  }
+}
+)json");
+        s.restoreOfficial("claude-code");
+        const auto j = readJson(claudeSettings);
+        CHECK(!j["env"].contains("ANTHROPIC_BASE_URL"));
+        CHECK(!j["env"].contains("ANTHROPIC_AUTH_TOKEN"));
+        CHECK(!j["env"].contains("ANTHROPIC_MODEL"));
+        CHECK(j["env"]["OTHER"] == "keep");
+        CHECK(j["permissions"]["allow"][0] == "Bash(*)");
+        CHECK(s.group("claude-code").current.empty());
+        CHECK(s.detectCurrent("claude-code").empty());
+
+        // codex：auth.json 只剩 OPENAI_API_KEY → 删键后为空对象 → 删文件；
+        // config.toml 与组内 provider 模板（应用 model 后）一致 → 删除
+        writeFile(codexAuth, R"json({"OPENAI_API_KEY": "sk-m1"}
+)json");
+        writeFile(codexConfig,
+                  "model = \"gpt-5-codex\"\nmodel_provider = \"x\"\n\n"
+                  "[model_providers.x]\nname = \"X\"\n");
+        s.restoreOfficial("codex");
+        CHECK(!fs::exists(codexAuth));
+        CHECK(!fs::exists(codexConfig));
+        CHECK(s.group("codex").current.empty());
+        // auth.json 含 tokens 等其他字段 → 只删键；config.toml 被手改过
+        // （与任何 provider 模板都不一致）→ 不动
+        writeFile(codexAuth, R"json({"OPENAI_API_KEY": "sk-x", "tokens": {"refresh": "r"}}
+)json");
+        writeFile(codexConfig, "# 用户手改\nmodel_provider = \"mine\"\n");
+        s.restoreOfficial("codex");
+        CHECK(fs::exists(codexAuth));
+        CHECK(!readJson(codexAuth).contains("OPENAI_API_KEY"));
+        CHECK(readJson(codexAuth)["tokens"]["refresh"] == "r");
+        CHECK(readText(codexConfig) == "# 用户手改\nmodel_provider = \"mine\"\n");
+
+        // claude desktop（覆盖目录）：两份 config 删 deploymentMode，_meta.json
+        // 移除本应用条目并清 appliedId；profile 文件本体保留
+        s.restoreOfficial("claude");
+        const auto normal = readJson(deskDir / "claude_desktop_config.json");
+        CHECK(!normal.contains("deploymentMode"));
+        CHECK(normal["theme"] == "dark");
+        const auto threep =
+            readJson(root / "Claude-3p" / "claude_desktop_config.json");
+        CHECK(!threep.contains("deploymentMode"));
+        const auto meta =
+            readJson(root / "Claude-3p" / "configLibrary" / "_meta.json");
+        CHECK(!meta.contains("appliedId"));
+        CHECK(meta["entries"].empty());
+        CHECK(fs::exists(root / "Claude-3p" / "configLibrary" /
+                         "00000000-0000-4000-8000-000000157210.json"));
+        CHECK(s.group("claude").current.empty());
+
+        // opencode / pi 没有官方默认状态 → 抛错
+        bool threw = false;
+        try {
+            s.restoreOfficial("opencode");
+        } catch (const std::exception& e) {
+            threw = true;
+            CHECK(std::string_view(e.what()).contains("没有官方默认状态"));
+        }
+        CHECK(threw);
+        threw = false;
+        try {
+            s.restoreOfficial("pi");
+        } catch (const std::exception&) {
+            threw = true;
+        }
+        CHECK(threw);
+    }
+
+    // 14. 预设与官方厂商：官方走列表常驻卡（officialVendorName），不进预设
+    {
+        CHECK(models::officialVendorName("claude-code") == "Anthropic 官方");
+        CHECK(models::officialVendorName("claude") == "Anthropic 官方");
+        CHECK(models::officialVendorName("codex") == "OpenAI 官方");
+        CHECK(models::officialVendorName("opencode").empty());
+        CHECK(models::officialVendorName("pi").empty());
+        const auto cc = models::builtinPresets("claude-code");
+        CHECK(!cc.empty() && cc.front().name == "DeepSeek");
+        const auto cx = models::builtinPresets("codex");
+        CHECK(!cx.empty() && cx.front().name == "OpenRouter");
+        CHECK(models::builtinPresets("claude").empty());
+    }
+
+    // 15. 三档模型映射：claude-code env 写入/收回/擦除 + desktop
+    // inferenceModels 映射条目 + 序列化往返
+    {
+        // claude-code：主模型 + 三档映射写入 env 六键
+        models::Provider pm{.name = "映射",
+                            .baseUrl = "https://map.example.com",
+                            .apiKey = "sk-map",
+                            .model = "main-model",
+                            .haikuModel = "haiku-x",
+                            .sonnetModel = "sonnet-x",
+                            .opusModel = "opus-x"};
+        s.addProvider("claude-code", pm);
+        const std::string idMap = s.group("claude-code").providers.back().id;
+        s.switchTo("claude-code", idMap);
+        const auto jm = readJson(claudeSettings);
+        CHECK(jm["env"]["ANTHROPIC_MODEL"] == "main-model");
+        CHECK(jm["env"]["ANTHROPIC_DEFAULT_HAIKU_MODEL"] == "haiku-x");
+        CHECK(jm["env"]["ANTHROPIC_DEFAULT_SONNET_MODEL"] == "sonnet-x");
+        CHECK(jm["env"]["ANTHROPIC_DEFAULT_OPUS_MODEL"] == "opus-x");
+        // 序列化往返：重新 load 后映射字段仍在
+        {
+            auto re = store::ProviderStore::load();
+            bool found = false;
+            for (const auto& p : re.group("claude-code").providers) {
+                if (p.id == idMap) {
+                    found = true;
+                    CHECK(p.haikuModel == "haiku-x");
+                    CHECK(p.sonnetModel == "sonnet-x");
+                    CHECK(p.opusModel == "opus-x");
+                }
+            }
+            CHECK(found);
+        }
+        // importLive 收回映射（换一把 key 让收编新建条目）
+        writeFile(claudeSettings, R"json({"env": {"ANTHROPIC_BASE_URL": "https://imp2.example.com", "ANTHROPIC_AUTH_TOKEN": "sk-imp2", "ANTHROPIC_DEFAULT_HAIKU_MODEL": "hk-imp"}}
+)json");
+        const auto imp = s.importLive("claude-code");
+        CHECK(imp.name == "当前配置");
+        CHECK(imp.haikuModel == "hk-imp");
+        // restoreOfficial 连映射键一起擦除
+        s.restoreOfficial("claude-code");
+        const auto je = readJson(claudeSettings);
+        CHECK(!je["env"].contains("ANTHROPIC_BASE_URL"));
+        CHECK(!je["env"].contains("ANTHROPIC_DEFAULT_HAIKU_MODEL"));
+        CHECK(!je["env"].contains("ANTHROPIC_DEFAULT_SONNET_MODEL"));
+        CHECK(!je["env"].contains("ANTHROPIC_DEFAULT_OPUS_MODEL"));
+
+        // claude desktop：主模型 + 映射 → inferenceModels 条目
+        // （safe 名直写 name；非 safe 借该档 route id + labelOverride）
+        models::Provider pdm{.name = "桌面映射",
+                             .baseUrl = "https://d3.example.com",
+                             .apiKey = "sk-d3",
+                             .model = "claude-sonnet-4-6",
+                             .haikuModel = "deepseek-chat",
+                             .opusModel = "kimi-k2"};
+        s.addProvider("claude", pdm);
+        const std::string idDM = s.group("claude").providers.back().id;
+        s.switchTo("claude", idDM);
+        const auto profile = readJson(
+            root / "Claude-3p" / "configLibrary" /
+            "00000000-0000-4000-8000-000000157210.json");
+        CHECK(profile["inferenceModels"].size() == 3);
+        CHECK(profile["inferenceModels"][0]["name"] == "claude-sonnet-4-6");
+        CHECK(!profile["inferenceModels"][0].contains("labelOverride"));
+        CHECK(profile["inferenceModels"][1]["name"] == "claude-haiku-4-5");
+        CHECK(profile["inferenceModels"][1]["labelOverride"] == "deepseek-chat");
+        CHECK(profile["inferenceModels"][2]["name"] == "claude-opus-4-8");
+        CHECK(profile["inferenceModels"][2]["labelOverride"] == "kimi-k2");
+        // importLive 收回：labelOverride 优先，按 route id 前缀归档
+        writeFile(root / "Claude-3p" / "configLibrary" /
+                      "00000000-0000-4000-8000-000000157210.json",
+                  R"json({
+  "inferenceGatewayBaseUrl": "https://imp3.example.com",
+  "inferenceGatewayApiKey": "sk-imp3",
+  "inferenceModels": [
+    {"name": "claude-haiku-4-5", "labelOverride": "hk-real"},
+    {"name": "claude-opus-4-9"}
+  ]
+}
+)json");
+        const auto imd = s.importLive("claude");
+        CHECK(imd.name == "当前配置");
+        CHECK(imd.model == "hk-real");  // 第一条同时填 model
+        CHECK(imd.haikuModel == "hk-real");
+        CHECK(imd.opusModel == "claude-opus-4-9");
+        CHECK(imd.sonnetModel.empty());
+    }
+
+    // 16. 旧格式 config.json（顶层 claude/codex）→ load 自动迁移成 groups 键
     // 迁移前先清掉所有 live 文件，避免首次导入收编干扰断言。
     fs::remove_all(home / ".claude");
     fs::remove_all(home / ".codex");
@@ -509,7 +757,7 @@ int main() {
         CHECK(migrated.config().usageRefreshMinutes == 10);
     }
 
-    // 13. 损坏的 config.json → load 不崩溃，坏文件被挪到 .corrupt-<时间戳>
+    // 17. 损坏的 config.json → load 不崩溃，坏文件被挪到 .corrupt-<时间戳>
     writeFile(cfg::configFile(), "这不是 JSON {{{\n");
     {
         auto broken = store::ProviderStore::load();
@@ -524,7 +772,7 @@ int main() {
         CHECK(corruptMoved);
     }
 
-    // 14. 清理临时目录
+    // 18. 清理临时目录
     {
         std::error_code ec;
         fs::remove_all(root, ec);

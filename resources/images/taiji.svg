@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <!-- 太极图（水墨配色）：宣纸底 #F2EDE1 / 玄墨 #2E2B25。
+       黑鱼 = 右半圆 ∪ 顶部小圆 ∖ 底部小圆；双鱼眼反色。 -->
+  <circle cx="12" cy="12" r="10.6" fill="#F2EDE1"/>
+  <path d="M12 1.4 A10.6 10.6 0 0 1 12 22.6 A5.3 5.3 0 0 0 12 12 A5.3 5.3 0 0 1 12 1.4 Z" fill="#2E2B25"/>
+  <circle cx="12" cy="6.7" r="1.7" fill="#F2EDE1"/>
+  <circle cx="12" cy="17.3" r="1.7" fill="#2E2B25"/>
+  <circle cx="12" cy="12" r="10.6" fill="none" stroke="#2E2B25" stroke-width="1.2"/>
+</svg>

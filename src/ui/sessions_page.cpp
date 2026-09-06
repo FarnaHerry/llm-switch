@@ -1,23 +1,30 @@
 // sessions_page.cpp — 会话管理页：扫描 claude-code / codex 的历史会话
-// （sessions::listSessions），按 project 分组展示。顶部工具过滤
-// SegmentedButton（全部 / Claude Code / Codex）+ 刷新按钮。每行：标题
-// （store 层已截取 80 字符摘要）+ 相对时间 + 大小 + 消息数；行操作：
-// 导出（exportSession 到 dataDir()/exports/，toast 显示导出路径）、
-// 删除（确认框 → deleteSession）。列表整体滚动。
+// （sessions::listSessions），按 project 分组展示。顶部工具过滤图标组
+// （全部 / Claude Code / Codex——与 Agent 管理页同一套图标资源，选中项
+// 实心变体 + raised 底块）+ 刷新图标。每行：标题（store 层已截取 80 字符
+// 摘要）+ 相对时间 + 大小 + 消息数；行操作：导出（exportSession 到
+// dataDir()/exports/，toast 显示导出路径）、删除（确认框 → deleteSession）。
+// 列表整体滚动。
 //
-// 数据流：列表为纯函数扫描结果，页面用 UseState 持有一份，首组合加载；
-// 过滤切换 / 刷新 / 删除 / 导出后重新扫描（微秒级本地 IO，UI 线程直接跑）。
+// 性能：扫描含真实磁盘 IO（countLines 块读全文件数行、标题提取解析前
+// 64KB JSONL），文件一多 UI 线程同步跑会明显卡顿——首载 / 切过滤 / 刷新 /
+// 删除后重载一律经 huxerui::RunWorker 派到 worker 线程，恢复点回 UI 线程
+// 写 State。重载期间旧列表保持显示不清空，刷新图标自转指示（无文字提示）。
 #include <huxerui/huxerui.h>
 
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
+#include <optional>
 #include <string>
 #include <system_error>
 #include <utility>
 #include <vector>
 
 #include "ui.h"
+#include "app_resources.h"
 
 import llmswitch.config;
 import llmswitch.models;
@@ -61,28 +68,25 @@ std::string FormatSize(std::uintmax_t bytes) {
 
 [[huxerui::composable]] huxerui::View SessionRow(
     const sessions::SessionInfo& session, huxerui::TaskScope tasks,
-    huxerui::ToastHandle toast,
-    huxerui::State<std::vector<sessions::SessionInfo>> list, int filter) {
+    huxerui::ToastHandle toast, std::function<void()> onDeleted) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto dialog = huxerui::UseDialog();
     const std::string title = session.title;
     const std::filesystem::path path = session.path;
 
-    auto reload = [list, filter] { list = LoadSessions(filter); };
-
-    auto showDeleteConfirm = [dialog, toast, title, path, reload] {
+    auto showDeleteConfirm = [dialog, toast, title, path, onDeleted] {
         dialog.Show(
             "删除会话",
             std::format("确定删除会话「{}」？此操作不可撤销。", title),
             "删除", "取消",
-            [toast, title, path, reload] {
+            [toast, title, path, onDeleted] {
                 try {
                     sessions::deleteSession(path);
                     toast.Show(std::format("已删除 {}", title));
                 } catch (const std::exception& e) {
                     toast.Show(e.what());
                 }
-                reload();
+                onDeleted();
             },
             {});
     };
@@ -128,16 +132,32 @@ std::string FormatSize(std::uintmax_t bytes) {
 
 [[huxerui::composable]] huxerui::View SessionsPage() {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    const IslandTheme islands = ResolveIslandTheme(theme);
     auto tasks = huxerui::UseTaskScope();
     auto toast = huxerui::UseToast();
     auto filter = huxerui::UseState(0);
     auto sessionsList =
         huxerui::UseState<std::vector<sessions::SessionInfo>>({});
-    auto loaded = huxerui::UseState(false);
-    if (!loaded.Get()) {
-        loaded = true;
-        sessionsList = LoadSessions(filter.Get());
-    }
+    auto loading = huxerui::UseState(true);
+
+    // 重载：扫描经 RunWorker 派到 worker 线程（磁盘 IO 不占 UI 线程），
+    // 恢复点回 UI 线程写 State。
+    auto reload = [tasks, sessionsList, loading](int f) {
+        loading = true;
+        tasks.Launch([sessionsList, loading, f]() -> huxerui::Task<void> {
+            auto result = co_await huxerui::RunWorker(
+                [](int f) { return LoadSessions(f); }, f);
+            sessionsList = std::move(result);
+            loading = false;
+        });
+    };
+    // 首组合加载。
+    huxerui::Lifecycle(
+        [reload] {
+            reload(0);
+            return [] {};
+        },
+        0);
 
     // 按 project 分组（保持首现顺序；listSessions 已按 mtime 倒序）。
     std::vector<huxerui::View> groups;
@@ -155,8 +175,8 @@ std::string FormatSize(std::uintmax_t bytes) {
             projectOrder.push_back(s.project);
             projectRows.emplace_back();
         }
-        projectRows[gi].push_back(
-            SessionRow(s, tasks, toast, sessionsList, filter.Get()));
+        projectRows[gi].push_back(SessionRow(
+            s, tasks, toast, [reload, filter] { reload(filter.Get()); }));
     }
     for (std::size_t i = 0; i < projectOrder.size(); ++i) {
         groups.push_back(Card(huxerui::Column {
@@ -172,27 +192,81 @@ std::string FormatSize(std::uintmax_t bytes) {
             .Key(projectOrder[i]));
     }
 
+    // 过滤图标组：全部（agents 图标）/ Claude Code / Codex，与 Agent 管理页
+    // 同一套图标资源与选中态（实心变体 + raised 底块）。点击不重挂载本页，
+    // 直接写 filter 并触发 worker 重载。
+    struct FilterItem {
+        int index;
+        IconPair icons;
+        const char* tooltip;
+    };
+    const std::array<FilterItem, 3> filterItems{{
+        {0, {app::images::agents, app::images::agents_selected}, "全部"},
+        {1, ToolIcon("claudecode"), "Claude Code"},
+        {2, ToolIcon("codex"), "Codex"},
+    }};
+    std::vector<huxerui::View> headerItems;
+    for (const auto& item : filterItems) {
+        const bool selected = filter.Get() == item.index;
+        const int idx = item.index;
+        huxerui::View button =
+            huxerui::IconButton(selected ? item.icons.selected
+                                         : item.icons.normal,
+                                item.tooltip)
+                .OnClick([filter, reload, idx] {
+                    if (filter.Get() == idx) return;
+                    filter = idx;
+                    reload(idx);
+                })
+                .With(huxerui::Tooltip(item.tooltip));
+        if (selected) {
+            button = std::move(button).With(
+                huxerui::Background(islands.raised),
+                huxerui::CornerRadius(islands.nested_radius));
+        }
+        headerItems.push_back(std::move(button));
+    }
+    // 加载指示：重载期间旧列表保持显示，刷新图标自转（无限 Tween 360°），
+    // 不再使用文字提示。
+    huxerui::View refreshButton =
+        huxerui::IconButton(app::images::refresh, "刷新")
+            .OnClick([filter, reload] { reload(filter.Get()); })
+            .With(huxerui::Tooltip("刷新"));
+    if (loading.Get()) {
+        refreshButton = std::move(refreshButton).With(huxerui::Rotation(
+            huxerui::AnimateTo(360.0F,
+                               huxerui::TweenSpec{1.0, huxerui::Easing::Linear},
+                               huxerui::AnimationPlayback{.iterations =
+                                                              std::nullopt})));
+    }
+    headerItems.push_back(std::move(refreshButton));
+
     return PageScaffold(
         "会话管理",
-        huxerui::Row {
-            huxerui::SegmentedButton({"全部", "Claude Code", "Codex"},
-                                     static_cast<std::size_t>(filter.Get()))
-                .OnChanged([filter, sessionsList](std::size_t index) {
-                    filter = static_cast<int>(index);
-                    sessionsList = LoadSessions(static_cast<int>(index));
-                }),
-            huxerui::Button("刷新").OnClick([filter, sessionsList] {
-                sessionsList = LoadSessions(filter.Get());
-            }),
-        }.With(huxerui::Spacing(8.0F),
-               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
+        huxerui::Row(std::move(headerItems))
+            .With(huxerui::Spacing(8.0F),
+                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
         groups.empty()
             ? huxerui::View{
                   huxerui::Column {
-                      huxerui::Text("未找到历史会话。")
-                          .Style(huxerui::TextStyle{
-                              huxerui::Font::System(font_size::kBody),
-                              theme.colors.on_surface_variant}),
+                      // 空态：加载中显示自转刷新图标（无文字），否则提示无会话。
+                      loading.Get()
+                          ? huxerui::View{
+                                huxerui::Image(app::images::refresh)
+                                    .With(huxerui::Frame{.width = 24.0F,
+                                                         .height = 24.0F},
+                                          huxerui::Rotation(huxerui::AnimateTo(
+                                              360.0F,
+                                              huxerui::TweenSpec{
+                                                  1.0, huxerui::Easing::Linear},
+                                              huxerui::AnimationPlayback{
+                                                  .iterations =
+                                                      std::nullopt})))}
+                          : huxerui::View{
+                                huxerui::Text("未找到历史会话。")
+                                    .Style(huxerui::TextStyle{
+                                        huxerui::Font::System(font_size::kBody),
+                                        theme.colors.on_surface_variant})},
                   }.With(huxerui::Padding(32.0F),
                          huxerui::Grow(1.0F),
                          huxerui::MainAlign(huxerui::MainAxisAlignment::Center),

@@ -1,7 +1,8 @@
 // app.cpp — 应用壳（岛屿架构 + 自定义标题栏 + 系统托盘，对齐 Clash-Flux 壳风）：
-//   标题栏：应用名 + 拖拽区，框架在其右侧渲染窗口按钮；收窄为 24px 高、去背景
-//     直接融入窗口底色。主题为极简 AI 黑白风（MinimalDark/MinimalLightThemeSpec，
-//     与 Clash-Flux 同配色：深色近纯黑 + 纯白主色；浅色海面白 + 近黑主色）。
+//   标题栏：太极标 + 应用名 + 拖拽区，框架在其右侧渲染窗口按钮；收窄为 24px 高、
+//     去背景直接融入窗口底色。主题为太极水墨风（InkDark/InkLightThemeSpec）：
+//     深色「玄墨」= 暖调近黑底 + 宣纸白主色；浅色「宣纸」= 米白纸面 + 浓墨主色；
+//     状态色仅 error 保留朱砂红。
 //   下方：左侧顶级图标侧边栏（Agent 管理 / 本地路由 / 使用统计 / MCP 服务器 /
 //   Skills / 会话 / 设置 / 关于，无岛屿包裹，直接落在窗口背景上）｜内容区
 //   （Agent 管理页内再分二级工具栏 + 页面自己的一级岛屿——
@@ -9,8 +10,12 @@
 //   （rootSpec.colors.background——AppRoot 在主题 provider 之上，UseTheme 只能
 //   拿到默认浅色 spec，须按 dark 自选；子树在 provider 之下 UseTheme 正常）。
 //
-// 托盘：菜单按工具分组列出各组供应商（勾选当前项），点击直接 store.switchTo
-// 切换；另有 显示主窗口 / 退出。菜单随全局 revision 变更重建。
+// 托盘：菜单每个工具一个顶层条目（「显示名 — 当前生效名」，托盘菜单图标
+// 只接受位图故不带工具图标），hover 展开二级菜单选供应商（有官方厂商的组
+// 首位「官方」条目 = restoreOfficial），点击直接切换；另有本地路由开关 /
+// 显示主窗口 / 退出。菜单随全局 revision 变更重建。
+// 关闭按钮在托盘可用时只隐藏窗口（OnCloseRequest 消费请求），「退出」经
+// application.Quit() 绕过关闭处理器正常终止。
 #include <huxerui/huxerui.h>
 
 #include <array>
@@ -45,10 +50,10 @@ enum PageIndex : std::size_t {
 
 namespace {
 
-// 极简 AI 黑白风主题（对齐 Clash-Flux 配色）：
-// 深色 = 近纯黑底 + 纯白主色（主色控件白底黑字）；浅色 = 近白海面 + 近黑主色。
-// 文本/描边只用地道中灰，状态色仅 error 保留柔和红。
-huxerui::ThemeSpec MinimalDarkThemeSpec() {
+// 太极水墨风主题：深色「玄墨」= 暖调近黑海面（玄）+ 宣纸白主色；
+// 浅色「宣纸」= 米白纸面 + 浓墨主色。文本/描边只用暖调墨色阶
+// （浓墨/淡墨），状态色仅 error 保留朱砂红（印泥）。
+huxerui::ThemeSpec InkDarkThemeSpec() {
     huxerui::ThemeSpec spec = huxerui::MaterialDarkThemeSpec();
     spec.typography = huxerui::TypographyScheme{
         .body_large = 16.0F,
@@ -58,28 +63,28 @@ huxerui::ThemeSpec MinimalDarkThemeSpec() {
         .title_large = font_size::kTitle,
         .headline_small = 24.0F,
     };
-    spec.colors.primary = huxerui::Color::Rgb(255, 255, 255);      // 纯白主色
-    spec.colors.on_primary = huxerui::Color::Rgb(10, 10, 12);      // 白底上翻黑
-    spec.colors.secondary = huxerui::Color::Rgb(214, 214, 217);
-    spec.colors.on_secondary = huxerui::Color::Rgb(10, 10, 12);
-    spec.colors.secondary_container = huxerui::Color::Rgb(30, 30, 35);
-    spec.colors.on_secondary_container = huxerui::Color::Rgb(242, 242, 242);
-    spec.colors.background = huxerui::Color::Rgb(10, 10, 12);      // #0A0A0C 近纯黑（海面）
-    spec.colors.surface = huxerui::Color::Rgb(14, 14, 17);
-    spec.colors.surface_container_low = huxerui::Color::Rgb(19, 19, 22);
-    spec.colors.surface_container = huxerui::Color::Rgb(24, 24, 28);
-    spec.colors.surface_container_high = huxerui::Color::Rgb(30, 30, 35);
-    spec.colors.surface_container_highest = huxerui::Color::Rgb(37, 37, 43);
-    spec.colors.on_surface = huxerui::Color::Rgb(242, 242, 242);   // 0.95 白
-    spec.colors.on_surface_variant = huxerui::Color::Rgb(148, 148, 153); // 0.58 灰
-    spec.colors.outline = huxerui::Color::Rgb(46, 46, 52);
-    spec.colors.inverse_surface = huxerui::Color::Rgb(242, 242, 242);
-    spec.colors.inverse_on_surface = huxerui::Color::Rgb(10, 10, 12);
-    spec.colors.error = huxerui::Color::Rgb(235, 122, 112);        // 柔和红
+    spec.colors.primary = huxerui::Color::Rgb(230, 224, 210);      // 宣纸白主色 #E6E0D2
+    spec.colors.on_primary = huxerui::Color::Rgb(38, 35, 30);      // 主色上翻浓墨
+    spec.colors.secondary = huxerui::Color::Rgb(179, 172, 156);
+    spec.colors.on_secondary = huxerui::Color::Rgb(38, 35, 30);
+    spec.colors.secondary_container = huxerui::Color::Rgb(58, 54, 45);
+    spec.colors.on_secondary_container = huxerui::Color::Rgb(230, 224, 210);
+    spec.colors.background = huxerui::Color::Rgb(22, 20, 17);      // 玄 #161411 暖调近黑（海面）
+    spec.colors.surface = huxerui::Color::Rgb(28, 26, 22);
+    spec.colors.surface_container_low = huxerui::Color::Rgb(33, 30, 26);
+    spec.colors.surface_container = huxerui::Color::Rgb(40, 37, 31);
+    spec.colors.surface_container_high = huxerui::Color::Rgb(47, 44, 37);
+    spec.colors.surface_container_highest = huxerui::Color::Rgb(56, 52, 44);
+    spec.colors.on_surface = huxerui::Color::Rgb(214, 208, 192);   // 宣纸灰正文
+    spec.colors.on_surface_variant = huxerui::Color::Rgb(163, 156, 139); // 淡墨
+    spec.colors.outline = huxerui::Color::Rgb(76, 71, 60);
+    spec.colors.inverse_surface = huxerui::Color::Rgb(214, 208, 192);
+    spec.colors.inverse_on_surface = huxerui::Color::Rgb(38, 35, 30);
+    spec.colors.error = huxerui::Color::Rgb(223, 114, 86);         // 朱砂（浅）#DF7256
     return spec;
 }
 
-huxerui::ThemeSpec MinimalLightThemeSpec() {
+huxerui::ThemeSpec InkLightThemeSpec() {
     huxerui::ThemeSpec spec = huxerui::MaterialLightThemeSpec();
     spec.typography = huxerui::TypographyScheme{
         .body_large = 16.0F,
@@ -89,33 +94,34 @@ huxerui::ThemeSpec MinimalLightThemeSpec() {
         .title_large = font_size::kTitle,
         .headline_small = 24.0F,
     };
-    // 冷中性灰白：保留柔和层级，去掉米白中过强的黄/棕分量。
-    spec.colors.primary = huxerui::Color::Rgb(37, 40, 45);         // #25282D
-    spec.colors.on_primary = huxerui::Color::Rgb(250, 250, 251);   // #FAFAFB
-    spec.colors.secondary = huxerui::Color::Rgb(104, 112, 124);    // #68707C
-    spec.colors.on_secondary = huxerui::Color::Rgb(250, 250, 251);
-    spec.colors.secondary_container = huxerui::Color::Rgb(231, 234, 240);
-    spec.colors.on_secondary_container = huxerui::Color::Rgb(37, 40, 45);
-    spec.colors.background = huxerui::Color::Rgb(243, 244, 246);   // #F3F4F6 海面
-    spec.colors.surface = huxerui::Color::Rgb(250, 250, 251);      // #FAFAFB
-    spec.colors.surface_container_low = huxerui::Color::Rgb(248, 249, 250);
-    spec.colors.surface_container = huxerui::Color::Rgb(241, 243, 245);
-    spec.colors.surface_container_high = huxerui::Color::Rgb(231, 234, 238);
-    spec.colors.surface_container_highest = huxerui::Color::Rgb(255, 255, 255);
-    spec.colors.on_surface = huxerui::Color::Rgb(36, 39, 44);      // #24272C
-    spec.colors.on_surface_variant = huxerui::Color::Rgb(107, 114, 128); // #6B7280
-    spec.colors.outline = huxerui::Color::Rgb(216, 220, 226);      // #D8DCE2
-    spec.colors.inverse_surface = huxerui::Color::Rgb(36, 39, 44);
-    spec.colors.inverse_on_surface = huxerui::Color::Rgb(250, 250, 251);
-    spec.colors.error = huxerui::Color::Rgb(204, 64, 51);
+    // 宣纸色：暖调米白纸面（更亮一档，对齐墨韵参考），卡片近白 + 细墨边，
+    // 主色浓墨而非纯黑。
+    spec.colors.primary = huxerui::Color::Rgb(43, 40, 35);         // 浓墨主色 #2B2823
+    spec.colors.on_primary = huxerui::Color::Rgb(246, 243, 234);
+    spec.colors.secondary = huxerui::Color::Rgb(110, 105, 92);     // 淡墨 #6E695C
+    spec.colors.on_secondary = huxerui::Color::Rgb(248, 245, 238);
+    spec.colors.secondary_container = huxerui::Color::Rgb(227, 221, 203);
+    spec.colors.on_secondary_container = huxerui::Color::Rgb(43, 40, 35);
+    spec.colors.background = huxerui::Color::Rgb(239, 234, 224);   // 宣纸海面 #EFEAE0
+    spec.colors.surface = huxerui::Color::Rgb(247, 244, 236);
+    spec.colors.surface_container_low = huxerui::Color::Rgb(242, 238, 228);
+    spec.colors.surface_container = huxerui::Color::Rgb(248, 245, 236);  // 二级岛近白
+    spec.colors.surface_container_high = huxerui::Color::Rgb(230, 225, 211);
+    spec.colors.surface_container_highest = huxerui::Color::Rgb(252, 250, 243);
+    spec.colors.on_surface = huxerui::Color::Rgb(46, 43, 37);      // 浓墨正文 #2E2B25
+    spec.colors.on_surface_variant = huxerui::Color::Rgb(110, 105, 92); // 淡墨
+    spec.colors.outline = huxerui::Color::Rgb(216, 210, 194);      // 细墨边
+    spec.colors.inverse_surface = huxerui::Color::Rgb(46, 43, 37);
+    spec.colors.inverse_on_surface = huxerui::Color::Rgb(246, 243, 234);
+    spec.colors.error = huxerui::Color::Rgb(181, 70, 46);          // 朱砂 #B5462E
     return spec;
 }
 
 // 主题边界：MaterialThemeDefinition(spec) 之上用 typed style 覆盖组件样式——
 // 按钮/分段按钮/菜单圆角统一 8px（M3 默认全圆胶囊），叠加层用 on_surface
 // 半透明（深色下黑叠黑、浅色黑底上白叠加不可见，故不用 M3 ripple）。
-huxerui::View MinimalThemed(bool dark, huxerui::View content) {
-    const huxerui::ThemeSpec spec = dark ? MinimalDarkThemeSpec() : MinimalLightThemeSpec();
+huxerui::View InkThemed(bool dark, huxerui::View content) {
+    const huxerui::ThemeSpec spec = dark ? InkDarkThemeSpec() : InkLightThemeSpec();
     huxerui::ThemeDefinition definition = huxerui::MaterialThemeDefinition(spec);
 
     const auto withAlpha = [](huxerui::Color c, float a) {
@@ -181,7 +187,9 @@ huxerui::View MinimalThemed(bool dark, huxerui::View content) {
     return huxerui::Theme(std::move(definition), content);
 }
 
-// 托盘菜单：按工具分组列出供应商（勾选当前项，点击直接切换），
+// 托盘菜单：每个工具一个顶层条目（工具图标 + 「显示名 — 当前生效项」），
+// hover 展开二级菜单选供应商（官方原生状态条目 = restoreOfficial 在首位，
+// 勾选当前项）。随后是本地路由开关（勾选 = 运行中，点击 start/stop），
 // 底部固定 显示主窗口 / 退出。
 std::vector<huxerui::MenuEntry> BuildTrayMenu(huxerui::WindowHandle window,
                                               huxerui::ApplicationHandle application,
@@ -192,16 +200,38 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(huxerui::WindowHandle window,
     // 按注册表列出全部工具组（阶段A 通用代码，自然覆盖 5 个工具）。
     for (const auto& spec : models::toolRegistry()) {
         const std::string tool(spec.id);
-        entries.push_back(
-            huxerui::MenuItem(std::string(spec.displayName), [] {}).Enabled(false));
         const auto& g = st.group(tool);
+        const std::string_view official = models::officialVendorName(tool);
+        std::string currentName;
+        for (const auto& p : g.providers) {
+            if (p.id == g.current) currentName = p.name;
+        }
+        if (currentName.empty()) {
+            currentName = official.empty() ? "未设置" : std::string(official);
+        }
+        // 二级菜单：官方原生状态条目与普通供应商同列同交互（勾选 = 当前）。
+        std::vector<huxerui::MenuEntry> children;
+        if (!official.empty()) {
+            children.push_back(
+                huxerui::MenuItem(std::string(official), [tool, toast, revision] {
+                    try {
+                        providerStore().restoreOfficial(tool);
+                        toast.Show(std::format("{} 已恢复官方原生状态",
+                                               ToolName(tool)));
+                    } catch (const std::exception& e) {
+                        toast.Show(e.what());
+                    }
+                    revision = revision.Get() + 1;
+                }).Checked(g.current.empty()));
+        }
         if (g.providers.empty()) {
-            entries.push_back(huxerui::MenuItem("（无供应商）", [] {}).Enabled(false));
+            children.push_back(
+                huxerui::MenuItem("（无供应商）", [] {}).Enabled(false));
         }
         for (const auto& p : g.providers) {
             const std::string id = p.id;
             const std::string name = p.name;
-            entries.push_back(
+            children.push_back(
                 huxerui::MenuItem(name, [tool, id, name, toast, revision] {
                     try {
                         providerStore().switchTo(tool, id);
@@ -212,8 +242,36 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(huxerui::WindowHandle window,
                     revision = revision.Get() + 1;
                 }).Checked(g.current == p.id));
         }
-        entries.push_back(huxerui::MenuSection{});
+        // 顶层条目（hover 展开二级菜单）。托盘菜单图标只接受位图
+        // ImageAsset，工具图标是 SVG——顶层只留文字标签。
+        entries.push_back(huxerui::MenuItem(
+            std::format("{} — {}", spec.displayName, currentName),
+            std::move(children)));
     }
+    entries.push_back(huxerui::MenuSection{});
+    // 本地路由开关：勾选 = 运行中；点击按 config 端口 start / stop。
+    const int routerPort = st.config().routerPort;
+    entries.push_back(
+        huxerui::MenuItem(
+            std::format("本地路由（127.0.0.1:{}）", routerPort),
+            [toast, revision] {
+                try {
+                    if (routerInstance().running()) {
+                        routerInstance().stop();
+                        toast.Show("本地路由已停止");
+                    } else {
+                        routerInstance().start(providerStore().config().routerPort);
+                        toast.Show(std::format(
+                            "本地路由已启动（127.0.0.1:{}）",
+                            providerStore().config().routerPort));
+                    }
+                } catch (const std::exception& e) {
+                    toast.Show(e.what());
+                }
+                revision = revision.Get() + 1;
+            })
+            .Checked(routerInstance().running()));
+    entries.push_back(huxerui::MenuSection{});
     entries.push_back(huxerui::MenuItem("显示主窗口", [window] { window.Activate(); }));
     entries.push_back(huxerui::MenuSection{});
     entries.push_back(
@@ -271,6 +329,8 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(huxerui::WindowHandle window,
                 })
                 .With(huxerui::Tooltip(item.tooltip)));
     }
+    // 栏底留白：水墨长卷在整窗背景底部横带上露出（见下方 Background
+    // ImageFill），侧栏不再单独挂装饰。
     return huxerui::Column(std::move(buttons))
         .With(huxerui::Padding(compact ? theme.spacing.small
                                        : theme.spacing.medium),
@@ -318,6 +378,15 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(huxerui::WindowHandle window,
             revision);
     }
 
+    // 关闭最小化到托盘：托盘可用时关闭请求只隐藏窗口（托盘菜单「显示主窗口」
+    // 经 Activate 召回；「退出」走 application.Quit()，绕过本处理器正常终止）。
+    // 托盘不可用时返回 false 继续平台默认关闭，避免进程藏死。
+    window.OnCloseRequest([tray, window] {
+        if (!tray.IsAvailable()) return false;
+        window.Hide();
+        return true;
+    });
+
     // 路由自动启动（任务G）：首组合一次。config().routerEnabled 且路由器未运行
     // 时按 config().routerPort 启动；start 失败抛 std::runtime_error，toast 提示。
     huxerui::Lifecycle(
@@ -336,7 +405,7 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(huxerui::WindowHandle window,
 
     const bool dark =
         themeMode.Get() == 1 || (themeMode.Get() == 0 && cfg::systemPrefersDark());
-    const huxerui::ThemeSpec rootSpec = dark ? MinimalDarkThemeSpec() : MinimalLightThemeSpec();
+    const huxerui::ThemeSpec rootSpec = dark ? InkDarkThemeSpec() : InkLightThemeSpec();
     const IslandTheme rootIslands = ResolveIslandTheme(rootSpec);
 
     std::vector<huxerui::View> pages;
@@ -350,39 +419,75 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(huxerui::WindowHandle window,
                         .Key("settings").With(huxerui::Grow(1.0F)));
     pages.push_back(AboutPage().Key("about").With(huxerui::Grow(1.0F)));
 
-    huxerui::View content = huxerui::Column {
-        // 自定义标题栏：应用名 + 拖拽区（框架在其右侧渲染窗口按钮）。收窄 +
-        // 去背景：直接融入窗口海面底色；垂直零内边距，内容本身 24pt 高，
-        // 与 title_bar_height 对齐。
-        huxerui::WindowTitleBar {
-            huxerui::Text("llm-switch")
-                .Style(huxerui::TextStyle{
-                    huxerui::Font::System(font_size::kChip)
-                        .WithWeight(huxerui::FontWeight::Bold),
-                    rootSpec.colors.on_surface})
-                .With(huxerui::WindowDragRegion{}),
-            huxerui::Spacer{}.With(huxerui::Grow(1.0F), huxerui::WindowDragRegion{}),
+    // 叠放根：Stack 底层水墨长卷（Image 底对齐 Contain 横带；Background(ImageFill)
+    // 在 Linux 实测不绘制，故改用组件叠放），上层原内容列以底部 56pt 留白让出
+    // 海面横带——岛屿不透光，画只在这一横带与岛间缝隙显现。最外层刷整窗海面底色
+    // （rootSpec.colors.background——AppRoot 在主题 provider 之上，须按 dark 自选）。
+    huxerui::View content = huxerui::Stack {
+        huxerui::Image(app::images::ink_landscape)
+            .Fit(huxerui::ImageFit::Contain)
+            .Align(huxerui::HorizontalAlignment::Center,
+                   huxerui::VerticalAlignment::End),
+        huxerui::Column {
+            // 自定义标题栏：太极标 + 应用名 + 拖拽区（框架在其右侧渲染窗口
+            // 按钮）。收窄 + 去背景：直接融入窗口海面底色；垂直零内边距，
+            // 内容本身 24pt 高，与 title_bar_height 对齐。
+            huxerui::WindowTitleBar {
+                huxerui::Image(app::images::taiji)
+                    .With(huxerui::Frame{.width = 16.0F, .height = 16.0F},
+                          huxerui::WindowDragRegion{}),
+                huxerui::Text("llm-switch")
+                    .Style(huxerui::TextStyle{
+                        huxerui::Font::System(font_size::kChip)
+                            .WithWeight(huxerui::FontWeight::Bold),
+                        rootSpec.colors.on_surface})
+                    .With(huxerui::WindowDragRegion{}),
+                // 朱砂印章「易」（取其「变易/切换」意，应太极八卦题）：深浅
+                // 主题都用固定印泥红 + 宣纸白字。
+                huxerui::Text("易")
+                    .Style(huxerui::TextStyle{
+                        huxerui::Font::System(9.0F)
+                            .WithWeight(huxerui::FontWeight::Bold),
+                        huxerui::Color::Rgb(248, 245, 236)})
+                    .With(huxerui::Background(huxerui::Color::Rgb(178, 58, 42)),
+                          huxerui::CornerRadius(2.5F),
+                          huxerui::Padding(
+                              huxerui::EdgeInsets::Symmetric(3.5F, 1.5F)),
+                          huxerui::WindowDragRegion{}),
+                huxerui::Spacer{}.With(huxerui::Grow(1.0F),
+                                       huxerui::WindowDragRegion{}),
+            }
+                .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(
+                          rootSpec.spacing.small, 0.0F)),
+                      huxerui::Spacing(rootSpec.spacing.small)),
+            // 主行：图标侧栏（无岛屿包裹）+ 内容区；Grow 吃满标题栏之外剩余
+            // 高度。内容区不再套外壳岛：区域划分由各页面自己的一级岛承担。
+            huxerui::Row {
+                SideShell(navPage),
+                huxerui::IndexedPages(std::move(pages), navPage.Get())
+                    .With(huxerui::Grow(1.0F)),
+            }
+                .With(huxerui::Spacing(rootIslands.page_gap),
+                      huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
+                      huxerui::Grow(1.0F)),
         }
-            .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(
-                      rootSpec.spacing.small, 0.0F)),
-                  huxerui::Spacing(rootSpec.spacing.small)),
-        // 主行：图标侧栏（无岛屿包裹）+ 内容区；Grow 吃满标题栏之外剩余高度。
-        // 内容区不再套外壳岛：区域划分由各页面自己的一级岛（PageScaffold）承担。
-        huxerui::Row {
-            SideShell(navPage),
-            huxerui::IndexedPages(std::move(pages), navPage.Get())
-                .With(huxerui::Grow(1.0F)),
-        }
-            .With(huxerui::Spacing(rootIslands.page_gap),
-                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
-                  huxerui::Grow(1.0F)),
+            .With(huxerui::Spacing(rootSpec.spacing.extra_small),
+                  // 底部 56pt 留白让出长卷横带（画在 Stack 底层）。
+                  huxerui::Padding(huxerui::EdgeInsets{.bottom = 56.0F}),
+                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)),
     }
-        .With(huxerui::Spacing(rootSpec.spacing.extra_small),
-              // 窗口整体海面底色刷满根节点：岛间缝隙透出底色形成层次。
+        .With(// 窗口整体海面底色刷满根节点：岛间缝隙与底部横带透出底色。
               huxerui::Background(rootSpec.colors.background),
+              // Stack 以自身对齐摆放所有子项（子项自带 Align 仅作用于图片
+              // 内容），双向 Stretch 让水墨长卷与内容列都铺满窗口，长卷内容
+              // 再经 Image.Align(Center, End) 钉在底部。
+              huxerui::Align(huxerui::HorizontalAlignment::Stretch,
+                             huxerui::VerticalAlignment::Stretch),
+              // 圆角 + 裁剪：底层长卷是矩形绘制，须随窗口圆角收口。
+              huxerui::CornerRadius(12.0F), huxerui::ClipChildren(),
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 
-    return MinimalThemed(dark, std::move(content));
+    return InkThemed(dark, std::move(content));
 }
 
 } // namespace llmswitch::ui

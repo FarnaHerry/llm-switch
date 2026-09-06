@@ -59,9 +59,11 @@ public:
 
     // 切换激活供应商：先备份 live 文件再改写，成功后更新 current 并落盘。
     // 各工具写入策略：
-    //   claude-code：深合并 settings.json 的 env 三字段，其余字段原样保留；
+    //   claude-code：深合并 settings.json 的 env（ANTHROPIC_BASE_URL /
+    //     ANTHROPIC_AUTH_TOKEN；model 与三档映射 haiku/sonnet/opusModel 非空时
+    //     写 ANTHROPIC_MODEL / ANTHROPIC_DEFAULT_*_MODEL），其余字段原样保留；
     //   codex：深合并 auth.json 的 OPENAI_API_KEY，codexConfigToml 非空时整体
-    //     替换 config.toml；
+    //     替换 config.toml（model 非空时再行级重写顶层 model 键）；
     //   opencode：opencode.json 顶层 provider map upsert 条目（npm 按
     //     apiFormat 选 @ai-sdk/anthropic / @ai-sdk/openai-compatible），model
     //     非空写顶层 model="<id>/<model>"；官方文件支持 JSON5 注释，本实现
@@ -70,12 +72,26 @@ public:
     //     defaultProvider/defaultModel，目录 0700 文件 0600；
     //   claude（Desktop 3p 直连）：两个 claude_desktop_config.json 深合并
     //     deploymentMode=3p，写 configLibrary 下固定 id 的 profile 与
-    //     _meta.json；Linux 不支持抛错。
+    //     _meta.json；inferenceModels = 主模型 + 三档映射条目（非白名单模型名
+    //     借该档安全 route id、真名放 labelOverride）；Linux 不支持抛错。
     // 供应商不存在 / 文件写失败抛 std::runtime_error。
     void switchTo(std::string_view tool, const std::string& id);
 
     // 探测 live 文件当前对应组内哪个 provider；无匹配返回空串。只读，不改配置。
     std::string detectCurrent(std::string_view tool) const;
+
+    // 恢复厂商原生状态：撤掉本应用对 live 配置写入的覆盖（先备份再改），
+    // 组 current 清空并落盘。各工具还原策略：
+    //   claude-code：settings.json 的 env 块删除 ANTHROPIC_BASE_URL /
+    //     ANTHROPIC_AUTH_TOKEN / ANTHROPIC_MODEL / ANTHROPIC_DEFAULT_*_MODEL
+    //     六键（其余键与字段保留）；
+    //   codex：auth.json 删 OPENAI_API_KEY（删完为空对象则删文件）；
+    //     config.toml 仅当内容与组内某 provider 的 codexConfigToml 完全一致
+    //     （即本应用写入且未被手改）才删除，否则不动；
+    //   claude（Desktop）：两份 claude_desktop_config.json 删 deploymentMode
+    //     键，_meta.json 移除本应用 profile 条目并清 appliedId；Linux 抛错。
+    // opencode / pi 没有官方默认状态，抛 std::runtime_error。
+    void restoreOfficial(std::string_view tool);
 
     // 把 live 文件当前内容收编成名为「当前配置」的新 provider（已有匹配项则
     // 复用不重复建），加入组并设为 current 后落盘；live 文件不存在返回
