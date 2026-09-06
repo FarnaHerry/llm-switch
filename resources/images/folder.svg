@@ -1,10 +1,6 @@
 <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-  <!-- 文件夹：上沿标签页，右下角留飞白缺口 -->
-  <path d="M3.4 6.2 H9.6 L11.9 8.9 H20.6 V18.9 H17.2 M13.8 18.9 H3.4 Z" fill="none" stroke="#FFFFFF" stroke-opacity="0.58" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M3.4 6.2 V5.2 H9.2" fill="none" stroke="#FFFFFF" stroke-opacity="0.34" stroke-width="1.5" stroke-linecap="round"/>
-  <g data-ink-texture="flywhite" fill="#FFFFFF" fill-opacity="0.3">
-    <ellipse cx="15.5" cy="19.6" rx="0.95" ry="0.36"/>
-    <circle cx="21.3" cy="10.2" r="0.42"/>
-  </g>
-  <path data-ink-texture="dry-brush" d="M4.6 19.6 C7 19.2 9.1 19.2 10.9 19.45 M12.2 19.55 C13.3 19.5 14.2 19.4 14.9 19.25" fill="none" stroke="#FFFFFF" stroke-opacity="0.16" stroke-width="0.7" stroke-linecap="round"/>
+  <!-- 文件夹：实心剪影，标签页与盒体间留一道飞白缝 -->
+  <path fill="#FFFFFF" fill-opacity="0.88" d="M3.2 5 H9.8 L12.2 7.8 H20.8 V19.2 H3.2 Z"/>
+  <path d="M3.2 9.6 H20.8" fill="none" stroke="#FFFFFF" stroke-opacity="0.25" stroke-width="1.1" stroke-linecap="round"/>
+  <circle cx="19.9" cy="18.2" r="0.55" fill="#FFFFFF" fill-opacity="0.28"/>
 </svg>

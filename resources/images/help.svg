@@ -1,11 +1,4 @@
 <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-  <!-- 帮助：圈 + 问号，弯钩带顿 -->
-  <path d="M20.4 10.7 A8.5 8.5 0 1 1 19.3 7.3" fill="none" stroke="#FFFFFF" stroke-opacity="0.58" stroke-width="1.9" stroke-linecap="round"/>
-  <path d="M9.6 9.3 C9.6 7.9 10.6 6.9 12 6.9 C13.5 6.9 14.5 7.9 14.5 9.2 C14.5 10.9 12.4 11.2 12.1 12.9" fill="none" stroke="#FFFFFF" stroke-opacity="0.62" stroke-width="1.9" stroke-linecap="round"/>
-  <circle cx="12.1" cy="16.1" r="1.1" fill="#FFFFFF" fill-opacity="0.6"/>
-  <g data-ink-texture="flywhite" fill="#FFFFFF" fill-opacity="0.3">
-    <circle cx="20.8" cy="5.4" r="0.42"/>
-    <ellipse cx="4.1" cy="15" rx="0.7" ry="0.3" transform="rotate(-50 4.1 15)"/>
-  </g>
-  <path data-ink-texture="dry-brush" d="M13.6 7.6 C14 8 14.3 8.4 14.5 8.8 M14.6 9.5 C14.65 10 14.6 10.4 14.5 10.8" fill="none" stroke="#FFFFFF" stroke-opacity="0.15" stroke-width="0.64" stroke-linecap="round"/>
+  <!-- 帮助：实心圆，问号镂空（弯钩以钩形多边形逼近） -->
+  <path fill-rule="evenodd" fill="#FFFFFF" fill-opacity="0.88" d="M12 3.2 A8.8 8.8 0 1 0 12 20.8 A8.8 8.8 0 0 0 12 3.2 Z M12 6.6 C10.2 6.6 8.9 7.8 8.9 9.3 L10.9 9.5 C10.9 8.8 11.3 8.4 12 8.4 C12.7 8.4 13.2 8.8 13.2 9.4 C13.2 10.4 11.2 10.6 11 12.6 L11 13.2 L13 13.2 L13 12.9 C13.2 11.9 15.2 11.5 15.2 9.3 C15.2 7.7 13.8 6.6 12 6.6 Z M12 14.6 A1.35 1.35 0 1 0 12 17.3 A1.35 1.35 0 0 0 12 14.6 Z"/>
 </svg>

@@ -1,11 +1,6 @@
 <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-  <!-- 搜索：镜面留口不闭合，柄由粗到细 -->
-  <path d="M15.6 10.4 A5.3 5.3 0 1 1 10.4 5.2" fill="none" stroke="#FFFFFF" stroke-opacity="0.6" stroke-width="2" stroke-linecap="round"/>
-  <path d="M14.9 14.9 L20.1 20.2" fill="none" stroke="#FFFFFF" stroke-opacity="0.62" stroke-width="2.2" stroke-linecap="round"/>
-  <path d="M18.4 18.5 L20.4 20.5" fill="none" stroke="#FFFFFF" stroke-opacity="0.3" stroke-width="3.1" stroke-linecap="round"/>
-  <g data-ink-texture="flywhite" fill="#FFFFFF" fill-opacity="0.3">
-    <circle cx="7.4" cy="6.9" r="0.46"/>
-    <ellipse cx="20.9" cy="21" rx="0.7" ry="0.3" transform="rotate(45 20.9 21)"/>
-  </g>
-  <path data-ink-texture="dry-brush" d="M4.9 13.4 C5.15 14.3 5.6 15.1 6.2 15.8 M7 16.5 C7.4 16.9 7.9 17.2 8.3 17.5" fill="none" stroke="#FFFFFF" stroke-opacity="0.16" stroke-width="0.7" stroke-linecap="round"/>
+  <!-- 搜索：实心镜圈（镂空）+ 粗柄 -->
+  <path fill-rule="evenodd" fill="#FFFFFF" fill-opacity="0.88" d="M10.4 3.6 A6.8 6.8 0 1 0 10.4 17.2 A6.8 6.8 0 0 0 10.4 3.6 Z M10.4 6.3 A4.1 4.1 0 1 1 10.4 14.5 A4.1 4.1 0 0 1 10.4 6.3 Z"/>
+  <path d="M15.3 15.3 L20.6 20.6" fill="none" stroke="#FFFFFF" stroke-opacity="0.88" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="7.6" cy="7.1" r="0.6" fill="#FFFFFF" fill-opacity="0.3"/>
 </svg>

@@ -1,11 +1,6 @@
 <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-  <!-- 解锁：锁梁扬起不扣合，锁身同锁定 -->
-  <path d="M7.6 10.4 V7.9 C7.6 5.3 9.5 3.6 12 3.6 C14.2 3.6 15.9 4.9 16.3 6.9" fill="none" stroke="#FFFFFF" stroke-opacity="0.6" stroke-width="1.9" stroke-linecap="round"/>
-  <path d="M5.8 10.4 H18.2 C18.9 10.4 19.3 10.8 19.3 11.5 V18.9 C19.3 19.6 18.9 20 18.2 20 H5.8 C5.1 20 4.7 19.6 4.7 18.9 V11.5 C4.7 10.8 5.1 10.4 5.8 10.4 Z" fill="none" stroke="#FFFFFF" stroke-opacity="0.56" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M12 14 V16.2" fill="none" stroke="#FFFFFF" stroke-opacity="0.6" stroke-width="2" stroke-linecap="round"/>
-  <g data-ink-texture="flywhite" fill="#FFFFFF" fill-opacity="0.3">
-    <circle cx="16.6" cy="5.6" r="0.44"/>
-    <ellipse cx="19.9" cy="20.6" rx="0.75" ry="0.3" transform="rotate(16 19.9 20.6)"/>
-  </g>
-  <path data-ink-texture="dry-brush" d="M15.5 5.2 C15.9 5.6 16.2 6.1 16.4 6.5 M16.6 7.2 C16.7 7.6 16.75 8 16.8 8.35" fill="none" stroke="#FFFFFF" stroke-opacity="0.16" stroke-width="0.66" stroke-linecap="round"/>
+  <!-- 解锁：实心锁身，锁梁扬起 -->
+  <path fill-rule="evenodd" fill="#FFFFFF" fill-opacity="0.88" d="M5.6 10.2 H18.4 C19.2 10.2 19.8 10.8 19.8 11.6 V19.4 C19.8 20.2 19.2 20.8 18.4 20.8 H5.6 C4.8 20.8 4.2 20.2 4.2 19.4 V11.6 C4.2 10.8 4.8 10.2 5.6 10.2 Z M12 13.2 A1.5 1.5 0 0 0 10.9 15.2 L10.5 17.4 H13.5 L13.1 15.2 A1.5 1.5 0 0 0 12 13.2 Z"/>
+  <path d="M7.6 10.2 V7.6 C7.6 5 9.5 3.2 12 3.2 C14.4 3.2 16.2 4.8 16.4 7.2" fill="none" stroke="#FFFFFF" stroke-opacity="0.88" stroke-width="2.6" stroke-linecap="round"/>
+  <circle cx="17.2" cy="5.6" r="0.5" fill="#FFFFFF" fill-opacity="0.3"/>
 </svg>

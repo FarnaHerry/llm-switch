@@ -1,11 +1,5 @@
 <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-  <!-- 文件：折角页，右缘一笔断续 -->
-  <path d="M6.2 3.4 H12.9 L17.8 8.3 V20.6 H6.2 Z" fill="none" stroke="#FFFFFF" stroke-opacity="0.58" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M12.7 3.6 V8.5 H17.6" fill="none" stroke="#FFFFFF" stroke-opacity="0.42" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M8.9 12.4 H15.1 M8.9 15.8 H13.4" fill="none" stroke="#FFFFFF" stroke-opacity="0.4" stroke-width="1.4" stroke-linecap="round"/>
-  <g data-ink-texture="flywhite" fill="#FFFFFF" fill-opacity="0.3">
-    <ellipse cx="5.4" cy="21.2" rx="0.95" ry="0.38" transform="rotate(-10 5.4 21.2)"/>
-    <circle cx="18.5" cy="7" r="0.4"/>
-  </g>
-  <path data-ink-texture="dry-brush" d="M7.4 21.3 C9.8 20.9 11.9 20.9 13.6 21.15 M15 21.25 C16.2 21.2 17.3 21.05 18 20.9" fill="none" stroke="#FFFFFF" stroke-opacity="0.15" stroke-width="0.68" stroke-linecap="round"/>
+  <!-- 文件：实心页 + 折角翻起，页缘飞白 -->
+  <path fill-rule="evenodd" fill="#FFFFFF" fill-opacity="0.88" d="M6 3.2 H12.6 L18 8.6 V20.8 H6 Z M12 4.6 V9.2 H16.6 L12 4.6 Z"/>
+  <path d="M8.6 13 H15.2 M8.6 16.2 H13.2" fill="none" stroke="#FFFFFF" stroke-opacity="0.3" stroke-width="1.2" stroke-linecap="round"/>
 </svg>

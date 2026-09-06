@@ -1,12 +1,9 @@
 <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-  <!-- 群组：中一人完整，左右各露半身 -->
-  <path d="M14.3 8.1 A2.7 2.7 0 1 1 9.8 7.8 A2.7 2.7 0 0 1 14.3 8.1" fill="none" stroke="#FFFFFF" stroke-opacity="0.6" stroke-width="1.8" stroke-linecap="round"/>
-  <path d="M7.2 19.4 C7.6 15.8 9.6 14.1 12 14.1 C14.5 14.1 16.5 15.9 16.8 19.5" fill="none" stroke="#FFFFFF" stroke-opacity="0.58" stroke-width="1.8" stroke-linecap="round"/>
-  <path d="M6.3 9.9 A1.9 1.9 0 1 1 4.2 12.6 M3.2 18.9 C3.5 16.1 4.9 14.7 6.6 14.4" fill="none" stroke="#FFFFFF" stroke-opacity="0.45" stroke-width="1.6" stroke-linecap="round"/>
-  <path d="M17.7 9.9 A1.9 1.9 0 1 0 19.8 12.6 M20.8 18.9 C20.5 16.1 19.1 14.7 17.4 14.4" fill="none" stroke="#FFFFFF" stroke-opacity="0.45" stroke-width="1.6" stroke-linecap="round"/>
-  <g data-ink-texture="flywhite" fill="#FFFFFF" fill-opacity="0.3">
-    <ellipse cx="12" cy="20.3" rx="1" ry="0.36"/>
-    <circle cx="20.6" cy="9.2" r="0.38"/>
-  </g>
-  <path data-ink-texture="dry-brush" d="M8.3 14.6 C9.2 14.25 10.1 14.05 10.9 13.95 M11.9 13.9 C12.6 13.9 13.3 13.95 13.9 14.1" fill="none" stroke="#FFFFFF" stroke-opacity="0.14" stroke-width="0.64" stroke-linecap="round"/>
+  <!-- 群组：中间完整一人，左右各半露 -->
+  <circle cx="12" cy="7.6" r="3.4" fill="#FFFFFF" fill-opacity="0.88"/>
+  <path fill="#FFFFFF" fill-opacity="0.88" d="M12 13.4 C8.3 13.4 5.7 15.5 5.3 19.4 H18.7 C18.3 15.5 15.7 13.4 12 13.4 Z"/>
+  <circle cx="4.6" cy="10.2" r="2.3" fill="#FFFFFF" fill-opacity="0.55"/>
+  <path fill="#FFFFFF" fill-opacity="0.55" d="M4.6 14.6 C2.4 14.9 1.1 16.4 0.9 19.4 H3.4 C3.7 17 4 15.7 4.6 14.6 Z"/>
+  <circle cx="19.4" cy="10.2" r="2.3" fill="#FFFFFF" fill-opacity="0.55"/>
+  <path fill="#FFFFFF" fill-opacity="0.55" d="M19.4 14.6 C21.6 14.9 22.9 16.4 23.1 19.4 H20.6 C20.3 17 20 15.7 19.4 14.6 Z"/>
 </svg>

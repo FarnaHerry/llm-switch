@@ -1,11 +1,5 @@
 <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-  <!-- 排序：一升一降两笔错锋，箭头如撇捺 -->
-  <path d="M8.3 19.6 V5.2 M8.3 5.2 L4.9 9.3 M8.3 5.2 L11.7 9.4" fill="none" stroke="#FFFFFF" stroke-opacity="0.6" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M15.7 4.4 V18.8 M15.7 18.8 L12.3 14.7 M15.7 18.8 L19.1 14.6" fill="none" stroke="#FFFFFF" stroke-opacity="0.6" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M8.3 18.4 V15.6" fill="none" stroke="#FFFFFF" stroke-opacity="0.26" stroke-width="2.7" stroke-linecap="round"/>
-  <g data-ink-texture="flywhite" fill="#FFFFFF" fill-opacity="0.3">
-    <circle cx="8.2" cy="3.9" r="0.42"/>
-    <ellipse cx="15.8" cy="20.3" rx="0.72" ry="0.3"/>
-  </g>
-  <path data-ink-texture="dry-brush" d="M13.3 15.6 C13.9 16.3 14.4 16.9 14.9 17.4 M15.5 18 C15.8 18.3 16.1 18.6 16.4 18.85" fill="none" stroke="#FFFFFF" stroke-opacity="0.15" stroke-width="0.64" stroke-linecap="round"/>
+  <!-- 排序：一升一降两枚实心箭 -->
+  <path fill="#FFFFFF" fill-opacity="0.88" d="M8 3.4 L11.9 8.6 H9.5 V19.4 H6.5 V8.6 H4.1 Z"/>
+  <path fill="#FFFFFF" fill-opacity="0.88" d="M16 20.6 L12.1 15.4 H14.5 V4.6 H17.5 V15.4 H19.9 Z"/>
 </svg>

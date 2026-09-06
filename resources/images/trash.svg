@@ -1,9 +1,5 @@
 <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-  <path d="M3 6 H21 M8 6 V4 A2 2 0 0 1 10 2 H14 A2 2 0 0 1 16 4 V6 M19 6 V20 A2 2 0 0 1 17 22 H7 A2 2 0 0 1 5 20 V6 M10 11 V17 M14 11 V17" fill="none" stroke="#FFFFFF" stroke-opacity="0.55" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-  <g data-ink-texture="flywhite" fill="#FFFFFF" fill-opacity="0.32">
-    <ellipse cx="3.1" cy="20.4" rx="1.15" ry="0.42" transform="rotate(-12 3.1 20.4)"/>
-    <circle cx="20.2" cy="4.1" r="0.48"/>
-    <circle cx="21.4" cy="5.2" r="0.23" fill-opacity="0.18"/>
-  </g>
-  <path data-ink-texture="dry-brush" d="M3.8 21.1 C6.7 20.4 9.1 20.4 11.2 20.75 M12.8 20.9 C14.4 20.9 15.9 20.65 17.1 20.5" fill="none" stroke="#FFFFFF" stroke-opacity="0.16" stroke-width="0.72" stroke-linecap="round"/>
+  <!-- 删除：实心桶身 + 盖，两道竖缝留白 -->
+  <path fill-rule="evenodd" fill="#FFFFFF" fill-opacity="0.88" d="M9.2 3.2 H14.8 L15.4 4.9 H20 V6.6 H4 V4.9 H8.6 Z M5.6 8 H18.4 L17.5 20.6 H6.5 Z M9.9 10.4 V17.6 H11.3 V10.4 Z M12.7 10.4 V17.6 H14.1 V10.4 Z"/>
+  <path d="M6.9 21.3 C9.6 20.8 12 20.8 14 21.05" fill="none" stroke="#FFFFFF" stroke-opacity="0.24" stroke-width="0.85" stroke-linecap="round"/>
 </svg>

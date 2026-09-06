@@ -1,11 +1,4 @@
 <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-  <!-- 视频：圆角框 + 三角播放，播放键带叠墨 -->
-  <path d="M4.2 5.6 H19.8 C20.5 5.6 20.9 6 20.9 6.7 V17.3 C20.9 18 20.5 18.4 19.8 18.4 H4.2 C3.5 18.4 3.1 18 3.1 17.3 V6.7 C3.1 6 3.5 5.6 4.2 5.6 Z" fill="none" stroke="#FFFFFF" stroke-opacity="0.55" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M10.1 9.3 L15.3 11.9 L10.2 14.7 Z" fill="none" stroke="#FFFFFF" stroke-opacity="0.62" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M10.4 9.8 L13.6 11.5" fill="none" stroke="#FFFFFF" stroke-opacity="0.26" stroke-width="2.6" stroke-linecap="round"/>
-  <g data-ink-texture="flywhite" fill="#FFFFFF" fill-opacity="0.3">
-    <ellipse cx="3.9" cy="19.3" rx="0.9" ry="0.35" transform="rotate(-8 3.9 19.3)"/>
-    <circle cx="19.6" cy="4.7" r="0.4"/>
-  </g>
-  <path data-ink-texture="dry-brush" d="M5.4 19.4 C7.9 19 10 19 11.8 19.25 M13.1 19.35 C14.4 19.3 15.5 19.15 16.3 19" fill="none" stroke="#FFFFFF" stroke-opacity="0.15" stroke-width="0.68" stroke-linecap="round"/>
+  <!-- 视频：实心圆角框，播放三角镂空 -->
+  <path fill-rule="evenodd" fill="#FFFFFF" fill-opacity="0.88" d="M4.4 5 H19.6 C20.7 5 21.4 5.7 21.4 6.8 V17.2 C21.4 18.3 20.7 19 19.6 19 H4.4 C3.3 19 2.6 18.3 2.6 17.2 V6.8 C2.6 5.7 3.3 5 4.4 5 Z M10.2 9.2 L15.6 12 L10.2 14.8 Z"/>
 </svg>

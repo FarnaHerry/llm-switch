@@ -1,10 +1,6 @@
 <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-  <!-- 加载：大半圈弧由浓入淡，收笔飞白 -->
-  <path d="M12 3.4 A8.6 8.6 0 1 1 3.5 10.9" fill="none" stroke="#FFFFFF" stroke-opacity="0.6" stroke-width="2" stroke-linecap="round"/>
-  <path d="M12 3.4 A8.6 8.6 0 0 1 19.9 8.2" fill="none" stroke="#FFFFFF" stroke-opacity="0.3" stroke-width="3" stroke-linecap="round"/>
-  <g data-ink-texture="flywhite" fill="#FFFFFF" fill-opacity="0.3">
-    <ellipse cx="4.2" cy="8.6" rx="0.78" ry="0.32" transform="rotate(-55 4.2 8.6)"/>
-    <circle cx="5.9" cy="5.9" r="0.4"/>
-  </g>
-  <path data-ink-texture="dry-brush" d="M4.3 8.1 C4 7.3 3.85 6.6 3.8 5.9 M3.75 5 C3.75 4.6 3.8 4.25 3.9 3.95" fill="none" stroke="#FFFFFF" stroke-opacity="0.18" stroke-width="0.7" stroke-linecap="round"/>
+  <!-- 加载：圆相厚弧，起笔重收笔枯 -->
+  <path d="M12 3.9 A8.1 8.1 0 1 1 4 10.4" fill="none" stroke="#FFFFFF" stroke-opacity="0.85" stroke-width="3.3" stroke-linecap="round"/>
+  <path d="M12 3.9 A8.1 8.1 0 0 1 18.9 7.4" fill="none" stroke="#FFFFFF" stroke-opacity="0.38" stroke-width="4.4" stroke-linecap="round"/>
+  <circle cx="4.6" cy="8.2" r="0.55" fill="#FFFFFF" fill-opacity="0.3"/>
 </svg>
