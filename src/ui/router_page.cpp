@@ -70,7 +70,11 @@ struct LogSnapshot {
 std::string FormatClock(std::int64_t ms) {
     const std::time_t t = static_cast<std::time_t>(ms / 1000);
     std::tm tm{};
-    if (localtime_r(&t, &tm) == nullptr) return "--:--:--";
+#ifdef _WIN32
+    if (::localtime_s(&tm, &t) != 0) return "--:--:--";  // MSVC 安全版（参数对调）
+#else
+    if (::localtime_r(&t, &tm) == nullptr) return "--:--:--";
+#endif
     return std::format("{:02d}:{:02d}:{:02d}", tm.tm_hour, tm.tm_min, tm.tm_sec);
 }
 
