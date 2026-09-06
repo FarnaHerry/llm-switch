@@ -1,0 +1,41 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="llm-switch" Manufacturer="dev.farna.llmswitch" Version="@HUXERUI_WINDOWS_PROJECT_VERSION@"
+           UpgradeCode="@HUXERUI_WINDOWS_MSI_UPGRADE_CODE@" Scope="perMachine">
+    <MajorUpgrade DowngradeErrorMessage="A newer version of llm-switch is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="llm-switch" />
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="APPLICATIONPROGRAMMENU" Name="llm-switch" />
+    </StandardDirectory>
+    <StandardDirectory Id="DesktopFolder" />
+
+    <ComponentGroup Id="ApplicationFiles" Directory="INSTALLFOLDER">
+      <Files Include="!(bindpath.Application)\**" />
+    </ComponentGroup>
+    <Component Id="ApplicationShortcut" Directory="APPLICATIONPROGRAMMENU">
+      <Shortcut Id="ApplicationStartMenuShortcut" Name="llm-switch"
+                Target="[INSTALLFOLDER]llm-switch.exe" WorkingDirectory="INSTALLFOLDER" />
+      <RemoveFolder Id="RemoveApplicationProgramMenu" On="uninstall" />
+      <RegistryValue Root="HKLM" Key="Software\dev.farna.llmswitch\llm-switch" Name="installed"
+                     Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+    <Component Id="ApplicationDesktopShortcut" Directory="DesktopFolder">
+      <Shortcut Id="ApplicationDesktopShortcutLink" Name="llm-switch"
+                Target="[INSTALLFOLDER]llm-switch.exe" WorkingDirectory="INSTALLFOLDER" />
+      <RegistryValue Root="HKLM" Key="Software\dev.farna.llmswitch\llm-switch" Name="desktopShortcut"
+                     Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+
+    <Feature Id="Application" Title="llm-switch" Level="1">
+      <ComponentGroupRef Id="ApplicationFiles" />
+      <ComponentRef Id="ApplicationShortcut" />
+    </Feature>
+    <Feature Id="DesktopShortcut" Title="Desktop shortcut" Level="2" AllowAbsent="yes">
+      <Level Value="1" Condition="CREATE_DESKTOP_SHORTCUT = 1" />
+      <ComponentRef Id="ApplicationDesktopShortcut" />
+    </Feature>
+  </Package>
+</Wix>

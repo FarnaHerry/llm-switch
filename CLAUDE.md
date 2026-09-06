@@ -63,7 +63,7 @@ huxerui run linux                  # HuxerUI CLI 流程（构建到 .huxerui/bui
   静态库目标 `llmswitch_json`）；curl 8.22.0 以 tarball vendor 构建
   （OpenSSL 后端静态库；OpenSSL 优先系统包，Linux x86_64 回落
   `third_party/tarballs/openssl-3.5.1-linux-x86_64.tar.gz` 静态包，解析段在
-  `add_subdirectory(third_party)` 之前）；cpp-httplib 0.20.1 单头提交在
+  `add_subdirectory(third_party)` 之前）；cpp-httplib 0.54.1 单头提交在
   `third_party/httplib/`（INTERFACE 目标 `llmswitch_httplib`，仅
   llmswitch.router 用）；HuxerUI 0.2.0 走双通道（见上）。
   无 SQLite/IXWebSocket。
@@ -202,6 +202,14 @@ huxerui run linux                  # HuxerUI CLI 流程（构建到 .huxerui/bui
 
 - 平台入口：platform/{linux,windows,macos}/main.cpp 均为薄 GUI 入口（无 CLI
   分流）；顶层 CMakeLists 的 WIN32/APPLE 分支按平台把对应入口追加进 SOURCES。
+- Windows 自定义安装向导（蓝本 Clash-Flux 同名机制）：platform/windows/
+  huxerui.cmake 定义 `huxerui_configure_windows_project_package`，
+  `huxerui package windows`（HUXERUI_PACKAGE=ON）时把 MSI + Burn 捆绑包
+  （package/Package.wxs.in / Bundle.wxs.in）与 HuxerUI 托管安装器 UI
+  （package/src/，品牌面板 + 简中/繁中/英文 strings）接进构建；日常构建
+  零开销（函数内 `if (NOT HUXERUI_PACKAGE) return()`）。需要含
+  `huxerui_add_windows_installer` 的 HuxerUI 源码/SDK（0.2.0 之后；
+  CI 钉的 c00e72a 如需出安装包要前移）。
 - `.github/workflows/build.yml`（蓝本 Clash-Flux 同名文件，按其已跑通配方
   适配）：三个桌面 job + release。build-linux（ubuntu:26.04 容器 + clang-21/
   libc++-21 + pip cmake==4.4.2 + libc++.modules.json 路径改写 + gtk4/epoxy/

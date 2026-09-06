@@ -316,6 +316,26 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
             MACOSX_BUNDLE_INFO_PLIST "${HUXERUI_MACOS_INFO_PLIST}")
     endif ()
 
+    # ---- Windows 自定义安装向导 ---------------------------------------------
+    # `huxerui package windows` 时生效（日常构建零开销）：platform/windows/
+    # huxerui.cmake 定义配置函数，把 MSI + Burn 捆绑包 + 托管安装器 UI
+    # （platform/windows/package/，品牌面板 + 简中/繁中/英文目录）接进构建。
+    # install 规则是安装包文件唯一来源——图标资产在此显式声明。
+    # 需要含 huxerui_add_windows_installer 的 HuxerUI 源码/SDK（0.2.0 之后，
+    # 见 third_party/README.md）。
+    if (WIN32 AND COMMAND huxerui_configure_windows_project_package)
+        get_target_property(LLMSWITCH_APP_INSTALL_COMPONENT llm-switch
+            HUXERUI_APPLICATION_INSTALL_COMPONENT)
+        if (LLMSWITCH_APP_INSTALL_COMPONENT
+                AND NOT LLMSWITCH_APP_INSTALL_COMPONENT MATCHES "-NOTFOUND$")
+            huxerui_configure_windows_project_package(llm-switch
+                "${LLMSWITCH_APP_INSTALL_COMPONENT}")
+            install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/assets"
+                DESTINATION .
+                COMPONENT "${LLMSWITCH_APP_INSTALL_COMPONENT}")
+        endif ()
+    endif ()
+
     # 图标资源放 <exe>/assets；HuxerUI 资源包（内置+app 合并，由 huxerui_add_app 的
     # 资源构建生成）放 <exe>.resources。最新运行时除了 resources.bin 索引外，
     # 还会按索引读取同目录下的 .huxv/.png 等实际 payload，必须把整个 package
