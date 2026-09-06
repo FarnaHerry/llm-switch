@@ -19,7 +19,7 @@ Claude Desktop / Codex / opencode / pi 五款 AI 编程工具的供应商配置�
   macOS / Windows）。
 - **本地路由**：内置反向代理监听 `http://127.0.0.1:<port>/<tool>/`（默认
   15731），转发到该工具当前供应商并自动替换鉴权头；上游 429/5xx 可选故障
-  转移；支持开机自启。
+  转移；支持逐 Agent 选择是否接受代理，运行中切换即时生效，并支持开机自启。
 - **使用统计**：按请求记录状态码 / 耗时 / token 用量，JSONL 持久化
   （`~/.local/share/llm-switch/router/requests.jsonl`），统计页看汇总与
   按供应商分布。

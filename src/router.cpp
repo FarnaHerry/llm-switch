@@ -268,11 +268,16 @@ struct LocalRouter::Impl {
     std::atomic<int> boundPort{0};
     std::atomic<bool> failover{false};
 
+    mutable std::mutex settingsMu;
+    std::unordered_set<std::string> enabledTools;
     mutable std::mutex mu;
     std::deque<RequestLog> logs;      // 环形缓冲（旧 → 新）
     std::int64_t jsonlLines = 0;      // statsFile 当前行数（回填时初始化）
 
     explicit Impl(GroupProvider gp) : groupProvider(std::move(gp)) {
+        for (const auto& spec : models::toolRegistry()) {
+            enabledTools.emplace(spec.id);
+        }
         loadFromDisk();
         // 任意方法任意路径都进同一个处理器（catch-all 正则；不能用
         // set_pre_routing_handler —— 它在 read_content 之前触发，拿不到 body）。
@@ -351,6 +356,14 @@ struct LocalRouter::Impl {
         if (models::findTool(tool) == nullptr) {
             jsonError(res, 404, std::format("未知工具：{}", tool));
             return;
+        }
+        {
+            std::lock_guard lk(settingsMu);
+            if (!enabledTools.contains(tool)) {
+                jsonError(res, 403,
+                          std::format("工具 {} 的本地路由未启用", tool));
+                return;
+            }
         }
         const auto group = groupProvider(tool);
         if (!group.has_value()) {
@@ -554,6 +567,22 @@ bool LocalRouter::running() const { return impl_->isRunning.load(); }
 int LocalRouter::port() const { return impl_->boundPort.load(); }
 void LocalRouter::setFailoverEnabled(bool enabled) { impl_->failover = enabled; }
 bool LocalRouter::failoverEnabled() const { return impl_->failover.load(); }
+void LocalRouter::setToolEnabled(std::string_view toolId, bool enabled) {
+    if (models::findTool(toolId) == nullptr) {
+        throw std::runtime_error(std::format("未知工具：{}", toolId));
+    }
+    std::lock_guard lk(impl_->settingsMu);
+    if (enabled) {
+        impl_->enabledTools.emplace(toolId);
+    } else {
+        impl_->enabledTools.erase(std::string(toolId));
+    }
+}
+bool LocalRouter::toolEnabled(std::string_view toolId) const {
+    if (models::findTool(toolId) == nullptr) return false;
+    std::lock_guard lk(impl_->settingsMu);
+    return impl_->enabledTools.contains(std::string(toolId));
+}
 StatsSnapshot LocalRouter::snapshot() const { return impl_->snapshot(); }
 std::vector<RequestLog> LocalRouter::recentLogs(std::size_t limit) const {
     return impl_->recentLogs(limit);

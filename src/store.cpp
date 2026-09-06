@@ -545,6 +545,22 @@ void ProviderStore::setRouterFailover(bool enabled) {
     save();
 }
 
+void ProviderStore::setRouterToolEnabled(std::string_view tool, bool enabled) {
+    if (models::findTool(tool) == nullptr) {
+        throw std::runtime_error(std::format("未知工具：{}", tool));
+    }
+    auto& tools = config_.routerTools;
+    const auto it = std::ranges::find(tools, tool);
+    if (enabled && it == tools.end()) {
+        tools.emplace_back(tool);
+    } else if (!enabled && it != tools.end()) {
+        tools.erase(it);
+    } else {
+        return;
+    }
+    save();
+}
+
 void ProviderStore::addProvider(std::string_view tool, models::Provider provider) {
     auto& g = groupRef(tool);
     if (provider.id.empty()) provider.id = generateId();

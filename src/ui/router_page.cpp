@@ -5,9 +5,10 @@
 //     立即 setRouterEnabled 落盘）、端口输入框+「应用」（运行中改端口 =
 //     stop→start 新端口，随后 setRouterPort 落盘；非法端口 toast）、
 //     故障转移开关（setFailoverEnabled + setRouterFailover 落盘）。
-//   接入地址卡：遍历 models::toolRegistry() 逐工具展示
-//     http://127.0.0.1:<port>/<toolId>（等宽）。SDK 0.2.0 没有应用侧剪贴板
-//     API（PlatformClipboard 只在 PlatformAdapter 内部），故不配复制按钮。
+//   Agent 代理卡：遍历 models::toolRegistry() 提供逐工具开关；修改立即同步到
+//     LocalRouter 并通过 ProviderStore 持久化，运行中无需重启。
+//   接入地址卡：只展示已启用工具的
+//     http://127.0.0.1:<port>/<toolId>（等宽）。
 //   最近请求卡：recentLogs(50)（新的在前）：时间/工具/供应商/方法+路径
 //     （截断）/状态码（2xx 绿 4xx 黄 5xx 与失败红）/耗时/token（-1 显 "—"）。
 //     页面可见期间每 2s 自动刷新（Lifecycle + TaskScope 轮询，卸载自动取消；
@@ -50,12 +51,20 @@ router::LocalRouter& routerInstance() {
                 return std::nullopt;
             }
         }};
-    // 首次访问按持久化配置设置故障转移开关（LocalRouter 不可移动，只能
-    // 就地构造后补设）。
-    static const bool failoverInit = (instance.setFailoverEnabled(
-                                          providerStore().config().routerFailover),
-                                      true);
-    (void)failoverInit;
+    // 首次访问按持久化配置设置故障转移与逐工具代理开关（LocalRouter 不可
+    // 移动，只能就地构造后补设）。
+    static const bool settingsInit = [] {
+        const auto& config = providerStore().config();
+        instance.setFailoverEnabled(config.routerFailover);
+        for (const auto& spec : models::toolRegistry()) {
+            const bool enabled =
+                std::ranges::find(config.routerTools, spec.id) !=
+                config.routerTools.end();
+            instance.setToolEnabled(spec.id, enabled);
+        }
+        return true;
+    }();
+    (void)settingsInit;
     return instance;
 }
 
@@ -133,7 +142,7 @@ huxerui::Color StatusColor(int status, const huxerui::ThemeSpec& theme) {
            huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
 }
 
-// 接入地址行：工具名 + 等宽地址（无剪贴板 API，只展示）。
+// 接入地址行：工具名 + 等宽地址。
 [[huxerui::composable]] huxerui::View EndpointRow(std::string name,
                                                   std::string url) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
@@ -189,6 +198,8 @@ huxerui::Color StatusColor(int status, const huxerui::ThemeSpec& theme) {
     auto running = huxerui::UseState(routerInstance().running());
     auto failover =
         huxerui::UseState(providerStore().config().routerFailover);
+    auto enabledTools =
+        huxerui::UseState(providerStore().config().routerTools);
     auto portField = huxerui::UseState(huxerui::TextEditingValue{
         std::to_string(providerStore().config().routerPort)});
     auto logs = huxerui::UseState<LogSnapshot>({});
@@ -257,16 +268,47 @@ huxerui::Color StatusColor(int status, const huxerui::ThemeSpec& theme) {
         failover = on;
     };
 
+    // 单 Agent 开关：先持久化，再更新线程安全的运行时路由表；运行中的服务
+    // 无需重启。失败时保持 UI 与运行时原状态。
+    auto setToolEnabled = [=](std::string tool, bool on) {
+        try {
+            providerStore().setRouterToolEnabled(tool, on);
+            routerInstance().setToolEnabled(tool, on);
+            enabledTools = providerStore().config().routerTools;
+            toast.Show(std::format("{} 代理已{}", ToolName(tool),
+                                   on ? "启用" : "关闭"));
+        } catch (const std::exception& e) {
+            toast.Show(e.what());
+            enabledTools = providerStore().config().routerTools;
+        }
+    };
+
     // 展示端口：运行中取实际绑定端口，否则取配置值（与启动后一致）。
     const int displayPort = running.Get() ? routerInstance().port()
                                           : providerStore().config().routerPort;
 
     std::vector<huxerui::View> endpoints;
+    std::vector<huxerui::View> toolToggles;
     for (const auto& spec : models::toolRegistry()) {
-        endpoints.push_back(
-            EndpointRow(std::string(spec.displayName),
-                        std::format("http://127.0.0.1:{}/{}", displayPort,
-                                    spec.id)));
+        const bool enabled =
+            std::ranges::find(enabledTools.Get(), spec.id) !=
+            enabledTools.Get().end();
+        const std::string toolId(spec.id);
+        toolToggles.push_back(
+            SettingRow(
+                std::string(spec.displayName),
+                std::format("代理 /{} 路径的请求", spec.id),
+                huxerui::View{huxerui::Switch(enabled).OnChanged(
+                    [setToolEnabled, toolId](bool on) {
+                        setToolEnabled(toolId, on);
+                    })})
+                .Key(toolId));
+        if (enabled) {
+            endpoints.push_back(
+                EndpointRow(std::string(spec.displayName),
+                            std::format("http://127.0.0.1:{}/{}", displayPort,
+                                        spec.id)));
+        }
     }
 
     std::vector<huxerui::View> logRows;
@@ -329,12 +371,26 @@ huxerui::Color StatusColor(int status, const huxerui::ThemeSpec& theme) {
                        huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))),
 
                 Card(huxerui::Column {
+                    SectionTitle("Agent 代理"),
+                    HintText("选择允许通过本地端口转发的 Agent；运行中修改即时生效。"),
+                    huxerui::Column(std::move(toolToggles))
+                        .With(huxerui::Spacing(8.0F),
+                              huxerui::CrossAlign(
+                                  huxerui::CrossAxisAlignment::Stretch)),
+                }.With(huxerui::Spacing(8.0F),
+                       huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))),
+
+                Card(huxerui::Column {
                     SectionTitle("接入地址"),
                     HintText("把各工具的 base URL 指到对应地址，例如 Claude Code "
                              "设置环境变量 ANTHROPIC_BASE_URL 为下方地址。"),
-                    huxerui::Column(std::move(endpoints))
-                        .With(huxerui::Spacing(6.0F),
-                              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)),
+                    endpoints.empty()
+                        ? huxerui::View{HintText("尚未启用任何 Agent 代理")}
+                        : huxerui::View{
+                              huxerui::Column(std::move(endpoints))
+                                  .With(huxerui::Spacing(6.0F),
+                                        huxerui::CrossAlign(
+                                            huxerui::CrossAxisAlignment::Stretch))},
                 }.With(huxerui::Spacing(8.0F),
                        huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))),
 

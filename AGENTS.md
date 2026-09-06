@@ -20,6 +20,9 @@ Claude、Codex、Gemini、Copilot、Cursor、Windsurf 及其他自动化 agent �
   必须位于有界垂直视口。
 - 会话目录扫描、导出和删除属于文件 IO，必须通过 `RunWorker` 离开 UI 线程；
   可重复触发的加载必须以请求代次丢弃过期结果，并在成功或失败时正确结束加载态。
+- 本地路由包含总开关和逐 Agent 代理开关。逐 Agent 选择必须持久化到
+  `AppConfig.routerTools`，旧配置缺字段时默认全部启用；运行中切换应即时生效，
+  被禁用路径不得访问 resolver、上游或写入请求统计。
 
 ## UI 视觉硬约束
 

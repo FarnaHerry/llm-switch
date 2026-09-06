@@ -3,8 +3,8 @@
 // temp_directory_path()/llmswitch-test-router-<pid>，statsFile 不碰真实环境。
 //
 // 覆盖：转发 path/query/头替换（anthropic 双头与 openai 单头）、响应原样
-// 透传、stats 记录与 usage token 提取、故障转移开关、未知工具 404、
-// 无 current 502、clearStats、JSONL 落盘与重启回填。
+// 透传、stats 记录与 usage token 提取、故障转移开关、逐 Agent 代理开关、
+// 未知工具 404、无 current 502、clearStats、JSONL 落盘与重启回填。
 // 假上游与客户端都用 cpp-httplib（测试目标已链 llmswitch_httplib）。
 #include <cstdio>    // stderr（std 模块不导出 stdout/stderr 宏）
 #include "test_env.h"  // setenv/getpid/unsetenv 可移植封装
@@ -27,6 +27,16 @@ int g_failures = 0;
             ++g_failures;                                        \
         }                                                        \
     } while (0)
+
+template <class Function>
+bool throwsRuntimeError(Function&& function) {
+    try {
+        std::invoke(std::forward<Function>(function));
+    } catch (const std::runtime_error&) {
+        return true;
+    }
+    return false;
+}
 
 // 假上游：记录最近一次请求，返回可配置状态码 + 固定 JSON（含 usage 段）。
 struct FakeUpstream {
@@ -217,6 +227,36 @@ int main() {
         CHECK(up1.lastPath == "/v1/chat/completions");
         CHECK(up1.lastAuth == "Bearer sk-codex-1");
         CHECK(up1.lastApiKey.empty());
+    }
+
+    // 2b. 逐 Agent 代理开关即时生效：禁用返回 403，不访问上游、不写统计；
+    //     重新启用后同一路径恢复转发。
+    {
+        const auto requestsBefore = router1.snapshot().totalRequests;
+        int hitsBefore = 0;
+        {
+            std::lock_guard lk(up1.mu);
+            hitsBefore = up1.hits;
+        }
+        CHECK(router1.toolEnabled("codex"));
+        router1.setToolEnabled("codex", false);
+        CHECK(!router1.toolEnabled("codex"));
+        auto res = cli.Post("/codex/chat/completions", "{}",
+                            "application/json");
+        CHECK(res && res->status == 403);
+        CHECK(res->body.contains("未启用"));
+        {
+            std::lock_guard lk(up1.mu);
+            CHECK(up1.hits == hitsBefore);
+        }
+        CHECK(router1.snapshot().totalRequests == requestsBefore);
+        CHECK(!router1.toolEnabled("unknown"));
+        CHECK(throwsRuntimeError(
+            [&] { router1.setToolEnabled("unknown", true); }));
+
+        router1.setToolEnabled("codex", true);
+        res = cli.Post("/codex/chat/completions", "{}", "application/json");
+        CHECK(res && res->status == 200);
     }
 
     // 3. 故障转移：p1（500）→ p2（200）。开 failover 拿到 200 且 stats 两条；

@@ -143,6 +143,9 @@ export struct AppConfig {
     bool routerEnabled = false;    // 启动应用时自动开启本地路由
     int routerPort = 15731;        // 监听 127.0.0.1:<port>
     bool routerFailover = true;    // 上游 429/5xx 时故障转移到组内下一个供应商
+    // 允许通过本地路由代理的工具 id；旧配置缺字段时默认全部启用，保持兼容。
+    std::vector<std::string> routerTools{
+        "claude-code", "claude", "codex", "opencode", "pi"};
 
     bool operator==(const AppConfig&) const = default;
 };
@@ -224,6 +227,7 @@ export nlohmann::json toJson(const AppConfig& c) {
     j["routerEnabled"] = c.routerEnabled;
     j["routerPort"] = c.routerPort;
     j["routerFailover"] = c.routerFailover;
+    j["routerTools"] = c.routerTools;
     return j;
 }
 
@@ -251,6 +255,20 @@ export AppConfig fromJson(const nlohmann::json& j) {
     c.routerEnabled = j.value("routerEnabled", false);
     c.routerPort = j.value("routerPort", 15731);
     c.routerFailover = j.value("routerFailover", true);
+    // 字段存在且为数组时尊重显式选择（包括空数组）；过滤未知 id 与重复项。
+    // 字段缺失则保留 AppConfig 的“全部启用”默认值，兼容旧配置。
+    if (j.contains("routerTools") && j["routerTools"].is_array()) {
+        c.routerTools.clear();
+        for (const auto& item : j["routerTools"]) {
+            if (!item.is_string()) continue;
+            const std::string id = item.get<std::string>();
+            if (findTool(id) == nullptr ||
+                std::ranges::find(c.routerTools, id) != c.routerTools.end()) {
+                continue;
+            }
+            c.routerTools.push_back(id);
+        }
+    }
     return c;
 }
 

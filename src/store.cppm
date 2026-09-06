@@ -46,6 +46,8 @@ public:
     void setRouterEnabled(bool enabled);
     void setRouterPort(int port);
     void setRouterFailover(bool enabled);
+    // 单 Agent 代理开关；未知工具 id 抛异常，修改后立即落盘。
+    void setRouterToolEnabled(std::string_view tool, bool enabled);
 
     // ---- CRUD（均立即落盘）----
     // id/createdAt 为空/0 时自动生成。

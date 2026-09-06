@@ -62,6 +62,11 @@ public:
     void setFailoverEnabled(bool enabled);
     bool failoverEnabled() const;
 
+    // 单工具代理开关，运行中可即时修改。默认所有注册工具启用；未知 id 抛异常。
+    // 被禁用工具的请求返回 403，且不会访问 resolver / 上游或写入统计。
+    void setToolEnabled(std::string_view toolId, bool enabled);
+    bool toolEnabled(std::string_view toolId) const;
+
     StatsSnapshot snapshot() const;
     // 最近日志，新的在前，最多 limit 条。
     std::vector<RequestLog> recentLogs(std::size_t limit) const;

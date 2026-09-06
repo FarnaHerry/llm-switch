@@ -7,7 +7,8 @@
 // opencode（additive upsert、顶层 model、anthropic 变体、JSON5 报错不碰文件）、
 // pi（双文件、权限位、apiFormat 映射）、claude desktop（Linux 不支持报错 +
 // 覆盖后四文件）、备份生成、detectCurrent、导出/导入回滚、apiFormat 三档
-// 映射与归一、usage 三字段与全局设置持久化、restoreOfficial 三工具还原
+// 映射与归一、usage 三字段与全局设置持久化、逐 Agent 路由开关持久化、
+// restoreOfficial 三工具还原
 // （codex 模型收回）、官方厂商名（officialVendorName）与预设列表、
 // claude 系三档模型映射（env 六键 /
 // desktop inferenceModels / 收编 / 擦除）、旧格式 config.json 迁移、
@@ -32,6 +33,16 @@ int g_failures = 0;
             ++g_failures;                                        \
         }                                                        \
     } while (0)
+
+template <class Function>
+bool throwsRuntimeError(Function&& function) {
+    try {
+        std::invoke(std::forward<Function>(function));
+    } catch (const std::runtime_error&) {
+        return true;
+    }
+    return false;
+}
 
 void writeFile(const std::filesystem::path& path, std::string_view content) {
     std::error_code ec;
@@ -101,6 +112,9 @@ int main() {
         auto s = store::ProviderStore::load();
         CHECK(s.config().groups.empty());
         CHECK(s.config().themeMode == "system");
+        CHECK(s.config().routerTools.size() == models::toolRegistry().size());
+        CHECK(std::ranges::find(s.config().routerTools, "claude-code") !=
+              s.config().routerTools.end());
         CHECK(s.detectCurrent("claude-code").empty());
         CHECK(s.detectCurrent("claude").empty());  // Linux 无桌面目录 → 空
         // 注册表自检：5 个工具、id 可互查
@@ -486,6 +500,32 @@ int main() {
         // 恢复默认，不干扰后续用例
         again.setUsageEnabled(true);
         again.setUsageRefreshMinutes(10);
+    }
+
+    // 路由工具开关：旧配置默认全开，显式空数组保持全关；setter 立即持久化。
+    {
+        const auto legacy = models::fromJson(nlohmann::json::object());
+        CHECK(legacy.routerTools.size() == models::toolRegistry().size());
+
+        const auto selected = models::fromJson(nlohmann::json::parse(
+            R"json({"routerTools":["codex","unknown","codex"]})json"));
+        CHECK(selected.routerTools.size() == 1);
+        CHECK(selected.routerTools.front() == "codex");
+        const auto none = models::fromJson(
+            nlohmann::json::parse(R"json({"routerTools":[]})json"));
+        CHECK(none.routerTools.empty());
+
+        auto routing = store::ProviderStore::load();
+        routing.setRouterToolEnabled("codex", false);
+        auto reloaded = store::ProviderStore::load();
+        CHECK(std::ranges::find(reloaded.config().routerTools, "codex") ==
+              reloaded.config().routerTools.end());
+        reloaded.setRouterToolEnabled("codex", true);
+        auto restored = store::ProviderStore::load();
+        CHECK(std::ranges::find(restored.config().routerTools, "codex") !=
+              restored.config().routerTools.end());
+        CHECK(throwsRuntimeError(
+            [&] { restored.setRouterToolEnabled("unknown", true); }));
     }
 
     // 12. codex 模型行级重写（switchTo 时 Provider.model 写进 config.toml
