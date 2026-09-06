@@ -293,7 +293,14 @@ void SkillsStore::setLinked(std::string_view name, std::string_view toolId, bool
     }
     std::error_code ec;
     std::filesystem::create_directories(toolDir, ec);
-    std::filesystem::create_symlink(storePath, linkPath, ec);
+    // Windows 上 create_symlink 按目标是否目录选择文件/目录型链接，判定失灵时
+    // 产出文件型链接指向目录，跟随遍历直接失败（CI 实测）；显式选目录型。
+    std::error_code typeEc;
+    if (std::filesystem::is_directory(storePath, typeEc) && !typeEc) {
+        std::filesystem::create_directory_symlink(storePath, linkPath, ec);
+    } else {
+        std::filesystem::create_symlink(storePath, linkPath, ec);
+    }
     if (ec) {
         throw std::runtime_error(std::format("创建符号链接失败：{} → {}（{}）{}",
                                              linkPath.string(), storePath.string(), ec.message(),
