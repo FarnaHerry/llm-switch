@@ -57,13 +57,13 @@ int main() {
         fs::create_directories(root);
     }
     const fs::path home = root / "home";
-    testenv::setenv("HOME", home.c_str());
-    testenv::setenv("XDG_DATA_HOME", (root / "xdg").c_str());
-    testenv::setenv("LLMSWITCH_DATA_DIR", (root / "data").c_str());
+    testenv::setenv("HOME", home);
+    testenv::setenv("XDG_DATA_HOME", (root / "xdg"));
+    testenv::setenv("LLMSWITCH_DATA_DIR", (root / "data"));
     const fs::path claudeProjects = home / ".claude" / "projects";
     const fs::path codexSessions = home / ".codex" / "sessions";
-    testenv::setenv("LLMSWITCH_CLAUDE_PROJECTS", claudeProjects.c_str());
-    testenv::setenv("LLMSWITCH_CODEX_SESSIONS", codexSessions.c_str());
+    testenv::setenv("LLMSWITCH_CLAUDE_PROJECTS", claudeProjects);
+    testenv::setenv("LLMSWITCH_CODEX_SESSIONS", codexSessions);
 
     // ---- 伪造会话文件 -------------------------------------------------------
     // claude：content 为数组形式；mtime 最旧

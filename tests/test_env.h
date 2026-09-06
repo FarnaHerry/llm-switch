@@ -7,6 +7,8 @@
 #include <unistd.h>
 #endif
 #include <cstdlib>
+#include <filesystem>
+#include <string>
 
 namespace testenv {
 
@@ -23,6 +25,18 @@ inline void setenv(const char* name, const char* value) {
     ::_putenv_s(name, value);
 #else
     ::setenv(name, value, 1);
+#endif
+}
+
+// 路径直传版：Windows 上 path::c_str() 是 wchar_t*，统一以 UTF-8 窄字符串写入
+// （CI 临时目录为 ASCII；cfg 侧按窄字符串读回）。
+inline void setenv(const char* name, const std::filesystem::path& value) {
+#ifdef _WIN32
+    const std::u8string u8 = value.u8string();
+    const std::string narrow(u8.begin(), u8.end());
+    setenv(name, narrow.c_str());
+#else
+    setenv(name, value.c_str());
 #endif
 }
 

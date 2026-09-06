@@ -86,15 +86,15 @@ int main() {
         fs::create_directories(root);
     }
     const fs::path home = root / "home";
-    testenv::setenv("HOME", home.c_str());
-    testenv::setenv("XDG_DATA_HOME", (root / "xdg").c_str());
-    testenv::setenv("LLMSWITCH_DATA_DIR", (root / "data").c_str());
+    testenv::setenv("HOME", home);
+    testenv::setenv("XDG_DATA_HOME", (root / "xdg"));
+    testenv::setenv("LLMSWITCH_DATA_DIR", (root / "data"));
     const fs::path claudeJson = home / ".claude.json";
     const fs::path codexConfig = home / ".codex" / "config.toml";
     const fs::path opencodeConfig = root / "opencode" / "opencode.json";
-    testenv::setenv("LLMSWITCH_CLAUDE_JSON", claudeJson.c_str());
-    testenv::setenv("LLMSWITCH_CODEX_CONFIG", codexConfig.c_str());
-    testenv::setenv("LLMSWITCH_OPENCODE_CONFIG", opencodeConfig.c_str());
+    testenv::setenv("LLMSWITCH_CLAUDE_JSON", claudeJson);
+    testenv::setenv("LLMSWITCH_CODEX_CONFIG", codexConfig);
+    testenv::setenv("LLMSWITCH_OPENCODE_CONFIG", opencodeConfig);
     const fs::path mcpFile = root / "data" / "mcp.json";
     const fs::path mcpBackups = root / "data" / "backups" / "mcp";
 

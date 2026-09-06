@@ -75,9 +75,9 @@ int main() {
         fs::create_directories(root);
     }
     const fs::path home = root / "home";
-    testenv::setenv("HOME", home.c_str());
-    testenv::setenv("XDG_DATA_HOME", (root / "xdg").c_str());
-    testenv::setenv("LLMSWITCH_DATA_DIR", (root / "data").c_str());
+    testenv::setenv("HOME", home);
+    testenv::setenv("XDG_DATA_HOME", (root / "xdg"));
+    testenv::setenv("LLMSWITCH_DATA_DIR", (root / "data"));
     const fs::path claudeSettings = home / ".claude" / "settings.json";
     const fs::path codexAuth = home / ".codex" / "auth.json";
     const fs::path codexConfig = home / ".codex" / "config.toml";
@@ -85,11 +85,11 @@ int main() {
     const fs::path piDir = root / "pi-agent";
     const fs::path piModels = piDir / "models.json";
     const fs::path piSettings = piDir / "settings.json";
-    testenv::setenv("LLMSWITCH_CLAUDE_SETTINGS", claudeSettings.c_str());
-    testenv::setenv("LLMSWITCH_CODEX_AUTH", codexAuth.c_str());
-    testenv::setenv("LLMSWITCH_CODEX_CONFIG", codexConfig.c_str());
-    testenv::setenv("LLMSWITCH_OPENCODE_CONFIG", opencodeConfig.c_str());
-    testenv::setenv("LLMSWITCH_PI_DIR", piDir.c_str());
+    testenv::setenv("LLMSWITCH_CLAUDE_SETTINGS", claudeSettings);
+    testenv::setenv("LLMSWITCH_CODEX_AUTH", codexAuth);
+    testenv::setenv("LLMSWITCH_CODEX_CONFIG", codexConfig);
+    testenv::setenv("LLMSWITCH_OPENCODE_CONFIG", opencodeConfig);
+    testenv::setenv("LLMSWITCH_PI_DIR", piDir);
     testenv::unsetenv("PI_CODING_AGENT_DIR");
     testenv::unsetenv("LLMSWITCH_CLAUDE_DESKTOP_DIR");  // 默认 Linux 不支持
 
@@ -360,7 +360,7 @@ int main() {
     }
 #endif
     const fs::path deskDir = root / "Claude";
-    testenv::setenv("LLMSWITCH_CLAUDE_DESKTOP_DIR", deskDir.c_str());
+    testenv::setenv("LLMSWITCH_CLAUDE_DESKTOP_DIR", deskDir);
     // 既有配置里放无关字段，验证深合并保留
     writeFile(deskDir / "claude_desktop_config.json",
               R"json({"theme": "dark", "deploymentMode": "1p"}

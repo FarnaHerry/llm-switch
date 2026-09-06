@@ -78,15 +78,15 @@ int main() {
         fs::create_directories(root);
     }
     const fs::path home = root / "home";
-    testenv::setenv("HOME", home.c_str());
-    testenv::setenv("XDG_DATA_HOME", (root / "xdg").c_str());
-    testenv::setenv("LLMSWITCH_DATA_DIR", (root / "data").c_str());
+    testenv::setenv("HOME", home);
+    testenv::setenv("XDG_DATA_HOME", (root / "xdg"));
+    testenv::setenv("LLMSWITCH_DATA_DIR", (root / "data"));
     const fs::path storeDir = root / "skills-store";
     const fs::path claudeSkills = home / ".claude" / "skills";
     const fs::path codexSkills = home / ".codex" / "skills";
-    testenv::setenv("LLMSWITCH_SKILLS_STORE", storeDir.c_str());
-    testenv::setenv("LLMSWITCH_CLAUDE_SKILLS", claudeSkills.c_str());
-    testenv::setenv("LLMSWITCH_CODEX_SKILLS", codexSkills.c_str());
+    testenv::setenv("LLMSWITCH_SKILLS_STORE", storeDir);
+    testenv::setenv("LLMSWITCH_CLAUDE_SKILLS", claudeSkills);
+    testenv::setenv("LLMSWITCH_CODEX_SKILLS", codexSkills);
 
     // 1. create → 中央库有 SKILL.md，frontmatter 正确
     {

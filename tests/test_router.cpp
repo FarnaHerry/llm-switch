@@ -109,10 +109,10 @@ int main() {
         fs::remove_all(root, ec);
         fs::create_directories(root);
     }
-    testenv::setenv("HOME", (root / "home").c_str());
-    testenv::setenv("XDG_DATA_HOME", (root / "xdg").c_str());
-    testenv::setenv("LLMSWITCH_DATA_DIR", (root / "data").c_str());
-    testenv::setenv("LLMSWITCH_STATS_DIR", (root / "stats").c_str());
+    testenv::setenv("HOME", (root / "home"));
+    testenv::setenv("XDG_DATA_HOME", (root / "xdg"));
+    testenv::setenv("LLMSWITCH_DATA_DIR", (root / "data"));
+    testenv::setenv("LLMSWITCH_STATS_DIR", (root / "stats"));
     CHECK(cfg::statsFile() == root / "stats" / "requests.jsonl");
 
     FakeUpstream up1;
