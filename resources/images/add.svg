@@ -2,5 +2,4 @@
   <!-- 添加：两笔交叉，横略长竖略重，末端出锋 -->
   <path d="M4.1 12 H19.9" fill="none" stroke="#FFFFFF" stroke-opacity="0.85" stroke-width="2.9" stroke-linecap="round"/>
   <path d="M12 4.3 V19.6" fill="none" stroke="#FFFFFF" stroke-opacity="0.88" stroke-width="3.2" stroke-linecap="round"/>
-  <path d="M18.3 12 H20.6" fill="none" stroke="#FFFFFF" stroke-opacity="0.4" stroke-width="1.6" stroke-linecap="round"/>
 </svg>

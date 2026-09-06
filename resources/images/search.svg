@@ -2,5 +2,4 @@
   <!-- 搜索：实心镜圈（镂空）+ 粗柄 -->
   <path fill-rule="evenodd" fill="#FFFFFF" fill-opacity="0.88" d="M10.4 3.6 A6.8 6.8 0 1 0 10.4 17.2 A6.8 6.8 0 0 0 10.4 3.6 Z M10.4 6.3 A4.1 4.1 0 1 1 10.4 14.5 A4.1 4.1 0 0 1 10.4 6.3 Z"/>
   <path d="M15.3 15.3 L20.6 20.6" fill="none" stroke="#FFFFFF" stroke-opacity="0.88" stroke-width="3" stroke-linecap="round"/>
-  <circle cx="7.6" cy="7.1" r="0.6" fill="#FFFFFF" fill-opacity="0.3"/>
 </svg>

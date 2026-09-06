@@ -2,5 +2,4 @@
   <!-- 显示：杏眼描线 + 实心瞳 -->
   <path d="M2.6 12 C4.9 7.6 8.2 5.4 12 5.4 C15.8 5.4 19.1 7.6 21.4 12 C19.1 16.4 15.8 18.6 12 18.6 C8.2 18.6 4.9 16.4 2.6 12 Z" fill="none" stroke="#FFFFFF" stroke-opacity="0.85" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
   <circle cx="12" cy="12" r="2.9" fill="#FFFFFF" fill-opacity="0.88"/>
-  <circle cx="13.1" cy="10.9" r="0.7" fill="#FFFFFF" fill-opacity="0.26"/>
 </svg>

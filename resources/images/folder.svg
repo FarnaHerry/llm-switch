@@ -1,6 +1,4 @@
 <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-  <!-- 文件夹：实心剪影，标签页与盒体间留一道飞白缝 -->
+  <!-- 文件夹：实心剪影 -->
   <path fill="#FFFFFF" fill-opacity="0.88" d="M3.2 5 H9.8 L12.2 7.8 H20.8 V19.2 H3.2 Z"/>
-  <path d="M3.2 9.6 H20.8" fill="none" stroke="#FFFFFF" stroke-opacity="0.25" stroke-width="1.1" stroke-linecap="round"/>
-  <circle cx="19.9" cy="18.2" r="0.55" fill="#FFFFFF" fill-opacity="0.28"/>
 </svg>
