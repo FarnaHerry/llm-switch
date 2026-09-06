@@ -44,6 +44,51 @@ const std::string kVersionLine = std::format("llm-switch v{}", LLMSWITCH_VERSION
 
 } // namespace
 
+// 图标库展示：40 枚 24×24 水墨图标（#FFFFFF alpha-mask，经 Tint 走主题
+// 墨色，悬停 Tooltip 显示语义名）。Flow 自动换行。
+[[huxerui::composable]] huxerui::View IconGallery() {
+    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    struct Entry {
+        huxerui::ImageResource icon;
+        const char* name;
+    };
+    const std::array<Entry, 40> kIcons{{
+        {app::images::home, "首页"},       {app::images::back, "返回"},
+        {app::images::forward, "前进"},    {app::images::refresh, "刷新"},
+        {app::images::search, "搜索"},     {app::images::add, "添加"},
+        {app::images::edit, "编辑"},       {app::images::trash, "删除"},
+        {app::images::file, "文件"},       {app::images::folder, "文件夹"},
+        {app::images::image, "图片"},      {app::images::video, "视频"},
+        {app::images::audio, "音频"},      {app::images::link, "链接"},
+        {app::images::copy, "复制"},       {app::images::download, "下载"},
+        {app::images::user, "用户"},       {app::images::group, "群组"},
+        {app::images::message, "消息"},    {app::images::bell, "通知"},
+        {app::images::settings, "设置"},   {app::images::star, "收藏"},
+        {app::images::heart, "喜欢"},      {app::images::more, "更多"},
+        {app::images::success, "成功"},    {app::images::warning, "警告"},
+        {app::images::error, "错误"},      {app::images::info, "信息"},
+        {app::images::loading, "加载"},    {app::images::help, "帮助"},
+        {app::images::lock, "锁定"},       {app::images::unlock, "解锁"},
+        {app::images::calendar, "日历"},   {app::images::clock, "时间"},
+        {app::images::location, "定位"},   {app::images::filter, "筛选"},
+        {app::images::sort, "排序"},       {app::images::eye, "显示"},
+        {app::images::eye_off, "隐藏"},    {app::images::menu, "菜单"},
+    }};
+    std::vector<huxerui::View> tiles;
+    tiles.reserve(kIcons.size());
+    for (const auto& entry : kIcons) {
+        tiles.push_back(
+            huxerui::Image(entry.icon)
+                .Tint(theme.colors.on_surface_variant)
+                .With(huxerui::Frame{.width = 22.0F, .height = 22.0F},
+                      huxerui::Padding(6.0F),
+                      huxerui::Tooltip(entry.name)));
+    }
+    return huxerui::Flow(std::move(tiles))
+        .With(huxerui::Spacing(4.0F),
+              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
+}
+
 [[huxerui::composable]] huxerui::View AboutPage() {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     return PageScaffold(
@@ -83,6 +128,12 @@ const std::string kVersionLine = std::format("llm-switch v{}", LLMSWITCH_VERSION
                     AboutSectionTitle("技术栈"),
                     BodyLine("C++23 modules · HuxerUI 0.2.0 · cpp-httplib · "
                              "curl · nlohmann::json"),
+                }.With(huxerui::Spacing(8.0F),
+                       huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))),
+
+                Card(huxerui::Column {
+                    AboutSectionTitle("图标库"),
+                    IconGallery(),
                 }.With(huxerui::Spacing(8.0F),
                        huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))),
 
