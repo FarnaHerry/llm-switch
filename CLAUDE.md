@@ -209,9 +209,10 @@ commit，不回滚已经验证的修改，并在最终回复中报告失败原�
    通用 `Card` 不画规整 Border：以 `ink_card_frame.svg` 的断续墨线、飞白和
    角部淡晕作为卡片自身边界；弹窗仍保留规则边框以保证浮层识别度。
 8. **水墨图标契约**：所有 24×24 功能 SVG 必须遵守
-   `resources/README.md` 的水墨规范——暖淡墨普通态、暖浓墨选中态、保留
-   `flywhite` 墨点与 `dry-brush` 断续收笔；品牌图标不得改变官方轮廓。
-   CMake 配置期会强制校验纹理标记与纯黑色，新增图标不满足规范时构建失败。
+   `resources/README.md` 的水墨规范——每个语义只保留一套 `#FFFFFF` 无色
+   alpha-mask，深浅主题由运行时 tint 自适应，选中态由承载底块表达；禁止
+   `_selected/_dark/_light` 重复轮廓。保留 `flywhite` 墨点与 `dry-brush`
+   断续收笔，品牌图标不得改变官方轮廓。CMake 配置期强制校验。
 9. **响应式**：`UseViewportClass()` Compact(<600) 收窄侧栏(44pt)/一级岛内边距
    （PageScaffold）；窗口最小 800×600。
 

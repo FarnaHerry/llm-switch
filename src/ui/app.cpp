@@ -135,6 +135,13 @@ huxerui::View InkThemed(bool dark, huxerui::View content) {
                                              spec.colors.on_primary};
     definition.Set(buttons);
 
+    // 功能图标资源只保存白色 alpha-mask；这里是唯一的主题着色入口。
+    // 深色映射宣纸白、浅色映射浓墨，资源本身无需维护主题分叉。
+    huxerui::IconButtonStyle iconButtons = huxerui::IconButtonStyle::Default();
+    iconButtons.foreground = spec.colors.on_surface;
+    iconButtons.disabled_foreground = withAlpha(spec.colors.on_surface_variant, 0.38F);
+    definition.Set(iconButtons);
+
     huxerui::SegmentedButtonStyle segments; // Default()：corner_radius=8
     segments.background = spec.colors.surface;
     segments.selected_background = spec.colors.primary;
@@ -279,47 +286,38 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(huxerui::WindowHandle window,
     return entries;
 }
 
-// 左列：图标侧边栏（无岛屿包裹，选中态用实心图标变体，悬停显示文字提示）。
+// 左列：图标侧边栏（无岛屿包裹，单套无色图标由主题 tint 自适应；
+// 选中态用承载底块表达，悬停显示文字提示）。
 [[huxerui::composable]] huxerui::View SideShell(huxerui::State<std::size_t> navPage) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto tasks = huxerui::UseTaskScope();
     // 响应式：Compact(<600) 收窄侧栏宽度与内边距。
     const bool compact =
         huxerui::UseViewportClass() == huxerui::ViewportClass::Compact;
+    const IslandTheme islands = ResolveIslandTheme(theme);
     struct Item {
         huxerui::ImageResource icon;
-        huxerui::ImageResource icon_selected;
         const char* tooltip;
         std::size_t page;
     };
     // 顶级侧栏（8 区块）：Agent 管理（内嵌二级工具栏）/ 本地路由 / 使用统计 /
     // MCP 服务器 / Skills / 会话 / 设置 / 关于。
     const std::array<Item, 8> items{
-        Item{app::images::agents, app::images::agents_selected, "Agent 管理",
-             pages::kAgents},
-        Item{app::images::router, app::images::router_selected, "本地路由",
-             pages::kRouter},
-        Item{app::images::stats, app::images::stats_selected, "使用统计",
-             pages::kStats},
-        Item{app::images::mcp, app::images::mcp_selected, "MCP 服务器",
-             pages::kMcp},
-        Item{app::images::skills, app::images::skills_selected, "Skills",
-             pages::kSkills},
-        Item{app::images::sessions, app::images::sessions_selected, "会话",
-             pages::kSessions},
-        Item{app::images::settings, app::images::settings_selected, "设置",
-             pages::kSettings},
-        Item{app::images::about, app::images::about_selected, "关于",
-             pages::kAbout},
+        Item{app::images::agents, "Agent 管理", pages::kAgents},
+        Item{app::images::router, "本地路由", pages::kRouter},
+        Item{app::images::stats, "使用统计", pages::kStats},
+        Item{app::images::mcp, "MCP 服务器", pages::kMcp},
+        Item{app::images::skills, "Skills", pages::kSkills},
+        Item{app::images::sessions, "会话", pages::kSessions},
+        Item{app::images::settings, "设置", pages::kSettings},
+        Item{app::images::about, "关于", pages::kAbout},
     };
 
     std::vector<huxerui::View> buttons;
     for (const Item& item : items) {
         const std::size_t page = item.page;
-        const huxerui::ImageResource& icon =
-            navPage.Get() == page ? item.icon_selected : item.icon;
-        buttons.push_back(
-            huxerui::IconButton(icon, item.tooltip)
+        huxerui::View button =
+            huxerui::IconButton(item.icon, item.tooltip)
                 .OnClick([tasks, navPage, page] {
                     // 切页会卸载内容子树：推迟出指针事件路径
                     tasks.Launch([=]() -> huxerui::Task<void> {
@@ -327,7 +325,13 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(huxerui::WindowHandle window,
                         navPage = page;
                     });
                 })
-                .With(huxerui::Tooltip(item.tooltip)));
+                .With(huxerui::Tooltip(item.tooltip));
+        if (navPage.Get() == page) {
+            button = std::move(button).With(
+                huxerui::Background(islands.raised),
+                huxerui::CornerRadius(islands.nested_radius));
+        }
+        buttons.push_back(std::move(button));
     }
     // 栏底留白：水墨长卷在整窗背景底部横带上露出（见下方 Background
     // ImageFill），侧栏不再单独挂装饰。

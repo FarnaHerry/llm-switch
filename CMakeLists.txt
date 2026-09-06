@@ -261,9 +261,8 @@ set(LLMSWITCH_MODULE_UNITS
     src/sessions.cppm
 )
 
-# 24×24 界面图标必须遵守项目水墨图标契约。配置期强制检查，让后续新增图标
-# 不能悄悄退回纯黑、规则几何的默认 Material 风格；全景/卡片纹理与太极状态图
-# 不属于这一尺寸契约。
+# 24×24 界面图标必须是单套无色 alpha-mask 水墨资源。深浅与交互状态全部由
+# 运行时 tint/承载容器表达，不允许再维护 *_selected.svg 分叉资源。
 file(GLOB UI_ICON_FILES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/resources/images/*.svg")
 foreach(UI_ICON_FILE IN LISTS UI_ICON_FILES)
@@ -275,9 +274,15 @@ foreach(UI_ICON_FILE IN LISTS UI_ICON_FILES)
             message(FATAL_ERROR
                 "UI icon must include flywhite and dry-brush ink texture: ${UI_ICON_FILE}")
         endif()
-        if(UI_ICON_SOURCE MATCHES "#000000")
+        get_filename_component(UI_ICON_NAME "${UI_ICON_FILE}" NAME)
+        if(UI_ICON_NAME MATCHES "_selected\\.svg$")
             message(FATAL_ERROR
-                "UI icon must use warm ink colors instead of pure black: ${UI_ICON_FILE}")
+                "UI icon must use one adaptive asset; remove selected duplicate: ${UI_ICON_FILE}")
+        endif()
+        string(REPLACE "#FFFFFF" "" UI_ICON_NON_MASK_SOURCE "${UI_ICON_SOURCE}")
+        if(UI_ICON_NON_MASK_SOURCE MATCHES "#[0-9A-Fa-f]")
+            message(FATAL_ERROR
+                "UI icon must be a colorless #FFFFFF alpha mask: ${UI_ICON_FILE}")
         endif()
     endif()
 endforeach()

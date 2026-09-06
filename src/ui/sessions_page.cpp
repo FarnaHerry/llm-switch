@@ -193,15 +193,15 @@ std::string FormatSize(std::uintmax_t bytes) {
     }
 
     // 过滤图标组：全部（agents 图标）/ Claude Code / Codex，与 Agent 管理页
-    // 同一套图标资源与选中态（实心变体 + raised 底块）。点击不重挂载本页，
+    // 同一套无色图标资源，选中态只由 raised 底块表达。点击不重挂载本页，
     // 直接写 filter 并触发 worker 重载。
     struct FilterItem {
         int index;
-        IconPair icons;
+        huxerui::ImageResource icon;
         const char* tooltip;
     };
     const std::array<FilterItem, 3> filterItems{{
-        {0, {app::images::agents, app::images::agents_selected}, "全部"},
+        {0, app::images::agents, "全部"},
         {1, ToolIcon("claudecode"), "Claude Code"},
         {2, ToolIcon("codex"), "Codex"},
     }};
@@ -210,9 +210,7 @@ std::string FormatSize(std::uintmax_t bytes) {
         const bool selected = filter.Get() == item.index;
         const int idx = item.index;
         huxerui::View button =
-            huxerui::IconButton(selected ? item.icons.selected
-                                         : item.icons.normal,
-                                item.tooltip)
+            huxerui::IconButton(item.icon, item.tooltip)
                 .OnClick([filter, reload, idx] {
                     if (filter.Get() == idx) return;
                     filter = idx;
@@ -253,6 +251,7 @@ std::string FormatSize(std::uintmax_t bytes) {
                       loading.Get()
                           ? huxerui::View{
                                 huxerui::Image(app::images::refresh)
+                                    .Tint(theme.colors.on_surface_variant)
                                     .With(huxerui::Frame{.width = 24.0F,
                                                          .height = 24.0F},
                                           huxerui::Rotation(huxerui::AnimateTo(

@@ -30,7 +30,7 @@
 
 ## UI 资源约束
 
-- 24×24 功能图标遵守 `resources/README.md` 的水墨图标规范；CMake 会在配置期
-  检查暖墨色、`flywhite` 和 `dry-brush` 标记。
+- 24×24 功能图标遵守 `resources/README.md` 的单套无色水墨图标规范；深浅模式
+  由运行时 tint 自适应，禁止维护 `_selected/_dark/_light` 重复资源。CMake 会
+  在配置期检查 `#FFFFFF` alpha-mask、`flywhite` 和 `dry-brush` 标记。
 - 太极主题选择器、轻岛屿表面和水墨卡片规范见 `CLAUDE.md` 的“UI 硬约束”。
-

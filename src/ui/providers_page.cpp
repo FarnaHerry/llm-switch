@@ -603,7 +603,8 @@ huxerui::View ModelSelect(huxerui::State<std::vector<std::string>> fetched,
 }
 
 // 工具图标栏（供应商岛屿头部行左侧）：遍历注册表渲染 agent 图标（ToolIcon
-// 在 common.cpp，与会话页过滤组共用），选中项用实心变体 + raised 底块高亮，悬停显示工具名。写 currentTool 会让外层
+// 在 common.cpp，与会话页过滤组共用），单套图标由主题 tint 自适应，
+// 选中项用 raised 底块高亮。写 currentTool 会让外层
 // .Key(tool) 重建整个岛屿子树（含被点击的图标）：经 tasks.Launch +
 // Delay(0) 推迟出指针事件路径。
 [[huxerui::composable]] huxerui::View ToolBar(
@@ -615,12 +616,11 @@ huxerui::View ModelSelect(huxerui::State<std::vector<std::string>> fetched,
     std::vector<huxerui::View> buttons;
     for (const auto& spec : models::toolRegistry()) {
         const std::string id(spec.id);
-        const IconPair icons = ToolIcon(spec.iconName);
+        const huxerui::ImageResource icon = ToolIcon(spec.iconName);
         const std::string displayName(spec.displayName);
         const bool selected = tool == id;
         huxerui::View button =
-            huxerui::IconButton(selected ? icons.selected : icons.normal,
-                                displayName)
+            huxerui::IconButton(icon, displayName)
                 .OnClick([tasks, currentTool, id] {
                     tasks.Launch([=]() -> huxerui::Task<void> {
                         co_await huxerui::Delay(std::chrono::duration<double>{0});
@@ -628,7 +628,7 @@ huxerui::View ModelSelect(huxerui::State<std::vector<std::string>> fetched,
                     });
                 })
                 .With(huxerui::Tooltip(displayName));
-        // 选中态：除实心图标变体外再垫一层 raised 圆角底块，一眼可辨。
+        // 选中态只由 raised 承载底块表达，图标几何与主题 tint 保持一致。
         if (selected) {
             button = std::move(button).With(
                 huxerui::Background(islands.raised),

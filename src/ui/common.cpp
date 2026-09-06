@@ -20,23 +20,23 @@ store::ProviderStore& providerStore() {
     return store;
 }
 
-IconPair ToolIcon(std::string_view iconName) {
+huxerui::ImageResource ToolIcon(std::string_view iconName) {
     if (iconName == "claudecode") {
-        return {app::images::claudecode, app::images::claudecode_selected};
+        return app::images::claudecode;
     }
     if (iconName == "claude") {
-        return {app::images::claude, app::images::claude_selected};
+        return app::images::claude;
     }
     if (iconName == "codex") {
-        return {app::images::codex, app::images::codex_selected};
+        return app::images::codex;
     }
     if (iconName == "opencode") {
-        return {app::images::opencode, app::images::opencode_selected};
+        return app::images::opencode;
     }
     if (iconName == "pi") {
-        return {app::images::pi, app::images::pi_selected};
+        return app::images::pi;
     }
-    return {app::images::agents, app::images::agents_selected};
+    return app::images::agents;
 }
 
 std::string_view ToolName(std::string_view tool) {

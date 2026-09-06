@@ -32,14 +32,9 @@ store::ProviderStore& providerStore();
 // 工具显示名（侧边栏提示 / 托盘菜单分组标题 / 页面标题）。
 std::string_view ToolName(std::string_view tool);
 
-// ToolSpec.iconName → 图标资源对（普通半透明 / 选中实心变体，
-// resources/README.md 有来源与许可表）。未知名回退 agents 图标。
-// 供应商页工具栏与会话页过滤组共用。
-struct IconPair {
-    huxerui::ImageResource normal;
-    huxerui::ImageResource selected;
-};
-IconPair ToolIcon(std::string_view iconName);
+// ToolSpec.iconName → 单套无色 alpha-mask 图标；深浅主题由组件运行时 tint
+// 自适应，选中态由承载容器表达。未知名回退 agents 图标。
+huxerui::ImageResource ToolIcon(std::string_view iconName);
 
 // ---- 岛屿结构（对齐 Clash-Flux island 模型）----
 // 语义层级：页面通过层级选表面，不直接依赖 Material 的 surface_container_* 命名；
