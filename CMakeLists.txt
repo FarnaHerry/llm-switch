@@ -444,6 +444,11 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
         if (MSVC)
             add_compile_options(/utf-8)
         endif ()
+        # 测试目标直接编译 src/*.cpp（curl/httplib 头链会拉进 windows.h）：
+        # 不定 NOMINMAX 时 min/max 宏会炸掉 std::min 调用（C2589）。
+        if (WIN32)
+            add_compile_definitions(WIN32_LEAN_AND_MEAN NOMINMAX)
+        endif ()
 
         # 冒烟测试：只验证工程能编出可运行二进制。
         add_executable(test_smoke tests/test_smoke.cpp)
