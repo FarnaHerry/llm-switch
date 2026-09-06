@@ -100,7 +100,7 @@ commit，不回滚已经验证的修改，并在最终回复中报告失败原�
 | `llmswitch.mcp` | `src/mcp.cppm` + `src/mcp.cpp` | MCP 服务器统一清单（SSOT = dataDir()/mcp.json）；启停 = 写/删工具 live 配置条目：claude-code → ~/.claude.json 顶层 mcpServers 深合并、codex → config.toml 行级 [mcp_servers.*] section 重写、opencode → opencode.json 顶层 mcp；claude/pi 不支持（抛中文错） |
 | `llmswitch.skills` | `src/skills.cppm` + `src/skills.cpp` | Skills 中央库（dataDir()/skills-store/<name>/：SKILL.md + 附带文件）+ create_symlink 同步到 ~/.claude/skills 与 ~/.codex/skills；合并视图（中央库/已链接/仅工具侧） |
 | `llmswitch.sessions` | `src/sessions.cppm` + `src/sessions.cpp` | 历史会话扫描：~/.claude/projects/<项目>/*.jsonl 与 ~/.codex/sessions/<年>/<月>/<日>/*.jsonl；列表（mtime 倒序）/删除（限已知 sessions 根之下，越界抛错）/导出；标题/行数提取 best-effort 不抛 |
-| `llmswitch::ui`（普通 C++） | `src/ui/*.cpp` | app（壳：太极水墨主题 InkDark「玄墨」/InkLight「宣纸」+标题栏太极标+顶级 8 区块图标侧栏+IndexedPages+托盘（太极图图标）+关闭最小化到托盘+路由自启）/ agent_page（薄宿主：持 currentTool State + ProvidersPage .Key(tool) 宿主）/ router_page（路由控制+接入地址+最近请求日志，含 routerInstance() 单例）/ stats_page（统计汇总）/ mcp_page / skills_page / sessions_page（会话管理：过滤用图标组——全部/Claude Code/Codex 与 Agent 页同套图标+选中底块；扫描全程 RunWorker 入 worker 线程，重载不清空旧列表）/ about_page（关于，顶部太极 logo 卡）/ common（岛屿原语、页面骨架/卡片/弹窗卡片、providerStore() 全局实例、ToolIcon 图标资源对）/ providers_page（5 工具共用供应商页：工具图标栏在岛屿内部顶部（ToolBar）+ 官方常驻卡首位 + 卡片列表，卡片三段式：左信息列 ｜ 中间状态列（延迟/用量，内容与操作组之间，空则塌缩）｜ 右操作图标组（切换/联通检测/编辑/用量配置/复制/删除为自绘图标 IconButton + Tooltip，swap/activity/edit/gauge/copy/trash.svg，用量刷新 refresh.svg），联通检测经 net::pingLatencyMs；编辑/新增是整页表单 ProviderFormPage，用量查询配置是独立整页 UsageFormPage（formTarget 多模式：""/"new"/"usage:"+id/id），新增页内嵌预设区、模型行内 Select 下拉 + 卡片用量显示/轮询）/ settings_page（主题/用量查询/路径/导入导出/关于）/ ui.h（内部声明） |
+| `llmswitch::ui`（普通 C++） | `src/ui/*.cpp` | app（壳：太极水墨主题 InkDark「玄墨」/InkLight「宣纸」+标题栏太极标+顶级 8 区块图标侧栏+IndexedPages+托盘（太极图图标）+关闭最小化到托盘+路由自启）/ agent_page（薄宿主：持 currentTool State + ProvidersPage .Key(tool) 宿主）/ router_page（路由控制+接入地址+最近请求日志，含 routerInstance() 单例）/ stats_page（统计汇总）/ mcp_page / skills_page / sessions_page（会话管理：过滤用图标组——全部/Claude Code/Codex 与 Agent 页同套图标+选中底块；扫描/导出/删除全程 RunWorker 入 worker 线程，加载请求代次阻止旧结果覆盖新筛选，重载不清空旧列表）/ about_page（关于，顶部太极 logo 卡）/ common（岛屿原语、页面骨架/卡片/弹窗卡片、providerStore() 全局实例、ToolIcon 图标资源对）/ providers_page（5 工具共用供应商页：工具图标栏在岛屿内部顶部（ToolBar）+ 官方常驻卡首位 + 卡片列表，卡片三段式：左信息列 ｜ 中间状态列（延迟/用量，内容与操作组之间，空则塌缩）｜ 右操作图标组（切换/联通检测/编辑/用量配置/复制/删除为自绘图标 IconButton + Tooltip，swap/activity/edit/gauge/copy/trash.svg，用量刷新 refresh.svg），联通检测经 net::pingLatencyMs；编辑/新增是整页表单 ProviderFormPage，用量查询配置是独立整页 UsageFormPage（formTarget 多模式：""/"new"/"usage:"+id/id），新增页内嵌预设区、模型行内 Select 下拉 + 卡片用量显示/轮询）/ settings_page（主题/用量查询/路径/导入导出/关于）/ ui.h（内部声明） |
 | `src/app.cpp` | 普通 TU | `Application{AppRoot, AppOptions}`（Custom chrome，标题栏 24pt，1080×720 / min 800×600） |
 | 平台入口 | `platform/{linux,windows,macos}/main.cpp` | 薄入口 `huxerui::RunApplication()`（无 CLI 分流；顶层 CMake 按 WIN32/APPLE/Linux 分支选用） |
 
@@ -377,9 +377,11 @@ commit，不回滚已经验证的修改，并在最终回复中报告失败原�
   可交互 TrailingIcon（TrailingIcon(icon, 语义标签) + OnTrailingIconClick +
   Secure(bool)），不再外裹 Row + 独立 IconButton；且眼睛仅悬停输入框
   （ViewEvents::Hover，只在 Enter/Leave 写 State）或已明文时挂载显示。
-- ✅ 会话页性能 + 过滤图标组（2026-09-06）：会话扫描从 UI 线程同步改为
+- ✅ 会话页异步加载 + 过滤图标组（2026-09-07）：会话扫描从 UI 线程同步改为
   RunWorker 入 worker 线程（首载/切过滤/刷新/删除后重载；此前 countLines
   getline 逐行读全文件 + 标题提取都在 UI 线程，文件一多切换即卡顿），
+  请求代次保证快速切过滤时旧结果不会覆盖新选择，异常路径会正确结束 loading
+  并反馈原因；导出/删除文件 IO 也移入 RunWorker，成功删除后才触发重载。
   重载期间旧列表保持显示 + 刷新图标自转指示（无限 Tween 360°，无文字提示）；countLines 改 64KB 块读数
   换行（口径不变：末行无换行算一行、10000 封顶）；过滤 SegmentedButton
   改为图标组（全部=agents / claudecode / codex，选中态 raised 底块，与

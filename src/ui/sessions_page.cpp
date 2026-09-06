@@ -9,7 +9,9 @@
 // 性能：扫描含真实磁盘 IO（countLines 块读全文件数行、标题提取解析前
 // 64KB JSONL），文件一多 UI 线程同步跑会明显卡顿——首载 / 切过滤 / 刷新 /
 // 删除后重载一律经 huxerui::RunWorker 派到 worker 线程，恢复点回 UI 线程
-// 写 State。重载期间旧列表保持显示不清空，刷新图标自转指示（无文字提示）。
+// 写 State。请求代次保证快速切换过滤时只有最新结果可提交；加载失败会结束
+// loading 并反馈错误。导出 / 删除文件 IO 同样不阻塞 UI。重载期间旧列表保持
+// 显示不清空，刷新图标自转指示（无文字提示）。
 #include <huxerui/huxerui.h>
 
 #include <array>
@@ -74,19 +76,26 @@ std::string FormatSize(std::uintmax_t bytes) {
     const std::string title = session.title;
     const std::filesystem::path path = session.path;
 
-    auto showDeleteConfirm = [dialog, toast, title, path, onDeleted] {
+    auto showDeleteConfirm = [dialog, tasks, toast, title, path, onDeleted] {
         dialog.Show(
             "删除会话",
             std::format("确定删除会话「{}」？此操作不可撤销。", title),
             "删除", "取消",
-            [toast, title, path, onDeleted] {
-                try {
-                    sessions::deleteSession(path);
-                    toast.Show(std::format("已删除 {}", title));
-                } catch (const std::exception& e) {
-                    toast.Show(e.what());
-                }
-                onDeleted();
+            [tasks, toast, title, path, onDeleted] {
+                tasks.Launch([toast, title, path, onDeleted]()
+                                 -> huxerui::Task<void> {
+                    try {
+                        co_await huxerui::RunWorker(
+                            [](std::filesystem::path target) {
+                                sessions::deleteSession(target);
+                            },
+                            path);
+                        toast.Show(std::format("已删除 {}", title));
+                        onDeleted();
+                    } catch (const std::exception& e) {
+                        toast.Show(e.what());
+                    }
+                });
             },
             {});
     };
@@ -103,16 +112,21 @@ std::string FormatSize(std::uintmax_t bytes) {
             .Style(huxerui::TextStyle{huxerui::Font::System(font_size::kCaption),
                                       theme.colors.on_surface_variant}),
         huxerui::Row {
-            huxerui::Button("导出").OnClick([toast, path] {
-                try {
-                    const auto destDir = cfg::dataDir() / "exports";
-                    std::error_code ec;
-                    std::filesystem::create_directories(destDir, ec);
-                    const auto dest = sessions::exportSession(path, destDir);
-                    toast.Show("已导出到 " + dest.string());
-                } catch (const std::exception& e) {
-                    toast.Show(e.what());
-                }
+            huxerui::Button("导出").OnClick([tasks, toast, path] {
+                tasks.Launch([toast, path]() -> huxerui::Task<void> {
+                    try {
+                        const auto dest = co_await huxerui::RunWorker(
+                            [](std::filesystem::path source,
+                               std::filesystem::path destination) {
+                                return sessions::exportSession(source,
+                                                               destination);
+                            },
+                            path, cfg::dataDir() / "exports");
+                        toast.Show("已导出到 " + dest.string());
+                    } catch (const std::exception& e) {
+                        toast.Show(e.what());
+                    }
+                });
             }),
             huxerui::Button("删除").OnClick([tasks, showDeleteConfirm] {
                 // 弹窗会卸载点击路径上的节点：推迟出指针事件路径。
@@ -139,16 +153,34 @@ std::string FormatSize(std::uintmax_t bytes) {
     auto sessionsList =
         huxerui::UseState<std::vector<sessions::SessionInfo>>({});
     auto loading = huxerui::UseState(true);
+    auto loadError = huxerui::UseState(std::string{});
+    auto requestGeneration = huxerui::UseState<std::uint64_t>(0);
 
     // 重载：扫描经 RunWorker 派到 worker 线程（磁盘 IO 不占 UI 线程），
-    // 恢复点回 UI 线程写 State。
-    auto reload = [tasks, sessionsList, loading](int f) {
+    // 恢复点回 UI 线程写 State。代次检查丢弃较慢的旧请求结果，避免快速切换
+    // 过滤时列表回跳；异常也必须收束 loading 状态。
+    auto reload = [tasks, toast, sessionsList, loading, loadError,
+                   requestGeneration](int f) {
+        const std::uint64_t request = requestGeneration.Get() + 1;
+        requestGeneration = request;
         loading = true;
-        tasks.Launch([sessionsList, loading, f]() -> huxerui::Task<void> {
-            auto result = co_await huxerui::RunWorker(
-                [](int f) { return LoadSessions(f); }, f);
-            sessionsList = std::move(result);
-            loading = false;
+        loadError = std::string{};
+        tasks.Launch([toast, sessionsList, loading, loadError,
+                      requestGeneration, f, request]() -> huxerui::Task<void> {
+            try {
+                auto result = co_await huxerui::RunWorker(
+                    [](int selectedFilter) { return LoadSessions(selectedFilter); },
+                    f);
+                if (requestGeneration.Get() != request) co_return;
+                sessionsList = std::move(result);
+                loading = false;
+            } catch (const std::exception& e) {
+                if (requestGeneration.Get() != request) co_return;
+                const std::string message = e.what();
+                loadError = message;
+                loading = false;
+                toast.Show("加载会话失败：" + message);
+            }
         });
     };
     // 首组合加载。
@@ -247,7 +279,8 @@ std::string FormatSize(std::uintmax_t bytes) {
         groups.empty()
             ? huxerui::View{
                   huxerui::Column {
-                      // 空态：加载中显示自转刷新图标（无文字），否则提示无会话。
+                      // 空态：加载中显示自转刷新图标（无文字），失败显示原因，
+                      // 否则提示无会话。
                       loading.Get()
                           ? huxerui::View{
                                 huxerui::Image(app::images::refresh)
@@ -262,7 +295,10 @@ std::string FormatSize(std::uintmax_t bytes) {
                                                   .iterations =
                                                       std::nullopt})))}
                           : huxerui::View{
-                                huxerui::Text("未找到历史会话。")
+                                huxerui::Text(
+                                    loadError.Get().empty()
+                                        ? "未找到历史会话。"
+                                        : "加载失败：" + loadError.Get())
                                     .Style(huxerui::TextStyle{
                                         huxerui::Font::System(font_size::kBody),
                                         theme.colors.on_surface_variant})},

@@ -18,6 +18,8 @@ Claude、Codex、Gemini、Copilot、Cursor、Windsurf 及其他自动化 agent �
   `.github/workflows/build.yml`。当前基线 `6a52b08` 提供 Clipboard 服务与
   TreeView；剪贴板只在 UI 线程通过 `UseService<Clipboard>()` 使用，TreeView
   必须位于有界垂直视口。
+- 会话目录扫描、导出和删除属于文件 IO，必须通过 `RunWorker` 离开 UI 线程；
+  可重复触发的加载必须以请求代次丢弃过期结果，并在成功或失败时正确结束加载态。
 
 ## UI 视觉硬约束
 
