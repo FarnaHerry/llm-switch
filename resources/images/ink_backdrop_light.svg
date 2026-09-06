@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 900" width="1440" height="900">
+  <!-- 宣纸主题全景：边缘落墨、中央留白，避免与主要信息竞争。 -->
+  <defs>
+    <linearGradient id="topWash" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#6e695c" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#6e695c" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="bottomWash" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0" stop-color="#57534a" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#57534a" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="water" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#6e695c" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#6e695c" stop-opacity="0.02"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 顶部远山，轮廓有意柔淡。 -->
+  <path fill="#8f897b" fill-opacity="0.17" d="M0 92 L150 42 L320 96 L480 32 L660 101 L830 56 L1010 106 L1180 46 L1330 91 L1440 61 L1440 0 L0 0 Z"/>
+  <path fill="#736e62" fill-opacity="0.12" d="M0 132 L180 82 L360 132 L560 72 L760 137 L950 87 L1150 137 L1320 97 L1440 122 L1440 0 L0 0 Z"/>
+  <rect width="1440" height="210" fill="url(#topWash)"/>
+
+  <!-- 朱砂落日和归鸟。 -->
+  <circle cx="1240" cy="150" r="70" fill="#b5462e" fill-opacity="0.06"/>
+  <circle cx="1240" cy="150" r="45" fill="#b5462e" fill-opacity="0.58"/>
+  <path d="M1050 210 q12 -10 24 0 q12 -10 24 0 M1110 240 q9 -8 18 0 q9 -8 18 0" fill="none" stroke="#57534a" stroke-opacity="0.35" stroke-width="2.5" stroke-linecap="round"/>
+
+  <!-- 底部近山。 -->
+  <path fill="#858074" fill-opacity="0.22" d="M0 760 L140 700 L300 770 L470 690 L640 775 L820 705 L1000 780 L1180 715 L1330 775 L1440 740 L1440 900 L0 900 Z"/>
+  <path fill="#6e695c" fill-opacity="0.19" d="M0 810 L170 760 L340 820 L520 750 L700 825 L890 765 L1080 830 L1260 775 L1440 815 L1440 900 L0 900 Z"/>
+  <path fill="#57534a" fill-opacity="0.17" d="M0 855 L200 815 L420 860 L640 810 L860 862 L1090 818 L1300 860 L1440 835 L1440 900 L0 900 Z"/>
+  <rect x="0" y="690" width="1440" height="210" fill="url(#bottomWash)"/>
+
+  <!-- 左下竹枝和右侧飞瀑只压边，不进入中央阅读区。 -->
+  <g stroke="#57534a" stroke-opacity="0.28" stroke-width="5" stroke-linecap="round" fill="none">
+    <path d="M120 900 C118 830 122 780 116 730"/>
+    <path d="M160 900 C162 820 156 770 164 700"/>
+    <path d="M84 900 C80 850 86 810 78 770"/>
+  </g>
+  <g fill="#57534a" fill-opacity="0.25">
+    <path d="M116 742 q-34 -18 -52 -8 q30 16 52 8Z M118 730 q30 -24 54 -16 q-26 20 -54 16Z"/>
+    <path d="M164 712 q-32 -22 -54 -12 q28 18 54 12Z M166 700 q34 -20 56 -10 q-30 18 -56 10Z"/>
+    <path d="M80 778 q-26 -16 -44 -8 q24 14 44 8Z"/>
+  </g>
+  <path d="M1290 420 q10 120 -6 240 M1320 400 q12 130 -4 260" fill="none" stroke="url(#water)" stroke-width="8" stroke-linecap="round"/>
+</svg>

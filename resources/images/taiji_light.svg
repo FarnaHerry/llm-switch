@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <!-- 宣纸突出：宽宣纸外环由细墨线收口，内部仍保留完整阴阳关系。 -->
+  <circle cx="12" cy="12" r="11.2" fill="#F2EDE1" stroke="#2E2B25" stroke-width=".8"/>
+  <circle cx="12" cy="12" r="8.7" fill="#F2EDE1"/>
+  <path d="M12 3.3 A8.7 8.7 0 0 1 12 20.7 A4.35 4.35 0 0 0 12 12 A4.35 4.35 0 0 1 12 3.3Z" fill="#2E2B25"/>
+  <circle cx="12" cy="7.65" r="1.45" fill="#F2EDE1"/>
+  <circle cx="12" cy="16.35" r="1.45" fill="#2E2B25"/>
+</svg>

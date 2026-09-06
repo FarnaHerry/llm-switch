@@ -53,8 +53,8 @@ enum class IslandLevel {
 struct IslandTheme {
     float page_gap;        // 岛间缝隙（透出窗口底色「海面」）
     float island_padding;  // 一级岛内边距
-    float island_radius;   // 一级岛圆角 16pt
-    float nested_radius;   // 二级岛/浮动菜单圆角 8pt
+    float island_radius;   // 一级轻岛圆角（当前 10pt）
+    float nested_radius;   // 二级岛/浮动菜单圆角（当前 6pt）
     huxerui::Color ocean;   // 海面（窗口背景）
     huxerui::Color base;    // 一级岛表面
     huxerui::Color raised;  // 二级岛表面
@@ -82,12 +82,12 @@ huxerui::View SettingsPage(huxerui::State<int> themeMode, huxerui::State<int> re
 
 // ---- 通用部件（common.cpp）----
 
-// 页面骨架（一级岛）：标题行（标题 + 右缘动作）+ 内容区，整体为 16pt 圆角岛，
+// 页面骨架（一级岛）：标题行（标题 + 右缘动作）+ 内容区，整体为低对比轻岛，
 // 落在窗口海面底色上（岛间缝隙经壳层 Spacing 透出）。
 huxerui::View PageScaffold(const std::string& title, huxerui::View actions,
                            huxerui::View content);
 
-// 卡片容器（二级岛）：raised 表面 + 8pt 圆角 + 内边距。
+// 卡片容器（二级岛）：raised 表面 + 断续墨线/飞白纹理 + 内边距。
 huxerui::View Card(huxerui::View content);
 
 // 自定义内容弹窗的卡片包裹：SDK 的 dialog.Show(ViewFactory/DialogFactory) 不给

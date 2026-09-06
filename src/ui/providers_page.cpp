@@ -1045,6 +1045,8 @@ huxerui::View ModelSelect(huxerui::State<std::vector<std::string>> fetched,
               huxerui::Spacing(theme.spacing.medium),
               huxerui::Background(islands.base),
               huxerui::CornerRadius(islands.island_radius),
+              huxerui::Border(islands.outline_soft, 0.75F),
+              huxerui::ClipChildren(),
               huxerui::Grow(1.0F),
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 

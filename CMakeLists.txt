@@ -261,6 +261,27 @@ set(LLMSWITCH_MODULE_UNITS
     src/sessions.cppm
 )
 
+# 24×24 界面图标必须遵守项目水墨图标契约。配置期强制检查，让后续新增图标
+# 不能悄悄退回纯黑、规则几何的默认 Material 风格；全景/卡片纹理与太极状态图
+# 不属于这一尺寸契约。
+file(GLOB UI_ICON_FILES CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/resources/images/*.svg")
+foreach(UI_ICON_FILE IN LISTS UI_ICON_FILES)
+    file(READ "${UI_ICON_FILE}" UI_ICON_SOURCE)
+    if(UI_ICON_SOURCE MATCHES "width=\"24\"" AND
+       UI_ICON_SOURCE MATCHES "height=\"24\"")
+        if(NOT UI_ICON_SOURCE MATCHES "data-ink-texture=\"flywhite\"" OR
+           NOT UI_ICON_SOURCE MATCHES "data-ink-texture=\"dry-brush\"")
+            message(FATAL_ERROR
+                "UI icon must include flywhite and dry-brush ink texture: ${UI_ICON_FILE}")
+        endif()
+        if(UI_ICON_SOURCE MATCHES "#000000")
+            message(FATAL_ERROR
+                "UI icon must use warm ink colors instead of pure black: ${UI_ICON_FILE}")
+        endif()
+    endif()
+endforeach()
+
 huxerui_add_app(llm-switch
     SOURCES
         ${APP_SOURCE_FILES}

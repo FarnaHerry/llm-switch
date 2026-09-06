@@ -1,5 +1,6 @@
-// settings_page.cpp — 设置页：外观主题（跟随系统/玄墨/宣纸，存 AppConfig.themeMode
-// 的 system/dark/light 并即时生效）、用量查询（总开关 usageEnabled + 刷新间隔
+// settings_page.cpp — 设置页：外观主题用单个太极选择器循环切换
+// 跟随系统/玄墨/宣纸（平衡/玄墨突出/宣纸突出，悬停旋转且移出冻结角度），
+// 存 AppConfig.themeMode 的 system/dark/light 并即时生效；用量查询（总开关 + 刷新间隔
 // usageRefreshMinutes，变更即落盘）、live 配置文件路径展示、导入/导出、关于。
 //
 // 导入/导出优先走 FilePicker 系统文件对话框（SaveFileAsync/OpenFileAsync）；
@@ -8,11 +9,13 @@
 #include <huxerui/huxerui.h>
 
 #include <chrono>
+#include <cmath>
 #include <filesystem>
 #include <string>
 #include <vector>
 
 #include "ui.h"
+#include "app_resources.h"
 
 import llmswitch.config;
 import llmswitch.models;
@@ -22,9 +25,60 @@ namespace llmswitch::ui {
 namespace {
 
 // 主题显示名：水墨风命名（玄墨=深色、宣纸=浅色），存值仍是 system/dark/light。
-const std::vector<huxerui::StringVariant> kThemeNames{"跟随系统", "玄墨（深色）",
-                                                      "宣纸（浅色）"};
+const std::vector<std::string> kThemeNames{"跟随系统", "玄墨（深色）",
+                                           "宣纸（浅色）"};
 const std::vector<std::string> kThemeModes{"system", "dark", "light"};
+
+[[huxerui::composable]] huxerui::View TaijiThemeSelector(
+    huxerui::State<int> themeMode) {
+    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    auto tasks = huxerui::UseTaskScope();
+    auto hovering = huxerui::UseState(false);
+    auto angle = huxerui::UseState(0.0F);
+
+    const int mode = themeMode.Get();
+    const auto icon = mode == 1 ? app::images::taiji_dark
+                               : mode == 2 ? app::images::taiji_light
+                                           : app::images::taiji;
+    const std::string tooltip =
+        std::format("{}；点击切换主题", kThemeNames[mode]);
+
+    // 用显式角度 State 驱动旋转：移出时任务停止，但不重置 angle，因此再次
+    // 悬停会从冻结位置继续。reduced-motion 下保留切换能力但不启动旋转。
+    auto startSpin = [=](const huxerui::HoverEvent& event) {
+        if (event.type == huxerui::HoverEventType::Leave) {
+            hovering = false;
+            return;
+        }
+        if (event.type != huxerui::HoverEventType::Enter || hovering.Get() ||
+            theme.motion.reduced_motion) {
+            return;
+        }
+        hovering = true;
+        tasks.Launch([hovering, angle]() -> huxerui::Task<void> {
+            while (hovering.Get()) {
+                co_await huxerui::Delay(std::chrono::milliseconds{16});
+                if (!hovering.Get()) co_return;
+                angle = std::fmod(angle.Get() + 2.4F, 360.0F);
+            }
+        });
+    };
+
+    return huxerui::Image(icon)
+        .With(huxerui::Frame{.width = 42.0F, .height = 42.0F},
+              huxerui::Rotation(angle.Get()),
+              huxerui::Padding(5.0F),
+              huxerui::Background(theme.colors.surface_container_high),
+              huxerui::CornerRadius(21.0F),
+              huxerui::PointerCursor(huxerui::PointerCursorKind::Hand),
+              huxerui::Tooltip(tooltip))
+        .On<huxerui::ViewEvents::Hover>(startSpin)
+        .OnClick([themeMode] {
+            const int next = (themeMode.Get() + 1) % 3;
+            themeMode = next;
+            providerStore().setThemeMode(kThemeModes[next]);
+        });
+}
 
 // 用量查询刷新间隔选项（下标 ↔ AppConfig.usageRefreshMinutes 分钟数，0=仅手动）。
 const std::vector<huxerui::StringVariant> kUsageIntervals{"5 分钟", "10 分钟",
@@ -188,13 +242,7 @@ const std::string kAboutText =
                     SectionTitle("外观"),
                     SettingRow(
                         "主题", "",
-                        huxerui::SegmentedButton(
-                            kThemeNames,
-                            static_cast<std::size_t>(themeMode.Get()))
-                            .OnChanged([themeMode](std::size_t idx) {
-                                themeMode = static_cast<int>(idx);
-                                providerStore().setThemeMode(kThemeModes[idx]);
-                            })),
+                        TaijiThemeSelector(themeMode)),
                 }.With(huxerui::Spacing(10.0F),
                        huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))),
 

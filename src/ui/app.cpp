@@ -419,15 +419,15 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(huxerui::WindowHandle window,
                         .Key("settings").With(huxerui::Grow(1.0F)));
     pages.push_back(AboutPage().Key("about").With(huxerui::Grow(1.0F)));
 
-    // 叠放根：Stack 底层水墨长卷（Image 底对齐 Contain 横带；Background(ImageFill)
-    // 在 Linux 实测不绘制，故改用组件叠放），上层原内容列以底部 56pt 留白让出
-    // 海面横带——岛屿不透光，画只在这一横带与岛间缝隙显现。最外层刷整窗海面底色
-    // （rootSpec.colors.background——AppRoot 在主题 provider 之上，须按 dark 自选）。
+    // 叠放根：全景水墨从页脚装饰升级为环境层。深浅主题分别使用低对比度画卷，
+    // Cover 铺满窗口、中央刻意净空；轻岛屿让顶部远山和四角近景隐约透出。
+    // 最外层仍刷海面底色，保证图片加载前和极端宽高比下背景稳定。
     huxerui::View content = huxerui::Stack {
-        huxerui::Image(app::images::ink_landscape)
-            .Fit(huxerui::ImageFit::Contain)
+        huxerui::Image(dark ? app::images::ink_backdrop_dark
+                            : app::images::ink_backdrop_light)
+            .Fit(huxerui::ImageFit::Cover)
             .Align(huxerui::HorizontalAlignment::Center,
-                   huxerui::VerticalAlignment::End),
+                   huxerui::VerticalAlignment::Center),
         huxerui::Column {
             // 自定义标题栏：太极标 + 应用名 + 拖拽区（框架在其右侧渲染窗口
             // 按钮）。收窄 + 去背景：直接融入窗口海面底色；垂直零内边距，
@@ -472,11 +472,11 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(huxerui::WindowHandle window,
                       huxerui::Grow(1.0F)),
         }
             .With(huxerui::Spacing(rootSpec.spacing.extra_small),
-                  // 底部 56pt 留白让出长卷横带（画在 Stack 底层）。
-                  huxerui::Padding(huxerui::EdgeInsets{.bottom = 56.0F}),
+                  huxerui::Padding(huxerui::EdgeInsets{.bottom =
+                                                           rootSpec.spacing.small}),
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)),
     }
-        .With(// 窗口整体海面底色刷满根节点：岛间缝隙与底部横带透出底色。
+        .With(// 窗口整体海面底色刷满根节点：岛间缝隙透出底色与环境画卷。
               huxerui::Background(rootSpec.colors.background),
               // Stack 以自身对齐摆放所有子项（子项自带 Align 仅作用于图片
               // 内容），双向 Stretch 让水墨长卷与内容列都铺满窗口，长卷内容

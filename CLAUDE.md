@@ -58,6 +58,10 @@ ctest --test-dir build             # 冒烟 + 领域层测试（smoke/store/net/
 huxerui run linux                  # HuxerUI CLI 流程（构建到 .huxerui/build/linux/）
 ```
 
+每批修改的强制收尾流程以仓库根目录 `AGENTS.md` 为准：完整编译、运行测试、
+`git diff --check`、创建本地 commit，并尝试推送当前分支。推送失败时保留本地
+commit，不回滚已经验证的修改，并在最终回复中报告失败原因。
+
 - 工具链：系统 GCC（本机 16.2.1）+ libstdc++，CMake ≥ 4.4（`import std` 仍是
   experimental：UUID 表在 `cmake/CxxImportStdGate.cmake`）。
 - **依赖极简**：nlohmann::json 3.12.0 以 single header 提交在
@@ -195,12 +199,20 @@ huxerui run linux                  # HuxerUI CLI 流程（构建到 .huxerui/bui
    （托盘 Lifecycle 以 revision 为依赖）。
 7. **岛屿风**（对齐 Clash-Flux）：太极水墨主题（ui/app.cpp InkDark「玄墨」/
    InkLight「宣纸」：暖调墨色阶 + 宣纸白/浓墨主色 + 朱砂 error；设置页主题
-   选项显示名为 跟随系统/玄墨/宣纸，存值仍 system/dark/light）；
-   一级岛 16pt / 二级岛 8pt 圆角，表面色经 `ResolveIslandTheme(theme)` 语义
+   设置页以单个太极选择器循环切换跟随系统/玄墨/宣纸（平衡态/玄墨外环/
+   宣纸外环，悬停持续旋转、移出冻结当前角度），存值仍 system/dark/light）；
+   一级轻岛 10pt / 二级岛 6pt 圆角，半透明表面色经
+   `ResolveIslandTheme(theme)` 语义
    层级取，不直接用 surface_container_*。删除确认用内置
    `dialog.Show(title, message, positive, negative, ...)`（DialogStyle 已在
    MinimalThemed 里主题化）。
-8. **响应式**：`UseViewportClass()` Compact(<600) 收窄侧栏(44pt)/一级岛内边距
+   通用 `Card` 不画规整 Border：以 `ink_card_frame.svg` 的断续墨线、飞白和
+   角部淡晕作为卡片自身边界；弹窗仍保留规则边框以保证浮层识别度。
+8. **水墨图标契约**：所有 24×24 功能 SVG 必须遵守
+   `resources/README.md` 的水墨规范——暖淡墨普通态、暖浓墨选中态、保留
+   `flywhite` 墨点与 `dry-brush` 断续收笔；品牌图标不得改变官方轮廓。
+   CMake 配置期会强制校验纹理标记与纯黑色，新增图标不满足规范时构建失败。
+9. **响应式**：`UseViewportClass()` Compact(<600) 收窄侧栏(44pt)/一级岛内边距
    （PageScaffold）；窗口最小 800×600。
 
 ## 已知取舍（读代码遇到别当 bug 修）
@@ -374,10 +386,10 @@ huxerui run linux                  # HuxerUI CLI 流程（构建到 .huxerui/bui
   跟随系统/玄墨（深色）/宣纸（浅色）。按「墨韵 INK UI」参考图深化：
   浅色纸面再亮一档、二级岛近白 + 一级岛/卡片细墨边（Border outline_soft
   1pt + ClipChildren）、标题栏应用名旁加朱砂印章「易」（固定印泥红底
-  宣纸白字，两主题通用）、整窗背景垫水墨长卷（自绘 ink_landscape.svg：
-  三层淡墨山脊 + 落日朱砂 + 归鸟；双层根——外层刷海面底色，内层
-  Background(ImageFill) Contain 底对齐垫在全部内容之下，内容底部留
-  56pt 海面横带让山脊落日露出，岛屿不透光故画只在横带与岛缝显现）。书法标题字未做：系统无 CJK 衬线字体，
+  宣纸白字，两主题通用）、整窗背景改用深浅两套全景水墨画卷
+  （ink_backdrop_dark/light.svg：远山、朱砂落日、归鸟、竹枝和飞瀑；
+  Stack 底层以 Cover 覆盖窗口边缘，中央留白，轻岛屿允许环境景物隐约透出）。
+  书法标题字未做：系统无 CJK 衬线字体，
   不为标题打包字体文件。
 - ⬜ 待做：codex 内置预设仅
   OpenRouter/DeepSeek 两家可扩充；无 CLI 分流、无单实例/开机自启。

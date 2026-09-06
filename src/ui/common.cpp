@@ -1,4 +1,4 @@
-// common.cpp — 岛屿原语（ResolveIslandTheme/IslandSurface）、页面骨架（一级岛）/
+// common.cpp — 轻岛屿原语（ResolveIslandTheme/IslandSurface）、页面骨架（一级岛）/
 // 卡片（二级岛）/ 弹窗卡片等跨页通用部件，以及全局 ProviderStore 持有点。
 #include <huxerui/huxerui.h>
 
@@ -46,16 +46,22 @@ std::string_view ToolName(std::string_view tool) {
 }
 
 IslandTheme ResolveIslandTheme(const huxerui::ThemeSpec& theme) {
+    // 轻岛屿：页面更接近连续宣纸/玄墨画布，实体卡片仍保留足够承托；
+    // overlay 保持近不透明，确保弹层在全景水墨上可读。
+    const auto translucent = [](huxerui::Color c, float a) {
+        c.alpha = a;
+        return c;
+    };
     return IslandTheme{
-        .page_gap = theme.spacing.small,
+        .page_gap = theme.spacing.extra_small,
         .island_padding = theme.spacing.medium,
-        .island_radius = 16.0F,
-        .nested_radius = 8.0F,
+        .island_radius = 10.0F,
+        .nested_radius = 6.0F,
         .ocean = theme.colors.background,
-        .base = theme.colors.surface_container_low,
-        .raised = theme.colors.surface_container,
-        .overlay = theme.colors.surface_container_highest,
-        .outline_soft = theme.colors.outline,
+        .base = translucent(theme.colors.surface_container_low, 0.48F),
+        .raised = translucent(theme.colors.surface_container, 0.78F),
+        .overlay = translucent(theme.colors.surface_container_highest, 0.95F),
+        .outline_soft = translucent(theme.colors.outline, 0.62F),
     };
 }
 
@@ -91,8 +97,8 @@ huxerui::Color IslandColor(const IslandTheme& islands, IslandLevel level) {
     // 响应式：Compact(<600) 收窄一级岛内边距。
     const bool compact =
         huxerui::UseViewportClass() == huxerui::ViewportClass::Compact;
-    // 一级岛：页面根本身是岛（Grow + Stretch 占满页面区块，圆角 16pt，
-    // base 表面），内容在岛内部滚动；海面底色经岛间缝隙透出。
+    // 一级轻岛：Grow + Stretch 占满页面区块，低对比半透明表面让环境水墨
+    // 隐约透出；内容在岛内部滚动。
     huxerui::View body = content;
     return huxerui::Column {
         huxerui::Row {
@@ -106,7 +112,7 @@ huxerui::Color IslandColor(const IslandTheme& islands, IslandLevel level) {
            huxerui::Spacing(theme.spacing.medium),
            huxerui::Background(islands.base),
            huxerui::CornerRadius(islands.island_radius),
-           huxerui::Border(islands.outline_soft, 1.0F),
+           huxerui::Border(islands.outline_soft, 0.75F),
            huxerui::ClipChildren(),
            huxerui::Grow(1.0F),
            huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
@@ -115,15 +121,19 @@ huxerui::Color IslandColor(const IslandTheme& islands, IslandLevel level) {
 [[huxerui::composable]] huxerui::View Card(huxerui::View content) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     const IslandTheme islands = ResolveIslandTheme(theme);
-    // 二级岛：raised 表面（比一级岛高一层级）+ 8pt 同心圆角 + 细墨边（墨韵
-    // 参考的白卡细边风）。
-    return huxerui::Column { std::move(content) }
-        .With(huxerui::Padding(islands.island_padding),
-              huxerui::Background(islands.raised),
-              huxerui::CornerRadius(islands.nested_radius),
-              huxerui::Border(islands.outline_soft, 1.0F),
-              huxerui::ClipChildren(),
-              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
+    // 二级岛本身“落墨”：不再用规整矢量边框模拟水墨。底层墨框由断续、
+    // 不等宽笔触和角部淡晕构成，内容仍按常规约束排版，避免造型损害可用性。
+    return huxerui::Stack {
+        huxerui::Image(app::images::ink_card_frame)
+            .Fit(huxerui::ImageFit::Fill),
+        huxerui::Column { std::move(content) }
+            .With(huxerui::Padding(islands.island_padding),
+                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)),
+    }.With(huxerui::Background(islands.raised),
+           huxerui::CornerRadius(3.0F),
+           huxerui::ClipChildren(),
+           huxerui::Align(huxerui::HorizontalAlignment::Stretch,
+                          huxerui::VerticalAlignment::Stretch));
 }
 
 [[huxerui::composable]] huxerui::View DialogCard(huxerui::View content) {

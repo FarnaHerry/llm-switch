@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 900" width="1440" height="900">
+  <!-- 墨韵全景背景（深色「玄墨」）：透明底低透明度淡墨，叠在 #161411 海面上。
+       构图：顶部远山、右上朱砂落日、左下竹枝、右下瀑布；中央净空保可读性。
+       关键元素离边 >=10%，Cover 裁剪安全。 -->
+  <defs>
+    <linearGradient id="mistTop" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4a4438" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#4a4438" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="mistBottom" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0" stop-color="#565043" stop-opacity="0.34"/>
+      <stop offset="1" stop-color="#565043" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="falls" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#8a8272" stop-opacity="0.30"/>
+      <stop offset="1" stop-color="#8a8272" stop-opacity="0.04"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 顶部远山：三层淡墨剪影 -->
+  <path fill="#33302a" fill-opacity="0.30" d="M0 90 L150 40 L320 95 L480 30 L660 100 L830 55 L1010 105 L1180 45 L1330 90 L1440 60 L1440 0 L0 0 Z"/>
+  <path fill="#3b372e" fill-opacity="0.24" d="M0 130 L180 80 L360 130 L560 70 L760 135 L950 85 L1150 135 L1320 95 L1440 120 L1440 0 L0 0 Z"/>
+  <rect x="0" y="0" width="1440" height="200" fill="url(#mistTop)"/>
+
+  <!-- 右上朱砂落日（点睛，alpha 略高）+ 淡晕 -->
+  <circle cx="1240" cy="150" r="72" fill="#b5462e" fill-opacity="0.10"/>
+  <circle cx="1240" cy="150" r="46" fill="#b5462e" fill-opacity="0.55"/>
+
+  <!-- 归鸟两笔 -->
+  <path d="M1050 210 q12 -10 24 0 q12 -10 24 0" fill="none" stroke="#6b6355" stroke-opacity="0.5" stroke-width="3" stroke-linecap="round"/>
+  <path d="M1110 240 q9 -8 18 0 q9 -8 18 0" fill="none" stroke="#6b6355" stroke-opacity="0.4" stroke-width="2.5" stroke-linecap="round"/>
+
+  <!-- 底部近山：三层，层叠递进 -->
+  <path fill="#2b2823" fill-opacity="0.55" d="M0 760 L140 700 L300 770 L470 690 L640 775 L820 705 L1000 780 L1180 715 L1330 775 L1440 740 L1440 900 L0 900 Z"/>
+  <path fill="#38342b" fill-opacity="0.45" d="M0 810 L170 760 L340 820 L520 750 L700 825 L890 765 L1080 830 L1260 775 L1440 815 L1440 900 L0 900 Z"/>
+  <path fill="#453f33" fill-opacity="0.40" d="M0 855 L200 815 L420 860 L640 810 L860 862 L1090 818 L1300 860 L1440 835 L1440 900 L0 900 Z"/>
+  <rect x="0" y="700" width="1440" height="200" fill="url(#mistBottom)"/>
+
+  <!-- 左下竹枝：三竿 + 撇叶 -->
+  <g stroke="#4c4639" stroke-opacity="0.5" stroke-width="5" stroke-linecap="round" fill="none">
+    <path d="M120 900 C 118 830 122 780 116 730"/>
+    <path d="M160 900 C 162 820 156 770 164 700"/>
+    <path d="M84 900 C 80 850 86 810 78 770"/>
+  </g>
+  <g fill="#4c4639" fill-opacity="0.42">
+    <path d="M116 742 q-34 -18 -52 -8 q30 16 52 8 Z"/>
+    <path d="M118 730 q30 -24 54 -16 q-26 20 -54 16 Z"/>
+    <path d="M164 712 q-32 -22 -54 -12 q28 18 54 12 Z"/>
+    <path d="M166 700 q34 -20 56 -10 q-30 18 -56 10 Z"/>
+    <path d="M80 778 q-26 -16 -44 -8 q24 14 44 8 Z"/>
+  </g>
+
+  <!-- 右侧瀑布：两缕飞白 -->
+  <path d="M1290 420 q10 120 -6 240" fill="none" stroke="url(#falls)" stroke-width="10" stroke-linecap="round"/>
+  <path d="M1320 400 q12 130 -4 260" fill="none" stroke="url(#falls)" stroke-width="6" stroke-linecap="round"/>
+</svg>
