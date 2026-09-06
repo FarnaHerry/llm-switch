@@ -13,7 +13,7 @@ module;
 
 #include <curl/curl.h>
 #include <httplib.h>
-#include <ctime>  // localtime_r（当天 0 点划分）
+#include <ctime>  // localtime_r / localtime_s（当天 0 点划分）
 
 module llmswitch.router;
 
@@ -57,7 +57,11 @@ std::int64_t nowMillis() {
 std::int64_t todayStartMillis() {
     const std::time_t t = std::time(nullptr);
     std::tm tm{};
+#ifdef _WIN32
+    ::localtime_s(&tm, &t);  // MSVC 安全版（参数对调）
+#else
     ::localtime_r(&t, &tm);
+#endif
     tm.tm_hour = tm.tm_min = tm.tm_sec = 0;
     return static_cast<std::int64_t>(std::mktime(&tm)) * 1000;
 }

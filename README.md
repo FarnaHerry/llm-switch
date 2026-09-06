@@ -83,7 +83,8 @@ job，失败时 release 只挂实际产出的包）。
 - Skills 同步目标：`~/.claude/skills`、`~/.codex/skills`；
   会话扫描：`~/.claude/projects`、`~/.codex/sessions`。
 - 以上路径均支持 `LLMSWITCH_*` 环境变量覆盖
-  （`LLMSWITCH_CLAUDE_SETTINGS` / `LLMSWITCH_CODEX_AUTH` /
+  （`LLMSWITCH_DATA_DIR`（自身数据目录整体覆盖，全平台最优先）/
+  `LLMSWITCH_CLAUDE_SETTINGS` / `LLMSWITCH_CODEX_AUTH` /
   `LLMSWITCH_CODEX_CONFIG` / `LLMSWITCH_OPENCODE_CONFIG` / `LLMSWITCH_PI_DIR` /
   `LLMSWITCH_CLAUDE_DESKTOP_DIR` / `LLMSWITCH_CLAUDE_JSON` /
   `LLMSWITCH_SKILLS_STORE` / `LLMSWITCH_CLAUDE_SKILLS` /

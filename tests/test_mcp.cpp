@@ -8,8 +8,7 @@
 // 移除、字符串转义）、禁用 claude-code、remove 全工具清理、损坏 mcp.json 挪走
 // 不崩溃、importFromTool 收编 claude-code 条目、备份生成、不支持工具报错。
 #include <cstdio>    // stderr（std 模块不导出 stdout/stderr 宏）
-#include <cstdlib>   // setenv
-#include <unistd.h>  // getpid
+#include "test_env.h"  // setenv/getpid/unsetenv 可移植封装
 
 import std;
 import nlohmann.json;
@@ -80,23 +79,24 @@ int main() {
 
     // ---- 环境隔离 -----------------------------------------------------------
     const fs::path root =
-        fs::temp_directory_path() / std::format("llmswitch-test-mcp-{}", ::getpid());
+        fs::temp_directory_path() / std::format("llmswitch-test-mcp-{}", testenv::getpid());
     {
         std::error_code ec;
         fs::remove_all(root, ec);
         fs::create_directories(root);
     }
     const fs::path home = root / "home";
-    ::setenv("HOME", home.c_str(), 1);
-    ::setenv("XDG_DATA_HOME", (root / "xdg").c_str(), 1);
+    testenv::setenv("HOME", home.c_str());
+    testenv::setenv("XDG_DATA_HOME", (root / "xdg").c_str());
+    testenv::setenv("LLMSWITCH_DATA_DIR", (root / "data").c_str());
     const fs::path claudeJson = home / ".claude.json";
     const fs::path codexConfig = home / ".codex" / "config.toml";
     const fs::path opencodeConfig = root / "opencode" / "opencode.json";
-    ::setenv("LLMSWITCH_CLAUDE_JSON", claudeJson.c_str(), 1);
-    ::setenv("LLMSWITCH_CODEX_CONFIG", codexConfig.c_str(), 1);
-    ::setenv("LLMSWITCH_OPENCODE_CONFIG", opencodeConfig.c_str(), 1);
-    const fs::path mcpFile = root / "xdg" / "llm-switch" / "mcp.json";
-    const fs::path mcpBackups = root / "xdg" / "llm-switch" / "backups" / "mcp";
+    testenv::setenv("LLMSWITCH_CLAUDE_JSON", claudeJson.c_str());
+    testenv::setenv("LLMSWITCH_CODEX_CONFIG", codexConfig.c_str());
+    testenv::setenv("LLMSWITCH_OPENCODE_CONFIG", opencodeConfig.c_str());
+    const fs::path mcpFile = root / "data" / "mcp.json";
+    const fs::path mcpBackups = root / "data" / "backups" / "mcp";
 
     // 1. upsert stdio 服务器并启用 claude-code：mcpServers 条目正确，
     //    原有其他字段与用户条目保留。

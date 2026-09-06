@@ -439,6 +439,11 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
     option(LLMSWITCH_BUILD_TESTS "Build llm-switch test executables" ON)
     if (LLMSWITCH_BUILD_TESTS)
         enable_testing()
+        # 测试断言匹配中文错误串（如「不支持 Linux」「该工具暂不支持 MCP 管理」），
+        # MSVC 必须 /utf-8 才能正确读 UTF-8 源文字面量（对后续创建的全部测试目标生效）。
+        if (MSVC)
+            add_compile_options(/utf-8)
+        endif ()
 
         # 冒烟测试：只验证工程能编出可运行二进制。
         add_executable(test_smoke tests/test_smoke.cpp)

@@ -7,8 +7,7 @@
 // 无 current 502、clearStats、JSONL 落盘与重启回填。
 // 假上游与客户端都用 cpp-httplib（测试目标已链 llmswitch_httplib）。
 #include <cstdio>    // stderr（std 模块不导出 stdout/stderr 宏）
-#include <cstdlib>   // setenv
-#include <unistd.h>  // getpid
+#include "test_env.h"  // setenv/getpid/unsetenv 可移植封装
 #include <httplib.h>
 
 import std;
@@ -104,15 +103,16 @@ int main() {
 
     // ---- 环境隔离 -----------------------------------------------------------
     const fs::path root =
-        fs::temp_directory_path() / std::format("llmswitch-test-router-{}", ::getpid());
+        fs::temp_directory_path() / std::format("llmswitch-test-router-{}", testenv::getpid());
     {
         std::error_code ec;
         fs::remove_all(root, ec);
         fs::create_directories(root);
     }
-    ::setenv("HOME", (root / "home").c_str(), 1);
-    ::setenv("XDG_DATA_HOME", (root / "xdg").c_str(), 1);
-    ::setenv("LLMSWITCH_STATS_DIR", (root / "stats").c_str(), 1);
+    testenv::setenv("HOME", (root / "home").c_str());
+    testenv::setenv("XDG_DATA_HOME", (root / "xdg").c_str());
+    testenv::setenv("LLMSWITCH_DATA_DIR", (root / "data").c_str());
+    testenv::setenv("LLMSWITCH_STATS_DIR", (root / "stats").c_str());
     CHECK(cfg::statsFile() == root / "stats" / "requests.jsonl");
 
     FakeUpstream up1;

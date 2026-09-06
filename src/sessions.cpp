@@ -166,7 +166,11 @@ void scanClaude(std::vector<SessionInfo>& out) {
 void scanCodex(std::vector<SessionInfo>& out) {
     std::error_code ec;
     const std::filesystem::path root = cfg::codexSessionsDir();
-    for (const auto& e : std::filesystem::recursive_directory_iterator(root, ec)) {
+    // libc++ 21 起 recursive_directory_iterator 只剩 default_sentinel 比较
+    // （迭代器对 != 已移除，range-for 编不过）；显式迭代 + 哨兵比较三标准库通吃。
+    for (auto it = std::filesystem::recursive_directory_iterator(root, ec);
+         it != std::default_sentinel; it.increment(ec)) {
+        const auto& e = *it;
         if (!e.is_regular_file(ec) || e.path().extension() != ".jsonl") continue;
         std::error_code ec2;
         std::string project =

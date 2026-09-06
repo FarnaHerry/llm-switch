@@ -10,8 +10,7 @@
 // usage 三字段与全局设置持久化、旧格式 config.json 迁移、
 // 损坏 config.json 挪走不崩溃。
 #include <cstdio>    // stderr（std 模块不导出 stdout/stderr 宏）
-#include <cstdlib>   // setenv
-#include <unistd.h>  // getpid
+#include "test_env.h"  // setenv/getpid/unsetenv 可移植封装
 
 import std;
 import nlohmann.json;
@@ -69,15 +68,16 @@ int main() {
 
     // ---- 环境隔离 -----------------------------------------------------------
     const fs::path root =
-        fs::temp_directory_path() / std::format("llmswitch-test-{}", ::getpid());
+        fs::temp_directory_path() / std::format("llmswitch-test-{}", testenv::getpid());
     {
         std::error_code ec;
         fs::remove_all(root, ec);
         fs::create_directories(root);
     }
     const fs::path home = root / "home";
-    ::setenv("HOME", home.c_str(), 1);
-    ::setenv("XDG_DATA_HOME", (root / "xdg").c_str(), 1);
+    testenv::setenv("HOME", home.c_str());
+    testenv::setenv("XDG_DATA_HOME", (root / "xdg").c_str());
+    testenv::setenv("LLMSWITCH_DATA_DIR", (root / "data").c_str());
     const fs::path claudeSettings = home / ".claude" / "settings.json";
     const fs::path codexAuth = home / ".codex" / "auth.json";
     const fs::path codexConfig = home / ".codex" / "config.toml";
@@ -85,13 +85,13 @@ int main() {
     const fs::path piDir = root / "pi-agent";
     const fs::path piModels = piDir / "models.json";
     const fs::path piSettings = piDir / "settings.json";
-    ::setenv("LLMSWITCH_CLAUDE_SETTINGS", claudeSettings.c_str(), 1);
-    ::setenv("LLMSWITCH_CODEX_AUTH", codexAuth.c_str(), 1);
-    ::setenv("LLMSWITCH_CODEX_CONFIG", codexConfig.c_str(), 1);
-    ::setenv("LLMSWITCH_OPENCODE_CONFIG", opencodeConfig.c_str(), 1);
-    ::setenv("LLMSWITCH_PI_DIR", piDir.c_str(), 1);
-    ::unsetenv("PI_CODING_AGENT_DIR");
-    ::unsetenv("LLMSWITCH_CLAUDE_DESKTOP_DIR");  // 默认 Linux 不支持
+    testenv::setenv("LLMSWITCH_CLAUDE_SETTINGS", claudeSettings.c_str());
+    testenv::setenv("LLMSWITCH_CODEX_AUTH", codexAuth.c_str());
+    testenv::setenv("LLMSWITCH_CODEX_CONFIG", codexConfig.c_str());
+    testenv::setenv("LLMSWITCH_OPENCODE_CONFIG", opencodeConfig.c_str());
+    testenv::setenv("LLMSWITCH_PI_DIR", piDir.c_str());
+    testenv::unsetenv("PI_CODING_AGENT_DIR");
+    testenv::unsetenv("LLMSWITCH_CLAUDE_DESKTOP_DIR");  // 默认 Linux 不支持
 
     // 1. 空环境 load → 默认空配置
     {
@@ -296,13 +296,15 @@ int main() {
         CHECK(settings["defaultProvider"] == idP);
         CHECK(settings["defaultModel"] == "kimi-k2-0905-preview");
         CHECK(settings["timeout"] == 30);  // 深合并保留无关字段
-        // 权限：目录 0700、文件 0600
+#if !defined(_WIN32)
+        // 权限：目录 0700、文件 0600（Windows 无 POSIX 权限位语义，跳过）
         CHECK((fs::status(piDir).permissions() & fs::perms::all) ==
               fs::perms::owner_all);
         CHECK((fs::status(piModels).permissions() & fs::perms::all) ==
               (fs::perms::owner_read | fs::perms::owner_write));
         CHECK((fs::status(piSettings).permissions() & fs::perms::all) ==
               (fs::perms::owner_read | fs::perms::owner_write));
+#endif
         CHECK(s.detectCurrent("pi") == idP);
         CHECK(countBackups(cfg::backupsDir() / "pi", "models.json") == 1);
         CHECK(countBackups(cfg::backupsDir() / "pi", "settings.json") == 1);
@@ -344,6 +346,8 @@ int main() {
                         .model = "kimi-k2-0905-preview"};  // 非白名单模型名
     s.addProvider("claude", pd);
     const std::string idD = s.group("claude").providers.back().id;
+#if defined(__linux__)
+    // 仅 Linux 默认不支持（macOS/Windows 走真实目录）；错误信息中文断言依赖 /utf-8。
     {
         bool threw = false;
         try {
@@ -354,8 +358,9 @@ int main() {
         }
         CHECK(threw);
     }
+#endif
     const fs::path deskDir = root / "Claude";
-    ::setenv("LLMSWITCH_CLAUDE_DESKTOP_DIR", deskDir.c_str(), 1);
+    testenv::setenv("LLMSWITCH_CLAUDE_DESKTOP_DIR", deskDir.c_str());
     // 既有配置里放无关字段，验证深合并保留
     writeFile(deskDir / "claude_desktop_config.json",
               R"json({"theme": "dark", "deploymentMode": "1p"}

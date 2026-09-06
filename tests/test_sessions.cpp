@@ -8,8 +8,7 @@
 // 文件 stem；deleteSession 删除且越界路径（/etc/passwd）被拒绝；
 // exportSession 复制成功。
 #include <cstdio>    // stderr（std 模块不导出 stdout/stderr 宏）
-#include <cstdlib>   // setenv
-#include <unistd.h>  // getpid
+#include "test_env.h"  // setenv/getpid/unsetenv 可移植封装
 
 import std;
 import llmswitch.config;
@@ -51,19 +50,20 @@ int main() {
 
     // ---- 环境隔离 -----------------------------------------------------------
     const fs::path root =
-        fs::temp_directory_path() / std::format("llmswitch-test-sessions-{}", ::getpid());
+        fs::temp_directory_path() / std::format("llmswitch-test-sessions-{}", testenv::getpid());
     {
         std::error_code ec;
         fs::remove_all(root, ec);
         fs::create_directories(root);
     }
     const fs::path home = root / "home";
-    ::setenv("HOME", home.c_str(), 1);
-    ::setenv("XDG_DATA_HOME", (root / "xdg").c_str(), 1);
+    testenv::setenv("HOME", home.c_str());
+    testenv::setenv("XDG_DATA_HOME", (root / "xdg").c_str());
+    testenv::setenv("LLMSWITCH_DATA_DIR", (root / "data").c_str());
     const fs::path claudeProjects = home / ".claude" / "projects";
     const fs::path codexSessions = home / ".codex" / "sessions";
-    ::setenv("LLMSWITCH_CLAUDE_PROJECTS", claudeProjects.c_str(), 1);
-    ::setenv("LLMSWITCH_CODEX_SESSIONS", codexSessions.c_str(), 1);
+    testenv::setenv("LLMSWITCH_CLAUDE_PROJECTS", claudeProjects.c_str());
+    testenv::setenv("LLMSWITCH_CODEX_SESSIONS", codexSessions.c_str());
 
     // ---- 伪造会话文件 -------------------------------------------------------
     // claude：content 为数组形式；mtime 最旧

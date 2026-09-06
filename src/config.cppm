@@ -75,6 +75,10 @@ export std::filesystem::path homeDir() {
 // Windows %APPDATA%\llm-switch / macOS ~/Library/Application Support/llm-switch。
 // config.json、backups/ 都放这里 —— 安装版启动时 cwd 可能不可写，不能依赖 cwd。
 export std::filesystem::path dataDir() {
+    // LLMSWITCH_DATA_DIR 全平台最优先覆盖（测试隔离与非常规安装用）。
+    if (const char* d = std::getenv("LLMSWITCH_DATA_DIR"); d && *d) {
+        return std::filesystem::path(d);
+    }
 #ifdef _WIN32
     if (const char* a = std::getenv("APPDATA"); a && *a) {
         return std::filesystem::path(a) / "llm-switch";

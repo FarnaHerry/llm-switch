@@ -8,8 +8,7 @@
 // 跳过）、dangling symlink（算已链接、可清理）、frontmatter 宽松解析
 // （有/无 description、无 frontmatter 回落目录名）、readBody/updateBody 往返。
 #include <cstdio>    // stderr（std 模块不导出 stdout/stderr 宏）
-#include <cstdlib>   // setenv
-#include <unistd.h>  // getpid
+#include "test_env.h"  // setenv/getpid/unsetenv 可移植封装
 
 import std;
 import llmswitch.config;
@@ -72,21 +71,22 @@ int main() {
 
     // ---- 环境隔离 -----------------------------------------------------------
     const fs::path root =
-        fs::temp_directory_path() / std::format("llmswitch-test-skills-{}", ::getpid());
+        fs::temp_directory_path() / std::format("llmswitch-test-skills-{}", testenv::getpid());
     {
         std::error_code ec;
         fs::remove_all(root, ec);
         fs::create_directories(root);
     }
     const fs::path home = root / "home";
-    ::setenv("HOME", home.c_str(), 1);
-    ::setenv("XDG_DATA_HOME", (root / "xdg").c_str(), 1);
+    testenv::setenv("HOME", home.c_str());
+    testenv::setenv("XDG_DATA_HOME", (root / "xdg").c_str());
+    testenv::setenv("LLMSWITCH_DATA_DIR", (root / "data").c_str());
     const fs::path storeDir = root / "skills-store";
     const fs::path claudeSkills = home / ".claude" / "skills";
     const fs::path codexSkills = home / ".codex" / "skills";
-    ::setenv("LLMSWITCH_SKILLS_STORE", storeDir.c_str(), 1);
-    ::setenv("LLMSWITCH_CLAUDE_SKILLS", claudeSkills.c_str(), 1);
-    ::setenv("LLMSWITCH_CODEX_SKILLS", codexSkills.c_str(), 1);
+    testenv::setenv("LLMSWITCH_SKILLS_STORE", storeDir.c_str());
+    testenv::setenv("LLMSWITCH_CLAUDE_SKILLS", claudeSkills.c_str());
+    testenv::setenv("LLMSWITCH_CODEX_SKILLS", codexSkills.c_str());
 
     // 1. create → 中央库有 SKILL.md，frontmatter 正确
     {
