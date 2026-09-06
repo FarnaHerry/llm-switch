@@ -1,6 +1,8 @@
 # CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+根目录 `AGENTS.md` 是所有 AI agent 共用且优先级更高的强制规范；开始工作前必须
+完整读取。本文件提供架构细节与实现上下文，不重复维护跨工具规则。
 
 llm-switch 是 **cc-switch**（GitHub: farion1231/cc-switch）的 **C++23 模块化重写**：
 管理多款 AI agent 工具的供应商配置切换——领域层已泛化到 5 个工具
