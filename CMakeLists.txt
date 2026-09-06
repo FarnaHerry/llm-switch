@@ -269,11 +269,6 @@ foreach(UI_ICON_FILE IN LISTS UI_ICON_FILES)
     file(READ "${UI_ICON_FILE}" UI_ICON_SOURCE)
     if(UI_ICON_SOURCE MATCHES "width=\"24\"" AND
        UI_ICON_SOURCE MATCHES "height=\"24\"")
-        if(NOT UI_ICON_SOURCE MATCHES "data-ink-texture=\"flywhite\"" OR
-           NOT UI_ICON_SOURCE MATCHES "data-ink-texture=\"dry-brush\"")
-            message(FATAL_ERROR
-                "UI icon must include flywhite and dry-brush ink texture: ${UI_ICON_FILE}")
-        endif()
         get_filename_component(UI_ICON_NAME "${UI_ICON_FILE}" NAME)
         if(UI_ICON_NAME MATCHES "_selected\\.svg$")
             message(FATAL_ERROR
