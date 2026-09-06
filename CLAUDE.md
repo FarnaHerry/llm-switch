@@ -28,8 +28,12 @@ UI 工作先读 skill：`.claude/skills/huxerui-app-development/SKILL.md`（refe
   `third_party/tarballs` 的 Linux 0.2.0 离线包。源码通道缺 GTK ≥4.14 /
   libepoxy ≥1.5 / libsoup ≥3.0 开发包时自动回落 SDK。强制 SDK：
   `-DLLMSWITCH_HUXERUI_FORCE_SDK=ON`。本机走 **third_party/huxerui 源码**通道
-  （git clone 上游，跟主干拉取；当前 3eb827d 含 TextField 可交互
-  TrailingIcon——密码框内置眼睛按钮）。
+  （git clone 上游，跟主干拉取；当前钉在 `6a52b08`，含应用层 Clipboard
+  服务、TreeView，以及 TextField 可交互 TrailingIcon——密码框内置眼睛按钮）。
+- 剪贴板通过 composable 内的 `UseService<Clipboard>()` 获取；事件处理器可捕获
+  service 并同步调用 `IsAvailable()` / `ReadText()` / `WriteText()`，不要从 worker
+  线程调用。TreeView 使用 `TreeView<Node>(roots, factory, item_info)`，必须放在有界
+  的垂直视口中，并通过状态重组声明来反映节点变化。
 - 源码通道优先用本地构建的宿主工具（`third_party/huxerui-tools/linux/x86_64/
   {hcg,hrc}`；本仓库暂无此目录，缺失时自然回落上游预置，逻辑保留）。
 - UI 层是**普通 .cpp**（不要 .cppm：codegen 只扫 .cpp/.cc/.cxx）；composable
@@ -231,9 +235,10 @@ commit，不回滚已经验证的修改，并在最终回复中报告失败原�
   JSON 解析，带注释的官方文件会抛中文错且绝不碰原文件（让用户手动去注释）。
 - **MCP 不支持 claude desktop / pi**：setEnabled/importFromTool 对这两个工具
   抛「该工具暂不支持 MCP 管理」。
-- **SDK 无剪贴板 / 打开浏览器 API**：路由页的各工具接入地址与关于页的链接
-  都是等宽纯文本展示，不可点击复制/跳转（SDK 0.2.0 只暴露平台层
-  PlatformClipboard 接口，无 app 侧入口）。
+- **尚未接入剪贴板 / 打开浏览器交互**：上游 `6a52b08` 已提供应用层
+  `Clipboard` 服务，但路由页的各工具接入地址目前仍是等宽纯文本；关于页链接
+  也仍不可点击跳转（尚无应用层打开浏览器入口）。接入复制按钮时使用
+  `UseService<Clipboard>()`，并按 `IsAvailable()` 控制可用状态。
 
 ## 多平台 / CI
 
@@ -245,8 +250,8 @@ commit，不回滚已经验证的修改，并在最终回复中报告失败原�
   （package/Package.wxs.in / Bundle.wxs.in）与 HuxerUI 托管安装器 UI
   （package/src/，品牌面板 + 简中/繁中/英文 strings）接进构建；日常构建
   零开销（函数内 `if (NOT HUXERUI_PACKAGE) return()`）。需要含
-  `huxerui_add_windows_installer` 的 HuxerUI 源码/SDK（0.2.0 之后；
-  CI 钉的 c00e72a 如需出安装包要前移）。
+  `huxerui_add_windows_installer` 的 HuxerUI 源码/SDK（0.2.0 之后；当前 CI
+  固定的 `6a52b08` 已满足）。
 - `.github/workflows/build.yml`（蓝本 Clash-Flux 同名文件，按其已跑通配方
   适配）：三个桌面 job + release。build-linux（ubuntu:26.04 容器 + clang-21/
   libc++-21 + pip cmake==4.4.2 + libc++.modules.json 路径改写 + gtk4/epoxy/
@@ -254,8 +259,8 @@ commit，不回滚已经验证的修改，并在最终回复中报告失败原�
   choco openssl）与 build-macos
   （brew llvm + 手写 libc++.modules.json + 内联 P0960 补丁）为实验性
   continue-on-error——首次全量编译未在 CI 验证过，连续绿后再摘标记。
-- 三个 job 都把 HuxerUI 上游钉在 commit `c00e72a`（"refresh prebuilt host
-  tools"）clone 到 third_party/huxerui 走源码通道；OpenSSL 三平台各自提供
+- 三个 job 都把 HuxerUI 上游钉在 commit `6a52b08`（含 Clipboard / TreeView）
+  clone 到 third_party/huxerui 走源码通道；OpenSSL 三平台各自提供
   （linux apt libssl-dev / windows choco openssl + `-DOPENSSL_ROOT_DIR` /
   macos brew openssl@3 + `-DOPENSSL_ROOT_DIR`）；无 mihomo/Android
   （蓝本相关步骤已删）。
@@ -366,7 +371,7 @@ commit，不回滚已经验证的修改，并在最终回复中报告失败原�
   「不可达：…」error 色，baseUrl 空禁用）与用量查询配置入口（gauge 图标 →
   独立整页 UsageFormPage，formTarget = "usage:"+id；用量三字段 +
   自动填充从编辑表单迁入，编辑保存保留原用量配置）；API Key 输入框加
-  眼睛图标切换明文/掩码（eye/eye_off.svg）。上游 3eb827d 后改用 SDK 内置
+  眼睛图标切换明文/掩码（eye/eye_off.svg）。上游 `3eb827d` 后改用 SDK 内置
   可交互 TrailingIcon（TrailingIcon(icon, 语义标签) + OnTrailingIconClick +
   Secure(bool)），不再外裹 Row + 独立 IconButton；且眼睛仅悬停输入框
   （ViewEvents::Hover，只在 Enter/Leave 写 State）或已明文时挂载显示。

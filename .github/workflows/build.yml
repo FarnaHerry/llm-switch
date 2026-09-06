@@ -59,9 +59,9 @@ concurrency:
 env:
   HUXERUI_REPO: 'https://github.com/HuxerUI/HuxerUI.git'
   # 与 Clash-Flux CI 钉同一 commit（该目录 gitignore，不入库，CI 必须自行
-  # clone 并钉 commit，保证可复现）。3eb827d 引入 TextField::Secure(bool)，
-  # 且区间内 387f315 已同步刷新预置宿主工具（hcg/hrc）。
-  HUXERUI_COMMIT: '3eb827de2d1807a6fcaa3d43eb59dd7b5ee89dab'
+  # clone 并钉 commit，保证可复现）。6a52b08 包含应用层 Clipboard 服务、
+  # TreeView，以及此前的 TextField::Secure(bool) / 可交互 TrailingIcon。
+  HUXERUI_COMMIT: '6a52b08450173ea7fbd6903f7557b56febe9b63b'
 
 jobs:
   # ------------------------------------------------------------------ Linux
