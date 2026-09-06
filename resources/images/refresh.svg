@@ -1,4 +1,4 @@
 <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-  <!-- 刷新：圆相（enso）厚笔弧，缺口在右上，收笔尖细 -->
-  <path d="M12 4.2 A7.8 7.8 0 1 0 19.8 12" fill="none" stroke="#FFFFFF" stroke-opacity="0.85" stroke-width="3.1" stroke-linecap="round"/>
+  <!-- 刷新：圆相（enso）——缺口在右上，左下按笔最厚，两端收锋渐细 -->
+  <path fill="#FFFFFF" fill-opacity="0.86" d="M15.9 5.6 A8.1 8.3 0 0 0 3.9 12.4 A8.3 8.1 0 0 0 12.1 20.5 A8.0 7.9 0 0 0 19.7 10.3 C19.4 10.75 18.85 10.85 18.5 10.65 A6.0 5.9 0 0 1 12.05 17.6 A5.1 5.3 0 0 1 7.0 12.4 A6.5 6.3 0 0 1 15.3 6.7 C15.6 6.15 15.95 5.75 15.9 5.6 Z"/>
 </svg>

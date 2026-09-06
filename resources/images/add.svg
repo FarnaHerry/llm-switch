@@ -1,5 +1,5 @@
 <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-  <!-- 添加：两笔交叉，横略长竖略重，末端出锋 -->
-  <path d="M4.1 12 H19.9" fill="none" stroke="#FFFFFF" stroke-opacity="0.85" stroke-width="2.9" stroke-linecap="round"/>
-  <path d="M12 4.3 V19.6" fill="none" stroke="#FFFFFF" stroke-opacity="0.88" stroke-width="3.2" stroke-linecap="round"/>
+  <!-- 添加：横竖两笔，起收略顿、笔身微抖，竖笔稍重 -->
+  <path fill="#FFFFFF" fill-opacity="0.88" d="M10.95 4.5 C11.5 4.05 12.85 4.1 12.9 4.75 C13.05 9.0 12.8 14.5 12.95 19.2 C12.9 19.85 11.2 19.9 11.1 19.3 C10.85 14.5 10.8 9.0 10.95 4.5 Z"/>
+  <path fill="#FFFFFF" fill-opacity="0.84" d="M4.5 11.0 C9.0 10.8 14.5 11.05 19.3 10.95 C19.9 11.0 19.85 12.75 19.2 12.8 C14.5 12.9 9.0 12.75 4.6 12.9 C4.05 12.85 4.05 11.15 4.5 11.0 Z"/>
 </svg>
