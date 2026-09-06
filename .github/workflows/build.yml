@@ -12,7 +12,7 @@
 #     third_party/huxerui/（该路径已 gitignore，不入库），由顶层 CMakeLists 的
 #     优先级 2 add_subdirectory 编译，与本机开发形态一致。
 #   * 宿主工具 hcg/hrc 用上游源码内预置（tools/prebuilt/linux/x86_64）：
-#     钉住的 commit c00e72a 正是 "refresh prebuilt host tools"，预置与源码同步；
+#     钉住的 commit 区间内 387f315 已刷新预置宿主工具，预置与源码同步；
 #     若未来升级 commit 后出现 hrc 报 "unknown path operation"，即预置落后，
 #     需在 job 内从 tools/codegen + tools/resource_compiler 重编宿主工具。
 #   * 仓库自带离线 tarball（third_party/tarballs/huxerui-sdk-0.2.0-linux-x86_64）
@@ -59,8 +59,9 @@ concurrency:
 env:
   HUXERUI_REPO: 'https://github.com/HuxerUI/HuxerUI.git'
   # 与 Clash-Flux CI 钉同一 commit（该目录 gitignore，不入库，CI 必须自行
-  # clone 并钉 commit，保证可复现）。
-  HUXERUI_COMMIT: 'c00e72a76b5d44fc745a6734bfc9d8e255d9eb26'
+  # clone 并钉 commit，保证可复现）。3eb827d 引入 TextField::Secure(bool)，
+  # 且区间内 387f315 已同步刷新预置宿主工具（hcg/hrc）。
+  HUXERUI_COMMIT: '3eb827de2d1807a6fcaa3d43eb59dd7b5ee89dab'
 
 jobs:
   # ------------------------------------------------------------------ Linux
