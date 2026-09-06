@@ -1,0 +1,11 @@
+<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+  <!-- 时间：圈留缺口，长短针如悬针竖 -->
+  <path d="M20.5 10.3 A8.7 8.7 0 1 1 19.2 6.9" fill="none" stroke="#FFFFFF" stroke-opacity="0.58" stroke-width="1.9" stroke-linecap="round"/>
+  <path d="M12 6.8 V12.1 L15.9 14" fill="none" stroke="#FFFFFF" stroke-opacity="0.62" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M12 7.4 V10.2" fill="none" stroke="#FFFFFF" stroke-opacity="0.26" stroke-width="2.7" stroke-linecap="round"/>
+  <g data-ink-texture="flywhite" fill="#FFFFFF" fill-opacity="0.3">
+    <circle cx="20.9" cy="5.2" r="0.42"/>
+    <ellipse cx="3.9" cy="15.3" rx="0.72" ry="0.3" transform="rotate(-48 3.9 15.3)"/>
+  </g>
+  <path data-ink-texture="dry-brush" d="M13.9 13 C14.4 13.3 14.9 13.55 15.3 13.8 M16 14.1 C16.4 14.3 16.7 14.5 17 14.65" fill="none" stroke="#FFFFFF" stroke-opacity="0.15" stroke-width="0.64" stroke-linecap="round"/>
+</svg>

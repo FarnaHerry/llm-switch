@@ -1,0 +1,10 @@
+<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+  <!-- 返回：一撇一捺带回锋，收笔飞白 -->
+  <path d="M14.6 4.8 C11.8 7.4 9.4 9.7 7.2 11.9 C9.5 14.2 12 16.6 14.9 19.3" fill="none" stroke="#FFFFFF" stroke-opacity="0.62" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M14.4 5.1 C12.6 6.8 11 8.4 9.6 9.8" fill="none" stroke="#FFFFFF" stroke-opacity="0.28" stroke-width="3" stroke-linecap="round"/>
+  <g data-ink-texture="flywhite" fill="#FFFFFF" fill-opacity="0.3">
+    <ellipse cx="6.3" cy="12.6" rx="0.85" ry="0.36" transform="rotate(-38 6.3 12.6)"/>
+    <circle cx="15.6" cy="19.9" r="0.4"/>
+  </g>
+  <path data-ink-texture="dry-brush" d="M13.2 18.1 C14.1 18.9 14.8 19.5 15.4 19.95 M16.2 20.3 C16.6 20.5 17 20.7 17.3 20.85" fill="none" stroke="#FFFFFF" stroke-opacity="0.15" stroke-width="0.68" stroke-linecap="round"/>
+</svg>

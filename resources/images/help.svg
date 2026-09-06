@@ -1,0 +1,11 @@
+<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+  <!-- 帮助：圈 + 问号，弯钩带顿 -->
+  <path d="M20.4 10.7 A8.5 8.5 0 1 1 19.3 7.3" fill="none" stroke="#FFFFFF" stroke-opacity="0.58" stroke-width="1.9" stroke-linecap="round"/>
+  <path d="M9.6 9.3 C9.6 7.9 10.6 6.9 12 6.9 C13.5 6.9 14.5 7.9 14.5 9.2 C14.5 10.9 12.4 11.2 12.1 12.9" fill="none" stroke="#FFFFFF" stroke-opacity="0.62" stroke-width="1.9" stroke-linecap="round"/>
+  <circle cx="12.1" cy="16.1" r="1.1" fill="#FFFFFF" fill-opacity="0.6"/>
+  <g data-ink-texture="flywhite" fill="#FFFFFF" fill-opacity="0.3">
+    <circle cx="20.8" cy="5.4" r="0.42"/>
+    <ellipse cx="4.1" cy="15" rx="0.7" ry="0.3" transform="rotate(-50 4.1 15)"/>
+  </g>
+  <path data-ink-texture="dry-brush" d="M13.6 7.6 C14 8 14.3 8.4 14.5 8.8 M14.6 9.5 C14.65 10 14.6 10.4 14.5 10.8" fill="none" stroke="#FFFFFF" stroke-opacity="0.15" stroke-width="0.64" stroke-linecap="round"/>
+</svg>

@@ -1,0 +1,18 @@
+<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+  <!-- 日历：框顶两栓，格点错落如落子 -->
+  <path d="M4.6 5.6 H19.4 C20.1 5.6 20.5 6 20.5 6.7 V18.9 C20.5 19.6 20.1 20 19.4 20 H4.6 C3.9 20 3.5 19.6 3.5 18.9 V6.7 C3.5 6 3.9 5.6 4.6 5.6 Z" fill="none" stroke="#FFFFFF" stroke-opacity="0.56" stroke-width="1.7" stroke-linecap="round"/>
+  <path d="M8 3.4 V7.3 M16 3.5 V7.3" fill="none" stroke="#FFFFFF" stroke-opacity="0.6" stroke-width="2" stroke-linecap="round"/>
+  <path d="M3.5 9.9 H20.4" fill="none" stroke="#FFFFFF" stroke-opacity="0.42" stroke-width="1.5" stroke-linecap="round"/>
+  <g fill="#FFFFFF" fill-opacity="0.5">
+    <circle cx="7.6" cy="13" r="0.95"/>
+    <circle cx="12" cy="12.9" r="0.95"/>
+    <circle cx="16.4" cy="13" r="0.95"/>
+    <circle cx="7.6" cy="16.6" r="0.95"/>
+    <circle cx="12.1" cy="16.7" r="0.95"/>
+  </g>
+  <g data-ink-texture="flywhite" fill="#FFFFFF" fill-opacity="0.3">
+    <circle cx="21" cy="7.6" r="0.4"/>
+    <ellipse cx="4.3" cy="20.6" rx="0.8" ry="0.32" transform="rotate(-10 4.3 20.6)"/>
+  </g>
+  <path data-ink-texture="dry-brush" d="M6 20.7 C8.7 20.3 11 20.3 12.9 20.55 M14.2 20.65 C15.4 20.6 16.5 20.45 17.3 20.3" fill="none" stroke="#FFFFFF" stroke-opacity="0.15" stroke-width="0.68" stroke-linecap="round"/>
+</svg>

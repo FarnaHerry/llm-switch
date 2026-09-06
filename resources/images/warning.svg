@@ -1,0 +1,11 @@
+<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+  <!-- 警告：三角带圆角笔意，叹号上重下轻 -->
+  <path d="M12 4.3 L20.6 18.6 H3.5 Z" fill="none" stroke="#FFFFFF" stroke-opacity="0.58" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M12 9.3 V13.6" fill="none" stroke="#FFFFFF" stroke-opacity="0.64" stroke-width="2.1" stroke-linecap="round"/>
+  <circle cx="12" cy="16.2" r="1.05" fill="#FFFFFF" fill-opacity="0.6"/>
+  <g data-ink-texture="flywhite" fill="#FFFFFF" fill-opacity="0.3">
+    <ellipse cx="21.3" cy="19.2" rx="0.85" ry="0.34" transform="rotate(12 21.3 19.2)"/>
+    <circle cx="11.3" cy="3.6" r="0.4"/>
+  </g>
+  <path data-ink-texture="dry-brush" d="M5.6 19.3 C8.3 19 10.7 19 12.7 19.2 M14 19.3 C15.3 19.3 16.5 19.2 17.5 19.05" fill="none" stroke="#FFFFFF" stroke-opacity="0.15" stroke-width="0.68" stroke-linecap="round"/>
+</svg>

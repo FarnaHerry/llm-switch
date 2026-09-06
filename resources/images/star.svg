@@ -1,0 +1,10 @@
+<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+  <!-- 收藏：五角星略带手写抖锋，右上起笔叠墨 -->
+  <path d="M12 3.9 L14.3 8.9 L19.8 9.6 L15.8 13.4 L16.9 18.9 L12 16.3 L7.1 18.9 L8.2 13.4 L4.2 9.6 L9.7 8.9 Z" fill="none" stroke="#FFFFFF" stroke-opacity="0.6" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M12.2 4.6 L13.7 7.6" fill="none" stroke="#FFFFFF" stroke-opacity="0.26" stroke-width="2.6" stroke-linecap="round"/>
+  <g data-ink-texture="flywhite" fill="#FFFFFF" fill-opacity="0.3">
+    <circle cx="19.9" cy="9" r="0.44"/>
+    <ellipse cx="6.6" cy="19.5" rx="0.8" ry="0.32" transform="rotate(-24 6.6 19.5)"/>
+  </g>
+  <path data-ink-texture="dry-brush" d="M7.9 18 C8.9 17.4 9.8 16.9 10.6 16.5 M11.4 16.2 C12 15.95 12.6 15.8 13.1 15.7" fill="none" stroke="#FFFFFF" stroke-opacity="0.15" stroke-width="0.66" stroke-linecap="round"/>
+</svg>

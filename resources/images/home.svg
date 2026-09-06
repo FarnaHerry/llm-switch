@@ -1,0 +1,10 @@
+<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+  <!-- 首页：起笔屋顶，断续墙身，墨点在檐角 -->
+  <path d="M3.6 11.2 L11.7 4.2 L20.2 11" fill="none" stroke="#FFFFFF" stroke-opacity="0.62" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M6 10.4 V19.3 H10.2 M13.6 19.3 H18 V10.2" fill="none" stroke="#FFFFFF" stroke-opacity="0.55" stroke-width="1.8" stroke-linecap="round"/>
+  <g data-ink-texture="flywhite" fill="#FFFFFF" fill-opacity="0.3">
+    <ellipse cx="4.6" cy="19.9" rx="1.05" ry="0.4" transform="rotate(-8 4.6 19.9)"/>
+    <circle cx="20.6" cy="12" r="0.42"/>
+  </g>
+  <path data-ink-texture="dry-brush" d="M7.2 20.2 C9.6 19.7 11.6 19.7 13.2 19.95 M14.6 20.05 C16 20.05 17.2 19.85 18.1 19.7" fill="none" stroke="#FFFFFF" stroke-opacity="0.16" stroke-width="0.7" stroke-linecap="round"/>
+</svg>

@@ -1,0 +1,11 @@
+<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+  <!-- 错误：圈带缺口，两笔交叉如剪刀势 -->
+  <path d="M19.9 8.4 A8.6 8.6 0 1 0 20.7 12.9" fill="none" stroke="#FFFFFF" stroke-opacity="0.58" stroke-width="1.9" stroke-linecap="round"/>
+  <path d="M9 9.1 L15.1 15.2 M15 9 L8.9 15.1" fill="none" stroke="#FFFFFF" stroke-opacity="0.62" stroke-width="2" stroke-linecap="round"/>
+  <path d="M9.6 9.7 L12.4 12.5" fill="none" stroke="#FFFFFF" stroke-opacity="0.24" stroke-width="2.8" stroke-linecap="round"/>
+  <g data-ink-texture="flywhite" fill="#FFFFFF" fill-opacity="0.3">
+    <circle cx="20.2" cy="6.9" r="0.44"/>
+    <ellipse cx="4.2" cy="17.1" rx="0.72" ry="0.3" transform="rotate(-46 4.2 17.1)"/>
+  </g>
+  <path data-ink-texture="dry-brush" d="M12.8 13.4 C13.5 14.1 14.1 14.7 14.6 15.2 M15.2 15.8 C15.5 16.1 15.8 16.4 16.1 16.6" fill="none" stroke="#FFFFFF" stroke-opacity="0.15" stroke-width="0.66" stroke-linecap="round"/>
+</svg>
