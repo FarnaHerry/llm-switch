@@ -584,13 +584,14 @@ void ProviderStore::setUsageRefreshMinutes(int minutes) {
     save();
 }
 
-bool ProviderStore::claudeCodeSkipLogin() const {
+bool ProviderStore::claudeCodeSkipInstallationChecks() const {
     const auto settings = readJsonPassive(cfg::claudeSettingsFile());
-    const std::string value = claudeEnvValue(settings, "DISABLE_LOGIN_COMMAND");
+    const std::string value =
+        claudeEnvValue(settings, "DISABLE_INSTALLATION_CHECKS");
     return value == "1" || value == "true" || value == "TRUE";
 }
 
-void ProviderStore::setClaudeCodeSkipLogin(bool enabled) {
+void ProviderStore::setClaudeCodeSkipInstallationChecks(bool enabled) {
     const auto file = cfg::claudeSettingsFile();
     nlohmann::json settings = readJsonOrNull(file);
     if (!settings.is_object()) {
@@ -598,17 +599,18 @@ void ProviderStore::setClaudeCodeSkipLogin(bool enabled) {
         settings = nlohmann::json::object();
     }
 
-    const std::string current = claudeEnvValue(settings, "DISABLE_LOGIN_COMMAND");
+    const std::string current =
+        claudeEnvValue(settings, "DISABLE_INSTALLATION_CHECKS");
     const auto env = settings.find("env");
     const bool hasSetting = env != settings.end() && env->is_object() &&
-                            env->contains("DISABLE_LOGIN_COMMAND");
+                            env->contains("DISABLE_INSTALLATION_CHECKS");
     if ((enabled && current == "1") || (!enabled && !hasSetting)) return;
 
     backupLiveFile("claude-code", file);
     if (enabled) {
-        settings["env"]["DISABLE_LOGIN_COMMAND"] = "1";
+        settings["env"]["DISABLE_INSTALLATION_CHECKS"] = "1";
     } else if (settings.contains("env") && settings["env"].is_object()) {
-        settings["env"].erase("DISABLE_LOGIN_COMMAND");
+        settings["env"].erase("DISABLE_INSTALLATION_CHECKS");
     }
     atomicWrite(file, settings.dump(2) + "\n");
 }

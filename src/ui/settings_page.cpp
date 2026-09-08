@@ -1,7 +1,7 @@
 // settings_page.cpp — 设置页：外观主题用单个太极选择器循环切换
 // 跟随系统/玄墨/宣纸（平衡/玄墨突出/宣纸突出，悬停旋转且移出冻结角度），
 // 存 AppConfig.themeMode 的 system/dark/light 并即时生效；用量查询（总开关 + 刷新间隔
-// usageRefreshMinutes，变更即落盘）、Claude Code 登录行为、live 配置文件路径展示、
+// usageRefreshMinutes，变更即落盘）、Claude Code 安装检查、live 配置文件路径展示、
 // 导入/导出、关于。
 //
 // 导入/导出优先走 FilePicker 系统文件对话框（SaveFileAsync/OpenFileAsync）；
@@ -155,8 +155,8 @@ const std::string kAboutText =
         huxerui::UseState(providerStore().config().usageEnabled);
     auto usageInterval = huxerui::UseState(
         UsageIntervalIndex(providerStore().config().usageRefreshMinutes));
-    auto claudeCodeSkipLogin =
-        huxerui::UseState(providerStore().claudeCodeSkipLogin());
+    auto claudeCodeSkipInstallationChecks =
+        huxerui::UseState(providerStore().claudeCodeSkipInstallationChecks());
 
     const bool canSave = picker && picker->CanSaveFiles();
     const bool canOpen = picker && picker->CanOpenFiles();
@@ -276,13 +276,13 @@ const std::string kAboutText =
                 Card(huxerui::Column {
                     SectionTitle("Claude Code"),
                     SettingRow(
-                        "跳过登录",
-                        "使用 API Key 或第三方代理时，隐藏 Claude Code 的登录命令",
-                        huxerui::Switch(claudeCodeSkipLogin.Get())
-                            .OnChanged([claudeCodeSkipLogin, revision, toast](bool on) {
+                        "跳过初次安装检查",
+                        "跳过 Claude Code 的安装位置检查提示（仅适合手动管理安装）",
+                        huxerui::Switch(claudeCodeSkipInstallationChecks.Get())
+                            .OnChanged([claudeCodeSkipInstallationChecks, revision, toast](bool on) {
                                 try {
-                                    providerStore().setClaudeCodeSkipLogin(on);
-                                    claudeCodeSkipLogin = on;
+                                    providerStore().setClaudeCodeSkipInstallationChecks(on);
+                                    claudeCodeSkipInstallationChecks = on;
                                     revision = revision.Get() + 1;
                                 } catch (const std::exception& e) {
                                     toast.Show(e.what());
