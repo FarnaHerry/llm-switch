@@ -92,6 +92,7 @@ jobs:
           # patchelf 打包改 rpath 用；libssl-dev 供 curl（OpenSSL 后端）
           apt-get install -y --no-install-recommends \
             clang-21 libc++-21-dev g++ ninja-build pkg-config file gzip \
+            dpkg-dev fakeroot rpm \
             python3 python3-pip patchelf libssl-dev \
             libgtk-4-dev libepoxy-dev libsoup-3.0-dev
           # 26.04 的 apt cmake 是 3.31（GNU import-std 发现不行），固定 pip 4.4.2
@@ -116,7 +117,8 @@ jobs:
             -DCMAKE_C_COMPILER=clang-21 -DCMAKE_CXX_COMPILER=clang++-21 \
             -DCMAKE_CXX_FLAGS='-stdlib=libc++' \
             -DCMAKE_EXE_LINKER_FLAGS='-stdlib=libc++' \
-            -DCMAKE_SHARED_LINKER_FLAGS='-stdlib=libc++'
+            -DCMAKE_SHARED_LINKER_FLAGS='-stdlib=libc++' \
+            -DHUXERUI_PACKAGE=ON
 
       - name: Build release
         run: cmake --build build --config Release --parallel
@@ -153,11 +155,27 @@ jobs:
           tar -czf dist/llm-switch-linux-x86_64.tar.gz -C dist-src .
           ls -la dist
 
+      - name: Package Linux deb and rpm
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cpack --config build/CPackConfig.cmake -G DEB -B dist
+          cpack --config build/CPackConfig.cmake -G RPM -B dist
+          deb="$(find dist -maxdepth 1 -type f -name '*.deb' -print -quit)"
+          rpm="$(find dist -maxdepth 1 -type f -name '*.rpm' -print -quit)"
+          test -n "$deb" && test -n "$rpm"
+          mv "$deb" dist/llm-switch-linux-x86_64.deb
+          mv "$rpm" dist/llm-switch-linux-x86_64.rpm
+          ls -lh dist
+
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: llm-switch-linux-x86_64
-          path: dist/llm-switch-linux-x86_64.tar.gz
+          path: |
+            dist/llm-switch-linux-x86_64.tar.gz
+            dist/llm-switch-linux-x86_64.deb
+            dist/llm-switch-linux-x86_64.rpm
           if-no-files-found: error
           retention-days: 14
 
@@ -410,7 +428,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -n "$(find dist -maxdepth 1 -type f -print -quit)"
+          for artifact in \
+            llm-switch-linux-x86_64.tar.gz \
+            llm-switch-linux-x86_64.deb \
+            llm-switch-linux-x86_64.rpm \
+            llm-switch-windows-x86_64.zip \
+            llm-switch-windows-x86_64-setup.exe \
+            llm-switch-macos-arm64.tar.gz; do
+            test -f "dist/$artifact"
+          done
           ls -lh dist
 
       - name: Publish GitHub release

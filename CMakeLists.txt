@@ -39,7 +39,7 @@ if (HUXERUI_PROJECT_PLAN_ONLY)
     return()
 endif ()
 
-project(llm-switch VERSION 0.1.3 DESCRIPTION "Claude Code / Codex provider config switcher (cc-switch C++ rewrite)" LANGUAGES NONE)
+project(llm-switch VERSION 0.1.4 DESCRIPTION "Claude Code / Codex provider config switcher (cc-switch C++ rewrite)" LANGUAGES NONE)
 
 # HUXERUI_LIBRARY_GRAPH_ONLY：CLI 扫描 huxerui 库依赖图时的特殊配置——
 # 不启用语言、不构建，huxerui_add_app 只写出库图 JSON 即返回（见 SDK
@@ -197,6 +197,8 @@ if (WIN32)
     include("${CMAKE_CURRENT_SOURCE_DIR}/platform/windows/huxerui.cmake" OPTIONAL)
 elseif (APPLE AND NOT IOS)
     include("${CMAKE_CURRENT_SOURCE_DIR}/platform/macos/huxerui.cmake" OPTIONAL)
+elseif (UNIX)
+    include("${CMAKE_CURRENT_SOURCE_DIR}/platform/linux/huxerui.cmake" OPTIONAL)
 endif ()
 
 if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
@@ -360,6 +362,15 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
                 COMPONENT "${LLMSWITCH_APP_INSTALL_COMPONENT}")
         endif ()
     endif ()
+    if (UNIX AND NOT APPLE AND COMMAND huxerui_configure_linux_project_package)
+        get_target_property(LLMSWITCH_APP_INSTALL_COMPONENT llm-switch
+            HUXERUI_APPLICATION_INSTALL_COMPONENT)
+        if (LLMSWITCH_APP_INSTALL_COMPONENT
+                AND NOT LLMSWITCH_APP_INSTALL_COMPONENT MATCHES "-NOTFOUND$")
+            huxerui_configure_linux_project_package(llm-switch
+                "${LLMSWITCH_APP_INSTALL_COMPONENT}")
+        endif ()
+    endif ()
 
     # 图标资源放 <exe>/assets；HuxerUI 资源包（内置+app 合并，由 huxerui_add_app 的
     # 资源构建生成）放 <exe>.resources。最新运行时除了 resources.bin 索引外，
@@ -448,6 +459,20 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
                     "发布包缺 msvcp140/vcruntime140*.dll 将无法在干净 Windows 上启动")
             endif ()
         endif ()
+    endif ()
+
+    if (UNIX AND NOT APPLE AND HUXERUI_PACKAGE)
+        set(CPACK_PACKAGE_NAME "llm-switch")
+        set(CPACK_PACKAGE_VENDOR "dev.farna.llmswitch")
+        set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+        set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Claude Code / Codex provider config switcher")
+        set(CPACK_PACKAGE_CONTACT "FarnaHerry")
+        set(CPACK_COMPONENTS_ALL "${LLMSWITCH_APP_INSTALL_COMPONENT}")
+        set(CPACK_GENERATOR "DEB;RPM")
+        set(CPACK_PACKAGING_INSTALL_PREFIX "/usr")
+        set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+        set(CPACK_RPM_PACKAGE_AUTOREQ ON)
+        include(CPack)
     endif ()
 
     # 仓库根的 compile_commands.json 软链（给 clangd 用；.gitignore 已忽略）
