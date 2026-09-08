@@ -225,6 +225,11 @@ jobs:
           foreach ($dll in @(Get-ChildItem (Split-Path -Parent (Resolve-Path $exe)) -File -Filter '*.dll')) {
             Copy-Item $dll.FullName "dist-src\$($dll.Name)" -Force
           }
+          foreach ($pattern in @('huxerui.dll', 'libssl-*.dll', 'libcrypto-*.dll', 'msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll')) {
+            if (-not (Get-ChildItem dist-src -File -Filter $pattern -ErrorAction SilentlyContinue)) {
+              throw "Windows runtime payload is missing $pattern"
+            }
+          }
           $resources = 'build/llm-switch.resources'
           if (Test-Path $resources -PathType Container) {
             Copy-Item $resources dist-src\llm-switch.resources -Recurse -Force
