@@ -374,57 +374,65 @@ huxerui::View ModelSelect(huxerui::State<std::vector<std::string>> fetched,
         // 成功后下拉出现在 TextField 与按钮之间，点选直接回填该行。
         const bool canFetch = !fetching.Get() && !fs.baseUrl.Get().text.empty() &&
                               !fs.apiKey.Get().text.empty();
-        fields.push_back(huxerui::Row {
-            huxerui::TextField(fs.model.Get())
-                .Label(modelLabel)
-                .Variant(huxerui::TextFieldVariant::Outlined)
-                .OnChanged([fs](const huxerui::TextEditingValue& v) { fs.model = v; })
-                .With(huxerui::Grow(1.0F)),
-            fetchedModels.Get().empty()
-                ? huxerui::View{huxerui::Row{}}
-                : ModelSelect(fetchedModels, fs.selModel, fs.model),
-            huxerui::Button(fetching.Get() ? "获取中…" : "获取模型")
-                .OnClick([=] {
-                    const std::string fetchBase = models::effectiveBaseUrl(
-                        fs.baseUrl.Get().text,
-                        UpstreamFormatFromIndex(fs.upstreamFormat.Get()),
-                        fs.fullUrl.Get());
-                    const std::string customFetchUrl = fs.modelFetchUrl.Get().text;
-                    const std::string f = UpstreamFormatFromIndex(
-                        fs.upstreamFormat.Get());
-                    const std::string u = customFetchUrl.empty()
-                        ? net::modelListUrl(fetchBase, f)
-                        : customFetchUrl;
-                    const std::string k = fs.apiKey.Get().text;
-                    // 模型列表端点属于上游 URL 协议，不能复用 opencode/pi 的
-                    // apiFormat，也不能按 claude-code 的工具类型猜测；否则
-                    // OpenAI URL 会被再次拼成 /v1/v1/models。
-                    fetching = true;
-                    tasks.Launch([=]() -> huxerui::Task<void> {
-                        try {
-                            auto models = co_await huxerui::RunWorker(
-                                [](const std::string& u, const std::string& k,
-                                   const std::string& f) {
-                                    return net::fetchModelsFromUrl(u, k, f);
-                                },
-                                u, k, f);
-                            fetching = false;
-                            fetchedModels = models;
-                            if (models.empty()) {
-                                toast.Show("模型列表为空");
-                            }
-                        } catch (const std::exception& e) {
-                            fetching = false;
-                            toast.Show(e.what());
+        auto fetchButton = huxerui::Button(
+                               fetching.Get() ? "获取中…" : "获取模型列表")
+            .OnClick([=] {
+                const std::string fetchBase = models::effectiveBaseUrl(
+                    fs.baseUrl.Get().text,
+                    UpstreamFormatFromIndex(fs.upstreamFormat.Get()),
+                    fs.fullUrl.Get());
+                const std::string customFetchUrl = fs.modelFetchUrl.Get().text;
+                const std::string f =
+                    UpstreamFormatFromIndex(fs.upstreamFormat.Get());
+                const std::string u = customFetchUrl.empty()
+                    ? net::modelListUrl(fetchBase, f)
+                    : customFetchUrl;
+                const std::string k = fs.apiKey.Get().text;
+                // 模型列表端点属于上游 URL 协议，不能复用 opencode/pi 的
+                // apiFormat，也不能按 claude-code 的工具类型猜测；否则
+                // OpenAI URL 会被再次拼成 /v1/v1/models。
+                fetching = true;
+                tasks.Launch([=]() -> huxerui::Task<void> {
+                    try {
+                        auto models = co_await huxerui::RunWorker(
+                            [](const std::string& u, const std::string& k,
+                               const std::string& f) {
+                                return net::fetchModelsFromUrl(u, k, f);
+                            },
+                            u, k, f);
+                        fetching = false;
+                        fetchedModels = models;
+                        if (models.empty()) {
+                            toast.Show("模型列表为空");
                         }
-                    });
-                })
-                .With(huxerui::Enabled(canFetch),
-                      huxerui::Tooltip(canFetch
-                                           ? "按模型获取 URL + API Key 拉取模型列表"
-                                           : "请先填写 Base URL 与 API Key")),
+                    } catch (const std::exception& e) {
+                        fetching = false;
+                        toast.Show(e.what());
+                    }
+                });
+            })
+            .With(huxerui::Enabled(canFetch),
+                  huxerui::Tooltip(canFetch
+                                       ? "按模型获取 URL + API Key 拉取模型列表"
+                                       : "请先填写 Base URL 与 API Key"));
+        fields.push_back(huxerui::Column {
+            huxerui::Row {
+                huxerui::TextField(fs.model.Get())
+                    .Label(modelLabel)
+                    .Variant(huxerui::TextFieldVariant::Outlined)
+                    .OnChanged([fs](const huxerui::TextEditingValue& v) {
+                        fs.model = v;
+                    })
+                    .With(huxerui::Grow(1.0F)),
+                fetchedModels.Get().empty()
+                    ? huxerui::View{huxerui::Row{}}
+                    : ModelSelect(fetchedModels, fs.selModel, fs.model),
+            }.With(huxerui::Spacing(8.0F),
+                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
+            huxerui::Row{std::move(fetchButton)}
+                .With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
         }.With(huxerui::Spacing(8.0F),
-               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)));
+               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)));
     }
     if (hasMappings) {
         // 三档模型映射（claude-code 写 ANTHROPIC_DEFAULT_*_MODEL env；
