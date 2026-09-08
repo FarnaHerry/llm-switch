@@ -59,9 +59,9 @@ concurrency:
 env:
   HUXERUI_REPO: 'https://github.com/HuxerUI/HuxerUI.git'
   # 与 Clash-Flux CI 钉同一 commit（该目录 gitignore，不入库，CI 必须自行
-  # clone 并钉 commit，保证可复现）。6a52b08 包含应用层 Clipboard 服务、
+  # clone 并钉 commit，保证可复现）。9eff3c8 包含应用层 Clipboard 服务、
   # TreeView，以及此前的 TextField::Secure(bool) / 可交互 TrailingIcon。
-  HUXERUI_COMMIT: '6a52b08450173ea7fbd6903f7557b56febe9b63b'
+  HUXERUI_COMMIT: '9eff3c8f6a90f7390e4ec4fdab3ccc4b732e3ecf'
 
 jobs:
   # ------------------------------------------------------------------ Linux
@@ -366,8 +366,8 @@ jobs:
   # ---------------------------------------------------------------- release
   # 仅 tag push（v*）触发。needs 里的 Windows/macOS 是 continue-on-error 实验
   # job，`if: always()` 放行它们的失败；download-artifact 的 pattern +
-  # merge-multiple 只取实际存在的产物（实验 job 失败时对应压缩包缺失，
-  # release 照常挂其余包）。
+  # merge-multiple 只取实际存在的产物。发布前必须至少存在一个产物，
+  # 禁止在全平台构建失败时创建空 Release。
   release:
     name: release
     needs: [build-linux, build-windows, build-macos]
@@ -382,6 +382,13 @@ jobs:
           pattern: llm-switch-*
           path: dist
           merge-multiple: true
+
+      - name: Verify packaged artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$(find dist -maxdepth 1 -type f -print -quit)"
+          ls -lh dist
 
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
