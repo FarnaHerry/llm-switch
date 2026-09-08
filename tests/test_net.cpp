@@ -1,7 +1,7 @@
 // test_net.cpp — llmswitch.net 测试（无框架：CHECK 失败计数，非零即败）。
-// 只测 parseModelIds 纯函数：openai data 形状、models 键形状、字符串元素、
-// 空列表、坏 JSON 抛错、缺键抛错、重复 id 去重保序。不测真实网络
-// （fetchModels 由 UI 实操验证）。
+// 只测模型列表地址和响应解析纯函数：openai/anthropic 端点、data 形状、models
+// 键形状、字符串元素、空列表、坏 JSON 抛错、缺键抛错、重复 id 去重保序。
+// 不测真实网络（fetchModels 由 UI 实操验证）。
 #include <cstdio>  // stderr（std 模块不导出 stdout/stderr 宏）
 
 import std;
@@ -31,7 +31,13 @@ bool throwsRuntimeError(std::string_view body) {
 } // namespace
 
 int main() {
-    // 1. OpenAI 兼容形状：{"data":[{"id":...}]}
+    // 1. 模型列表端点使用已经带上游后缀的基础 URL，只追加一次列表路径。
+    CHECK(net::modelListUrl("https://api.example.com/v1", "openai") ==
+          "https://api.example.com/v1/models");
+    CHECK(net::modelListUrl("https://api.example.com/anthropic", "anthropic") ==
+          "https://api.example.com/anthropic/v1/models");
+
+    // 2. OpenAI 兼容形状：{"data":[{"id":...}]}
     {
         const auto ids = net::parseModelIds(
             R"json({"object":"list","data":[{"id":"deepseek-chat","object":"model"},{"id":"deepseek-reasoner","object":"model"}]})json");
@@ -40,7 +46,7 @@ int main() {
         CHECK(ids[1] == "deepseek-reasoner");
     }
 
-    // 2. anthropic /v1/models 同为 data 形状（含无关字段）
+    // 3. anthropic /v1/models 同为 data 形状（含无关字段）
     {
         const auto ids = net::parseModelIds(
             R"json({"data":[{"id":"claude-sonnet-4-6","type":"model","display_name":"Sonnet"}],"has_more":false})json");
@@ -48,7 +54,7 @@ int main() {
         CHECK(ids[0] == "claude-sonnet-4-6");
     }
 
-    // 3. {"models":[...]} 键形状 + 纯字符串元素
+    // 4. {"models":[...]} 键形状 + 纯字符串元素
     {
         const auto ids = net::parseModelIds(
             R"json({"models":[{"id":"kimi-k2"},{"id":"k1.5"}]})json");
@@ -59,15 +65,15 @@ int main() {
         CHECK(strIds[1] == "m2");
     }
 
-    // 4. 空列表 → 空结果（不抛错）
+    // 5. 空列表 → 空结果（不抛错）
     CHECK(net::parseModelIds(R"json({"data":[]})json").empty());
 
-    // 5. 坏 JSON / 非对象 / 缺键 → 抛 std::runtime_error
+    // 6. 坏 JSON / 非对象 / 缺键 → 抛 std::runtime_error
     CHECK(throwsRuntimeError("这不是 JSON {{{"));
     CHECK(throwsRuntimeError(R"json(["a","b"])json"));
     CHECK(throwsRuntimeError(R"json({"models_map":{}})json"));
 
-    // 6. 重复 id 去重保序；无 id 的元素跳过
+    // 7. 重复 id 去重保序；无 id 的元素跳过
     {
         const auto ids = net::parseModelIds(
             R"json({"data":[{"id":"a"},{"id":"b"},{"id":"a"},{"name":"无id"},{"id":"b"},{"id":"c"}]})json");
@@ -75,22 +81,22 @@ int main() {
         CHECK(ids[0] == "a" && ids[1] == "b" && ids[2] == "c");
     }
 
-    // 7. extractByPath：嵌套对象
+    // 8. extractByPath：嵌套对象
     CHECK(net::extractByPath(R"json({"a":{"b":{"c":"deep"}}})json", "a.b.c") ==
           "deep");
 
-    // 8. extractByPath：数组下标 + 字符串值原样返回（DeepSeek balance 形状）
+    // 9. extractByPath：数组下标 + 字符串值原样返回（DeepSeek balance 形状）
     CHECK(net::extractByPath(
               R"json({"balance_infos":[{"total_balance":"9.90","currency":"CNY"}]})json",
               "balance_infos.0.total_balance") == "9.90");
 
-    // 9. extractByPath：数字 / 布尔标量
+    // 10. extractByPath：数字 / 布尔标量
     CHECK(net::extractByPath(R"json({"a":{"n":10}})json", "a.n") == "10");
     CHECK(net::extractByPath(R"json({"a":{"n":9.9}})json", "a.n") == "9.9");
     CHECK(net::extractByPath(R"json({"a":{"n":10.0}})json", "a.n") == "10");
     CHECK(net::extractByPath(R"json({"a":{"ok":true}})json", "a.ok") == "true");
 
-    // 10. extractByPath：错误情形（缺键 / 越界 / 坏 JSON / 非标量终值）
+    // 11. extractByPath：错误情形（缺键 / 越界 / 坏 JSON / 非标量终值）
     {
         const auto throws = [](std::string_view body, std::string_view path) {
             try {

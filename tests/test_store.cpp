@@ -493,6 +493,11 @@ int main() {
                                        true) == "https://api.example.com/root");
         CHECK(models::effectiveBaseUrl("https://api.example.com/root/", "anthropic",
                                        true) == "https://api.example.com/root/");
+        CHECK(models::effectiveBaseUrl("https://api.example.com/v1", "openai",
+                                       false) == "https://api.example.com/v1");
+        CHECK(models::effectiveBaseUrl("https://api.example.com/anthropic/",
+                                       "anthropic", false) ==
+              "https://api.example.com/anthropic");
         models::Provider encoded{.name = "编码",
                                  .baseUrl = "https://encoded.example.com",
                                  .upstreamFormat = "anthropic",

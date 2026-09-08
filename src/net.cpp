@@ -101,17 +101,20 @@ std::string httpGet(const std::string& url, std::string_view apiKey,
 
 } // namespace
 
+std::string modelListUrl(std::string_view baseUrl,
+                         std::string_view upstreamFormat) {
+    const std::string base = trimTrailingSlash(baseUrl);
+    return base + (upstreamFormat == "anthropic" ? "/v1/models" : "/models");
+}
+
 std::vector<std::string> fetchModels(std::string_view baseUrl,
                                      std::string_view apiKey,
-                                     std::string_view apiFormat) {
-    const std::string base = trimTrailingSlash(baseUrl);
-    if (base.empty()) {
+                                     std::string_view upstreamFormat) {
+    if (trimTrailingSlash(baseUrl).empty()) {
         throw std::runtime_error("拉取模型列表失败：Base URL 为空");
     }
-    const bool anthropic = apiFormat == "anthropic";
-    // 端点规则：anthropic → {base}/v1/models；其余（openai-chat /
-    // openai-responses）→ {base}/models。
-    const std::string url = base + (anthropic ? "/v1/models" : "/models");
+    const bool anthropic = upstreamFormat == "anthropic";
+    const std::string url = modelListUrl(baseUrl, upstreamFormat);
     return parseModelIds(httpGet(url, apiKey, anthropic, "拉取模型列表"));
 }
 

@@ -20,7 +20,7 @@
 // 显示 config.toml 原文、needsModel（opencode/pi）模型必填、hasApiFormat 显示
 // API 协议分段选择；hasModelMappings（claude-code /
 // claude）额外显示三档模型映射行（Haiku/Sonnet/Opus）。模型字段旁「获取模型」
-// 按当前实际 URL/apiKey/apiFormat 经 llmswitch.net 拉取模型列表（阻塞网络调用
+// 按当前实际 URL/apiKey/上游格式经 llmswitch.net 拉取模型列表（阻塞网络调用
 // 经 huxerui::RunWorker 派到 worker 线程，结果回 UI 线程写 State）；拉取成功
 // 后模型行在按钮前出现 Select 下拉，点选回填该行的模型字段（不弹窗）。
 // 用量查询：usageUrl 非空的卡片显示用量文本 + 手动刷新按钮；页面可见期间
@@ -169,13 +169,6 @@ std::string UpstreamFormatFromIndex(int index) {
 std::string DefaultUpstreamFormat(std::string_view tool) {
     if (tool == "claude-code" || tool == "claude") return "anthropic";
     return "openai";
-}
-
-// 工具没有 apiFormat 字段时按工具推断默认协议：claude-code / claude 走
-// anthropic 协议（{base}/v1/models + x-api-key），codex 走 OpenAI 兼容。
-std::string DefaultApiFormat(std::string_view tool) {
-    if (tool == "claude-code" || tool == "claude") return "anthropic";
-    return "";
 }
 
 // 模型下拉：拉取成功后出现在模型行内（TextField 与「获取模型」按钮之间），
@@ -332,9 +325,8 @@ huxerui::View ModelSelect(huxerui::State<std::vector<std::string>> fetched,
             : tool == "codex"
                 ? "模型（可选，切换时写入 config.toml 顶层 model）"
                                        : "主模型（可选）";
-        // 「获取模型」：用表单当前的实际 URL/apiKey/apiFormat（实际 URL 会按
-        // 完整 URL 开关与上游格式计算；无 apiFormat 字段的工具按
-        // DefaultApiFormat 推断）调 llmswitch.net::fetchModels。
+        // 「获取模型」：用表单当前的实际 URL/apiKey/上游格式（实际 URL 会按
+        // 完整 URL 开关与上游格式计算）调 llmswitch.net::fetchModels。
         // fetchModels 是阻塞网络调用，经 huxerui::RunWorker 派到 worker 线程；
         // 协程恢复点恒为 UI 线程，State 写回安全（State 只在 UI 线程写）。
         // 成功后下拉出现在 TextField 与按钮之间，点选直接回填该行。
@@ -356,9 +348,11 @@ huxerui::View ModelSelect(huxerui::State<std::vector<std::string>> fetched,
                         UpstreamFormatFromIndex(fs.upstreamFormat.Get()),
                         fs.fullUrl.Get());
                     const std::string k = fs.apiKey.Get().text;
-                    const std::string f = hasApiFormat
-                                              ? ApiFormatFromIndex(fs.apiFormat.Get())
-                                              : DefaultApiFormat(tool);
+                    // 模型列表端点属于上游 URL 协议，不能复用 opencode/pi 的
+                    // apiFormat，也不能按 claude-code 的工具类型猜测；否则
+                    // OpenAI URL 会被再次拼成 /v1/v1/models。
+                    const std::string f = UpstreamFormatFromIndex(
+                        fs.upstreamFormat.Get());
                     fetching = true;
                     tasks.Launch([=]() -> huxerui::Task<void> {
                         try {

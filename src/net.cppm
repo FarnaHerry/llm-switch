@@ -8,13 +8,17 @@ import std;
 
 namespace net {
 
+// 根据已计算好的上游基础 URL 和上游格式拼出模型列表地址。基础 URL 通常已经
+// 包含 upstreamFormat 对应的 /anthropic 或 /v1 后缀。
+export std::string modelListUrl(std::string_view baseUrl,
+                                std::string_view upstreamFormat);
+
 // 拉取模型列表。成功返回模型 id 列表（去重保序）；失败抛 std::runtime_error
-// （中文消息）。apiFormat 取值同 Provider.apiFormat 三档（见
-// models::normalizeApiFormat）："anthropic" → GET {base}/v1/models；其余
-// （openai-chat 默认 / openai-responses）→ GET {base}/models。
+// （中文消息）。upstreamFormat 取值为 “anthropic” 或 “openai”：Anthropic
+// → GET {base}/v1/models；OpenAI → GET {base}/models。
 export std::vector<std::string> fetchModels(std::string_view baseUrl,
                                             std::string_view apiKey,
-                                            std::string_view apiFormat);
+                                            std::string_view upstreamFormat);
 
 // 响应体解析（纯函数，便于测试）：兼容 {"data":[{"id":...}]} 与
 // {"models":[{"id":...}]} 两种形状（数组元素也可以是纯字符串）；坏 JSON 或

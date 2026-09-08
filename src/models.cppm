@@ -225,7 +225,8 @@ export std::string effectiveBaseUrl(std::string_view baseUrl,
     std::string url(baseUrl);
     if (fullUrl || url.empty()) return url;
     while (!url.empty() && url.back() == '/') url.pop_back();
-    url += upstreamFormatSuffix(upstreamFormat);
+    const auto suffix = upstreamFormatSuffix(upstreamFormat);
+    if (!url.ends_with(suffix)) url += suffix;
     return url;
 }
 
