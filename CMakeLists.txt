@@ -39,7 +39,7 @@ if (HUXERUI_PROJECT_PLAN_ONLY)
     return()
 endif ()
 
-project(llm-switch VERSION 0.1.0 DESCRIPTION "Claude Code / Codex provider config switcher (cc-switch C++ rewrite)" LANGUAGES NONE)
+project(llm-switch VERSION 0.1.1 DESCRIPTION "Claude Code / Codex provider config switcher (cc-switch C++ rewrite)" LANGUAGES NONE)
 
 # HUXERUI_LIBRARY_GRAPH_ONLY：CLI 扫描 huxerui 库依赖图时的特殊配置——
 # 不启用语言、不构建，huxerui_add_app 只写出库图 JSON 即返回（见 SDK
