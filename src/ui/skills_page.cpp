@@ -263,24 +263,38 @@ bool IsLinked(const skills::SkillInfo& skill, std::string_view toolId) {
     huxerui::DialogContext ctx, huxerui::ToastHandle toast,
     huxerui::State<skills::SkillsStore> store) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
-    std::vector<huxerui::View> items;
+    struct ImportItem {
+        std::string name;
+        std::string tool;
+    };
+    std::vector<ImportItem> items;
     for (const auto& s : store.Get().skills()) {
         for (const auto& tool : s.installedOnlyTools) {
-            items.push_back(
-                huxerui::Column {
-                    huxerui::Text(s.name).Style(huxerui::TextStyle{
+            items.push_back(ImportItem{s.name, std::string(tool)});
+        }
+    }
+    const huxerui::Color itemTextColor = theme.colors.on_surface;
+    const huxerui::Color itemHintColor = theme.colors.on_surface_variant;
+    const huxerui::View itemList =
+        huxerui::VirtualList(
+            items,
+            [ctx, toast, store, itemTextColor,
+             itemHintColor](const ImportItem& item) {
+                return huxerui::Column {
+                    huxerui::Text(item.name).Style(huxerui::TextStyle{
                         huxerui::Font::System(font_size::kBody)
                             .WithWeight(huxerui::FontWeight::SemiBold),
-                        theme.colors.on_surface}),
-                    huxerui::Text("来自 " + std::string(ToolName(tool)))
+                        itemTextColor}),
+                    huxerui::Text("来自 " + std::string(ToolName(item.tool)))
                         .Style(huxerui::TextStyle{
                             huxerui::Font::System(font_size::kCaption),
-                            theme.colors.on_surface_variant}),
+                            itemHintColor}),
                 }.With(huxerui::Spacing(2.0F),
                        huxerui::Padding(huxerui::EdgeInsets::Symmetric(10.0F, 8.0F)),
                        huxerui::CornerRadius(8.0F),
                        huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))
-                    .OnClick([ctx, toast, store, name = s.name, tool] {
+                    .OnClick([ctx, toast, store, name = item.name,
+                              tool = item.tool] {
                         try {
                             skills::SkillsStore::load().importFromTool(tool, name);
                             toast.Show("已收编 " + name);
@@ -289,24 +303,25 @@ bool IsLinked(const skills::SkillInfo& skill, std::string_view toolId) {
                         }
                         store = skills::SkillsStore::load();
                         ctx.Dismiss();
-                    }));
-        }
-    }
-    if (items.empty()) {
-        items.push_back(huxerui::Text("没有可收编的 Skill。")
-            .Style(huxerui::TextStyle{huxerui::Font::System(font_size::kBody),
-                                      theme.colors.on_surface_variant}));
-    }
+                    })
+                    .Key(item.name + "/" + item.tool);
+            })
+            .EstimatedItemExtent(58.0F)
+            .CacheExtent(160.0F)
+            .With(huxerui::Spacing(4.0F));
+    const huxerui::View itemsView =
+        items.empty()
+            ? huxerui::View{huxerui::Text("没有可收编的 Skill。").Style(
+                  huxerui::TextStyle{huxerui::Font::System(font_size::kBody),
+                                     theme.colors.on_surface_variant})}
+            : itemList;
     return DialogCard(huxerui::Column {
         huxerui::Text("收编工具已有 Skill", huxerui::TextRole::Title),
         huxerui::Text("把工具目录里已安装的 Skill 复制进中央库，之后可统一同步。")
             .Style(huxerui::TextStyle{
                 huxerui::Font::System(font_size::kCaption),
                 theme.colors.on_surface_variant}),
-        huxerui::ScrollView(huxerui::Column(std::move(items))
-            .With(huxerui::Spacing(4.0F),
-                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)))
-            .With(huxerui::Frame{.height = 320.0F}),
+        huxerui::View{itemsView}.With(huxerui::Frame{.height = 320.0F}),
         huxerui::Row {
             huxerui::Spacer(),
             huxerui::Button("取消").OnClick([ctx] { ctx.Dismiss(); }),
@@ -361,10 +376,17 @@ bool IsLinked(const skills::SkillInfo& skill, std::string_view toolId) {
         });
     };
 
-    std::vector<huxerui::View> cards;
-    for (const auto& s : store.Get().skills()) {
-        cards.push_back(SkillCard(s, tasks, toast, store));
-    }
+    const auto& skillItems = store.Get().skills();
+    const std::size_t skillCount = skillItems.size();
+    const huxerui::View skillList =
+        huxerui::VirtualList(
+            skillItems,
+            [tasks, toast, store](const skills::SkillInfo& skill) {
+                return SkillCard(skill, tasks, toast, store);
+            })
+            .EstimatedItemExtent(180.0F)
+            .CacheExtent(480.0F)
+            .With(huxerui::Spacing(10.0F), huxerui::Grow(1.0F));
 
     return PageScaffold(
         "Skills",
@@ -376,7 +398,7 @@ bool IsLinked(const skills::SkillInfo& skill, std::string_view toolId) {
                 showCreateDialog();
             }),
         }.With(huxerui::Spacing(8.0F)),
-        cards.empty()
+        skillCount == 0
             ? huxerui::View{
                   huxerui::Column {
                       huxerui::Text("还没有 Skill。点击右上角「新建 Skill」创建，"
@@ -389,12 +411,7 @@ bool IsLinked(const skills::SkillInfo& skill, std::string_view toolId) {
                          huxerui::MainAlign(huxerui::MainAxisAlignment::Center),
                          huxerui::CrossAlign(
                              huxerui::CrossAxisAlignment::Center))}
-            : huxerui::View{huxerui::ScrollView(
-                                huxerui::Column(std::move(cards))
-                                    .With(huxerui::Spacing(10.0F),
-                                          huxerui::CrossAlign(
-                                              huxerui::CrossAxisAlignment::Stretch)))
-                                .With(huxerui::Grow(1.0F))});
+            : skillList);
 }
 
 } // namespace llmswitch::ui

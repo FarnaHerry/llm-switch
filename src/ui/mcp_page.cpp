@@ -453,10 +453,17 @@ void ShowMcpForm(huxerui::DialogHandle dialog, huxerui::ToastHandle toast,
         });
     };
 
-    std::vector<huxerui::View> cards;
-    for (const auto& srv : mcpStore().servers()) {
-        cards.push_back(McpServerCard(srv, tasks, toast, revision));
-    }
+    const auto& serverItems = mcpStore().servers();
+    const std::size_t serverCount = serverItems.size();
+    const huxerui::View serverList =
+        huxerui::VirtualList(
+            serverItems,
+            [tasks, toast, revision](const mcp::McpServer& server) {
+                return McpServerCard(server, tasks, toast, revision);
+            })
+            .EstimatedItemExtent(170.0F)
+            .CacheExtent(480.0F)
+            .With(huxerui::Spacing(10.0F), huxerui::Grow(1.0F));
 
     return PageScaffold(
         "MCP 服务器",
@@ -468,7 +475,7 @@ void ShowMcpForm(huxerui::DialogHandle dialog, huxerui::ToastHandle toast,
                 showCreateDialog();
             }),
         }.With(huxerui::Spacing(8.0F)),
-        cards.empty()
+        serverCount == 0
             ? huxerui::View{
                   huxerui::Column {
                       huxerui::Text("还没有 MCP 服务器。点击右上角「新增 MCP 服务器」"
@@ -481,12 +488,7 @@ void ShowMcpForm(huxerui::DialogHandle dialog, huxerui::ToastHandle toast,
                          huxerui::MainAlign(huxerui::MainAxisAlignment::Center),
                          huxerui::CrossAlign(
                              huxerui::CrossAxisAlignment::Center))}
-            : huxerui::View{huxerui::ScrollView(
-                                huxerui::Column(std::move(cards))
-                                    .With(huxerui::Spacing(10.0F),
-                                          huxerui::CrossAlign(
-                                              huxerui::CrossAxisAlignment::Stretch)))
-                                .With(huxerui::Grow(1.0F))});
+            : serverList);
 }
 
 } // namespace llmswitch::ui

@@ -4,7 +4,7 @@
 // 实心变体 + raised 底块）+ 刷新图标。每行：标题（store 层已截取 80 字符
 // 摘要）+ 相对时间 + 大小 + 消息数；行操作：导出（exportSession 到
 // dataDir()/exports/，toast 显示导出路径）、删除（确认框 → deleteSession）。
-// 列表整体滚动。
+// 列表整体用 VirtualList 虚拟化。
 //
 // 性能：扫描含真实磁盘 IO（countLines 块读全文件数行、标题提取解析前
 // 64KB JSONL），文件一多 UI 线程同步跑会明显卡顿——首载 / 切过滤 / 刷新 /
@@ -15,6 +15,7 @@
 #include <huxerui/huxerui.h>
 
 #include <array>
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
@@ -40,6 +41,21 @@ std::vector<sessions::SessionInfo> LoadSessions(int filter) {
     if (filter == 1) return sessions::listSessions("claude-code");
     if (filter == 2) return sessions::listSessions("codex");
     return sessions::listSessions();
+}
+
+void ReplaceStateList(
+    const huxerui::StateList<sessions::SessionInfo>& destination,
+    std::vector<sessions::SessionInfo> values) {
+    const std::size_t shared = std::min(destination.Size(), values.size());
+    for (std::size_t i = 0; i < shared; ++i) {
+        destination.Set(i, std::move(values[i]));
+    }
+    while (destination.Size() > values.size()) {
+        destination.PopBack();
+    }
+    for (std::size_t i = shared; i < values.size(); ++i) {
+        destination.PushBack(std::move(values[i]));
+    }
 }
 
 // 简单相对时间：刚刚 / N 分钟前 / N 小时前 / N 天前 / N 个月前 / N 年前。
@@ -150,8 +166,7 @@ std::string FormatSize(std::uintmax_t bytes) {
     auto tasks = huxerui::UseTaskScope();
     auto toast = huxerui::UseToast();
     auto filter = huxerui::UseState(0);
-    auto sessionsList =
-        huxerui::UseState<std::vector<sessions::SessionInfo>>({});
+    auto sessionsList = huxerui::UseStateList<sessions::SessionInfo>();
     auto loading = huxerui::UseState(true);
     auto loadError = huxerui::UseState(std::string{});
     auto requestGeneration = huxerui::UseState<std::uint64_t>(0);
@@ -172,7 +187,7 @@ std::string FormatSize(std::uintmax_t bytes) {
                     [](int selectedFilter) { return LoadSessions(selectedFilter); },
                     f);
                 if (requestGeneration.Get() != request) co_return;
-                sessionsList = std::move(result);
+                ReplaceStateList(sessionsList, std::move(result));
                 loading = false;
             } catch (const std::exception& e) {
                 if (requestGeneration.Get() != request) co_return;
@@ -191,38 +206,30 @@ std::string FormatSize(std::uintmax_t bytes) {
         },
         0);
 
-    // 按 project 分组（保持首现顺序；listSessions 已按 mtime 倒序）。
-    std::vector<huxerui::View> groups;
-    std::vector<std::string> projectOrder;
-    std::vector<std::vector<huxerui::View>> projectRows;
-    for (const auto& s : sessionsList.Get()) {
-        std::size_t gi = projectOrder.size();
-        for (std::size_t i = 0; i < projectOrder.size(); ++i) {
-            if (projectOrder[i] == s.project) {
-                gi = i;
-                break;
-            }
-        }
-        if (gi == projectOrder.size()) {
-            projectOrder.push_back(s.project);
-            projectRows.emplace_back();
-        }
-        projectRows[gi].push_back(SessionRow(
-            s, tasks, toast, [reload, filter] { reload(filter.Get()); }));
-    }
-    for (std::size_t i = 0; i < projectOrder.size(); ++i) {
-        groups.push_back(Card(huxerui::Column {
-            huxerui::Text(projectOrder[i]).Style(huxerui::TextStyle{
-                huxerui::Font::System(font_size::kChip)
-                    .WithWeight(huxerui::FontWeight::SemiBold),
-                theme.colors.on_surface_variant}),
-            huxerui::Column(std::move(projectRows[i]))
-                .With(huxerui::Spacing(2.0F),
-                      huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)),
-        }.With(huxerui::Spacing(6.0F),
+    const std::size_t sessionCount = sessionsList.Size();
+    const huxerui::Color projectTextColor = theme.colors.on_surface_variant;
+    const auto buildSessionRow = [sessionsList, tasks, toast, reload, filter,
+                                  projectTextColor](
+                                     std::size_t index) {
+        const auto& session = sessionsList.At(index);
+        const bool firstInProject =
+            index == 0 || sessionsList.At(index - 1).project != session.project;
+        const huxerui::View projectHeader =
+            firstInProject
+                ? huxerui::View{huxerui::Text(session.project).Style(
+                      huxerui::TextStyle{
+                          huxerui::Font::System(font_size::kChip)
+                              .WithWeight(huxerui::FontWeight::SemiBold),
+                          projectTextColor})}
+                : huxerui::View{huxerui::Row{}};
+        return Card(huxerui::Column {
+            projectHeader,
+            SessionRow(session, tasks, toast,
+                       [reload, filter] { reload(filter.Get()); }),
+        }.With(huxerui::Spacing(firstInProject ? 6.0F : 0.0F),
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)))
-            .Key(projectOrder[i]));
-    }
+            .Key(session.tool + "/" + session.id);
+    };
 
     // 过滤图标组：全部（agents 图标）/ Claude Code / Codex，与 Agent 管理页
     // 同一套无色图标资源，选中态只由 raised 底块表达。点击不重挂载本页，
@@ -276,7 +283,7 @@ std::string FormatSize(std::uintmax_t bytes) {
         huxerui::Row(std::move(headerItems))
             .With(huxerui::Spacing(8.0F),
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
-        groups.empty()
+        sessionCount == 0
             ? huxerui::View{
                   huxerui::Column {
                       // 空态：加载中显示自转刷新图标（无文字），失败显示原因，
@@ -307,11 +314,9 @@ std::string FormatSize(std::uintmax_t bytes) {
                          huxerui::MainAlign(huxerui::MainAxisAlignment::Center),
                          huxerui::CrossAlign(
                              huxerui::CrossAxisAlignment::Center))}
-            : huxerui::View{huxerui::ScrollView(
-                                huxerui::Column(std::move(groups))
-                                    .With(huxerui::Spacing(10.0F),
-                                          huxerui::CrossAlign(
-                                              huxerui::CrossAxisAlignment::Stretch)))
+            : huxerui::View{huxerui::VirtualList(sessionCount, buildSessionRow)
+                                .EstimatedItemExtent(132.0F)
+                                .CacheExtent(320.0F)
                                 .With(huxerui::Grow(1.0F))});
 }
 

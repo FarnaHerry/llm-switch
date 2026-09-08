@@ -19,6 +19,7 @@
 #include <huxerui/huxerui.h>
 
 #include <charconv>
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <ctime>
@@ -70,11 +71,19 @@ router::LocalRouter& routerInstance() {
 
 namespace {
 
-// vector<RequestLog> 语法上过了 equality_comparable 概念检查但元素无
-// operator==（实例化才炸），包一层无 == 的结构让 State::Write 走直写路径。
-struct LogSnapshot {
-    std::vector<router::RequestLog> items;
-};
+void ReplaceLogList(const huxerui::StateList<router::RequestLog>& destination,
+                    std::vector<router::RequestLog> values) {
+    const std::size_t shared = std::min(destination.Size(), values.size());
+    for (std::size_t i = 0; i < shared; ++i) {
+        destination.Set(i, std::move(values[i]));
+    }
+    while (destination.Size() > values.size()) {
+        destination.PopBack();
+    }
+    for (std::size_t i = shared; i < values.size(); ++i) {
+        destination.PushBack(std::move(values[i]));
+    }
+}
 
 std::string FormatClock(std::int64_t ms) {
     const std::time_t t = static_cast<std::time_t>(ms / 1000);
@@ -202,18 +211,18 @@ huxerui::Color StatusColor(int status, const huxerui::ThemeSpec& theme) {
         huxerui::UseState(providerStore().config().routerTools);
     auto portField = huxerui::UseState(huxerui::TextEditingValue{
         std::to_string(providerStore().config().routerPort)});
-    auto logs = huxerui::UseState<LogSnapshot>({});
+    auto logs = huxerui::UseStateList<router::RequestLog>();
 
     // 首组合加载 + 可见期间每 2s 刷新日志与运行状态（TaskScope 随页面卸载
     // 自动取消轮询；State 只在 UI 线程写）。
     huxerui::Lifecycle(
         [=] {
-            logs = LogSnapshot{routerInstance().recentLogs(50)};
+            ReplaceLogList(logs, routerInstance().recentLogs(50));
             running = routerInstance().running();
             tasks.Launch([=]() -> huxerui::Task<void> {
                 while (true) {
                     co_await huxerui::Delay(std::chrono::seconds{2});
-                    logs = LogSnapshot{routerInstance().recentLogs(50)};
+                    ReplaceLogList(logs, routerInstance().recentLogs(50));
                     running = routerInstance().running();
                 }
             });
@@ -311,8 +320,13 @@ huxerui::Color StatusColor(int status, const huxerui::ThemeSpec& theme) {
         }
     }
 
-    std::vector<huxerui::View> logRows;
-    for (const auto& log : logs.Get().items) logRows.push_back(LogRow(log));
+    const std::size_t logCount = logs.Size();
+    const auto buildLogRow = [logs](std::size_t index) {
+        const auto& log = logs.At(index);
+        return LogRow(log)
+            .Key(std::format("{}:{}:{}:{}", log.tsMillis, log.tool,
+                              log.method, log.path));
+    };
 
     const huxerui::View badge =
         running.Get()
@@ -396,12 +410,11 @@ huxerui::Color StatusColor(int status, const huxerui::ThemeSpec& theme) {
 
                 Card(huxerui::Column {
                     SectionTitle("最近请求"),
-                    logRows.empty()
+                    logCount == 0
                         ? huxerui::View{HintText("暂无请求")}
-                        : huxerui::View{huxerui::Column(std::move(logRows))
-                                            .With(huxerui::Spacing(4.0F),
-                                                  huxerui::CrossAlign(
-                                                      huxerui::CrossAxisAlignment::Stretch))},
+                        : huxerui::View{huxerui::VirtualList(logCount, buildLogRow)
+                                            .ItemExtent(32.0F)
+                                            .With(huxerui::Frame{.height = 320.0F})},
                 }.With(huxerui::Spacing(8.0F),
                        huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))),
             }.With(huxerui::Spacing(12.0F),

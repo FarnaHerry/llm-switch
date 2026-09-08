@@ -14,7 +14,7 @@
 #include <cstdint>
 #include <format>
 #include <string>
-#include <vector>
+#include <utility>
 
 #include "ui.h"
 
@@ -84,6 +84,60 @@ namespace {
            huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 }
 
+struct ProviderStat {
+    std::string name;
+    std::int64_t count = 0;
+    double percentage = 0.0;
+
+    bool operator==(const ProviderStat&) const = default;
+};
+
+struct StatsSummary {
+    std::int64_t todayRequests = 0;
+    std::int64_t totalRequests = 0;
+    std::int64_t successCount = 0;
+    double avgLatencyMs = 0.0;
+    std::int64_t totalPromptTokens = 0;
+    std::int64_t totalCompletionTokens = 0;
+};
+
+void ApplySnapshot(const router::StatsSnapshot& snapshot,
+                   const huxerui::State<StatsSummary>& summary,
+                   const huxerui::StateList<ProviderStat>& providers) {
+    summary = StatsSummary{
+        snapshot.todayRequests,
+        snapshot.totalRequests,
+        snapshot.successCount,
+        snapshot.avgLatencyMs,
+        snapshot.totalPromptTokens,
+        snapshot.totalCompletionTokens,
+    };
+
+    const std::size_t shared =
+        std::min(providers.Size(), snapshot.perProvider.size());
+    for (std::size_t i = 0; i < shared; ++i) {
+        const auto& [name, count] = snapshot.perProvider[i];
+        const double percentage =
+            snapshot.totalRequests > 0
+                ? 100.0 * static_cast<double>(count) /
+                      static_cast<double>(snapshot.totalRequests)
+                : 0.0;
+        providers.Set(i, ProviderStat{name, count, percentage});
+    }
+    while (providers.Size() > snapshot.perProvider.size()) {
+        providers.PopBack();
+    }
+    for (std::size_t i = shared; i < snapshot.perProvider.size(); ++i) {
+        const auto& [name, count] = snapshot.perProvider[i];
+        const double percentage =
+            snapshot.totalRequests > 0
+                ? 100.0 * static_cast<double>(count) /
+                      static_cast<double>(snapshot.totalRequests)
+                : 0.0;
+        providers.PushBack(ProviderStat{name, count, percentage});
+    }
+}
+
 } // namespace
 
 [[huxerui::composable]] huxerui::View StatsPage() {
@@ -91,16 +145,18 @@ namespace {
     auto tasks = huxerui::UseTaskScope();
     auto toast = huxerui::UseToast();
     auto dialog = huxerui::UseDialog();
-    auto snap = huxerui::UseState<router::StatsSnapshot>({});
+    auto summary = huxerui::UseState(StatsSummary{});
+    auto providerStats = huxerui::UseStateList<ProviderStat>();
 
     // 首组合加载 + 可见期间每 5s 自动刷新（卸载自动取消轮询）。
     huxerui::Lifecycle(
         [=] {
-            snap = routerInstance().snapshot();
+            ApplySnapshot(routerInstance().snapshot(), summary, providerStats);
             tasks.Launch([=]() -> huxerui::Task<void> {
                 while (true) {
                     co_await huxerui::Delay(std::chrono::seconds{5});
-                    snap = routerInstance().snapshot();
+                    ApplySnapshot(routerInstance().snapshot(), summary,
+                                  providerStats);
                 }
             });
             return [] {};
@@ -116,34 +172,36 @@ namespace {
                 "清空", "取消",
                 [=] {
                     routerInstance().clearStats();
-                    snap = routerInstance().snapshot();
+                    ApplySnapshot(routerInstance().snapshot(), summary,
+                                  providerStats);
                     toast.Show("统计已清空");
                 });
         });
     };
 
-    const router::StatsSnapshot s = snap.Get();
+    const StatsSummary s = summary.Get();
     const double successRate =
         s.totalRequests > 0
             ? 100.0 * static_cast<double>(s.successCount) /
                   static_cast<double>(s.totalRequests)
             : 0.0;
 
-    std::vector<huxerui::View> providerRows;
-    for (const auto& [name, count] : s.perProvider) {
-        const double pct =
-            s.totalRequests > 0
-                ? 100.0 * static_cast<double>(count) /
-                      static_cast<double>(s.totalRequests)
-                : 0.0;
-        providerRows.push_back(ProviderStatRow(name, count, pct));
-    }
+    const std::size_t providerCount = providerStats.Size();
+    const float providerListHeight =
+        std::min(320.0F, static_cast<float>(providerCount) * 64.0F);
+    const auto buildProviderRow = [providerStats](std::size_t index) {
+        const auto& provider = providerStats.At(index);
+        return ProviderStatRow(provider.name, provider.count,
+                               provider.percentage)
+            .Key(provider.name);
+    };
 
     return PageScaffold(
         "使用统计",
         huxerui::Row {
             huxerui::Button("刷新").OnClick([=] {
-                snap = routerInstance().snapshot();
+                ApplySnapshot(routerInstance().snapshot(), summary,
+                              providerStats);
             }),
             huxerui::Button("清空统计").OnClick([=] { confirmClear(); }),
         }.With(huxerui::Spacing(8.0F)),
@@ -172,12 +230,13 @@ namespace {
 
                 Card(huxerui::Column {
                     SectionTitle("按供应商"),
-                    providerRows.empty()
+                    providerCount == 0
                         ? huxerui::View{HintText("暂无数据")}
-                        : huxerui::View{huxerui::Column(std::move(providerRows))
-                                            .With(huxerui::Spacing(10.0F),
-                                                  huxerui::CrossAlign(
-                                                      huxerui::CrossAxisAlignment::Stretch))},
+                        : huxerui::View{
+                              huxerui::VirtualList(providerCount, buildProviderRow)
+                                  .EstimatedItemExtent(64.0F)
+                                  .CacheExtent(192.0F)
+                                  .With(huxerui::Frame{.height = providerListHeight})},
                 }.With(huxerui::Spacing(8.0F),
                        huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))),
             }.With(huxerui::Spacing(12.0F),

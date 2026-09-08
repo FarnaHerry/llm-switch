@@ -1025,19 +1025,42 @@ huxerui::View ModelSelect(huxerui::State<std::vector<std::string>> fetched,
     // 卡片列表：官方常驻卡（有官方厂商的工具）排第一，其后是供应商卡；
     // 「使用中」= 组内 current 或 detectCurrent 命中。
     const auto& g = providerStore().group(tool);
-    std::vector<huxerui::View> cards;
     const bool hasOfficial = !models::officialVendorName(tool).empty();
+    const std::size_t providerCount = g.providers.size();
+    const std::string currentProvider = g.current;
+    const std::string detectedProvider = detected.Get();
+    huxerui::View providerCards = huxerui::Row{};
     if (hasOfficial) {
-        const bool officialActive =
-            g.current.empty() && detected.Get().empty();
-        cards.push_back(OfficialCard(tool, officialActive, toast, revision));
+        providerCards = OfficialCard(
+            tool, currentProvider.empty() && detectedProvider.empty(), toast,
+            revision);
     }
-    for (const auto& p : g.providers) {
-        const bool isCurrent = g.current == p.id;
-        const bool active = isCurrent || detected.Get() == p.id;
-        cards.push_back(ProviderCard(tool, p, active, isCurrent, tasks, toast,
-                                     revision, usageCache, formTarget));
+    if (providerCount > 0) {
+        const huxerui::View providerList =
+            huxerui::VirtualList(
+                g.providers,
+                [tool, currentProvider, detectedProvider, tasks, toast, revision,
+                 usageCache, formTarget](const models::Provider& provider) {
+                    const bool isCurrent = currentProvider == provider.id;
+                    const bool active =
+                        isCurrent || detectedProvider == provider.id;
+                    return ProviderCard(tool, provider, active, isCurrent, tasks,
+                                        toast, revision, usageCache, formTarget);
+                })
+                .EstimatedItemExtent(150.0F)
+                .CacheExtent(480.0F)
+                .With(huxerui::Spacing(10.0F), huxerui::Grow(1.0F));
+        providerCards = hasOfficial
+                            ? huxerui::Column {
+                                  providerCards,
+                                  providerList,
+                              }
+                                  .With(huxerui::Spacing(10.0F),
+                                        huxerui::CrossAlign(
+                                            huxerui::CrossAxisAlignment::Stretch))
+                            : providerList;
     }
+    const bool hasCards = hasOfficial || providerCount > 0;
 
     // 列表模式用自定义一级岛（不走 PageScaffold）：标题文字已删（选中图标
     // 自带高亮可辨），头部一行 = 工具图标栏（左）+ 新增按钮（右）。
@@ -1074,7 +1097,7 @@ huxerui::View ModelSelect(huxerui::State<std::vector<std::string>> fetched,
                       huxerui::CornerRadius(islands.nested_radius)));
     }
     listItems.push_back(
-        cards.empty()
+        !hasCards
             ? huxerui::View{
                   huxerui::Column {
                       huxerui::Text("还没有供应商。点击右上角 + 新增。")
@@ -1086,12 +1109,7 @@ huxerui::View ModelSelect(huxerui::State<std::vector<std::string>> fetched,
                          huxerui::MainAlign(huxerui::MainAxisAlignment::Center),
                          huxerui::CrossAlign(
                              huxerui::CrossAxisAlignment::Center))}
-            : huxerui::View{huxerui::ScrollView(
-                                huxerui::Column(std::move(cards))
-                                    .With(huxerui::Spacing(10.0F),
-                                          huxerui::CrossAlign(
-                                              huxerui::CrossAxisAlignment::Stretch)))
-                                .With(huxerui::Grow(1.0F))});
+            : providerCards);
 
     huxerui::View root = huxerui::Column(std::move(listItems))
         .With(huxerui::Padding(compact ? theme.spacing.medium

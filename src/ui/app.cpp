@@ -148,8 +148,8 @@ huxerui::View InkThemed(bool dark, huxerui::View content) {
     segments.label_style = huxerui::TextStyle{huxerui::Font::System(font_size::kBody),
                                               spec.colors.on_surface};
     segments.selected_label = spec.colors.on_primary;
-    segments.border = spec.colors.outline;
-    segments.selected_border = spec.colors.primary;
+    segments.border = huxerui::Border{spec.colors.outline, 1.0F};
+    segments.selected_border = huxerui::Border{spec.colors.primary, 1.0F};
     definition.Set(segments);
 
     // 内置确认框跟随主题（DialogStyle 是 Environment 值，经 ThemeDefinition::Set
@@ -184,7 +184,7 @@ huxerui::View InkThemed(bool dark, huxerui::View content) {
     menus.icon_tint = spec.colors.on_surface_variant;
     menus.separator_color = spec.colors.outline;
     menus.shadow = huxerui::Shadow{huxerui::Color::Rgb(0, 0, 0, 0.24F), {}, 8.0F, 0.0F};
-    menus.corner_radius = spec.shapes.small;
+    menus.corner_radii = huxerui::CornerRadii{spec.shapes.small};
     menus.item_indication = huxerui::Indication{
         .hover = huxerui::IndicationLayer{.fill = withAlpha(spec.colors.on_surface, 0.08F)},
         .press = huxerui::IndicationLayer{.fill = withAlpha(spec.colors.on_surface, 0.12F)},
