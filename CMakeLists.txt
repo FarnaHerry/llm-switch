@@ -9,7 +9,8 @@
 # 常用命令：
 #   huxerui build linux [--profile debug|release]   # CLI 构建（.huxerui/build/linux/...）
 #   huxerui run linux                               # CLI 构建并运行
-#   cmake -B build -G Ninja && cmake --build build  # 直接 CMake 流程（仍然可用）
+#   cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+#   cmake --build build --parallel 4                 # 直接 Ninja 流程（默认）
 #   ctest --test-dir build                          # 冒烟 + 领域层测试
 #   ./run.sh                                        # 运行 build/ 出的 GUI
 cmake_minimum_required(VERSION 3.30)

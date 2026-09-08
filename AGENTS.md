@@ -42,8 +42,10 @@ Claude、Codex、Gemini、Copilot、Cursor、Windsurf 及其他自动化 agent �
 
 每一批用户要求的修改完成后，按以下顺序收尾：
 
-1. 运行完整编译：`cmake --build build -j 4`。如果构建目录尚未配置，先运行
-   `cmake -S . -B build -G Ninja`。
+1. 使用 Ninja 配置并运行完整编译：
+   `cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release`，然后运行
+   `cmake --build build --parallel 4`。项目默认生成器固定为 Ninja；如果已有
+   构建目录使用其他生成器，不要原地切换或删除，改用新的构建目录。
 2. 运行相关测试；默认至少运行 `ctest --test-dir build --output-on-failure`。
 3. 运行 `git diff --check`，检查空白错误和补丁格式。
 4. 只暂存本批任务范围内的文件，创建说明清楚的本地 Git commit。

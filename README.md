@@ -56,11 +56,14 @@ Claude Desktop / Codex / opencode / pi 五款 AI 编程工具的供应商配置�
 ## 构建 / 运行 / 测试
 
 ```bash
-cmake -B build -G Ninja
-cmake --build build -j
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build --parallel 4
 ctest --test-dir build --output-on-failure
 ./run.sh                 # 或 huxerui run linux（CLI 流程）
 ```
+
+项目也提供了 Ninja 预设：`cmake --preset ninja-release`、
+`cmake --build --preset ninja-release`。
 
 CI（GitHub Actions，`.github/workflows/build.yml`）提供 Linux / Windows /
 macOS 三平台构建产物：日常构建在 Actions 页面下载压缩包（保留 14 天），

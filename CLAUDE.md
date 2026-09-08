@@ -57,12 +57,15 @@ UI 工作先读 skill：`.claude/skills/huxerui-app-development/SKILL.md`（refe
 ## 构建 / 运行 / 测试
 
 ```bash
-cmake -B build -G Ninja            # 配置（默认 Release；调试加 -DCMAKE_BUILD_TYPE=Debug）
-cmake --build build -j             # 编译（app + 7 个测试目标）
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release  # 配置
+cmake --build build --parallel 4                         # 编译（app + 7 个测试目标）
 ctest --test-dir build             # 冒烟 + 领域层测试（smoke/store/net/router/mcp/skills/sessions）
 ./run.sh                           # 启动 GUI（INTEL_FORCE_PROBE=1）
 huxerui run linux                  # HuxerUI CLI 流程（构建到 .huxerui/build/linux/）
 ```
+
+调试构建把配置命令中的 `Release` 改为 `Debug`。项目默认生成器是 Ninja，
+也可使用 `cmake --preset ninja-release` 和对应的 build preset。
 
 每批修改的强制收尾流程以仓库根目录 `AGENTS.md` 为准：完整编译、运行测试、
 `git diff --check`、创建本地 commit，并尝试推送当前分支。推送失败时保留本地
