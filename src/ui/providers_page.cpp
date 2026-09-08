@@ -191,20 +191,24 @@ std::string DefaultUpstreamFormat(std::string_view tool) {
 }
 
 // 模型下拉：拉取成功后出现在模型行内（TextField 与「获取模型」按钮之间），
-// 点选回填该行的模型字段（受控值仍以 TextField 的 TextEditingValue 为权威，
-// 下拉只是快捷填值入口）。items 会整体替换，factory 结果带稳定 Key。
+// 点选回填目标模型字段；映射行还会同步回填菜单显示名，方便先选模型、再
+// 手动修改显示名称。受控值仍以 TextField 的 TextEditingValue 为权威，items
+// 会整体替换，factory 结果带稳定 Key。
 huxerui::View ModelSelect(huxerui::State<std::vector<std::string>> fetched,
                           huxerui::State<std::size_t> sel,
-                          huxerui::State<huxerui::TextEditingValue> target) {
+                          huxerui::State<huxerui::TextEditingValue> target,
+                          huxerui::State<huxerui::TextEditingValue> displayTarget = {}) {
     return huxerui::Select(fetched, sel,
                            [](const std::string& id) {
                                return huxerui::Text(id).Key(id);
                            })
         .Label("选择")
-        .OnChanged([fetched, sel, target](std::size_t index) {
+        .OnChanged([fetched, sel, target, displayTarget](std::size_t index) {
             const auto& items = fetched.Get();
             if (index < items.size()) {
-                target = huxerui::TextEditingValue{items[index]};
+                const huxerui::TextEditingValue value{items[index]};
+                target = value;
+                if (displayTarget.IsValid()) displayTarget = value;
             }
             sel = index;
         })
@@ -449,8 +453,9 @@ huxerui::View ModelSelect(huxerui::State<std::vector<std::string>> fetched,
                         .With(huxerui::Grow(1.0F)),
                     fetchedModels.Get().empty()
                         ? huxerui::View{huxerui::Row{}}
-                        : ModelSelect(fetchedModels, mappingSels[i], mapping.model),
-                    huxerui::Checkbox("声明支持 1M", mapping.supports1m.Get())
+                        : ModelSelect(fetchedModels, mappingSels[i], mapping.model,
+                                      mapping.displayName),
+                    huxerui::Checkbox("1M", mapping.supports1m.Get())
                         .OnChanged([supports1m = mapping.supports1m](bool checked) {
                             supports1m = checked;
                         }),
