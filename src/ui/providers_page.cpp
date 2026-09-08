@@ -2,7 +2,7 @@
 // currentTool State，注册表见 models::toolRegistry()）。工具图标栏在供应商
 // 岛屿头部行左侧（ToolBar，选中项实心变体 + raised 底块高亮，换工具写
 // currentTool，外层 .Key(tool) 重建整页；头部行右侧是新增按钮，无标题
-// 文字）。每个供应商一张卡片三段式：左信息列（名称 / baseUrl / 备注 /
+// 文字）。每个供应商一张卡片三段式：左信息列（名称 / 实际访问 URL / 备注 /
 // 「使用中」徽章（group.current 或 detectCurrent 命中），
 // Grow 吃满剩余宽度）｜ 中间状态列（连通检测延迟 + 用量文本/刷新图标，
 // 垂直居中落在内容与操作组之间，两者皆无时塌缩为零宽）｜ 右侧操作图标组
@@ -16,10 +16,11 @@
 // 进入新增页；编辑/新增都是整页表单（ProviderFormPage，字段太多弹窗太挤），
 // 新增页顶部内嵌预设模板区（点选预填）；用量查询配置是独立整页
 // UsageFormPage（formTarget = "usage:" + id 进入）。
-// 表单按 ToolSpec 适配：codex 显示 config.toml 原文、needsModel（opencode/pi）
-// 模型必填、hasApiFormat 显示 API 协议分段选择；hasModelMappings（claude-code /
+// 表单按 ToolSpec 适配：完整 URL switch 与上游格式 Select 控制 URL 后缀，codex
+// 显示 config.toml 原文、needsModel（opencode/pi）模型必填、hasApiFormat 显示
+// API 协议分段选择；hasModelMappings（claude-code /
 // claude）额外显示三档模型映射行（Haiku/Sonnet/Opus）。模型字段旁「获取模型」
-// 按当前 baseUrl/apiKey/apiFormat 经 llmswitch.net 拉取模型列表（阻塞网络调用
+// 按当前实际 URL/apiKey/apiFormat 经 llmswitch.net 拉取模型列表（阻塞网络调用
 // 经 huxerui::RunWorker 派到 worker 线程，结果回 UI 线程写 State）；拉取成功
 // 后模型行在按钮前出现 Select 下拉，点选回填该行的模型字段（不弹窗）。
 // 用量查询：usageUrl 非空的卡片显示用量文本 + 手动刷新按钮；页面可见期间
@@ -53,8 +54,10 @@ namespace llmswitch::ui {
 namespace {
 
 // 表单字段集合：新增/编辑共用一组 State 句柄（State 是可拷贝句柄，
-// 归打开弹窗的组合作用域所有）。apiFormat 为选项下标（0=OpenAI 兼容（默认，
-// 存空串）/ 1=anthropic / 2=openai-responses），仅 hasApiFormat 工具展示。
+// 归打开表单页的组合作用域所有）。upstreamFormat 为上游 URL 格式下标
+// （0=Anthropic，1=OpenAI）；fullUrl 打开时 URL 原样使用，不追加默认后缀。
+// apiFormat 为 opencode / pi 的 API 适配器下标（0=OpenAI 兼容（默认，
+// 存空串）/ 1=anthropic / 2=openai-responses）。
 // haiku/sonnet/opus 为三档模型映射（仅 hasModelMappings 工具展示）；
 // selModel/selHaiku/selSonnet/selOpus 为各行模型下拉的选中下标。
 // 用量查询三字段不在此——已拆到独立的 UsageFormPage（卡片 gauge 按钮进入）。
@@ -66,6 +69,8 @@ struct FormStates {
     huxerui::State<huxerui::TextEditingValue> website;
     huxerui::State<huxerui::TextEditingValue> notes;
     huxerui::State<huxerui::TextEditingValue> toml;  // 仅 codex 组展示
+    huxerui::State<int> upstreamFormat;
+    huxerui::State<bool> fullUrl;
     huxerui::State<int> apiFormat;                   // 仅 opencode / pi 展示
     huxerui::State<huxerui::TextEditingValue> haiku;   // 仅 claude 系展示
     huxerui::State<huxerui::TextEditingValue> sonnet;
@@ -88,6 +93,8 @@ struct FormStates {
      huxerui::UseState(huxerui::TextEditingValue{(p).website}),             \
      huxerui::UseState(huxerui::TextEditingValue{(p).notes}),               \
      huxerui::UseState(huxerui::TextEditingValue{(p).codexConfigToml}),     \
+     huxerui::UseState((p).upstreamFormat == "anthropic" ? 0 : 1),          \
+     huxerui::UseState((p).fullUrl),                                         \
      huxerui::UseState((p).apiFormat == "anthropic"         ? 1             \
                       : (p).apiFormat == "openai-responses" ? 2             \
                                                             : 0),           \
@@ -107,6 +114,8 @@ void FillForm(const FormStates& fs, const models::Provider& p) {
     fs.website = huxerui::TextEditingValue{p.website};
     fs.notes = huxerui::TextEditingValue{p.notes};
     fs.toml = huxerui::TextEditingValue{p.codexConfigToml};
+    fs.upstreamFormat = p.upstreamFormat == "anthropic" ? 0 : 1;
+    fs.fullUrl = p.fullUrl;
     fs.apiFormat = p.apiFormat == "anthropic"      ? 1
                    : p.apiFormat == "openai-responses" ? 2
                                                        : 0;
@@ -150,6 +159,16 @@ std::string ApiFormatFromIndex(int index) {
     if (index == 1) return "anthropic";
     if (index == 2) return "openai-responses";
     return "";
+}
+
+std::string UpstreamFormatFromIndex(int index) {
+    return index == 0 ? "anthropic" : "openai";
+}
+
+// 新供应商的默认上游格式跟 agent 原生协议保持一致；用户仍可在表单中切换。
+std::string DefaultUpstreamFormat(std::string_view tool) {
+    if (tool == "claude-code" || tool == "claude") return "anthropic";
+    return "openai";
 }
 
 // 工具没有 apiFormat 字段时按工具推断默认协议：claude-code / claude 走
@@ -197,7 +216,14 @@ huxerui::View ModelSelect(huxerui::State<std::vector<std::string>> fetched,
     const bool needsModel = spec != nullptr && spec->needsModel;
     const bool hasApiFormat = spec != nullptr && spec->hasApiFormat;
     const bool hasMappings = spec != nullptr && spec->hasModelMappings;
-    const FormStates fs LLMSWITCH_FORM_STATES_INIT(initial);
+    // 新增表单默认使用 agent 原生协议并关闭完整 URL；编辑则严格沿用
+    // 已保存的模式（旧配置由 models::providerFromJson 标记为完整 URL）。
+    models::Provider formInitial = initial;
+    if (isNew) {
+        formInitial.upstreamFormat = DefaultUpstreamFormat(tool);
+        formInitial.fullUrl = false;
+    }
+    const FormStates fs LLMSWITCH_FORM_STATES_INIT(formInitial);
     const std::string editingId = isNew ? "" : initial.id;
     // 「获取模型」拉取状态：fetching 驱动按钮加载态；fetchedModels 缓存本次
     // 表单会话内最后一次拉取结果；非空时模型行出现下拉选择。
@@ -244,12 +270,28 @@ huxerui::View ModelSelect(huxerui::State<std::vector<std::string>> fetched,
         .Label("名称")
         .Variant(huxerui::TextFieldVariant::Outlined)
         .OnChanged([fs](const huxerui::TextEditingValue& v) { fs.name = v; }));
+    fields.push_back(huxerui::Switch("完整 URL", fs.fullUrl.Get())
+        .OnChanged([fs](bool checked) { fs.fullUrl = checked; }));
     fields.push_back(huxerui::TextField(fs.baseUrl.Get())
-        .Label(isCodex ? "Base URL（可选，codex 以 config.toml 为准）"
-                       : "Base URL")
+        .Label(isCodex ? "URL（可选，codex 以 config.toml 为准）" : "URL")
         .Placeholder("https://...")
         .Variant(huxerui::TextFieldVariant::Outlined)
         .OnChanged([fs](const huxerui::TextEditingValue& v) { fs.baseUrl = v; }));
+    {
+        const std::array<std::string, 2> upstreamFormats{
+            "Anthropic（默认后缀：/anthropic）", "OpenAI（默认后缀：/v1）"};
+        fields.push_back(
+            huxerui::Select(upstreamFormats,
+                            static_cast<std::size_t>(fs.upstreamFormat.Get()),
+                            [](const std::string& option) {
+                                return huxerui::Text(option).Key(option);
+                            })
+                .Label("上游格式")
+                .OnChanged([fs](std::size_t index) {
+                    fs.upstreamFormat = static_cast<int>(index);
+                })
+                .With(huxerui::Enabled(!fs.fullUrl.Get())));
+    }
     {
         // API Key 行：Secure(!showKey) 掩码 + 内置交互 TrailingIcon 眼睛切换
         // 明文/掩码（受控值仍是同一 TextEditingValue，切换不丢内容）。眼睛
@@ -290,8 +332,9 @@ huxerui::View ModelSelect(huxerui::State<std::vector<std::string>> fetched,
             : tool == "codex"
                 ? "模型（可选，切换时写入 config.toml 顶层 model）"
                                        : "主模型（可选）";
-        // 「获取模型」：用表单当前的 baseUrl/apiKey/apiFormat（无 apiFormat
-        // 字段的工具按 DefaultApiFormat 推断）调 llmswitch.net::fetchModels。
+        // 「获取模型」：用表单当前的实际 URL/apiKey/apiFormat（实际 URL 会按
+        // 完整 URL 开关与上游格式计算；无 apiFormat 字段的工具按
+        // DefaultApiFormat 推断）调 llmswitch.net::fetchModels。
         // fetchModels 是阻塞网络调用，经 huxerui::RunWorker 派到 worker 线程；
         // 协程恢复点恒为 UI 线程，State 写回安全（State 只在 UI 线程写）。
         // 成功后下拉出现在 TextField 与按钮之间，点选直接回填该行。
@@ -308,7 +351,10 @@ huxerui::View ModelSelect(huxerui::State<std::vector<std::string>> fetched,
                 : ModelSelect(fetchedModels, fs.selModel, fs.model),
             huxerui::Button(fetching.Get() ? "获取中…" : "获取模型")
                 .OnClick([=] {
-                    const std::string u = fs.baseUrl.Get().text;
+                    const std::string u = models::effectiveBaseUrl(
+                        fs.baseUrl.Get().text,
+                        UpstreamFormatFromIndex(fs.upstreamFormat.Get()),
+                        fs.fullUrl.Get());
                     const std::string k = fs.apiKey.Get().text;
                     const std::string f = hasApiFormat
                                               ? ApiFormatFromIndex(fs.apiFormat.Get())
@@ -438,7 +484,11 @@ huxerui::View ModelSelect(huxerui::State<std::vector<std::string>> fetched,
                             return;
                         }
                         if (!isCodex && baseUrl.empty()) {
-                            toast.Show("Base URL 不能为空");
+                            toast.Show("URL 不能为空");
+                            return;
+                        }
+                        if (fs.fullUrl.Get() && baseUrl.empty()) {
+                            toast.Show("完整 URL 不能为空");
                             return;
                         }
                         if (isCodex && apiKey.empty()) {
@@ -455,6 +505,9 @@ huxerui::View ModelSelect(huxerui::State<std::vector<std::string>> fetched,
                         p.baseUrl = baseUrl;
                         p.apiKey = apiKey;
                         p.model = model;
+                        p.upstreamFormat =
+                            UpstreamFormatFromIndex(fs.upstreamFormat.Get());
+                        p.fullUrl = fs.fullUrl.Get();
                         p.website = fs.website.Get().text;
                         p.notes = fs.notes.Get().text;
                         p.codexConfigToml = fs.toml.Get().text;
@@ -708,6 +761,7 @@ huxerui::View ModelSelect(huxerui::State<std::vector<std::string>> fetched,
     auto dialog = huxerui::UseDialog();
     const std::string id = provider.id;
     const std::string name = provider.name;
+    const std::string accessUrl = models::effectiveBaseUrl(provider);
 
     // 连通检测状态（卡片级）：latency 空 = 未检测；检测中禁用按钮。
     // State 经 .Key(id) 随卡片保活，revision 重读不丢。
@@ -784,9 +838,9 @@ huxerui::View ModelSelect(huxerui::State<std::vector<std::string>> fetched,
                     : huxerui::View{huxerui::Row{}},
             }.With(huxerui::Spacing(6.0F),
                    huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
-            provider.baseUrl.empty()
+            accessUrl.empty()
                 ? huxerui::View{huxerui::Row{}}
-                : huxerui::View{huxerui::Text(provider.baseUrl)
+                : huxerui::View{huxerui::Text(accessUrl)
                                     .Style(huxerui::TextStyle{
                                         huxerui::Font::Monospace(font_size::kChip),
                                         theme.colors.on_surface_variant})},
@@ -848,11 +902,11 @@ huxerui::View ModelSelect(huxerui::State<std::vector<std::string>> fetched,
                 .With(huxerui::Enabled(!isCurrent),
                       huxerui::Tooltip(isCurrent ? "当前使用" : "切换到此供应商")),
             // 联通检测：pingLatencyMs 阻塞最长 10s，RunWorker 派到 worker
-            // 线程，恢复点回 UI 线程写卡片 State。baseUrl 空（codex 可留空）
+            // 线程，恢复点回 UI 线程写卡片 State。URL 空（codex 可留空）
             // 时禁用。
             huxerui::IconButton(app::images::activity, "联通检测")
                 .OnClick([tasks, checking, latency,
-                          url = provider.baseUrl] {
+                          url = accessUrl] {
                     checking = true;
                     latency = std::string{};
                     tasks.Launch([checking, latency,
@@ -872,10 +926,10 @@ huxerui::View ModelSelect(huxerui::State<std::vector<std::string>> fetched,
                     });
                 })
                 .With(huxerui::Enabled(!checking.Get() &&
-                                       !provider.baseUrl.empty()),
-                      huxerui::Tooltip(provider.baseUrl.empty()
-                                           ? "该供应商未设置 Base URL"
-                                           : "检测与 Base URL 的连通性与延迟")),
+                                       !accessUrl.empty()),
+                      huxerui::Tooltip(accessUrl.empty()
+                                           ? "该供应商未设置 URL"
+                                           : "检测实际访问 URL 的连通性与延迟")),
             huxerui::IconButton(app::images::edit, "编辑")
                 .OnClick([showEdit] { showEdit(); })
                 .With(huxerui::Tooltip("编辑")),

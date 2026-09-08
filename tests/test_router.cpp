@@ -313,6 +313,22 @@ int main() {
         CHECK(router1.snapshot().totalRequests == 1);
     }
 
+    // 4b. 非完整 URL 的 OpenAI 上游格式自动追加 /v1。
+    {
+        auto& pi = groups["pi"].providers.front();
+        pi.baseUrl = up1.baseUrl();
+        pi.upstreamFormat = "openai";
+        pi.fullUrl = false;
+        groups["pi"].current = pi.id;
+        auto res = cli.Get("/pi/chat");
+        CHECK(res && res->status == 200);
+        {
+            std::lock_guard lk(up1.mu);
+            CHECK(up1.lastPath == "/v1/chat");
+        }
+        groups["pi"].current.clear();
+    }
+
     // 5. clearStats / JSONL 落盘与重启回填。
     {
         router1.clearStats();

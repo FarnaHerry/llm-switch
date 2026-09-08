@@ -188,21 +188,43 @@ int main() {
         CHECK(s.group("claude-code").current == idA);
     }
 
+    // 3b. 根 URL + Anthropic 上游格式：切换时写入默认 /anthropic 后缀，
+    // detectCurrent 也按实际访问 URL 反向匹配。
+    models::Provider formatted{.name = "格式化 URL",
+                               .baseUrl = "https://formatted.example.com",
+                               .apiKey = "sk-formatted"};
+    formatted.upstreamFormat = "anthropic";
+    formatted.fullUrl = false;
+    s.addProvider("claude-code", formatted);
+    const std::string idFormatted = s.group("claude-code").providers.back().id;
+    s.switchTo("claude-code", idFormatted);
+    CHECK(readJson(claudeSettings)["env"]["ANTHROPIC_BASE_URL"] ==
+          "https://formatted.example.com/anthropic");
+    CHECK(s.detectCurrent("claude-code") == idFormatted);
+
     // 4. codex：switchTo 写 auth.json 的 OPENAI_API_KEY + config.toml 原文替换
     writeFile(codexAuth, R"json({"OPENAI_API_KEY": "sk-old"}
 )json");
     writeFile(codexConfig, "# 旧的 codex 配置\nmodel = \"old\"\n");
     models::Provider pc{.name = "OpenRouter",
-                        .baseUrl = "https://openrouter.ai/api/v1",
+                        .baseUrl = "https://openrouter.ai/api",
                         .apiKey = "sk-or-key",
-                        .codexConfigToml = "model_provider = \"openrouter\"\n"};
+                        .codexConfigToml =
+                            "model_provider = \"openrouter\"\n"
+                            "[model_providers.openrouter]\n"
+                            "base_url = \"https://old.example.com\"\n"};
+    pc.upstreamFormat = "openai";
+    pc.fullUrl = false;
     s.addProvider("codex", pc);
     const std::string idC = s.group("codex").providers.back().id;
     s.switchTo("codex", idC);
     {
         const auto j = readJson(codexAuth);
         CHECK(j["OPENAI_API_KEY"] == "sk-or-key");
-        CHECK(readText(codexConfig) == "model_provider = \"openrouter\"\n");
+        CHECK(readText(codexConfig) ==
+              "model_provider = \"openrouter\"\n"
+              "[model_providers.openrouter]\n"
+              "base_url = \"https://openrouter.ai/api/v1\"\n");
         CHECK(s.group("codex").current == idC);
         CHECK(s.detectCurrent("codex") == idC);
     }
@@ -437,10 +459,10 @@ int main() {
     s.exportTo(exportPath);
     CHECK(fs::exists(exportPath));
     s.removeProvider("claude-code", idA);
-    CHECK(s.group("claude-code").providers.size() == 2);
+    CHECK(s.group("claude-code").providers.size() == 3);
     s.importFrom(exportPath);
     {
-        CHECK(s.group("claude-code").providers.size() == 3);
+        CHECK(s.group("claude-code").providers.size() == 4);
         bool found = false;
         for (const auto& p : s.group("claude-code").providers) {
             if (p.id == idA) found = true;
@@ -461,6 +483,26 @@ int main() {
         CHECK(models::apiFormatLabel("openai-responses") == "OpenAI Responses");
         CHECK(models::apiFormatLabel("anthropic") ==
               "Anthropic Messages（原生）");
+        CHECK(models::normalizeUpstreamFormat("anthropic") == "anthropic");
+        CHECK(models::normalizeUpstreamFormat("unknown") == "openai");
+        CHECK(models::upstreamFormatSuffix("anthropic") == "/anthropic");
+        CHECK(models::upstreamFormatSuffix("openai") == "/v1");
+        CHECK(models::effectiveBaseUrl("https://api.example.com/", "anthropic",
+                                       false) == "https://api.example.com/anthropic");
+        CHECK(models::effectiveBaseUrl("https://api.example.com/root", "openai",
+                                       true) == "https://api.example.com/root");
+        CHECK(models::effectiveBaseUrl("https://api.example.com/root/", "anthropic",
+                                       true) == "https://api.example.com/root/");
+        models::Provider encoded{.name = "编码",
+                                 .baseUrl = "https://encoded.example.com",
+                                 .upstreamFormat = "anthropic",
+                                 .fullUrl = false};
+        const auto encodedJson = models::toJson(encoded);
+        const auto decoded = models::providerFromJson(encodedJson);
+        CHECK(decoded.upstreamFormat == "anthropic" && !decoded.fullUrl);
+        const auto legacy = models::providerFromJson(
+            nlohmann::json{{"baseUrl", "https://legacy.example.com/v1"}});
+        CHECK(legacy.fullUrl);
         const auto sug =
             models::suggestUsageQuery("https://api.deepseek.com/v1");
         CHECK(sug.has_value());

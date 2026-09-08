@@ -362,6 +362,47 @@ std::string applyCodexModel(std::string_view toml, std::string_view model) {
     return out;
 }
 
+// 把供应商的实际访问 URL 写入 config.toml 的第一个未注释 base_url 键。
+// codex 的模板可能包含多个节，但当前供应商模板只需要第一个上游地址；
+// 没有 base_url 时保留原文，兼容只通过其他配置提供地址的模板。
+std::string applyCodexBaseUrl(std::string_view toml, std::string_view baseUrl) {
+    if (baseUrl.empty()) return std::string(toml);
+    std::string escaped;
+    for (const char c : baseUrl) {
+        if (c == '\\' || c == '"') escaped += '\\';
+        escaped += c;
+    }
+    std::string out;
+    std::istringstream in{std::string(toml)};
+    bool replaced = false;
+    for (std::string line; std::getline(in, line);) {
+        const std::string_view trimmed = trimLeft(line);
+        std::string_view key = trimmed;
+        const bool commented = key.starts_with('#');
+        if (!commented && key.starts_with("base_url")) {
+            key.remove_prefix(8);
+            if (key.empty() || key.front() == '=' ||
+                std::isspace(static_cast<unsigned char>(key.front()))) {
+                const std::size_t indent = line.size() - trimmed.size();
+                line = line.substr(0, indent) +
+                       "base_url = \"" + escaped + "\"";
+                replaced = true;
+            }
+        }
+        out += line;
+        out += '\n';
+        if (replaced) {
+            // 模板只替换当前供应商的第一条地址，避免误改其他 provider 节。
+            for (std::string rest; std::getline(in, rest);) {
+                out += rest;
+                out += '\n';
+            }
+            break;
+        }
+    }
+    return out;
+}
+
 // pi 目录/文件权限：目录 0700、文件 0600（对齐官方对凭据目录的约定）。
 void restrictPiDir(const std::filesystem::path& dir) {
     std::error_code ec;
@@ -459,7 +500,9 @@ const models::Provider* matchByUrlKey(const models::ProviderGroup& g,
                                       const std::string& baseUrl,
                                       const std::string& apiKey) {
     for (const auto& p : g.providers) {
-        if (p.baseUrl == baseUrl && p.apiKey == apiKey) return &p;
+        if (models::effectiveBaseUrl(p) == baseUrl && p.apiKey == apiKey) {
+            return &p;
+        }
     }
     return nullptr;
 }
@@ -614,6 +657,7 @@ void ProviderStore::switchTo(std::string_view tool, const std::string& id) {
     if (target == nullptr) {
         throw std::runtime_error(std::format("供应商不存在：{}", id));
     }
+    const std::string baseUrl = models::effectiveBaseUrl(*target);
 
     if (tool == "claude-code") {
         // 深合并 env 三字段，permissions 等其余字段原样保留。
@@ -622,7 +666,7 @@ void ProviderStore::switchTo(std::string_view tool, const std::string& id) {
         if (!settings.is_object()) settings = nlohmann::json::object();
         backupLiveFile(tool, file);
         nlohmann::json patch;
-        patch["env"]["ANTHROPIC_BASE_URL"] = target->baseUrl;
+        patch["env"]["ANTHROPIC_BASE_URL"] = baseUrl;
         patch["env"]["ANTHROPIC_AUTH_TOKEN"] = target->apiKey;
         if (!target->model.empty()) patch["env"]["ANTHROPIC_MODEL"] = target->model;
         // 三档模型映射（官方 env，均选填）。
@@ -653,7 +697,9 @@ void ProviderStore::switchTo(std::string_view tool, const std::string& id) {
             const auto tomlFile = cfg::codexConfigFile();
             backupLiveFile(tool, tomlFile);
             atomicWrite(tomlFile,
-                        applyCodexModel(target->codexConfigToml, target->model));
+                        applyCodexModel(
+                            applyCodexBaseUrl(target->codexConfigToml, baseUrl),
+                            target->model));
         }
     } else if (tool == "opencode") {
         // additive 模式：往顶层 provider map upsert 本工具条目，其余顶层字段
@@ -664,7 +710,7 @@ void ProviderStore::switchTo(std::string_view tool, const std::string& id) {
         backupLiveFile(tool, file);
         nlohmann::json entry;
         entry["npm"] = opencodeNpmValue(target->apiFormat);
-        entry["options"]["baseURL"] = target->baseUrl;
+        entry["options"]["baseURL"] = baseUrl;
         entry["options"]["apiKey"] = target->apiKey;
         if (!target->model.empty()) {
             entry["models"][target->model] = nlohmann::json::object();
@@ -687,7 +733,7 @@ void ProviderStore::switchTo(std::string_view tool, const std::string& id) {
         if (!models.is_object()) models = nlohmann::json::object();
         backupLiveFile(tool, modelsFile);
         nlohmann::json entry;
-        entry["baseUrl"] = target->baseUrl;
+        entry["baseUrl"] = baseUrl;
         entry["apiKey"] = target->apiKey;
         entry["api"] = piApiValue(target->apiFormat);
         if (!target->model.empty()) {
@@ -738,7 +784,7 @@ void ProviderStore::switchTo(std::string_view tool, const std::string& id) {
         profile["disableDeploymentModeChooser"] = true;
         profile["inferenceGatewayApiKey"] = target->apiKey;
         profile["inferenceGatewayAuthScheme"] = "bearer";
-        profile["inferenceGatewayBaseUrl"] = target->baseUrl;
+        profile["inferenceGatewayBaseUrl"] = baseUrl;
         profile["inferenceProvider"] = "gateway";
         // inferenceModels：主模型（直连官方时通常就这一条）+ 三档映射（每档
         // 映射到供应商真实模型名）。name 必须是桌面端白名单 route id（见

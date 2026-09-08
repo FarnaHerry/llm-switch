@@ -391,18 +391,18 @@ struct LocalRouter::Impl {
                 if (i != curIdx) order.push_back(i);
             }
         }
-        const bool anthropic =
-            tool == "claude-code" || tool == "claude" ||
-            group->providers[curIdx].apiFormat == "anthropic";
-
         UpstreamResponse last;
         for (std::size_t k = 0; k < order.size(); ++k) {
             const auto& provider = group->providers[order[k]];
             std::string url =
-                trimTrailingSlash(provider.baseUrl) + "/" + std::string(rest);
+                trimTrailingSlash(models::effectiveBaseUrl(provider)) + "/" +
+                std::string(rest);
             if (!query.empty()) url += "?" + std::string(query);
 
             const auto t0 = std::chrono::steady_clock::now();
+            const bool anthropic =
+                tool == "claude-code" || tool == "claude" ||
+                models::normalizeApiFormat(provider.apiFormat) == "anthropic";
             last = forwardToProvider(provider, anthropic, req, url);
             const auto latency =
                 std::chrono::duration_cast<std::chrono::milliseconds>(

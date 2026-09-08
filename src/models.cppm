@@ -119,6 +119,10 @@ export struct Provider {
                              // balance_infos.0.total_balance）
     std::string usageLabel;  // 显示单位/说明（如 "CNY 余额"）
     std::int64_t createdAt = 0;   // 毫秒
+    // URL 输入模式：默认值保持旧配置/代码构造 Provider 的完整 URL 语义；
+    // 新增表单会显式设为 false，让访问时按 upstreamFormat 追加默认后缀。
+    std::string upstreamFormat = "openai";  // "anthropic" / "openai"
+    bool fullUrl = true;
 
     bool operator==(const Provider&) const = default;
 };
@@ -170,6 +174,8 @@ export nlohmann::json toJson(const Provider& p) {
     j["usagePath"] = p.usagePath;
     j["usageLabel"] = p.usageLabel;
     j["createdAt"] = p.createdAt;
+    j["upstreamFormat"] = p.upstreamFormat;
+    j["fullUrl"] = p.fullUrl;
     return j;
 }
 
@@ -192,7 +198,40 @@ export Provider providerFromJson(const nlohmann::json& j) {
     p.usagePath = j.value("usagePath", "");
     p.usageLabel = j.value("usageLabel", "");
     p.createdAt = j.value("createdAt", std::int64_t{0});
+    p.upstreamFormat = j.value("upstreamFormat", "openai");
+    // 缺少新字段的旧配置保存的是已经可直接访问的 URL，不能按默认
+    // 后缀再次拼接，否则会把 /v1 或 /anthropic 复制一遍。
+    p.fullUrl = j.contains("fullUrl") ? j.value("fullUrl", true) : true;
     return p;
+}
+
+// ---- 上游 URL -----------------------------------------------------------------
+
+// 归一化上游格式。未知值与空值回落 OpenAI 兼容格式，保持配置可编辑。
+export std::string_view normalizeUpstreamFormat(std::string_view format) {
+    return format == "anthropic" ? std::string_view{"anthropic"}
+                                  : std::string_view{"openai"};
+}
+
+// 上游格式的默认路径后缀：Anthropic 兼容网关通常挂在 /anthropic，
+// OpenAI 兼容网关通常挂在 /v1。
+export std::string_view upstreamFormatSuffix(std::string_view format) {
+    return normalizeUpstreamFormat(format) == "anthropic" ? "/anthropic" : "/v1";
+}
+
+export std::string effectiveBaseUrl(std::string_view baseUrl,
+                                    std::string_view upstreamFormat,
+                                    bool fullUrl) {
+    std::string url(baseUrl);
+    if (fullUrl || url.empty()) return url;
+    while (!url.empty() && url.back() == '/') url.pop_back();
+    url += upstreamFormatSuffix(upstreamFormat);
+    return url;
+}
+
+export std::string effectiveBaseUrl(const Provider& provider) {
+    return effectiveBaseUrl(provider.baseUrl, provider.upstreamFormat,
+                            provider.fullUrl);
 }
 
 export nlohmann::json toJson(const ProviderGroup& g) {
@@ -282,14 +321,20 @@ export std::vector<Provider> builtinPresets(std::string_view tool) {
         // 由列表常驻「官方」卡承担（officialVendorName），不在预设里重复。
         return {
             Provider{.name = "DeepSeek",
-                     .baseUrl = "https://api.deepseek.com/anthropic",
-                     .website = "https://platform.deepseek.com"},
+                     .baseUrl = "https://api.deepseek.com",
+                     .website = "https://platform.deepseek.com",
+                     .upstreamFormat = "anthropic",
+                     .fullUrl = false},
             Provider{.name = "Kimi（Moonshot）",
-                     .baseUrl = "https://api.moonshot.cn/anthropic",
-                     .website = "https://platform.moonshot.cn"},
+                     .baseUrl = "https://api.moonshot.cn",
+                     .website = "https://platform.moonshot.cn",
+                     .upstreamFormat = "anthropic",
+                     .fullUrl = false},
             Provider{.name = "GLM（智谱）",
-                     .baseUrl = "https://open.bigmodel.cn/api/anthropic",
-                     .website = "https://open.bigmodel.cn"},
+                     .baseUrl = "https://open.bigmodel.cn/api",
+                     .website = "https://open.bigmodel.cn",
+                     .upstreamFormat = "anthropic",
+                     .fullUrl = false},
         };
     }
     if (tool == "codex") {
@@ -299,7 +344,7 @@ export std::vector<Provider> builtinPresets(std::string_view tool) {
         // 默认 chat；model 以注释提示，避免写死一个用户没有的模型）。
         return {
             Provider{.name = "OpenRouter",
-                     .baseUrl = "https://openrouter.ai/api/v1",
+                     .baseUrl = "https://openrouter.ai/api",
                      .website = "https://openrouter.ai",
                      .codexConfigToml =
                          R"toml(model_provider = "openrouter"
@@ -307,11 +352,13 @@ export std::vector<Provider> builtinPresets(std::string_view tool) {
 
 [model_providers.openrouter]
 name = "OpenRouter"
-base_url = "https://openrouter.ai/api/v1"
+base_url = "https://openrouter.ai/api"
 wire_api = "chat"
-)toml"},
+)toml",
+                     .upstreamFormat = "openai",
+                     .fullUrl = false},
             Provider{.name = "DeepSeek",
-                     .baseUrl = "https://api.deepseek.com/v1",
+                     .baseUrl = "https://api.deepseek.com",
                      .website = "https://platform.deepseek.com",
                      .codexConfigToml =
                          R"toml(model_provider = "deepseek"
@@ -319,9 +366,11 @@ wire_api = "chat"
 
 [model_providers.deepseek]
 name = "DeepSeek"
-base_url = "https://api.deepseek.com/v1"
+base_url = "https://api.deepseek.com"
 wire_api = "chat"
-)toml"},
+)toml",
+                     .upstreamFormat = "openai",
+                     .fullUrl = false},
         };
     }
     if (tool == "opencode" || tool == "pi") {
@@ -329,13 +378,17 @@ wire_api = "chat"
         // openai-completions），model 填各家的主力模型。
         return {
             Provider{.name = "DeepSeek",
-                     .baseUrl = "https://api.deepseek.com/v1",
+                     .baseUrl = "https://api.deepseek.com",
                      .model = "deepseek-chat",
-                     .website = "https://platform.deepseek.com"},
+                     .website = "https://platform.deepseek.com",
+                     .upstreamFormat = "openai",
+                     .fullUrl = false},
             Provider{.name = "Kimi（Moonshot）",
-                     .baseUrl = "https://api.moonshot.cn/v1",
+                     .baseUrl = "https://api.moonshot.cn",
                      .model = "kimi-k2-0905-preview",
-                     .website = "https://platform.moonshot.cn"},
+                     .website = "https://platform.moonshot.cn",
+                     .upstreamFormat = "openai",
+                     .fullUrl = false},
         };
     }
     // claude（Claude Desktop 3p 直连）：暂无第三方预设（官方走常驻卡）。
