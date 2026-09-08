@@ -1,4 +1,4 @@
-// net.cppm — llmswitch.net：按供应商 baseUrl+key 拉取模型列表（接口模块）。
+// net.cppm — llmswitch.net：按供应商 URL+key 拉取模型列表（接口模块）。
 //
 // 同步阻塞实现（每次调用独立 curl easy handle，线程安全），调用方负责线程：
 // UI 会把调用派到任务线程（阶段B），UI 线程禁止直接调。curl 头只进实现单元。
@@ -19,6 +19,12 @@ export std::string modelListUrl(std::string_view baseUrl,
 export std::vector<std::string> fetchModels(std::string_view baseUrl,
                                             std::string_view apiKey,
                                             std::string_view upstreamFormat);
+
+// 使用完整的模型列表 URL 拉取模型。自定义 URL 不再追加 /models 或
+// /v1/models；调用方仍通过 upstreamFormat 决定鉴权请求头。
+export std::vector<std::string> fetchModelsFromUrl(
+    std::string_view url, std::string_view apiKey,
+    std::string_view upstreamFormat);
 
 // 响应体解析（纯函数，便于测试）：兼容 {"data":[{"id":...}]} 与
 // {"models":[{"id":...}]} 两种形状（数组元素也可以是纯字符串）；坏 JSON 或

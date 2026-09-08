@@ -20,9 +20,10 @@
 // 显示 config.toml 原文、needsModel（opencode/pi）模型必填、hasApiFormat 显示
 // API 协议分段选择；hasModelMappings（claude-code /
 // claude）额外显示三档模型映射行（Haiku/Sonnet/Opus）。模型字段旁「获取模型」
-// 按当前实际 URL/apiKey/上游格式经 llmswitch.net 拉取模型列表（阻塞网络调用
-// 经 huxerui::RunWorker 派到 worker 线程，结果回 UI 线程写 State）；拉取成功
-// 后模型行在按钮前出现 Select 下拉，点选回填该行的模型字段（不弹窗）。
+// 默认按当前实际 URL/apiKey/上游格式经 llmswitch.net 拉取模型列表，也支持在
+// 高级选项中覆盖完整模型列表 URL（阻塞网络调用经 huxerui::RunWorker 派到
+// worker 线程，结果回 UI 线程写 State）；拉取成功后模型行在按钮前出现 Select
+// 下拉，点选回填该行的模型字段（不弹窗）。
 // 用量查询：usageUrl 非空的卡片显示用量文本 + 手动刷新按钮；页面可见期间
 // 按 config 的 usageEnabled/usageRefreshMinutes 轮询全部配置了 usageUrl 的
 // 供应商，缓存为页面级 State（只在 UI 线程写）。
@@ -65,6 +66,7 @@ namespace {
 struct FormStates {
     huxerui::State<huxerui::TextEditingValue> name;
     huxerui::State<huxerui::TextEditingValue> baseUrl;
+    huxerui::State<huxerui::TextEditingValue> modelFetchUrl;
     huxerui::State<huxerui::TextEditingValue> apiKey;
     huxerui::State<huxerui::TextEditingValue> model;
     huxerui::State<huxerui::TextEditingValue> website;
@@ -95,6 +97,7 @@ struct FormStates {
 #define LLMSWITCH_FORM_STATES_INIT(p)                                       \
     {huxerui::UseState(huxerui::TextEditingValue{(p).name}),                \
      huxerui::UseState(huxerui::TextEditingValue{(p).baseUrl}),             \
+     huxerui::UseState(huxerui::TextEditingValue{(p).modelFetchUrl}),        \
      huxerui::UseState(huxerui::TextEditingValue{(p).apiKey}),              \
      huxerui::UseState(huxerui::TextEditingValue{(p).model}),               \
      huxerui::UseState(huxerui::TextEditingValue{(p).website}),             \
@@ -122,6 +125,7 @@ struct FormStates {
 void FillForm(const FormStates& fs, const models::Provider& p) {
     fs.name = huxerui::TextEditingValue{p.name};
     fs.baseUrl = huxerui::TextEditingValue{p.baseUrl};
+    fs.modelFetchUrl = huxerui::TextEditingValue{p.modelFetchUrl};
     fs.apiKey = huxerui::TextEditingValue{p.apiKey};
     fs.model = huxerui::TextEditingValue{p.model};
     fs.website = huxerui::TextEditingValue{p.website};
@@ -245,6 +249,8 @@ huxerui::View ModelSelect(huxerui::State<std::vector<std::string>> fetched,
     // 表单会话内最后一次拉取结果；非空时模型行出现下拉选择。
     auto fetching = huxerui::UseState(false);
     auto fetchedModels = huxerui::UseState<std::vector<std::string>>({});
+    auto showModelFetchOptions =
+        huxerui::UseState(!formInitial.modelFetchUrl.empty());
     // API Key 明文开关：Secure(bool) 切换掩码，眼睛按钮用 SDK 内置的可交互
     // TrailingIcon（icon + 语义标签 → OnTrailingIconClick 事件），且只在悬停
     // 输入框任意位置（或已明文）时才显示（ViewEvents::Hover 只在 Enter/Leave
@@ -293,6 +299,19 @@ huxerui::View ModelSelect(huxerui::State<std::vector<std::string>> fetched,
         .Placeholder("https://...")
         .Variant(huxerui::TextFieldVariant::Outlined)
         .OnChanged([fs](const huxerui::TextEditingValue& v) { fs.baseUrl = v; }));
+    fields.push_back(huxerui::Switch("高级选项", showModelFetchOptions.Get())
+        .OnChanged([showModelFetchOptions](bool checked) {
+            showModelFetchOptions = checked;
+        }));
+    if (showModelFetchOptions.Get()) {
+        fields.push_back(huxerui::TextField(fs.modelFetchUrl.Get())
+            .Label("模型获取 URL（可选，留空跟随 URL）")
+            .Placeholder("完整地址，例如 https://.../v1/models")
+            .Variant(huxerui::TextFieldVariant::Outlined)
+            .OnChanged([fs](const huxerui::TextEditingValue& v) {
+                fs.modelFetchUrl = v;
+            }));
+    }
     {
         const std::array<std::string, 2> upstreamFormats{
             "Anthropic（默认后缀：/anthropic）", "OpenAI（默认后缀：/v1）"};
@@ -348,9 +367,9 @@ huxerui::View ModelSelect(huxerui::State<std::vector<std::string>> fetched,
             : tool == "codex"
                 ? "模型（可选，切换时写入 config.toml 顶层 model）"
                                        : "主模型（可选）";
-        // 「获取模型」：用表单当前的实际 URL/apiKey/上游格式（实际 URL 会按
-        // 完整 URL 开关与上游格式计算）调 llmswitch.net::fetchModels。
-        // fetchModels 是阻塞网络调用，经 huxerui::RunWorker 派到 worker 线程；
+        // 「获取模型」：默认使用表单当前的实际 URL/apiKey/上游格式（实际 URL
+        // 会按完整 URL 开关与上游格式计算）；高级选项可覆盖模型列表完整地址。
+        // fetchModelsFromUrl 是阻塞网络调用，经 huxerui::RunWorker 派到 worker 线程；
         // 协程恢复点恒为 UI 线程，State 写回安全（State 只在 UI 线程写）。
         // 成功后下拉出现在 TextField 与按钮之间，点选直接回填该行。
         const bool canFetch = !fetching.Get() && !fs.baseUrl.Get().text.empty() &&
@@ -366,23 +385,27 @@ huxerui::View ModelSelect(huxerui::State<std::vector<std::string>> fetched,
                 : ModelSelect(fetchedModels, fs.selModel, fs.model),
             huxerui::Button(fetching.Get() ? "获取中…" : "获取模型")
                 .OnClick([=] {
-                    const std::string u = models::effectiveBaseUrl(
+                    const std::string fetchBase = models::effectiveBaseUrl(
                         fs.baseUrl.Get().text,
                         UpstreamFormatFromIndex(fs.upstreamFormat.Get()),
                         fs.fullUrl.Get());
+                    const std::string customFetchUrl = fs.modelFetchUrl.Get().text;
+                    const std::string f = UpstreamFormatFromIndex(
+                        fs.upstreamFormat.Get());
+                    const std::string u = customFetchUrl.empty()
+                        ? net::modelListUrl(fetchBase, f)
+                        : customFetchUrl;
                     const std::string k = fs.apiKey.Get().text;
                     // 模型列表端点属于上游 URL 协议，不能复用 opencode/pi 的
                     // apiFormat，也不能按 claude-code 的工具类型猜测；否则
                     // OpenAI URL 会被再次拼成 /v1/v1/models。
-                    const std::string f = UpstreamFormatFromIndex(
-                        fs.upstreamFormat.Get());
                     fetching = true;
                     tasks.Launch([=]() -> huxerui::Task<void> {
                         try {
                             auto models = co_await huxerui::RunWorker(
                                 [](const std::string& u, const std::string& k,
                                    const std::string& f) {
-                                    return net::fetchModels(u, k, f);
+                                    return net::fetchModelsFromUrl(u, k, f);
                                 },
                                 u, k, f);
                             fetching = false;
@@ -398,7 +421,7 @@ huxerui::View ModelSelect(huxerui::State<std::vector<std::string>> fetched,
                 })
                 .With(huxerui::Enabled(canFetch),
                       huxerui::Tooltip(canFetch
-                                           ? "按当前 Base URL + API Key 拉取模型列表"
+                                           ? "按模型获取 URL + API Key 拉取模型列表"
                                            : "请先填写 Base URL 与 API Key")),
         }.With(huxerui::Spacing(8.0F),
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)));
@@ -549,6 +572,7 @@ huxerui::View ModelSelect(huxerui::State<std::vector<std::string>> fetched,
                         p.id = editingId;
                         p.name = name;
                         p.baseUrl = baseUrl;
+                        p.modelFetchUrl = fs.modelFetchUrl.Get().text;
                         p.apiKey = apiKey;
                         p.model = model;
                         p.upstreamFormat =

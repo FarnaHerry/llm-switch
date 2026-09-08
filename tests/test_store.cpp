@@ -505,6 +505,12 @@ int main() {
         const auto encodedJson = models::toJson(encoded);
         const auto decoded = models::providerFromJson(encodedJson);
         CHECK(decoded.upstreamFormat == "anthropic" && !decoded.fullUrl);
+        models::Provider customFetch = encoded;
+        customFetch.modelFetchUrl = "https://models.example.com/v1/models";
+        const auto customFetchDecoded =
+            models::providerFromJson(models::toJson(customFetch));
+        CHECK(customFetchDecoded.modelFetchUrl ==
+              "https://models.example.com/v1/models");
         const auto legacy = models::providerFromJson(
             nlohmann::json{{"baseUrl", "https://legacy.example.com/v1"}});
         CHECK(legacy.fullUrl);

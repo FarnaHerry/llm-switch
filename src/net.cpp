@@ -113,9 +113,19 @@ std::vector<std::string> fetchModels(std::string_view baseUrl,
     if (trimTrailingSlash(baseUrl).empty()) {
         throw std::runtime_error("拉取模型列表失败：Base URL 为空");
     }
+    return fetchModelsFromUrl(modelListUrl(baseUrl, upstreamFormat), apiKey,
+                              upstreamFormat);
+}
+
+std::vector<std::string> fetchModelsFromUrl(std::string_view url,
+                                            std::string_view apiKey,
+                                            std::string_view upstreamFormat) {
+    if (trimTrailingSlash(url).empty()) {
+        throw std::runtime_error("拉取模型列表失败：模型获取 URL 为空");
+    }
     const bool anthropic = upstreamFormat == "anthropic";
-    const std::string url = modelListUrl(baseUrl, upstreamFormat);
-    return parseModelIds(httpGet(url, apiKey, anthropic, "拉取模型列表"));
+    return parseModelIds(httpGet(std::string(url), apiKey, anthropic,
+                                 "拉取模型列表"));
 }
 
 std::string fetchUsage(std::string_view url, std::string_view apiKey,

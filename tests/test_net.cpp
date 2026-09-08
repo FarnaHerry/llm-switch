@@ -28,6 +28,15 @@ bool throwsRuntimeError(std::string_view body) {
     return false;
 }
 
+bool rejectsEmptyModelFetchUrl() {
+    try {
+        (void)net::fetchModelsFromUrl("", "", "openai");
+    } catch (const std::runtime_error&) {
+        return true;
+    }
+    return false;
+}
+
 } // namespace
 
 int main() {
@@ -36,6 +45,7 @@ int main() {
           "https://api.example.com/v1/models");
     CHECK(net::modelListUrl("https://api.example.com/anthropic", "anthropic") ==
           "https://api.example.com/anthropic/v1/models");
+    CHECK(rejectsEmptyModelFetchUrl());
 
     // 2. OpenAI 兼容形状：{"data":[{"id":...}]}
     {

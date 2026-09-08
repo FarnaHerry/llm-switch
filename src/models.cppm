@@ -100,6 +100,7 @@ export struct Provider {
     std::string id;         // 生成：毫秒时间戳 + 随机 hex（见 llmswitch.store）
     std::string name;
     std::string baseUrl;
+    std::string modelFetchUrl;   // 可选，空 = 按 baseUrl + 上游格式自动获取模型
     std::string apiKey;
     std::string model;          // 可选，空 = 切换时不写 env.ANTHROPIC_MODEL
     // 三档模型映射（仅 hasModelMappings 工具：claude-code / claude，均选填）：
@@ -169,6 +170,7 @@ export nlohmann::json toJson(const Provider& p) {
     j["id"] = p.id;
     j["name"] = p.name;
     j["baseUrl"] = p.baseUrl;
+    j["modelFetchUrl"] = p.modelFetchUrl;
     j["apiKey"] = p.apiKey;
     j["model"] = p.model;
     j["haikuModel"] = p.haikuModel;
@@ -199,6 +201,7 @@ export Provider providerFromJson(const nlohmann::json& j) {
     p.id = j.value("id", "");
     p.name = j.value("name", "");
     p.baseUrl = j.value("baseUrl", "");
+    p.modelFetchUrl = j.value("modelFetchUrl", "");
     p.apiKey = j.value("apiKey", "");
     p.model = j.value("model", "");
     p.haikuModel = j.value("haikuModel", "");
