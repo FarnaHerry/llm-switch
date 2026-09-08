@@ -201,10 +201,14 @@ jobs:
         shell: pwsh
         run: |
           cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release `
-            "-DOPENSSL_ROOT_DIR=$env:OPENSSL_ROOT_DIR"
+            "-DOPENSSL_ROOT_DIR=$env:OPENSSL_ROOT_DIR" `
+            -DHUXERUI_BUILD_CLI=ON
 
       - name: Build release
         run: cmake --build build --config Release --parallel
+
+      - name: Build HuxerUI CLI
+        run: cmake --build build --config Release --target huxerui_cli --parallel
 
       - name: Smoke test
         run: ctest --test-dir build --output-on-failure
@@ -235,12 +239,33 @@ jobs:
           Compress-Archive -Path dist-src\* -DestinationPath dist\llm-switch-windows-x86_64.zip -Force
           Get-Item dist/*
 
+      - name: Package HuxerUI installer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $cli = 'build/huxerui-sdk/bin/huxerui.exe'
+          if (-not (Test-Path $cli -PathType Leaf)) { throw "$cli not found" }
+          # 使用 HuxerUI 官方打包流程：它会配置并构建 MSI、Burn bundle，
+          # 并把 platform/windows/package/src 下的托管安装器 UI 嵌入 Setup.exe。
+          & $cli package windows --profile release --source third_party/huxerui
+          if ($LASTEXITCODE -ne 0) { throw "huxerui package windows failed with exit code $LASTEXITCODE" }
+          $versionMatch = Select-String -Path CMakeLists.txt -Pattern 'project\(llm-switch VERSION ([^ )]+)' | Select-Object -First 1
+          if (-not $versionMatch) { throw 'Unable to determine project version from CMakeLists.txt' }
+          $version = $versionMatch.Matches[0].Groups[1].Value
+          if (-not $version) { throw 'Unable to determine project version from CMakeLists.txt' }
+          $setup = "dist/windows/llm-switch-Setup-$version.exe"
+          if (-not (Test-Path $setup -PathType Leaf)) { throw "$setup not found" }
+          Copy-Item $setup 'dist/llm-switch-windows-x86_64-setup.exe' -Force
+          Get-Item dist/llm-switch-windows-x86_64-setup.exe
+
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: llm-switch-windows-x86_64
-          path: dist/llm-switch-windows-x86_64.zip
-          if-no-files-found: warn
+          path: |
+            dist/llm-switch-windows-x86_64.zip
+            dist/llm-switch-windows-x86_64-setup.exe
+          if-no-files-found: error
           retention-days: 14
 
   # ------------------------------------------------------------------ macOS

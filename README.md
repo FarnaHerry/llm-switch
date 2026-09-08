@@ -46,7 +46,8 @@ Claude Desktop / Codex / opencode / pi 五款 AI 编程工具的供应商配置�
 - HuxerUI 0.2.0：已安装 SDK（`HUXERUI_HOME` 指向前缀）或源码（clone 到
   `third_party/huxerui/`），都没有时用仓库内 Linux 离线包兜底。
   Windows 自定义安装向导（`huxerui package windows`，MSI + Burn 捆绑包 +
-  HuxerUI 托管安装器 UI，`platform/windows/package/`）需要含
+  HuxerUI 托管安装器 UI，`platform/windows/package/`）会随 Windows 发布产出
+  `llm-switch-windows-x86_64-setup.exe`；该流程需要含
   `huxerui_add_windows_installer` 的源码/新版 SDK（0.2.0 之后），
   0.2.0 发布包没有该能力
 - HuxerUI 源码通道编译需要 gtk4 / libepoxy / libsoup3 开发包
@@ -66,7 +67,8 @@ ctest --test-dir build --output-on-failure
 `cmake --build --preset ninja-release`。
 
 CI（GitHub Actions，`.github/workflows/build.yml`）提供 Linux / Windows /
-macOS 三平台构建产物：日常构建在 Actions 页面下载压缩包（保留 14 天），
+macOS 三平台构建产物：日常构建在 Actions 页面下载压缩包，Windows 另含
+HuxerUI 安装器（保留 14 天），
 push `v*` tag 会自动建 release 并挂上三个平台包；三个平台均通过构建、测试和
 打包后才会发布。
 
