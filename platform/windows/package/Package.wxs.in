@@ -3,6 +3,8 @@
            UpgradeCode="@HUXERUI_WINDOWS_MSI_UPGRADE_CODE@" Scope="perMachine">
     <MajorUpgrade DowngradeErrorMessage="A newer version of llm-switch is already installed." />
     <MediaTemplate EmbedCab="yes" />
+    <Icon Id="ApplicationIcon" SourceFile="!(bindpath.Project)\app.ico" />
+    <Property Id="ARPPRODUCTICON" Value="ApplicationIcon" />
 
     <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="INSTALLFOLDER" Name="llm-switch" />
@@ -17,14 +19,16 @@
     </ComponentGroup>
     <Component Id="ApplicationShortcut" Directory="APPLICATIONPROGRAMMENU">
       <Shortcut Id="ApplicationStartMenuShortcut" Name="llm-switch"
-                Target="[INSTALLFOLDER]llm-switch.exe" WorkingDirectory="INSTALLFOLDER" />
+                Target="[INSTALLFOLDER]llm-switch.exe" WorkingDirectory="INSTALLFOLDER"
+                Icon="ApplicationIcon" />
       <RemoveFolder Id="RemoveApplicationProgramMenu" On="uninstall" />
       <RegistryValue Root="HKLM" Key="Software\dev.farna.llmswitch\llm-switch" Name="installed"
                      Type="integer" Value="1" KeyPath="yes" />
     </Component>
     <Component Id="ApplicationDesktopShortcut" Directory="DesktopFolder">
       <Shortcut Id="ApplicationDesktopShortcutLink" Name="llm-switch"
-                Target="[INSTALLFOLDER]llm-switch.exe" WorkingDirectory="INSTALLFOLDER" />
+                Target="[INSTALLFOLDER]llm-switch.exe" WorkingDirectory="INSTALLFOLDER"
+                Icon="ApplicationIcon" />
       <RegistryValue Root="HKLM" Key="Software\dev.farna.llmswitch\llm-switch" Name="desktopShortcut"
                      Type="integer" Value="1" KeyPath="yes" />
     </Component>
