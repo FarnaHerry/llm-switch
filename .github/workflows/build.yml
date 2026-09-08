@@ -19,19 +19,15 @@
 #     只在源码缺失时兜底，CI 不走它（Linux job 装了 gtk4/epoxy/libsoup 开发包，
 #     不会触发回落）。
 #
-# 实验性 job（continue-on-error: true）及原因：
-#   * build-windows / build-macos：platform/{windows,macos}/main.cpp 入口已落地、
-#     configure 可过；首次全量编译 MSVC / brew-llvm-libc++ 尚未跑绿，等连续
-#     绿后再摘掉 continue-on-error。工具链沿用 Clash-Flux 实证配方
-#     （Windows=MSVC + choco ninja/OpenSSL；macOS=brew llvm/libc++ + 手写
-#     libc++.modules.json + 内联 P0960 补丁）。
+# 三个平台均作为发布门禁：Linux、Windows 和 macOS 必须完成编译、测试和打包。
+# 工具链沿用 Clash-Flux 实证配方（Windows=MSVC + choco ninja/OpenSSL；
+# macOS=brew llvm/libc++ + 手写 libc++.modules.json + 内联 P0960 补丁）。
 #
 # 已知风险：
 #   * ubuntu:26.04 是滚动预发布容器，clang-21/libc++-21 包名若随发布调整需同步改。
 #   * `import std` 依赖 pip 固定的 cmake==4.4.2（cmake/CxxImportStdGate.cmake
 #     的 UUID 表覆盖 3.30–4.4）；升级 CMake 时先查 gate 文件是否已支持新版本。
-#   * release job 用 `if: always()` 放行 continue-on-error 的实验性 job——
-#     Windows/macOS 产物缺失时 release 只挂实际存在的压缩包。
+#   * release job 只在三个构建 job 全部成功且产物存在时运行，避免发布半成品。
 
 name: build
 
@@ -166,14 +162,11 @@ jobs:
           retention-days: 14
 
   # ---------------------------------------------------------------- Windows
-  # 实验性（continue-on-error）：platform/windows/main.cpp 已落地、configure
-  # 可过，首次全量编译尚未连续跑绿；绿后摘掉 continue-on-error。
   # 工具链沿用 Clash-Flux 实证：MSVC（VS2022，C++23 模块 + import std）+
   # choco ninja + choco OpenSSL（curl 的 TLS 后端）。
   build-windows:
     name: build-windows-x86_64
     runs-on: windows-latest
-    continue-on-error: true
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -251,7 +244,6 @@ jobs:
           retention-days: 14
 
   # ------------------------------------------------------------------ macOS
-  # 实验性（continue-on-error）：同 Windows，入口已落地、首次全量编译尚未跑绿。
   # 工具链沿用 Clash-Flux 实证：整链 brew LLVM clang/libc++（.mm 框架层只能
   # clang 编，std 类型贯穿 .mm/.cpp 接口必须单一标准库；AppleClang 不被
   # CMake 的 C++20 模块扫描支持）。brew llvm 不带 libc++.modules.json，按
@@ -262,7 +254,6 @@ jobs:
   build-macos:
     name: build-macos-arm64
     runs-on: macos-15
-    continue-on-error: true
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -364,15 +355,17 @@ jobs:
           retention-days: 14
 
   # ---------------------------------------------------------------- release
-  # 仅 tag push（v*）触发。needs 里的 Windows/macOS 是 continue-on-error 实验
-  # job，`if: always()` 放行它们的失败；download-artifact 的 pattern +
-  # merge-multiple 只取实际存在的产物。发布前必须至少存在一个产物，
-  # 禁止在全平台构建失败时创建空 Release。
+  # 仅 tag push（v*）触发。三个平台 job 全部成功后才下载产物并发布，
+  # 发布前再次检查至少存在一个产物，禁止创建空 Release。
   release:
     name: release
     needs: [build-linux, build-windows, build-macos]
     runs-on: ubuntu-24.04
-    if: always() && startsWith(github.ref, 'refs/tags/v')
+    if: >-
+      startsWith(github.ref, 'refs/tags/v') &&
+      needs.build-linux.result == 'success' &&
+      needs.build-windows.result == 'success' &&
+      needs.build-macos.result == 'success'
     permissions:
       contents: write
     steps:

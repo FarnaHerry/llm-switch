@@ -67,8 +67,8 @@ ctest --test-dir build --output-on-failure
 
 CI（GitHub Actions，`.github/workflows/build.yml`）提供 Linux / Windows /
 macOS 三平台构建产物：日常构建在 Actions 页面下载压缩包（保留 14 天），
-push `v*` tag 会自动建 release 并挂上各平台包（Windows/macOS 为实验性
-job，失败时 release 只挂实际产出的包）。
+push `v*` tag 会自动建 release 并挂上三个平台包；三个平台均通过构建、测试和
+打包后才会发布。
 
 ## 配置存储位置
 

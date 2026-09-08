@@ -269,8 +269,8 @@ commit，不回滚已经验证的修改，并在最终回复中报告失败原�
   libc++-21 + pip cmake==4.4.2 + libc++.modules.json 路径改写 + gtk4/epoxy/
   libsoup3 开发包 + libssl-dev，正式）；build-windows（MSVC + choco ninja +
   choco openssl）与 build-macos
-  （brew llvm + 手写 libc++.modules.json + 内联 P0960 补丁）为实验性
-  continue-on-error——首次全量编译未在 CI 验证过，连续绿后再摘标记。
+  （brew llvm + 手写 libc++.modules.json + 内联 P0960 补丁）；三个平台均为
+  发布门禁，必须完成编译、测试和打包。
 - 三个 job 都把 HuxerUI 上游钉在 commit `9eff3c8`（含 Clipboard / TreeView）
   clone 到 third_party/huxerui 走源码通道；OpenSSL 三平台各自提供
   （linux apt libssl-dev / windows choco openssl + `-DOPENSSL_ROOT_DIR` /
@@ -279,8 +279,9 @@ commit，不回滚已经验证的修改，并在最终回复中报告失败原�
 - 打包：Linux tar.gz（二进制 + llm-switch.resources + lib/libhuxerui.so +
   libc++ 三件套 + patchelf `$ORIGIN/lib`）、Windows zip（exe + 旁挂 dll +
   resources）、macOS tar.gz（.app bundle）；push tag `v*` 时 release job
-  （`if: always()`，job 级 `contents: write`）下载已存在的产物经
-  softprops/action-gh-release 挂到 release。
+  （job 级 `contents: write`）下载三个平台产物，经
+  softprops/action-gh-release 挂到 release；只有三个平台 job 全部成功且产物存在
+  时才发布。
 
 ## 里程碑状态（2026-09-06）
 
