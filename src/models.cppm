@@ -103,11 +103,19 @@ export struct Provider {
     std::string apiKey;
     std::string model;          // 可选，空 = 切换时不写 env.ANTHROPIC_MODEL
     // 三档模型映射（仅 hasModelMappings 工具：claude-code / claude，均选填）：
+    // * *Model 是发送给上游的实际模型 ID；*DisplayName 是 Claude Desktop
+    //   菜单显示名；*Supports1m 是写入 inferenceModels 的 1M 能力声明。
     // claude-code 切换时写 env.ANTHROPIC_DEFAULT_HAIKU/SONNET/OPUS_MODEL；
     // claude desktop 切换时每档写成 inferenceModels 的一个映射条目。
     std::string haikuModel;
     std::string sonnetModel;
     std::string opusModel;
+    std::string haikuDisplayName;
+    std::string sonnetDisplayName;
+    std::string opusDisplayName;
+    bool haikuSupports1m = false;
+    bool sonnetSupports1m = false;
+    bool opusSupports1m = false;
     std::string website;
     std::string notes;
     std::string codexConfigToml;  // 仅 codex 组用：config.toml 整段原文（空 = 切换时不改 config.toml）
@@ -166,6 +174,12 @@ export nlohmann::json toJson(const Provider& p) {
     j["haikuModel"] = p.haikuModel;
     j["sonnetModel"] = p.sonnetModel;
     j["opusModel"] = p.opusModel;
+    j["haikuDisplayName"] = p.haikuDisplayName;
+    j["sonnetDisplayName"] = p.sonnetDisplayName;
+    j["opusDisplayName"] = p.opusDisplayName;
+    j["haikuSupports1m"] = p.haikuSupports1m;
+    j["sonnetSupports1m"] = p.sonnetSupports1m;
+    j["opusSupports1m"] = p.opusSupports1m;
     j["website"] = p.website;
     j["notes"] = p.notes;
     j["codexConfigToml"] = p.codexConfigToml;
@@ -190,6 +204,12 @@ export Provider providerFromJson(const nlohmann::json& j) {
     p.haikuModel = j.value("haikuModel", "");
     p.sonnetModel = j.value("sonnetModel", "");
     p.opusModel = j.value("opusModel", "");
+    p.haikuDisplayName = j.value("haikuDisplayName", "");
+    p.sonnetDisplayName = j.value("sonnetDisplayName", "");
+    p.opusDisplayName = j.value("opusDisplayName", "");
+    p.haikuSupports1m = j.value("haikuSupports1m", false);
+    p.sonnetSupports1m = j.value("sonnetSupports1m", false);
+    p.opusSupports1m = j.value("opusSupports1m", false);
     p.website = j.value("website", "");
     p.notes = j.value("notes", "");
     p.codexConfigToml = j.value("codexConfigToml", "");

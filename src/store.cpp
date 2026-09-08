@@ -458,16 +458,27 @@ bool isClaudeSafeModelId(std::string model) {
 }
 
 // 组一条 inferenceModels 条目：actual 本身是白名单 route id 就直接写 name；
-// 否则借用 borrowedId（该档的安全角色名），真实模型名放 labelOverride 显示
-// （供应商模型名如 kimi-k2 直写会触发桌面端 fail-all 拒收整组）。
+// 否则借用 borrowedId（该档的安全角色名）。labelOverride 只放菜单显示名，
+// supports1m 只在勾选时声明；实际请求模型仍由 Provider 的 *Model 字段保存。
 nlohmann::json claudeDesktopModelEntry(const std::string& actual,
-                                       std::string_view borrowedId) {
+                                       std::string_view borrowedId,
+                                       std::string_view displayName = {},
+                                       bool supports1m = false) {
     nlohmann::json m;
-    if (isClaudeSafeModelId(actual)) {
+    const bool safe = isClaudeSafeModelId(actual);
+    if (safe) {
         m["name"] = actual;
     } else {
         m["name"] = borrowedId;
+    }
+    if (!displayName.empty()) {
+        m["labelOverride"] = displayName;
+    } else if (!safe) {
+        // 旧配置没有独立显示名时保持历史行为，避免菜单变成空白名称。
         m["labelOverride"] = actual;
+    }
+    if (supports1m) {
+        m["supports1m"] = true;
     }
     return m;
 }
@@ -796,15 +807,21 @@ void ProviderStore::switchTo(std::string_view tool, const std::string& id) {
         }
         if (!target->haikuModel.empty()) {
             inferenceModels.push_back(
-                claudeDesktopModelEntry(target->haikuModel, "claude-haiku-4-5"));
+                claudeDesktopModelEntry(target->haikuModel, "claude-haiku-4-5",
+                                        target->haikuDisplayName,
+                                        target->haikuSupports1m));
         }
         if (!target->sonnetModel.empty()) {
             inferenceModels.push_back(
-                claudeDesktopModelEntry(target->sonnetModel, "claude-sonnet-4-6"));
+                claudeDesktopModelEntry(target->sonnetModel, "claude-sonnet-4-6",
+                                        target->sonnetDisplayName,
+                                        target->sonnetSupports1m));
         }
         if (!target->opusModel.empty()) {
             inferenceModels.push_back(
-                claudeDesktopModelEntry(target->opusModel, "claude-opus-4-8"));
+                claudeDesktopModelEntry(target->opusModel, "claude-opus-4-8",
+                                        target->opusDisplayName,
+                                        target->opusSupports1m));
         }
         if (!inferenceModels.empty()) {
             profile["inferenceModels"] = std::move(inferenceModels);

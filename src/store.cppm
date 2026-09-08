@@ -75,7 +75,8 @@ public:
     //   claude（Desktop 3p 直连）：两个 claude_desktop_config.json 深合并
     //     deploymentMode=3p，写 configLibrary 下固定 id 的 profile 与
     //     _meta.json；inferenceModels = 主模型 + 三档映射条目（非白名单模型名
-    //     借该档安全 route id、真名放 labelOverride）；Linux 不支持抛错。
+    //     借该档安全 route id，菜单显示名放 labelOverride，supports1m 按勾选写入；
+    //     实际请求模型保存在 Provider 的三档 *Model 字段）；Linux 不支持抛错。
     // 供应商不存在 / 文件写失败抛 std::runtime_error。
     void switchTo(std::string_view tool, const std::string& id);
 

@@ -127,8 +127,9 @@ commit，不回滚已经验证的修改，并在最终回复中报告失败原�
   deploymentMode=3p + configLibrary 固定 id profile/_meta.json，
   **Linux 不支持**）。inferenceModels = 主模型 + 三档映射条目：模型名是
   白名单 route id（claude-(sonnet|opus|haiku|fable)-*）直写 name，否则借
-  该档安全 route id（haiku-4-5/sonnet-4-6/opus-4-8）、真名放 labelOverride
-  （`claudeDesktopModelEntry`）。
+  该档安全 route id（haiku-4-5/sonnet-4-6/opus-4-8）；菜单显示名写入
+  labelOverride，1M 能力按 supports1m 声明，实际请求模型保存在 Provider 的
+  三档 *Model 字段（`claudeDesktopModelEntry`）。
 - **apiFormat 三档**（models.cppm）：`openai-chat`（默认；`""`/旧值
   `"openai"`/未知值都归此档）/ `openai-responses` / `anthropic`。序列化存
   原值，判定/显示/映射一律经 `models::normalizeApiFormat` 归一 +

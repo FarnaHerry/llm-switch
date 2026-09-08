@@ -11,7 +11,7 @@
 // restoreOfficial 三工具还原
 // （codex 模型收回）、官方厂商名（officialVendorName）与预设列表、
 // claude 系三档模型映射（env 六键 /
-// desktop inferenceModels / 收编 / 擦除）、旧格式 config.json 迁移、
+// desktop inferenceModels 的显示名与 supports1m / 收编 / 擦除）、旧格式 config.json 迁移、
 // 损坏 config.json 挪走不崩溃。
 #include <cstdio>    // stderr（std 模块不导出 stdout/stderr 宏）
 #include "test_env.h"  // setenv/getpid/unsetenv 可移植封装
@@ -739,7 +739,11 @@ int main() {
                             .model = "main-model",
                             .haikuModel = "haiku-x",
                             .sonnetModel = "sonnet-x",
-                            .opusModel = "opus-x"};
+                            .opusModel = "opus-x",
+                            .haikuDisplayName = "Haiku 显示名",
+                            .sonnetDisplayName = "Sonnet 显示名",
+                            .opusDisplayName = "Opus 显示名",
+                            .haikuSupports1m = true};
         s.addProvider("claude-code", pm);
         const std::string idMap = s.group("claude-code").providers.back().id;
         s.switchTo("claude-code", idMap);
@@ -758,6 +762,10 @@ int main() {
                     CHECK(p.haikuModel == "haiku-x");
                     CHECK(p.sonnetModel == "sonnet-x");
                     CHECK(p.opusModel == "opus-x");
+                    CHECK(p.haikuDisplayName == "Haiku 显示名");
+                    CHECK(p.sonnetDisplayName == "Sonnet 显示名");
+                    CHECK(p.opusDisplayName == "Opus 显示名");
+                    CHECK(p.haikuSupports1m);
                 }
             }
             CHECK(found);
@@ -777,13 +785,18 @@ int main() {
         CHECK(!je["env"].contains("ANTHROPIC_DEFAULT_OPUS_MODEL"));
 
         // claude desktop：主模型 + 映射 → inferenceModels 条目
-        // （safe 名直写 name；非 safe 借该档 route id + labelOverride）
+        // （safe 名直写 name；非 safe 借该档 route id，显示名写 labelOverride，
+        // supports1m 按字段写入）
         models::Provider pdm{.name = "桌面映射",
                              .baseUrl = "https://d3.example.com",
                              .apiKey = "sk-d3",
                              .model = "claude-sonnet-4-6",
                              .haikuModel = "deepseek-chat",
-                             .opusModel = "kimi-k2"};
+                             .opusModel = "kimi-k2",
+                             .haikuDisplayName = "DeepSeek Haiku",
+                             .opusDisplayName = "Kimi Opus",
+                             .haikuSupports1m = true,
+                             .opusSupports1m = true};
         s.addProvider("claude", pdm);
         const std::string idDM = s.group("claude").providers.back().id;
         s.switchTo("claude", idDM);
@@ -794,9 +807,11 @@ int main() {
         CHECK(profile["inferenceModels"][0]["name"] == "claude-sonnet-4-6");
         CHECK(!profile["inferenceModels"][0].contains("labelOverride"));
         CHECK(profile["inferenceModels"][1]["name"] == "claude-haiku-4-5");
-        CHECK(profile["inferenceModels"][1]["labelOverride"] == "deepseek-chat");
+        CHECK(profile["inferenceModels"][1]["labelOverride"] == "DeepSeek Haiku");
+        CHECK(profile["inferenceModels"][1]["supports1m"] == true);
         CHECK(profile["inferenceModels"][2]["name"] == "claude-opus-4-8");
-        CHECK(profile["inferenceModels"][2]["labelOverride"] == "kimi-k2");
+        CHECK(profile["inferenceModels"][2]["labelOverride"] == "Kimi Opus");
+        CHECK(profile["inferenceModels"][2]["supports1m"] == true);
         // importLive 收回：labelOverride 优先，按 route id 前缀归档
         writeFile(root / "Claude-3p" / "configLibrary" /
                       "00000000-0000-4000-8000-000000157210.json",

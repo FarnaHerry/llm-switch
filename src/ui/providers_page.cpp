@@ -58,7 +58,8 @@ namespace {
 // （0=Anthropic，1=OpenAI）；fullUrl 打开时 URL 原样使用，不追加默认后缀。
 // apiFormat 为 opencode / pi 的 API 适配器下标（0=OpenAI 兼容（默认，
 // 存空串）/ 1=anthropic / 2=openai-responses）。
-// haiku/sonnet/opus 为三档模型映射（仅 hasModelMappings 工具展示）；
+// haiku/sonnet/opus 为三档模型映射（仅 hasModelMappings 工具展示），每档包含
+// 菜单显示名、实际请求模型和 supports1m 声明；
 // selModel/selHaiku/selSonnet/selOpus 为各行模型下拉的选中下标。
 // 用量查询三字段不在此——已拆到独立的 UsageFormPage（卡片 gauge 按钮进入）。
 struct FormStates {
@@ -75,6 +76,12 @@ struct FormStates {
     huxerui::State<huxerui::TextEditingValue> haiku;   // 仅 claude 系展示
     huxerui::State<huxerui::TextEditingValue> sonnet;
     huxerui::State<huxerui::TextEditingValue> opus;
+    huxerui::State<huxerui::TextEditingValue> haikuDisplayName;
+    huxerui::State<huxerui::TextEditingValue> sonnetDisplayName;
+    huxerui::State<huxerui::TextEditingValue> opusDisplayName;
+    huxerui::State<bool> haikuSupports1m;
+    huxerui::State<bool> sonnetSupports1m;
+    huxerui::State<bool> opusSupports1m;
     huxerui::State<std::size_t> selModel;
     huxerui::State<std::size_t> selHaiku;
     huxerui::State<std::size_t> selSonnet;
@@ -101,6 +108,12 @@ struct FormStates {
      huxerui::UseState(huxerui::TextEditingValue{(p).haikuModel}),          \
      huxerui::UseState(huxerui::TextEditingValue{(p).sonnetModel}),         \
      huxerui::UseState(huxerui::TextEditingValue{(p).opusModel}),           \
+     huxerui::UseState(huxerui::TextEditingValue{(p).haikuDisplayName}),    \
+     huxerui::UseState(huxerui::TextEditingValue{(p).sonnetDisplayName}),   \
+     huxerui::UseState(huxerui::TextEditingValue{(p).opusDisplayName}),     \
+     huxerui::UseState((p).haikuSupports1m),                                \
+     huxerui::UseState((p).sonnetSupports1m),                               \
+     huxerui::UseState((p).opusSupports1m),                                 \
      huxerui::UseState(std::size_t{0}),                                     \
      huxerui::UseState(std::size_t{0}),                                     \
      huxerui::UseState(std::size_t{0}),                                     \
@@ -122,6 +135,12 @@ void FillForm(const FormStates& fs, const models::Provider& p) {
     fs.haiku = huxerui::TextEditingValue{p.haikuModel};
     fs.sonnet = huxerui::TextEditingValue{p.sonnetModel};
     fs.opus = huxerui::TextEditingValue{p.opusModel};
+    fs.haikuDisplayName = huxerui::TextEditingValue{p.haikuDisplayName};
+    fs.sonnetDisplayName = huxerui::TextEditingValue{p.sonnetDisplayName};
+    fs.opusDisplayName = huxerui::TextEditingValue{p.opusDisplayName};
+    fs.haikuSupports1m = p.haikuSupports1m;
+    fs.sonnetSupports1m = p.sonnetSupports1m;
+    fs.opusSupports1m = p.opusSupports1m;
     fs.selModel = std::size_t{0};
     fs.selHaiku = std::size_t{0};
     fs.selSonnet = std::size_t{0};
@@ -383,36 +402,64 @@ huxerui::View ModelSelect(huxerui::State<std::vector<std::string>> fetched,
     if (hasMappings) {
         // 三档模型映射（claude-code 写 ANTHROPIC_DEFAULT_*_MODEL env；
         // claude desktop 写 inferenceModels 映射条目），均选填，共享同一份
-        // fetchedModels 下拉。
+        // fetchedModels 下拉。实际请求模型仍是现有三档 *Model 字段；显示名
+        // 与 supports1m 仅用于 Claude Desktop 菜单元数据。
         fields.push_back(huxerui::Text("模型映射（可选）")
             .Style(huxerui::TextStyle{
                 huxerui::Font::System(font_size::kCaption),
                 theme.colors.on_surface_variant}));
-        const std::array<std::pair<const char*,
-                                   huxerui::State<huxerui::TextEditingValue>>,
-                         3>
-            mappingFields{{
-                {"Haiku 映射", fs.haiku},
-                {"Sonnet 映射", fs.sonnet},
-                {"Opus 映射", fs.opus},
-            }};
+        struct MappingField {
+            const char* role;
+            huxerui::State<huxerui::TextEditingValue> displayName;
+            huxerui::State<huxerui::TextEditingValue> model;
+            huxerui::State<bool> supports1m;
+        };
+        const std::array<MappingField, 3> mappingFields{{
+            {"Haiku", fs.haikuDisplayName, fs.haiku, fs.haikuSupports1m},
+            {"Sonnet", fs.sonnetDisplayName, fs.sonnet, fs.sonnetSupports1m},
+            {"Opus", fs.opusDisplayName, fs.opus, fs.opusSupports1m},
+        }};
         const std::array<huxerui::State<std::size_t>, 3> mappingSels{
             fs.selHaiku, fs.selSonnet, fs.selOpus};
         for (std::size_t i = 0; i < mappingFields.size(); ++i) {
-            const auto& [label, field] = mappingFields[i];
-            fields.push_back(huxerui::Row {
-                huxerui::TextField(field.Get())
-                    .Label(label)
-                    .Variant(huxerui::TextFieldVariant::Outlined)
-                    .OnChanged([field](const huxerui::TextEditingValue& v) {
-                        field = v;
-                    })
-                    .With(huxerui::Grow(1.0F)),
-                fetchedModels.Get().empty()
-                    ? huxerui::View{huxerui::Row{}}
-                    : ModelSelect(fetchedModels, mappingSels[i], field),
-            }.With(huxerui::Spacing(8.0F),
-                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)));
+            const auto& mapping = mappingFields[i];
+            fields.push_back(huxerui::Column {
+                huxerui::Text(mapping.role)
+                    .Style(huxerui::TextStyle{
+                        huxerui::Font::System(font_size::kBody),
+                        theme.colors.on_surface}),
+                huxerui::Row {
+                    huxerui::TextField(mapping.displayName.Get())
+                        .Label("菜单显示名称")
+                        .Placeholder(std::string(mapping.role) + " 菜单名称")
+                        .Variant(huxerui::TextFieldVariant::Outlined)
+                        .OnChanged([field = mapping.displayName](
+                                       const huxerui::TextEditingValue& v) {
+                            field = v;
+                        })
+                        .With(huxerui::Grow(1.0F)),
+                    huxerui::TextField(mapping.model.Get())
+                        .Label("实际请求模型")
+                        .Placeholder("发送给上游的模型 ID")
+                        .Variant(huxerui::TextFieldVariant::Outlined)
+                        .OnChanged([field = mapping.model](
+                                       const huxerui::TextEditingValue& v) {
+                            field = v;
+                        })
+                        .With(huxerui::Grow(1.0F)),
+                    fetchedModels.Get().empty()
+                        ? huxerui::View{huxerui::Row{}}
+                        : ModelSelect(fetchedModels, mappingSels[i], mapping.model),
+                    huxerui::Checkbox("声明支持 1M", mapping.supports1m.Get())
+                        .OnChanged([supports1m = mapping.supports1m](bool checked) {
+                            supports1m = checked;
+                        }),
+                }.With(huxerui::Spacing(8.0F),
+                       huxerui::CrossAlign(
+                           huxerui::CrossAxisAlignment::Center)),
+            }.With(huxerui::Spacing(6.0F),
+                   huxerui::CrossAlign(
+                       huxerui::CrossAxisAlignment::Stretch)));
         }
     }
     if (hasApiFormat) {
@@ -509,6 +556,12 @@ huxerui::View ModelSelect(huxerui::State<std::vector<std::string>> fetched,
                         p.haikuModel = fs.haiku.Get().text;
                         p.sonnetModel = fs.sonnet.Get().text;
                         p.opusModel = fs.opus.Get().text;
+                        p.haikuDisplayName = fs.haikuDisplayName.Get().text;
+                        p.sonnetDisplayName = fs.sonnetDisplayName.Get().text;
+                        p.opusDisplayName = fs.opusDisplayName.Get().text;
+                        p.haikuSupports1m = fs.haikuSupports1m.Get();
+                        p.sonnetSupports1m = fs.sonnetSupports1m.Get();
+                        p.opusSupports1m = fs.opusSupports1m.Get();
                         // 用量查询配置归 UsageFormPage 管，编辑保留原值。
                         p.usageUrl = initial.usageUrl;
                         p.usagePath = initial.usagePath;
