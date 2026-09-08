@@ -8,6 +8,7 @@
 // pi（双文件、权限位、apiFormat 映射）、claude desktop（Linux 不支持报错 +
 // 覆盖后四文件）、备份生成、detectCurrent、导出/导入回滚、apiFormat 三档
 // 映射与归一、usage 三字段与全局设置持久化、逐 Agent 路由开关持久化、
+// Claude Code 跳过登录开关、
 // restoreOfficial 三工具还原
 // （codex 模型收回）、官方厂商名（officialVendorName）与预设列表、
 // claude 系三档模型映射（env 六键 /
@@ -187,6 +188,19 @@ int main() {
         CHECK(j["env"]["ANTHROPIC_MODEL"] == "model-a");
         CHECK(s.group("claude-code").current == idA);
     }
+
+    // 3a. Claude Code 跳过登录：写入 DISABLE_LOGIN_COMMAND=1，关闭时只移除该键。
+    CHECK(!s.claudeCodeSkipLogin());
+    s.setClaudeCodeSkipLogin(true);
+    CHECK(s.claudeCodeSkipLogin());
+    {
+        const auto j = readJson(claudeSettings);
+        CHECK(j["env"]["DISABLE_LOGIN_COMMAND"] == "1");
+        CHECK(j["permissions"]["allow"][0] == "Bash(*)");
+    }
+    s.setClaudeCodeSkipLogin(false);
+    CHECK(!s.claudeCodeSkipLogin());
+    CHECK(!readJson(claudeSettings)["env"].contains("DISABLE_LOGIN_COMMAND"));
 
     // 3b. 根 URL + Anthropic 上游格式：切换时写入默认 /anthropic 后缀，
     // detectCurrent 也按实际访问 URL 反向匹配。

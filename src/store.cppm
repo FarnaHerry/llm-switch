@@ -42,6 +42,10 @@ public:
     // minutes = 0 表示仅手动刷新。
     void setUsageRefreshMinutes(int minutes);
 
+    // Claude Code 登录行为：写入/移除 settings.json env.DISABLE_LOGIN_COMMAND。
+    bool claudeCodeSkipLogin() const;
+    void setClaudeCodeSkipLogin(bool enabled);
+
     // 本地路由设置（llmswitch.router），立即落盘。
     void setRouterEnabled(bool enabled);
     void setRouterPort(int port);

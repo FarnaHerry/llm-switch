@@ -584,6 +584,35 @@ void ProviderStore::setUsageRefreshMinutes(int minutes) {
     save();
 }
 
+bool ProviderStore::claudeCodeSkipLogin() const {
+    const auto settings = readJsonPassive(cfg::claudeSettingsFile());
+    const std::string value = claudeEnvValue(settings, "DISABLE_LOGIN_COMMAND");
+    return value == "1" || value == "true" || value == "TRUE";
+}
+
+void ProviderStore::setClaudeCodeSkipLogin(bool enabled) {
+    const auto file = cfg::claudeSettingsFile();
+    nlohmann::json settings = readJsonOrNull(file);
+    if (!settings.is_object()) {
+        if (!enabled) return;
+        settings = nlohmann::json::object();
+    }
+
+    const std::string current = claudeEnvValue(settings, "DISABLE_LOGIN_COMMAND");
+    const auto env = settings.find("env");
+    const bool hasSetting = env != settings.end() && env->is_object() &&
+                            env->contains("DISABLE_LOGIN_COMMAND");
+    if ((enabled && current == "1") || (!enabled && !hasSetting)) return;
+
+    backupLiveFile("claude-code", file);
+    if (enabled) {
+        settings["env"]["DISABLE_LOGIN_COMMAND"] = "1";
+    } else if (settings.contains("env") && settings["env"].is_object()) {
+        settings["env"].erase("DISABLE_LOGIN_COMMAND");
+    }
+    atomicWrite(file, settings.dump(2) + "\n");
+}
+
 void ProviderStore::setRouterEnabled(bool enabled) {
     config_.routerEnabled = enabled;
     save();
