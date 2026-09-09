@@ -442,4 +442,5 @@ jobs:
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
+          name: llm-switch ${{ github.ref_name }}
           files: dist/*
