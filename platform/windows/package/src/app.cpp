@@ -1,7 +1,9 @@
 #include <algorithm>
+#include <cstdlib>
 #include <filesystem>
 #include <iterator>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -151,6 +153,37 @@ std::optional<std::filesystem::path> ParseInstallPath(std::string_view value) {
   }
 }
 
+namespace {
+
+std::filesystem::path UserDataDirectory() {
+  const wchar_t* app_data = _wgetenv(L"APPDATA");
+  if (app_data == nullptr || *app_data == L'\0') {
+    return {};
+  }
+  return std::filesystem::path(app_data) / L"llm-switch";
+}
+
+void RemoveUserData() {
+  const std::filesystem::path data_directory = UserDataDirectory();
+  if (data_directory.empty()) {
+    return;
+  }
+
+  // Keep this guard close to the destructive operation so a malformed or
+  // missing APPDATA value can never turn into a broad recursive deletion.
+  if (data_directory.filename() != std::filesystem::path(L"llm-switch")) {
+    throw std::runtime_error("The llm-switch data directory could not be validated.");
+  }
+
+  std::error_code error;
+  std::filesystem::remove_all(data_directory, error);
+  if (error) {
+    throw std::runtime_error("Could not remove llm-switch data: " + error.message());
+  }
+}
+
+} // namespace
+
 View InstallerMark(Color foreground, Color detail) {
   return Canvas([foreground, detail](PaintContext& paint, Size size) {
     const float extent = std::min(size.width, size.height);
@@ -280,6 +313,7 @@ View InstallerContent() {
   const InstallerHandle installer = UseInstaller();
   const WindowHandle window = UseWindow();
   const TaskScope tasks = UseTaskScope();
+  const DialogHandle dialog = UseDialog();
   const ThemeSpec& theme = UseTheme();
   const InstallerStatus status = installer.Status();
   auto destination = UseState<std::optional<TextEditingValue>>(std::nullopt);
@@ -318,21 +352,58 @@ View InstallerContent() {
         Button(installer_strings::close).OnClick([window] { window.Close(); }).With(Frame{.min_width = 112.0F})
     );
   } else if (status.phase == InstallerPhase::Ready && status.product == InstallerProductState::Present) {
-    eyebrow = installer_strings::maintenance;
-    heading = installer_strings::manage_installation;
+    eyebrow = installer_strings::upgrade;
+    heading = installer_strings::existing_installation_detected;
     details.push_back(
         Text(installer_strings::already_installed).With(Foreground(theme.colors.on_surface_variant))
     );
-    actions.push_back(
-        SecondaryAction(Button(installer_strings::cancel).OnClick([window] { window.Close(); }), theme)
+    details.push_back(
+        Text(installer_strings::upgrade_keep_data_message).With(Foreground(theme.colors.on_surface_variant))
     );
+    details.push_back(
+        Text(installer_strings::uninstall_options).With(Foreground(theme.colors.on_surface_variant))
+    );
+
+    const auto show_uninstall_options = [dialog, tasks, installer] {
+      dialog.Show(
+          installer_strings::uninstall_title,
+          installer_strings::uninstall_message,
+          installer_strings::delete_data_and_uninstall,
+          installer_strings::keep_data_and_uninstall,
+          [dialog, tasks, installer] {
+            tasks.Launch([dialog, installer]() -> Task<void> {
+              try {
+                co_await RunWorker([] { RemoveUserData(); });
+                installer.Uninstall();
+              } catch (const std::exception& error) {
+                dialog.Show(
+                    installer_strings::data_delete_failed,
+                    error.what(),
+                    installer_strings::close,
+                    {},
+                    {},
+                    {},
+                    {}
+                );
+              }
+            });
+          },
+          [installer] { installer.Uninstall(); }
+      );
+    };
+
     actions.push_back(SecondaryAction(
-        Button(installer_strings::uninstall).OnClick([installer] { installer.Uninstall(); }), theme
+        Button(installer_strings::uninstall).OnClick(show_uninstall_options), theme
     ));
     actions.push_back(
         Button(installer_strings::repair)
             .OnClick([installer] { installer.Repair(); })
-            .With(Frame{.min_width = 112.0F})
+            .With(Frame{.min_width = 96.0F})
+    );
+    actions.push_back(
+        Button(installer_strings::upgrade_keep_data)
+            .OnClick([installer] { installer.Install(); })
+            .With(Frame{.min_width = 152.0F})
     );
   } else if (status.phase == InstallerPhase::Ready && status.product == InstallerProductState::Absent) {
     const TextEditingValue destination_value = destination.Get().value_or(
