@@ -6,6 +6,11 @@
 #include <string_view>
 #include <vector>
 
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+
 #include <installer_resources.h>
 #include <huxerui/huxerui.h>
 #include <huxerui/windows/installer.h>
@@ -13,6 +18,121 @@
 using namespace huxerui;
 using namespace huxerui::windows;
 namespace installer_strings = installer::strings;
+
+namespace {
+
+bool SystemPrefersDark() {
+  HKEY key = nullptr;
+  if (RegOpenKeyExA(HKEY_CURRENT_USER,
+                    "Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize", 0,
+                    KEY_READ, &key) != ERROR_SUCCESS) {
+    return false;
+  }
+
+  DWORD apps_use_light_theme = 1;
+  DWORD size = sizeof(apps_use_light_theme);
+  const LONG result = RegQueryValueExA(key, "AppsUseLightTheme", nullptr, nullptr,
+                                       reinterpret_cast<LPBYTE>(&apps_use_light_theme), &size);
+  RegCloseKey(key);
+  return result == ERROR_SUCCESS && apps_use_light_theme == 0;
+}
+
+ThemeSpec InkDarkThemeSpec() {
+  ThemeSpec spec = MaterialDarkThemeSpec();
+  spec.typography = TypographyScheme{
+      .body_large = 16.0F,
+      .body_medium = 14.0F,
+      .body_small = 12.0F,
+      .label_large = 14.0F,
+      .title_large = 20.0F,
+      .headline_small = 24.0F,
+  };
+  spec.colors.primary = Color::Rgb(230, 224, 210);          // 宣纸白
+  spec.colors.on_primary = Color::Rgb(38, 35, 30);           // 浓墨
+  spec.colors.secondary = Color::Rgb(179, 172, 156);         // 淡墨
+  spec.colors.on_secondary = Color::Rgb(38, 35, 30);
+  spec.colors.secondary_container = Color::Rgb(58, 54, 45);
+  spec.colors.on_secondary_container = Color::Rgb(230, 224, 210);
+  spec.colors.background = Color::Rgb(22, 20, 17);            // 玄墨海面
+  spec.colors.surface = Color::Rgb(28, 26, 22);
+  spec.colors.surface_container_low = Color::Rgb(33, 30, 26);
+  spec.colors.surface_container = Color::Rgb(40, 37, 31);
+  spec.colors.surface_container_high = Color::Rgb(47, 44, 37);
+  spec.colors.surface_container_highest = Color::Rgb(56, 52, 44);
+  spec.colors.on_surface = Color::Rgb(214, 208, 192);        // 宣纸灰
+  spec.colors.on_surface_variant = Color::Rgb(163, 156, 139); // 淡墨
+  spec.colors.outline = Color::Rgb(76, 71, 60);
+  spec.colors.inverse_surface = Color::Rgb(214, 208, 192);
+  spec.colors.inverse_on_surface = Color::Rgb(38, 35, 30);
+  spec.colors.error = Color::Rgb(223, 114, 86);               // 朱砂
+  return spec;
+}
+
+ThemeSpec InkLightThemeSpec() {
+  ThemeSpec spec = MaterialLightThemeSpec();
+  spec.typography = TypographyScheme{
+      .body_large = 16.0F,
+      .body_medium = 14.0F,
+      .body_small = 12.0F,
+      .label_large = 14.0F,
+      .title_large = 20.0F,
+      .headline_small = 24.0F,
+  };
+  spec.colors.primary = Color::Rgb(43, 40, 35);              // 浓墨
+  spec.colors.on_primary = Color::Rgb(246, 243, 234);        // 宣纸白
+  spec.colors.secondary = Color::Rgb(110, 105, 92);          // 淡墨
+  spec.colors.on_secondary = Color::Rgb(248, 245, 238);
+  spec.colors.secondary_container = Color::Rgb(227, 221, 203);
+  spec.colors.on_secondary_container = Color::Rgb(43, 40, 35);
+  spec.colors.background = Color::Rgb(239, 234, 224);         // 宣纸海面
+  spec.colors.surface = Color::Rgb(247, 244, 236);
+  spec.colors.surface_container_low = Color::Rgb(242, 238, 228);
+  spec.colors.surface_container = Color::Rgb(248, 245, 236);
+  spec.colors.surface_container_high = Color::Rgb(230, 225, 211);
+  spec.colors.surface_container_highest = Color::Rgb(252, 250, 243);
+  spec.colors.on_surface = Color::Rgb(46, 43, 37);           // 浓墨正文
+  spec.colors.on_surface_variant = Color::Rgb(110, 105, 92); // 淡墨
+  spec.colors.outline = Color::Rgb(216, 210, 194);
+  spec.colors.inverse_surface = Color::Rgb(46, 43, 37);
+  spec.colors.inverse_on_surface = Color::Rgb(246, 243, 234);
+  spec.colors.error = Color::Rgb(181, 70, 46);                // 朱砂
+  return spec;
+}
+
+ThemeSpec InstallerThemeSpec() {
+  return SystemPrefersDark() ? InkDarkThemeSpec() : InkLightThemeSpec();
+}
+
+Color WithAlpha(Color color, float alpha) {
+  color.alpha = alpha;
+  return color;
+}
+
+View InstallerTheme(View content) {
+  const ThemeSpec spec = InstallerThemeSpec();
+  ThemeDefinition definition = MaterialThemeDefinition(spec);
+
+  ButtonStyle buttons = ButtonStyle::Default();
+  buttons.background = spec.colors.primary;
+  buttons.label_style = TextStyle{Font::System(spec.typography.body_medium), spec.colors.on_primary};
+  buttons.corner_radii = CornerRadii{8.0F};
+  definition.Set(buttons);
+
+  DialogStyle dialogs = DialogStyle::Default();
+  dialogs.background = spec.colors.surface_container_high;
+  dialogs.title_style = TextStyle{Font::System(spec.typography.title_large).WithWeight(FontWeight::Bold),
+                                   spec.colors.on_surface};
+  dialogs.message_style = TextStyle{Font::System(spec.typography.body_medium), spec.colors.on_surface};
+  dialogs.positive_action_background = spec.colors.primary;
+  dialogs.positive_action_style = TextStyle{Font::System(spec.typography.body_medium), spec.colors.on_primary};
+  dialogs.negative_action_style = TextStyle{Font::System(spec.typography.body_medium), spec.colors.on_surface};
+  dialogs.action_separator_color = spec.colors.outline;
+  definition.Set(dialogs);
+
+  return Theme(std::move(definition), std::move(content));
+}
+
+} // namespace
 
 std::string InstallPathText(const std::filesystem::path& path) {
   const std::u8string value = path.u8string();
@@ -35,29 +155,29 @@ View InstallerMark(Color foreground, Color detail) {
   return Canvas([foreground, detail](PaintContext& paint, Size size) {
     const float extent = std::min(size.width, size.height);
     Color tile = foreground;
-    tile.alpha = 0.14F;
-    paint.DrawRect({0.0F, 0.0F, extent, extent}, tile, CornerRadii{18.0F});
-    paint.DrawRect({15.0F, 17.0F, 34.0F, 32.0F}, foreground, CornerRadii{7.0F});
-    paint.DrawLine({15.0F, 28.0F}, {49.0F, 28.0F}, detail, StrokeStyle{.width = 2.0F});
-    paint.DrawLine({32.0F, 17.0F}, {32.0F, 49.0F}, detail, StrokeStyle{.width = 2.0F});
+    tile.alpha = 0.10F;
+    paint.DrawCircle({extent * 0.5F, extent * 0.5F}, extent * 0.44F, tile);
+    paint.DrawArc({extent * 0.5F, extent * 0.5F}, extent * 0.34F, 0.0F, 3.14159F,
+                  foreground, StrokeStyle{.width = 3.0F, .cap = StrokeCap::Round});
+    paint.DrawArc({extent * 0.5F, extent * 0.5F}, extent * 0.34F, 3.14159F, 3.14159F,
+                  detail, StrokeStyle{.width = 3.0F, .cap = StrokeCap::Round});
+    paint.DrawCircle({extent * 0.5F, extent * 0.5F - extent * 0.18F}, extent * 0.045F, detail);
+    paint.DrawCircle({extent * 0.5F, extent * 0.5F + extent * 0.18F}, extent * 0.045F, foreground);
   }).With(Frame{.width = 64.0F, .height = 64.0F});
 }
 
 View BrandPanel(const ThemeSpec& theme) {
-  Color deep_primary = theme.colors.primary;
-  deep_primary.red *= 0.52F;
-  deep_primary.green *= 0.52F;
-  deep_primary.blue *= 0.52F;
-  Color secondary_text = theme.colors.on_primary;
-  secondary_text.alpha = 0.72F;
+  const Color panel_start = theme.colors.surface_container;
+  const Color panel_end = theme.colors.background;
+  const Color secondary_text = WithAlpha(theme.colors.on_surface_variant, 0.92F);
 
   return Column {
-    InstallerMark(theme.colors.on_primary, deep_primary),
+    InstallerMark(theme.colors.primary, theme.colors.error),
     Column {
       Text(installer_strings::application_setup)
           .Style(TextStyle{Font::System(12.0F).WithWeight(FontWeight::SemiBold), secondary_text}),
       Text("llm-switch")
-          .Style(TextStyle{Font::System(28.0F).WithWeight(FontWeight::SemiBold), theme.colors.on_primary}),
+          .Style(TextStyle{Font::System(28.0F).WithWeight(FontWeight::SemiBold), theme.colors.on_surface}),
       Text(installer_strings::guided_setup)
           .Style(TextStyle{Font::System(theme.typography.body_medium), secondary_text}),
     }.With(Spacing(12.0F), CrossAlign(CrossAxisAlignment::Start)),
@@ -66,13 +186,14 @@ View BrandPanel(const ThemeSpec& theme) {
         .Style(TextStyle{Font::System(11.0F).WithWeight(FontWeight::SemiBold), secondary_text}),
   }.With(
       Frame{.width = 236.0F},
-      Padding(32.0F),
-      Spacing(30.0F),
+      Padding(28.0F),
+      Spacing(26.0F),
       Background(LinearGradient{
           .start = {0.0F, 0.0F},
           .end = {1.0F, 1.0F},
-          .stops = {{0.0F, theme.colors.primary}, {1.0F, deep_primary}},
+          .stops = {{0.0F, panel_start}, {1.0F, panel_end}},
       }),
+      Border{WithAlpha(theme.colors.outline, 0.45F)},
       CrossAlign(CrossAxisAlignment::Start)
   );
 }
@@ -383,7 +504,7 @@ View InstallerContent() {
 }
 
 View InstallerPage() {
-  return MaterialTheme {InstallerContent()};
+  return InstallerTheme(InstallerContent());
 }
 
 const Application application{
