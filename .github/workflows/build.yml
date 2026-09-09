@@ -424,17 +424,37 @@ jobs:
           path: dist
           merge-multiple: true
 
+      - name: Add version to release asset names
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$GITHUB_REF_NAME"
+          for suffix in \
+            linux-x86_64.tar.gz \
+            linux-x86_64.deb \
+            linux-x86_64.rpm \
+            windows-x86_64.zip \
+            windows-x86_64-setup.exe \
+            macos-arm64.tar.gz; do
+            source="dist/llm-switch-${suffix}"
+            target="dist/llm-switch-${version}-${suffix}"
+            test -f "$source"
+            mv "$source" "$target"
+          done
+          ls -lh dist
+
       - name: Verify packaged artifacts
         shell: bash
         run: |
           set -euo pipefail
+          version="$GITHUB_REF_NAME"
           for artifact in \
-            llm-switch-linux-x86_64.tar.gz \
-            llm-switch-linux-x86_64.deb \
-            llm-switch-linux-x86_64.rpm \
-            llm-switch-windows-x86_64.zip \
-            llm-switch-windows-x86_64-setup.exe \
-            llm-switch-macos-arm64.tar.gz; do
+            "llm-switch-${version}-linux-x86_64.tar.gz" \
+            "llm-switch-${version}-linux-x86_64.deb" \
+            "llm-switch-${version}-linux-x86_64.rpm" \
+            "llm-switch-${version}-windows-x86_64.zip" \
+            "llm-switch-${version}-windows-x86_64-setup.exe" \
+            "llm-switch-${version}-macos-arm64.tar.gz"; do
             test -f "dist/$artifact"
           done
           ls -lh dist
