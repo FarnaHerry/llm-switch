@@ -8,7 +8,7 @@
 // 垂直居中落在内容与操作组之间，两者皆无时塌缩为零宽）｜ 右侧操作图标组
 // （切换 swap / 联通检测 activity / 编辑 edit / 用量查询配置 gauge /
 // 复制 copy / 删除 trash，自绘 SVG + Tooltip，删除走内置确认框）。联通检测经
-// net::pingLatencyMs（RunWorker 派到 worker 线程），连通后卡片显示
+// HuxerUI HttpClient（平台原生异步 HTTP），连通后卡片显示
 // 「延迟 N ms」，失败显示「不可达：…」（error 色）。有官方厂商的工具
 // （claude-code / claude / codex，models::officialVendorName）列表第一位固定
 // 一张「官方」常驻卡：切换 = store.restoreOfficial 还原厂商原生状态，
@@ -20,9 +20,8 @@
 // 显示 config.toml 原文、needsModel（opencode/pi）模型必填、hasApiFormat 显示
 // API 协议分段选择；hasModelMappings（claude-code /
 // claude）额外显示三档模型映射行（Haiku/Sonnet/Opus）。模型字段旁「获取模型」
-// 默认按当前实际 URL/apiKey/上游格式经 llmswitch.net 拉取模型列表，也支持在
-// 高级选项中覆盖完整模型列表 URL（阻塞网络调用经 huxerui::RunWorker 派到
-// worker 线程，结果回 UI 线程写 State）；拉取成功后模型行在按钮前出现 Select
+// 默认按当前实际 URL/apiKey/上游格式经 HuxerUI HttpClient 拉取模型列表，也支持在
+// 高级选项中覆盖完整模型列表 URL；平台异步请求完成后结果回 UI 线程写 State；拉取成功后模型行在按钮前出现 Select
 // 下拉，点选回填该行的模型字段（不弹窗）。
 // 用量查询：usageUrl 非空的卡片显示用量文本 + 手动刷新按钮；页面可见期间
 // 按 config 的 usageEnabled/usageRefreshMinutes 轮询全部配置了 usageUrl 的
@@ -152,23 +151,96 @@ void FillForm(const FormStates& fs, const models::Provider& p) {
 }
 
 // 用量缓存：providerId → 展示文本（含「查询失败：…」错误文本），页面级 State，
-// 只在 UI 线程写（RunWorker 协程恢复点恒为 UI 线程）。
+// 只在 UI 线程写（HuxerUI HTTP 协程恢复点恒为 UI 线程）。
 using UsageCache = huxerui::State<std::map<std::string, std::string>>;
 
-// 拉单个供应商的用量并格式化成展示文本（worker 线程跑阻塞 fetchUsage，
-// 恢复点在 UI 线程；本函数不写 State）。
-huxerui::Task<std::string> FetchUsageText(models::Provider p) {
+std::string HttpBodyText(const huxerui::Bytes& body) {
+    if (body.empty()) return {};
+    return std::string(reinterpret_cast<const char*>(body.data()), body.size());
+}
+
+std::vector<huxerui::HttpHeader> ApiHeaders(std::string_view apiKey,
+                                            bool anthropic) {
+    std::vector<huxerui::HttpHeader> headers;
+    if (apiKey.empty()) return headers;
+    headers.push_back({"Authorization", "Bearer " + std::string(apiKey)});
+    if (anthropic) {
+        // 兼容 Anthropic 官方接口和同时接受 Bearer 的第三方网关。
+        headers.push_back({"x-api-key", std::string(apiKey)});
+        headers.push_back({"anthropic-version", "2023-06-01"});
+    }
+    return headers;
+}
+
+// HuxerUI HttpClient 在 Windows 走 WinHTTP/系统证书库，在 Linux/macOS 走
+// 平台原生 HTTP 栈。响应体只在模型列表和用量查询中缓冲；连通检测使用流式
+// 接口，只等待响应头，避免把供应商根 URL 返回的大页面读入内存。
+huxerui::Task<std::string> FetchHttpText(
+    std::shared_ptr<huxerui::HttpClient> http, std::string url,
+    std::vector<huxerui::HttpHeader> headers, std::string_view context) {
+    if (!http) {
+        throw std::runtime_error(std::format("{}失败：HTTP 服务不可用", context));
+    }
+    const std::string requestUrl = url;
+    auto result = co_await http->SendAsync(
+        huxerui::HttpRequest{.url = std::move(url),
+                             .headers = std::move(headers),
+                             .timeout = std::chrono::seconds{10}});
+    if (!result.Succeeded()) {
+        throw std::runtime_error(std::format(
+            "{}失败：{}", context, result.Error().message));
+    }
+    auto response = std::move(result).Value();
+    if (response.status_code < 200 || response.status_code >= 300) {
+        const std::string body = HttpBodyText(response.body);
+        throw std::runtime_error(std::format(
+            "{}失败：HTTP {}（{}）—— {}", context, response.status_code,
+            response.url.empty() ? requestUrl : response.url,
+            body.substr(0, 200)));
+    }
+    co_return HttpBodyText(response.body);
+}
+
+huxerui::Task<std::vector<std::string>> FetchModelIds(
+    std::shared_ptr<huxerui::HttpClient> http, std::string url,
+    std::string apiKey, std::string upstreamFormat) {
+    const std::string body = co_await FetchHttpText(
+        std::move(http), std::move(url),
+        ApiHeaders(apiKey, upstreamFormat == "anthropic"), "拉取模型列表");
+    co_return net::parseModelIds(body);
+}
+
+// 拉单个供应商的用量并格式化成展示文本；本函数不写 State。
+huxerui::Task<std::string> FetchUsageText(
+    std::shared_ptr<huxerui::HttpClient> http, models::Provider p) {
     try {
-        const std::string value = co_await huxerui::RunWorker(
-            [](std::string u, std::string k, std::string path) {
-                return net::fetchUsage(u, k, path);
-            },
-            p.usageUrl, p.apiKey, p.usagePath);
+        const std::string body = co_await FetchHttpText(
+            std::move(http), p.usageUrl, ApiHeaders(p.apiKey, false), "查询用量");
+        const std::string value = net::extractByPath(body, p.usagePath);
         co_return p.usageLabel.empty() ? value
                                        : std::format("{} {}", value, p.usageLabel);
     } catch (const std::exception& e) {
         co_return std::format("查询失败：{}", e.what());
     }
+}
+
+huxerui::Task<double> FetchLatency(std::shared_ptr<huxerui::HttpClient> http,
+                                   std::string url) {
+    if (!http) {
+        throw std::runtime_error("HTTP 服务不可用");
+    }
+    const auto started = std::chrono::steady_clock::now();
+    auto result = co_await http->SendStreamAsync(
+        huxerui::HttpRequest{.url = std::move(url),
+                             .timeout = std::chrono::seconds{10}});
+    if (!result.Succeeded()) {
+        throw std::runtime_error(result.Error().message);
+    }
+    auto response = std::move(result).Value();
+    // 任何 HTTP 响应（包括 401/404/500）都说明服务器已连通。
+    static_cast<void>(response.StatusCode());
+    const auto elapsed = std::chrono::steady_clock::now() - started;
+    co_return std::chrono::duration<double, std::milli>(elapsed).count();
 }
 
 void WriteUsageCache(UsageCache cache, const std::string& id, std::string text) {
@@ -231,6 +303,7 @@ huxerui::View ModelSelect(huxerui::State<std::vector<std::string>> fetched,
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto tasks = huxerui::UseTaskScope();
     auto toast = huxerui::UseToast();
+    const auto http = huxerui::UseService<huxerui::HttpClient>();
     const auto* spec = models::findTool(tool);
     const bool isCodex = tool == "codex";
     const bool needsModel = spec != nullptr && spec->needsModel;
@@ -369,8 +442,8 @@ huxerui::View ModelSelect(huxerui::State<std::vector<std::string>> fetched,
                                        : "主模型（可选）";
         // 「获取模型」：默认使用表单当前的实际 URL/apiKey/上游格式（实际 URL
         // 会按完整 URL 开关与上游格式计算）；高级选项可覆盖模型列表完整地址。
-        // fetchModelsFromUrl 是阻塞网络调用，经 huxerui::RunWorker 派到 worker 线程；
-        // 协程恢复点恒为 UI 线程，State 写回安全（State 只在 UI 线程写）。
+        // HuxerUI HttpClient 使用平台原生异步网络，协程恢复点恒为 UI 线程，
+        // State 写回安全（State 只在 UI 线程写）。
         // 成功后下拉出现在 TextField 与按钮之间，点选直接回填该行。
         const bool canFetch = !fetching.Get() && !fs.baseUrl.Get().text.empty() &&
                               !fs.apiKey.Get().text.empty();
@@ -394,12 +467,7 @@ huxerui::View ModelSelect(huxerui::State<std::vector<std::string>> fetched,
                 fetching = true;
                 tasks.Launch([=]() -> huxerui::Task<void> {
                     try {
-                        auto models = co_await huxerui::RunWorker(
-                            [](const std::string& u, const std::string& k,
-                               const std::string& f) {
-                                return net::fetchModelsFromUrl(u, k, f);
-                            },
-                            u, k, f);
+                        auto models = co_await FetchModelIds(http, u, k, f);
                         fetching = false;
                         fetchedModels = models;
                         if (models.empty()) {
@@ -843,6 +911,7 @@ huxerui::View ModelSelect(huxerui::State<std::vector<std::string>> fetched,
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     const IslandTheme islands = ResolveIslandTheme(theme);
     auto dialog = huxerui::UseDialog();
+    const auto http = huxerui::UseService<huxerui::HttpClient>();
     const std::string id = provider.id;
     const std::string name = provider.name;
     const std::string accessUrl = models::effectiveBaseUrl(provider);
@@ -958,13 +1027,12 @@ huxerui::View ModelSelect(huxerui::State<std::vector<std::string>> fetched,
                               usageError ? theme.colors.error
                                          : theme.colors.on_surface_variant}),
                       huxerui::IconButton(app::images::refresh, "刷新")
-                          .OnClick([tasks, usageCache, provider] {
-                              // fetchUsage 阻塞最长 10s：RunWorker 跑，恢复点回
-                              // UI 线程后写缓存 State。
-                              tasks.Launch([usageCache,
-                                            provider]() -> huxerui::Task<void> {
+                          .OnClick([tasks, usageCache, provider, http] {
+                              // HuxerUI HTTP 异步请求完成后回 UI 线程写缓存 State。
+                              tasks.Launch([usageCache, provider,
+                                            http]() -> huxerui::Task<void> {
                                   WriteUsageCache(usageCache, provider.id,
-                                                  co_await FetchUsageText(provider));
+                                                  co_await FetchUsageText(http, provider));
                               });
                           })
                           .With(huxerui::Tooltip("重新查询用量")),
@@ -985,22 +1053,17 @@ huxerui::View ModelSelect(huxerui::State<std::vector<std::string>> fetched,
                 })
                 .With(huxerui::Enabled(!isCurrent),
                       huxerui::Tooltip(isCurrent ? "当前使用" : "切换到此供应商")),
-            // 联通检测：pingLatencyMs 阻塞最长 10s，RunWorker 派到 worker
-            // 线程，恢复点回 UI 线程写卡片 State。URL 空（codex 可留空）
-            // 时禁用。
+            // 联通检测：HuxerUI HttpClient 等待响应头，最长 10s，完成后回 UI
+            // 线程写卡片 State。URL 空（codex 可留空）时禁用。
             huxerui::IconButton(app::images::activity, "联通检测")
-                .OnClick([tasks, checking, latency,
+                .OnClick([tasks, checking, latency, http,
                           url = accessUrl] {
                     checking = true;
                     latency = std::string{};
                     tasks.Launch([checking, latency,
-                                  url]() -> huxerui::Task<void> {
+                                  http, url]() -> huxerui::Task<void> {
                         try {
-                            const double ms = co_await huxerui::RunWorker(
-                                [](const std::string& u) {
-                                    return net::pingLatencyMs(u);
-                                },
-                                url);
+                            const double ms = co_await FetchLatency(http, url);
                             checking = false;
                             latency = std::format("延迟 {:.0f} ms", ms);
                         } catch (const std::exception& e) {
@@ -1054,6 +1117,7 @@ huxerui::View ModelSelect(huxerui::State<std::vector<std::string>> fetched,
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto tasks = huxerui::UseTaskScope();
     auto toast = huxerui::UseToast();
+    const auto http = huxerui::UseService<huxerui::HttpClient>();
     // 当前工具 id：AgentPage 持有的 State，岛屿内部顶部的工具图标栏写它
     // 换组；外层以 .Key(tool) 组合本页，换工具即整体重建。
     const std::string tool = currentTool.Get();
@@ -1076,8 +1140,8 @@ huxerui::View ModelSelect(huxerui::State<std::vector<std::string>> fetched,
     // 至多 30s 生效，避免睡死在一个长间隔里）。State 只在 UI 线程写。
     auto usageCache = huxerui::UseState<std::map<std::string, std::string>>({});
     huxerui::Lifecycle(
-        [tasks, usageCache] {
-            tasks.Launch([usageCache]() -> huxerui::Task<void> {
+        [tasks, usageCache, http] {
+            tasks.Launch([usageCache, http]() -> huxerui::Task<void> {
                 while (true) {
                     const auto& config = providerStore().config();
                     if (!config.usageEnabled || config.usageRefreshMinutes <= 0) {
@@ -1093,7 +1157,7 @@ huxerui::View ModelSelect(huxerui::State<std::vector<std::string>> fetched,
                     // 顺序拉取（每次最长 10s），每个完成即回写缓存。
                     for (const auto& p : targets) {
                         WriteUsageCache(usageCache, p.id,
-                                        co_await FetchUsageText(p));
+                                        co_await FetchUsageText(http, p));
                     }
                     co_await huxerui::Delay(std::chrono::duration<double>{
                         config.usageRefreshMinutes * 60.0});

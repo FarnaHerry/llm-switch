@@ -1,7 +1,8 @@
 // net.cppm — llmswitch.net：按供应商 URL+key 拉取模型列表（接口模块）。
 //
-// 同步阻塞实现（每次调用独立 curl easy handle，线程安全），调用方负责线程：
-// UI 会把调用派到任务线程（阶段B），UI 线程禁止直接调。curl 头只进实现单元。
+// 同步阻塞接口（每次调用独立 curl easy handle，线程安全）仍保留给领域/测试
+// 调用方；供应商页面的网络请求使用 HuxerUI HttpClient 的平台原生异步路径。
+// curl 头只进实现单元。
 export module llmswitch.net;
 
 import std;

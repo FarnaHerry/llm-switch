@@ -13,8 +13,9 @@ opencode.json additive upsert / pi 的 models.json + settings.json /
 Claude Desktop 3p profile 组），并提供收编、备份、导入导出。在此之上还有：
 本地路由引擎（127.0.0.1 反代到当前供应商 + 请求统计）、供应商用量查询、
 MCP 服务器统一清单、Skills 中央库同步、历史会话管理。用 **HuxerUI**（组件式
-声明 UI）做桌面壳，全程 C++；网络依赖 curl/OpenSSL（拉模型列表与用量查询，
-llmswitch.net）+ cpp-httplib（本地路由服务器，llmswitch.router），无数据库。
+声明 UI）做桌面壳，全程 C++；供应商页面的模型列表、用量查询和连通检测使用
+HuxerUI HttpClient（按平台使用 WinHTTP/libsoup/Foundation），本地路由服务器
+仍使用 curl/OpenSSL + cpp-httplib，无数据库。
 构建系统 CMake（脚手架与姊妹项目 `../Clash-Flux` 同源）。分层：
 UI（src/ui/*.cpp 普通源走 hcg codegen）/ 领域层（llmswitch.config/models/store/
 net/router/mcp/skills/sessions 八个 C++23 模块）。
@@ -98,12 +99,12 @@ commit，不回滚已经验证的修改，并在最终回复中报告失败原�
 | `llmswitch.config` | `src/config.cppm` | 数据目录（~/.local/share/llm-switch）/ config.json、backups/、mcp.json、skills-store/、router/requests.jsonl 路径 / live 配置与会话/技能目录解析（全部 LLMSWITCH_* 环境变量可覆盖）/ 深色检测 |
 | `llmswitch.models` | `src/models.cppm` | 工具注册表（ToolSpec/toolRegistry/findTool：claude-code/claude/codex/opencode/pi；needsModel/hasApiFormat/hasModelMappings 三标记驱动表单适配）+ Provider/ProviderGroup/AppConfig（groups 以注册表 id 为键的 map，旧格式顶层 claude/codex 自动迁移；router/usage 设置字段，routerTools 保存逐 Agent 代理选择；Provider 含 modelFetchUrl、haiku/sonnet/opusModel 三档映射与 upstreamFormat/fullUrl URL 模式）+ JSON 序列化 + 内置预设（builtinPresets）+ 官方厂商名（officialVendorName：claude 系/codex 有官方常驻卡）+ apiFormat 三档归一（normalizeApiFormat/apiFormatLabel）+ 上游 URL 归一/后缀（normalizeUpstreamFormat/upstreamFormatSuffix/effectiveBaseUrl）+ 用量端点模板（suggestUsageQuery） |
 | `llmswitch.store` | `src/store.cppm` + `src/store.cpp` | ProviderStore：config.json 读写、CRUD、switchTo 按工具 id 分发五个 writer（原子写+备份）、restoreOfficial 恢复厂商原生状态（claude-code/claude/codex）、detectCurrent/importLive、导出导入、theme/usage/router 与逐 Agent 路由设置 setter |
-| `llmswitch.net` | `src/net.cppm` + `src/net.cpp` | fetchModels（curl 阻塞调用，调用方负责线程；anthropic 走 {base}/v1/models 双鉴权头，其余 {base}/models Bearer；10s 超时）+ fetchModelsFromUrl（完整模型列表 URL 覆盖默认端点）+ parseModelIds 纯函数（data/models 两种形状，去重保序）+ fetchUsage（GET+Bearer 拉用量）/ extractByPath（点分路径+数组下标取标量）+ pingLatencyMs（连通检测：GET baseUrl 不带鉴权，任何 HTTP 响应算连通，返回 CURLINFO_TOTAL_TIME 毫秒） |
+| `llmswitch.net` | `src/net.cppm` + `src/net.cpp` | URL 拼接与纯解析：`modelListUrl`、`parseModelIds`（data/models 两种形状，去重保序）和 `extractByPath`（点分路径+数组下标取标量）；同步 curl 接口仍保留给领域/测试调用方，供应商页面网络请求使用 HuxerUI HttpClient |
 | `llmswitch.router` | `src/router.cppm` + `src/router.cpp` | LocalRouter：cpp-httplib 服务器监听 127.0.0.1，`/<tool>/` 前缀路由到该组 current 供应商的实际 URL（按 upstreamFormat 追加 /anthropic 或 /v1，fullUrl 时原样），替换鉴权头，线程安全的逐工具开关运行中即时生效（禁用返回 403，不访问上游/统计），可选故障转移（429/5xx/连接失败按组内顺序试下一个）；RequestLog/StatsSnapshot 统计，每请求追加 JSONL（dataDir()/router/requests.jsonl），启动回填内存环形缓冲（最多 1000 条） |
 | `llmswitch.mcp` | `src/mcp.cppm` + `src/mcp.cpp` | MCP 服务器统一清单（SSOT = dataDir()/mcp.json）；启停 = 写/删工具 live 配置条目：claude-code → ~/.claude.json 顶层 mcpServers 深合并、codex → config.toml 行级 [mcp_servers.*] section 重写、opencode → opencode.json 顶层 mcp；claude/pi 不支持（抛中文错） |
 | `llmswitch.skills` | `src/skills.cppm` + `src/skills.cpp` | Skills 中央库（dataDir()/skills-store/<name>/：SKILL.md + 附带文件）+ create_symlink 同步到 ~/.claude/skills 与 ~/.codex/skills；合并视图（中央库/已链接/仅工具侧） |
 | `llmswitch.sessions` | `src/sessions.cppm` + `src/sessions.cpp` | 历史会话扫描：~/.claude/projects/<项目>/*.jsonl 与 ~/.codex/sessions/<年>/<月>/<日>/*.jsonl；列表（mtime 倒序）/删除（限已知 sessions 根之下，越界抛错）/导出；标题/行数提取 best-effort 不抛 |
-| `llmswitch::ui`（普通 C++） | `src/ui/*.cpp` | app（壳：太极水墨主题 InkDark「玄墨」/InkLight「宣纸」+标题栏太极标+顶级 8 区块图标侧栏+IndexedPages+托盘（太极图图标）+关闭最小化到托盘+路由自启）/ agent_page（薄宿主：持 currentTool State + ProvidersPage .Key(tool) 宿主）/ router_page（路由总开关+逐 Agent 代理开关+已启用接入地址+最近请求日志，含 routerInstance() 单例）/ stats_page（统计汇总）/ mcp_page / skills_page / sessions_page（会话管理：过滤用图标组——全部/Claude Code/Codex 与 Agent 页同套图标+选中底块；扫描/导出/删除全程 RunWorker 入 worker 线程，加载请求代次阻止旧结果覆盖新筛选，重载不清空旧列表）/ about_page（关于，顶部太极 logo 卡）/ common（岛屿原语、页面骨架/卡片/弹窗卡片、providerStore() 全局实例、ToolIcon 图标资源对）/ providers_page（5 工具共用供应商页：工具图标栏在岛屿内部顶部（ToolBar）+ 官方常驻卡首位 + 卡片列表，卡片三段式：左信息列 ｜ 中间状态列（延迟/用量，内容与操作组之间，空则塌缩）｜ 右操作图标组（切换/联通检测/编辑/用量配置/复制/删除为自绘图标 IconButton + Tooltip，swap/activity/edit/gauge/copy/trash.svg，用量刷新 refresh.svg），联通检测经 net::pingLatencyMs；编辑/新增是整页表单 ProviderFormPage（完整 URL switch + 上游格式 Select；关闭 switch 时按格式追加 /anthropic 或 /v1），用量查询配置是独立整页 UsageFormPage（formTarget 多模式：""/"new"/"usage:"+id/id），新增页内嵌预设区、模型行内 Select 下拉 + 卡片用量显示/轮询）/ settings_page（主题/用量查询/路径/导入导出/关于）/ ui.h（内部声明） |
+| `llmswitch::ui`（普通 C++） | `src/ui/*.cpp` | app（壳：太极水墨主题 InkDark「玄墨」/InkLight「宣纸」+标题栏太极标+顶级 8 区块图标侧栏+IndexedPages+托盘（太极图图标）+关闭最小化到托盘+路由自启）/ agent_page（薄宿主：持 currentTool State + ProvidersPage .Key(tool) 宿主）/ router_page（路由总开关+逐 Agent 代理开关+已启用接入地址+最近请求日志，含 routerInstance() 单例）/ stats_page（统计汇总）/ mcp_page / skills_page / sessions_page（会话管理：过滤用图标组——全部/Claude Code/Codex 与 Agent 页同套图标+选中底块；扫描/导出/删除全程 RunWorker 入 worker 线程，加载请求代次阻止旧结果覆盖新筛选，重载不清空旧列表）/ about_page（关于，顶部太极 logo 卡）/ common（岛屿原语、页面骨架/卡片/弹窗卡片、providerStore() 全局实例、ToolIcon 图标资源对）/ providers_page（5 工具共用供应商页：工具图标栏在岛屿内部顶部（ToolBar）+ 官方常驻卡首位 + 卡片列表，卡片三段式：左信息列 ｜ 中间状态列（延迟/用量，内容与操作组之间，空则塌缩）｜ 右操作图标组（切换/联通检测/编辑/用量配置/复制/删除为自绘图标 IconButton + Tooltip，swap/activity/edit/gauge/copy/trash.svg，用量刷新 refresh.svg），模型列表/用量/连通检测经 HuxerUI HttpClient；编辑/新增是整页表单 ProviderFormPage（完整 URL switch + 上游格式 Select；关闭 switch 时按格式追加 /anthropic 或 /v1），用量查询配置是独立整页 UsageFormPage（formTarget 多模式：""/"new"/"usage:"+id/id），新增页内嵌预设区、模型行内 Select 下拉 + 卡片用量显示/轮询）/ settings_page（主题/用量查询/路径/导入导出/关于）/ ui.h（内部声明） |
 | `src/app.cpp` | 普通 TU | `Application{AppRoot, AppOptions}`（Custom chrome，标题栏 24pt，1080×720 / min 800×600） |
 | 平台入口 | `platform/{linux,windows,macos}/main.cpp` | 薄入口 `huxerui::RunApplication()`（无 CLI 分流；顶层 CMake 按 WIN32/APPLE/Linux 分支选用） |
 
@@ -143,11 +144,11 @@ commit，不回滚已经验证的修改，并在最终回复中报告失败原�
   兼容，避免历史地址重复追加。
 - **用量查询**：Provider.usageUrl/usagePath/usageLabel（usageUrl 空 = 不查）+
   全局 AppConfig.usageEnabled/usageRefreshMinutes（0=仅手动，旧配置缺字段
-  自动取默认 true/10）；net::fetchUsage 同步阻塞 10s，extractByPath 按点分
+  自动取默认 true/10）；HuxerUI HttpClient 异步 GET 后由 `extractByPath` 按点分
   路径（支持数组下标）取标量；`suggestUsageQuery` 只内置有官方文档的
   DeepSeek（/user/balance）。UI 侧：用量三字段在独立的 UsageFormPage
   （卡片 gauge 图标进入，formTarget = "usage:" + id；编辑表单只保留其余
-  字段、保存时沿用原用量配置），卡片显示 + RunWorker 轮询（State 只在
+  字段、保存时沿用原用量配置），卡片显示 + HuxerUI HTTP 轮询（State 只在
   UI 线程写）。
 - **本地路由设置**：AppConfig.routerEnabled（启动自启）/ routerPort（默认
   15731）/ routerFailover / routerTools（逐 Agent 代理选择，旧配置默认全开），
