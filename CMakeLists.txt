@@ -39,7 +39,7 @@ if (HUXERUI_PROJECT_PLAN_ONLY)
     return()
 endif ()
 
-project(llm-switch VERSION 0.1.5 DESCRIPTION "Claude Code / Codex provider config switcher (cc-switch C++ rewrite)" LANGUAGES NONE)
+project(llm-switch VERSION 0.1.6 DESCRIPTION "Claude Code / Codex provider config switcher (cc-switch C++ rewrite)" LANGUAGES NONE)
 
 # HUXERUI_LIBRARY_GRAPH_ONLY：CLI 扫描 huxerui 库依赖图时的特殊配置——
 # 不启用语言、不构建，huxerui_add_app 只写出库图 JSON 即返回（见 SDK
@@ -74,7 +74,7 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
     find_package(Threads REQUIRED)
 endif ()
 
-# ---- HuxerUI（0.2.0 SDK / 源码双通道，HUXERUI_HOME 契约）-------------------
+# ---- HuxerUI（0.3.0 源码 / 0.2.0 SDK 双通道，HUXERUI_HOME 契约）-----------
 # 优先级（固定顺序，与 Clash-Flux 一致）：
 #   1. 显式 HUXERUI_HOME 源码（有 CMakeLists.txt + include/huxerui/huxerui.h）。
 #   2. third_party/huxerui 源码（本地 git clone 的上游仓库，add_subdirectory 编译，
@@ -86,7 +86,7 @@ endif ()
 # LLMSWITCH_HUXERUI_FORCE_SDK=ON：唯一明确跳过源码的开关，只走第 3/4 通道（发布门禁
 # 与兼容测试用）。源码模式编译 Linux 后端需要 gtk4-devel libsoup3-devel。
 include(cmake/llmswitch_vendor.cmake)
-set(HUXERUI_HOME "$ENV{HUXERUI_HOME}" CACHE PATH "HuxerUI 0.2.0 SDK or source directory")
+set(HUXERUI_HOME "$ENV{HUXERUI_HOME}" CACHE PATH "HuxerUI 0.3.0 source or 0.2.0 SDK directory")
 set(LLMSWITCH_HUXERUI_BUNDLED_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/huxerui" CACHE PATH "Bundled HuxerUI source checkout (override for testing to simulate missing source without moving shared directory)")
 set(LLMSWITCH_HUXERUI_SOURCE_DIR "")
 option(LLMSWITCH_HUXERUI_FORCE_SDK "Skip source checkout; use SDK fallback only" OFF)
@@ -171,7 +171,7 @@ else ()
     elseif (APPLE OR WIN32)
         message(FATAL_ERROR
             "llm-switch: macOS/Windows 未提供离线 SDK 包；"
-            "请用 HUXERUI_HOME 指向 0.2.0 源码或已安装 SDK，"
+            "请用 HUXERUI_HOME 指向 0.3.0 源码或已安装 SDK，"
             "或 clone third_party/huxerui 后默认以源码模式编译")
     else ()
         llmswitch_extract(huxerui

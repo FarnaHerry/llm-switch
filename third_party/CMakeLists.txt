@@ -7,7 +7,7 @@
 # 已安装 SDK/离线 tarball 通道间选择，不在此构建。
 #
 # 产物 target：
-#   HuxerUI::huxerui  HuxerUI 0.2.0 SDK（shared；由顶层 find_package 引入）
+#   HuxerUI::huxerui  HuxerUI SDK（shared；由顶层 find_package 引入）
 #   CURL::libcurl     curl 8.22.0（OpenSSL 后端，静态库，不编 curl.exe）
 #   llmswitch_json    nlohmann::json 3.12.0（single header）+ `import nlohmann.json`
 #

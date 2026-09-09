@@ -2,14 +2,16 @@
 
 nlohmann::json 以 single header 直接提交在 `json/`；curl 与 OpenSSL（Linux
 x86_64 回落用静态包）以 tarball 提交在 `tarballs/`，configure 期校验 SHA256
-解包构建；HuxerUI 0.2.0 的 Linux 离线 SDK 包提交在 `tarballs/` 兜底。构建
+解包构建；HuxerUI 0.2.0 的 Linux 离线 SDK 包提交在 `tarballs/` 兜底。日常源码
+构建跟随 HuxerUI 主干 0.3.0，CI 固定到已验证的 commit
+`90447b16f678e5e35d9da96d7d17b1aac1b32e41`。构建
 离线、可复现；清单与姊妹项目 Clash-Flux 对齐（无 IXWebSocket / SQLiteCpp）。
 
 ## 清单与来源
 
 | 包 | 版本 | tarball | 来源 |
 |----|------|---------|------|
-| HuxerUI | 0.2.0 | `huxerui-sdk-0.2.0-linux-x86_64.tar.gz` | 由官方 0.2.0 SDK 安装前缀归档（shared 库 + headers + CMake 包 + hcg/hrc + 内置资源）。`HUXERUI_HOME` 可指向 0.2.0 SDK 安装目录或源码根目录；未设置时优先 `third_party/huxerui/` 源码（本地 clone，不入库），`LLMSWITCH_HUXERUI_FORCE_SDK=ON` 时使用 Linux 离线包。Linux 源码模式需 GTK ≥4.14、libepoxy ≥1.5、libsoup ≥3.0（Fedora：`gtk4-devel libepoxy-devel libsoup3-devel`）；macOS/Windows 必须通过 `HUXERUI_HOME` 提供 0.2.0 源码或 SDK。Windows 自定义安装向导（`platform/windows/package/`）需要 0.2.0 之后含 `cmake/HuxerUIWindowsInstaller.cmake` 的源码/SDK，0.2.0 发布包无此能力。 |
+| HuxerUI | 0.3.0 | `huxerui-sdk-0.2.0-linux-x86_64.tar.gz`（离线回落） | 默认使用 `third_party/huxerui/` 的 0.3.0 主干源码（本地 clone，不入库）；`HUXERUI_HOME` 可指向源码根目录，`LLMSWITCH_HUXERUI_FORCE_SDK=ON` 时使用 Linux 0.2.0 离线包。Linux 源码模式需 GTK ≥4.14、libepoxy ≥1.5、libsoup ≥3.0（Fedora：`gtk4-devel libepoxy-devel libsoup3-devel`）；macOS/Windows 通过源码或 `HUXERUI_HOME` 提供 SDK。Windows 自定义安装向导（`platform/windows/package/`）需要含 `cmake/HuxerUIWindowsInstaller.cmake` 的源码/SDK。 |
 | curl | 8.22.0 | `curl-8.22.0.tar.gz` | 上游官方发布包；OpenSSL 后端静态库（不编 curl.exe，brotli/zstd/psl/ssh2/ldap 全关），供 llmswitch.net 拉取模型列表 |
 | OpenSSL | 3.5.1 | `openssl-3.5.1-linux-x86_64.tar.gz` | 预编译静态库，仅作 Linux x86_64 找不到系统 OpenSSL 时的回落；其余平台用系统包（CI：libssl-dev / choco openssl / brew openssl@3） |
 | nlohmann::json | 3.12.0 | `json/nlohmann/json.hpp`（single header） | 上游 `nlohmann/json` v3.12.0 `single_include`；配 `cmake/nlohmann.json.cppm` 提供 `import nlohmann.json` 模块 |

@@ -55,9 +55,9 @@ concurrency:
 env:
   HUXERUI_REPO: 'https://github.com/HuxerUI/HuxerUI.git'
   # 与 Clash-Flux CI 钉同一 commit（该目录 gitignore，不入库，CI 必须自行
-  # clone 并钉 commit，保证可复现）。9eff3c8 包含应用层 Clipboard 服务、
+  # clone 并钉 commit，保证可复现）。90447b1 包含应用层 Clipboard 服务、
   # TreeView，以及此前的 TextField::Secure(bool) / 可交互 TrailingIcon。
-  HUXERUI_COMMIT: '9eff3c8f6a90f7390e4ec4fdab3ccc4b732e3ecf'
+  HUXERUI_COMMIT: '90447b16f678e5e35d9da96d7d17b1aac1b32e41'
 
 jobs:
   # ------------------------------------------------------------------ Linux

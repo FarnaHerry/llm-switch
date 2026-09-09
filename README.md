@@ -43,8 +43,8 @@ Claude Desktop / Codex / opencode / pi 五款 AI 编程工具的供应商配置�
 
 - CMake ≥ 3.30（本机用 4.4，`import std` 的 experimental UUID 见
   `cmake/CxxImportStdGate.cmake`）、GCC ≥ 16（libstdc++）、Ninja
-- HuxerUI 0.2.0：已安装 SDK（`HUXERUI_HOME` 指向前缀）或源码（clone 到
-  `third_party/huxerui/`），都没有时用仓库内 Linux 离线包兜底。
+- HuxerUI 0.3.0：默认使用最新源码（clone 到 `third_party/huxerui/`）或已安装
+  SDK（`HUXERUI_HOME` 指向前缀）；都没有时用仓库内 Linux 0.2.0 离线包兜底。
   Windows 自定义安装向导（`huxerui package windows`，MSI + Burn 捆绑包 +
   HuxerUI 托管安装器 UI，`platform/windows/package/`）会随 Windows 发布产出
   `llm-switch-windows-x86_64-setup.exe`；该流程需要含

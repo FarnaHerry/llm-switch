@@ -15,7 +15,7 @@ Claude、Codex、Gemini、Copilot、Cursor、Windsurf 及其他自动化 agent �
 - 保持用户已有改动，不顺手重排、格式化或重写无关代码。领域行为改变必须补充或
   更新相应测试。
 - HuxerUI 源码优先来自 `third_party/huxerui`，CI 固定版本见
-  `.github/workflows/build.yml`。当前基线 `9eff3c8` 提供 Clipboard 服务与
+  `.github/workflows/build.yml`。当前基线 `90447b1` 提供 Clipboard 服务与
   TreeView；剪贴板只在 UI 线程通过 `UseService<Clipboard>()` 使用，TreeView
   必须位于有界垂直视口。
 - 会话目录扫描、导出和删除属于文件 IO，必须通过 `RunWorker` 离开 UI 线程；

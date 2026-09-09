@@ -31,7 +31,7 @@ UI 工作先读 skill：`.claude/skills/huxerui-app-development/SKILL.md`（refe
   `third_party/tarballs` 的 Linux 0.2.0 离线包。源码通道缺 GTK ≥4.14 /
   libepoxy ≥1.5 / libsoup ≥3.0 开发包时自动回落 SDK。强制 SDK：
   `-DLLMSWITCH_HUXERUI_FORCE_SDK=ON`。本机走 **third_party/huxerui 源码**通道
-  （git clone 上游，跟主干拉取；当前钉在 `9eff3c8`，含应用层 Clipboard
+  （git clone 上游，跟主干拉取；当前钉在 `90447b1`，含应用层 Clipboard
   服务、TreeView，以及 TextField 可交互 TrailingIcon——密码框内置眼睛按钮）。
 - 剪贴板通过 composable 内的 `UseService<Clipboard>()` 获取；事件处理器可捕获
   service 并同步调用 `IsAvailable()` / `ReadText()` / `WriteText()`，不要从 worker
@@ -248,7 +248,7 @@ commit，不回滚已经验证的修改，并在最终回复中报告失败原�
   JSON 解析，带注释的官方文件会抛中文错且绝不碰原文件（让用户手动去注释）。
 - **MCP 不支持 claude desktop / pi**：setEnabled/importFromTool 对这两个工具
   抛「该工具暂不支持 MCP 管理」。
-- **尚未接入剪贴板 / 打开浏览器交互**：上游 `9eff3c8` 已提供应用层
+- **尚未接入剪贴板 / 打开浏览器交互**：上游 `90447b1` 已提供应用层
   `Clipboard` 服务，但路由页的各工具接入地址目前仍是等宽纯文本；关于页链接
   也仍不可点击跳转（尚无应用层打开浏览器入口）。接入复制按钮时使用
   `UseService<Clipboard>()`，并按 `IsAvailable()` 控制可用状态。
@@ -264,7 +264,7 @@ commit，不回滚已经验证的修改，并在最终回复中报告失败原�
   （package/src/，品牌面板 + 简中/繁中/英文 strings）接进构建；日常构建
   零开销（函数内 `if (NOT HUXERUI_PACKAGE) return()`）。需要含
   `huxerui_add_windows_installer` 的 HuxerUI 源码/SDK（0.2.0 之后；当前 CI
-  固定的 `9eff3c8` 已满足）。
+  固定的 `90447b1` 已满足）。
 - `.github/workflows/build.yml`（蓝本 Clash-Flux 同名文件，按其已跑通配方
   适配）：三个桌面 job + release。build-linux（ubuntu:26.04 容器 + clang-21/
   libc++-21 + pip cmake==4.4.2 + libc++.modules.json 路径改写 + gtk4/epoxy/
@@ -272,7 +272,7 @@ commit，不回滚已经验证的修改，并在最终回复中报告失败原�
   choco openssl）与 build-macos
   （brew llvm + 手写 libc++.modules.json + 内联 P0960 补丁）；三个平台均为
   发布门禁，必须完成编译、测试和打包。
-- 三个 job 都把 HuxerUI 上游钉在 commit `9eff3c8`（含 Clipboard / TreeView）
+- 三个 job 都把 HuxerUI 上游钉在 commit `90447b1`（含 Clipboard / TreeView）
   clone 到 third_party/huxerui 走源码通道；OpenSSL 三平台各自提供
   （linux apt libssl-dev / windows choco openssl + `-DOPENSSL_ROOT_DIR` /
   macos brew openssl@3 + `-DOPENSSL_ROOT_DIR`）；无 mihomo/Android
