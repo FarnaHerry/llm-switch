@@ -55,9 +55,10 @@ concurrency:
 env:
   HUXERUI_REPO: 'https://github.com/HuxerUI/HuxerUI.git'
   # 与 Clash-Flux CI 钉同一 commit（该目录 gitignore，不入库，CI 必须自行
-  # clone 并钉 commit，保证可复现）。90447b1 包含应用层 Clipboard 服务、
-  # TreeView，以及此前的 TextField::Secure(bool) / 可交互 TrailingIcon。
-  HUXERUI_COMMIT: '90447b16f678e5e35d9da96d7d17b1aac1b32e41'
+  # clone 并钉 commit，保证可复现）。065ab79 是 HuxerUI v0.3.0 主干，包含
+  # ApplicationHandle 的 Clipboard/Directories API、TreeView，以及此前的
+  # TextField::Secure(bool) / 可交互 TrailingIcon。
+  HUXERUI_COMMIT: '065ab79fc989438221b964aaaf9b03226b0301d2'
 
 jobs:
   # ------------------------------------------------------------------ Linux
@@ -195,6 +196,7 @@ jobs:
           set -euo pipefail
           git clone --filter=blob:none "$HUXERUI_REPO" third_party/huxerui
           git -C third_party/huxerui checkout "$HUXERUI_COMMIT"
+          git -C third_party/huxerui apply "$GITHUB_WORKSPACE/cmake/patches/huxerui-windows-icon.patch"
 
       - name: Ensure CMake >= 4.4 and Ninja
         shell: pwsh

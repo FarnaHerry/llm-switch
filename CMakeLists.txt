@@ -294,6 +294,13 @@ huxerui_add_app(llm-switch
     BUNDLE_IDENTIFIER "dev.farna.llmswitch"
 )
 
+if (WIN32 AND TARGET huxerui_core_objects)
+    # HuxerUI owns the Win32 window class; keep this project-specific icon binding
+    # as a compile-time patch instead of changing the third-party checkout.
+    target_compile_definitions(huxerui_core_objects PRIVATE
+        HUXERUI_WINDOWS_APPLICATION_ICON_RESOURCE_ID=101)
+endif ()
+
 if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
     # 领域层 C++23 模块（.cppm 接口；对应 .cpp 实现单元已随 glob 进 SOURCES）
     target_sources(llm-switch PRIVATE FILE_SET llmswitch_modules TYPE CXX_MODULES
