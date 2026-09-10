@@ -10,9 +10,15 @@ import std;
 namespace net {
 
 // 根据已计算好的上游基础 URL 和上游格式拼出模型列表地址。基础 URL 通常已经
-// 包含 upstreamFormat 对应的 /anthropic 或 /v1 后缀。
+// 包含 upstreamFormat 对应的 /anthropic 或 /v1 后缀；如果已经是 /models
+// 端点，则原样返回，避免 /v1/v1/models 或 /models/models。
 export std::string modelListUrl(std::string_view baseUrl,
                                 std::string_view upstreamFormat);
+
+// 返回模型列表探测候选地址，首项是按当前上游格式推导的地址，后续候选用于
+// 兼容不同网关的 /models、/v1/models、/anthropic 前缀布局。结果去重保序。
+export std::vector<std::string> modelListUrlCandidates(
+    std::string_view baseUrl, std::string_view upstreamFormat);
 
 // 拉取模型列表。成功返回模型 id 列表（去重保序）；失败抛 std::runtime_error
 // （中文消息）。upstreamFormat 取值为 “anthropic” 或 “openai”：Anthropic

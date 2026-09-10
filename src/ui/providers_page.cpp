@@ -210,6 +210,30 @@ huxerui::Task<std::vector<std::string>> FetchModelIds(
     co_return net::parseModelIds(body);
 }
 
+// 不同兼容网关的模型列表端点并不统一：同一 Base URL 可能使用 /models、
+// /v1/models，或在 /anthropic 前缀后再挂 /v1/models。按候选顺序尝试，
+// 只有拿到非空模型列表才结束；这样 404、网络错误、坏响应和空列表都会
+// 自动进入下一个候选地址。
+huxerui::Task<std::vector<std::string>> FetchModelIdsWithFallback(
+    std::shared_ptr<huxerui::HttpClient> http,
+    std::vector<std::string> urls,
+    std::string apiKey,
+    std::string upstreamFormat) {
+    std::string lastError = "模型列表为空";
+    for (const auto& url : urls) {
+        try {
+            auto models = co_await FetchModelIds(
+                http, url, apiKey, upstreamFormat);
+            if (!models.empty()) co_return models;
+            lastError = std::format("模型列表为空（{}）", url);
+        } catch (const std::exception& e) {
+            lastError = e.what();
+        }
+    }
+    throw std::runtime_error(
+        std::format("{}；已尝试多个模型列表端点", lastError));
+}
+
 // 拉单个供应商的用量并格式化成展示文本；本函数不写 State。
 huxerui::Task<std::string> FetchUsageText(
     std::shared_ptr<huxerui::HttpClient> http, models::Provider p) {
@@ -457,22 +481,20 @@ huxerui::View ModelSelect(huxerui::State<std::vector<std::string>> fetched,
                 const std::string customFetchUrl = fs.modelFetchUrl.Get().text;
                 const std::string f =
                     UpstreamFormatFromIndex(fs.upstreamFormat.Get());
-                const std::string u = customFetchUrl.empty()
-                    ? net::modelListUrl(fetchBase, f)
-                    : customFetchUrl;
+                const std::vector<std::string> urls = customFetchUrl.empty()
+                    ? net::modelListUrlCandidates(fetchBase, f)
+                    : std::vector<std::string>{customFetchUrl};
                 const std::string k = fs.apiKey.Get().text;
                 // 模型列表端点属于上游 URL 协议，不能复用 opencode/pi 的
-                // apiFormat，也不能按 claude-code 的工具类型猜测；否则
-                // OpenAI URL 会被再次拼成 /v1/v1/models。
+                // apiFormat，也不能按 claude-code 的工具类型猜测。
                 fetching = true;
                 tasks.Launch([=]() -> huxerui::Task<void> {
                     try {
-                        auto models = co_await FetchModelIds(http, u, k, f);
+                        auto models = co_await FetchModelIdsWithFallback(
+                            http, urls, k, f);
                         fetching = false;
                         fetchedModels = models;
-                        if (models.empty()) {
-                            toast.Show("模型列表为空");
-                        }
+                        toast.Show(std::format("已获取 {} 个模型", models.size()));
                     } catch (const std::exception& e) {
                         fetching = false;
                         toast.Show(e.what());

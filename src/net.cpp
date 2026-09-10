@@ -104,7 +104,55 @@ std::string httpGet(const std::string& url, std::string_view apiKey,
 std::string modelListUrl(std::string_view baseUrl,
                          std::string_view upstreamFormat) {
     const std::string base = trimTrailingSlash(baseUrl);
+    if (base.empty() || base.ends_with("/models")) return base;
+    if (upstreamFormat == "anthropic" && base.ends_with("/v1")) {
+        return base + "/models";
+    }
     return base + (upstreamFormat == "anthropic" ? "/v1/models" : "/models");
+}
+
+std::vector<std::string> modelListUrlCandidates(
+    std::string_view baseUrl, std::string_view upstreamFormat) {
+    const std::string base = trimTrailingSlash(baseUrl);
+    if (base.empty()) return {};
+
+    std::vector<std::string> candidates;
+    std::set<std::string> seen;
+    const auto add = [&](std::string url) {
+        if (!url.empty() && seen.insert(url).second) {
+            candidates.push_back(std::move(url));
+        }
+    };
+    const auto addPath = [&](std::string_view path) {
+        if (base.ends_with(path)) {
+            add(base);
+        } else {
+            add(base + std::string(path));
+        }
+    };
+
+    // 首选当前格式；下面的候选处理真实世界中不同网关对 /v1 的差异。
+    add(modelListUrl(base, upstreamFormat));
+    addPath("/models");
+    if (!base.ends_with("/v1") && !base.ends_with("/v1/models")) {
+        addPath("/v1/models");
+    }
+
+    // Base URL 已带一个协议前缀时，也尝试去掉该前缀后的标准列表端点，
+    // 例如 /gateway/v1 → /gateway/models，避免把同一段前缀重复拼接。
+    if (base.ends_with("/v1")) {
+        const std::string root = base.substr(0, base.size() - 3);
+        if (!root.empty()) add(root + "/models");
+    }
+    if (base.ends_with("/anthropic/v1")) {
+        const std::string root = base.substr(0, base.size() - 13);
+        if (!root.empty()) add(root + "/v1/models");
+    } else if (base.ends_with("/anthropic")) {
+        const std::string root = base.substr(0, base.size() - 10);
+        if (!root.empty()) add(root + "/v1/models");
+    }
+
+    return candidates;
 }
 
 std::vector<std::string> fetchModels(std::string_view baseUrl,

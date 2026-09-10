@@ -40,11 +40,28 @@ bool rejectsEmptyModelFetchUrl() {
 } // namespace
 
 int main() {
-    // 1. 模型列表端点使用已经带上游后缀的基础 URL，只追加一次列表路径。
+    // 1. 模型列表端点识别已存在的前缀/列表路径，不重复拼接。
     CHECK(net::modelListUrl("https://api.example.com/v1", "openai") ==
           "https://api.example.com/v1/models");
     CHECK(net::modelListUrl("https://api.example.com/anthropic", "anthropic") ==
           "https://api.example.com/anthropic/v1/models");
+    CHECK(net::modelListUrl("https://api.example.com/v1/models", "openai") ==
+          "https://api.example.com/v1/models");
+    CHECK(net::modelListUrl("https://api.example.com/anthropic/v1", "anthropic") ==
+          "https://api.example.com/anthropic/v1/models");
+    {
+        const auto candidates = net::modelListUrlCandidates(
+            "https://api.example.com/gateway/v1", "openai");
+        CHECK(!candidates.empty());
+        CHECK(candidates.front() ==
+              "https://api.example.com/gateway/v1/models");
+        CHECK(std::ranges::find(candidates,
+                                "https://api.example.com/gateway/models") !=
+              candidates.end());
+        for (const auto& candidate : candidates) {
+            CHECK(candidate.find("/v1/v1/") == std::string::npos);
+        }
+    }
     CHECK(rejectsEmptyModelFetchUrl());
 
     // 2. OpenAI 兼容形状：{"data":[{"id":...}]}

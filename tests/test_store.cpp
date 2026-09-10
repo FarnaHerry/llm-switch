@@ -514,6 +514,12 @@ int main() {
         CHECK(models::effectiveBaseUrl("https://api.example.com/anthropic/",
                                        "anthropic", false) ==
               "https://api.example.com/anthropic");
+        CHECK(models::effectiveBaseUrl("https://api.example.com/v1/models",
+                                       "openai", false) ==
+              "https://api.example.com/v1/models");
+        CHECK(models::effectiveBaseUrl("https://api.example.com/anthropic/v1",
+                                       "anthropic", false) ==
+              "https://api.example.com/anthropic/v1");
         models::Provider encoded{.name = "编码",
                                  .baseUrl = "https://encoded.example.com",
                                  .upstreamFormat = "anthropic",

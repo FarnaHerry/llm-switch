@@ -242,14 +242,25 @@ export std::string_view upstreamFormatSuffix(std::string_view format) {
     return normalizeUpstreamFormat(format) == "anthropic" ? "/anthropic" : "/v1";
 }
 
+namespace {
+
+bool HasEndpointPath(std::string_view url) {
+    return url.ends_with("/v1") || url.ends_with("/anthropic") ||
+           url.ends_with("/models") || url.ends_with("/v1/models") ||
+           url.ends_with("/anthropic/v1");
+}
+
+} // namespace
+
 export std::string effectiveBaseUrl(std::string_view baseUrl,
                                     std::string_view upstreamFormat,
                                     bool fullUrl) {
     std::string url(baseUrl);
     if (fullUrl || url.empty()) return url;
     while (!url.empty() && url.back() == '/') url.pop_back();
-    const auto suffix = upstreamFormatSuffix(upstreamFormat);
-    if (!url.ends_with(suffix)) url += suffix;
+    // 用户可能已经填入 /v1、/anthropic，甚至完整的 /models 端点；这些
+    // 都视为有意填写的端点路径，不能再追加格式后缀。
+    if (!HasEndpointPath(url)) url += upstreamFormatSuffix(upstreamFormat);
     return url;
 }
 
