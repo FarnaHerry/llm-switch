@@ -38,6 +38,7 @@ CMake 配置阶段会检查全部 24×24 SVG：包含硬编码颜色（非 `#FFF
 | `sessions.svg` | 本仓库自绘时钟（顶级「会话」入口） | 同本仓库 |
 | `about.svg` | 本仓库自绘圆圈 i（顶级「关于」入口） | 同本仓库 |
 | `tray*.png` | 本仓库自绘太极图标的多倍率栅格版本 | 同本仓库 |
+| `platform/windows/app.ico` | 由 `tray*.png` 生成的 Windows 应用、快捷方式和安装器图标 | 同本仓库 |
 | `home/back/forward/search.svg` | 本仓库自绘（墨韵图标库·基础操作） | 同本仓库 |
 | `file/folder/image/video/audio/link/download.svg` | 本仓库自绘（墨韵图标库·内容相关） | 同本仓库 |
 | `user/group/message/bell/star/heart/more.svg` | 本仓库自绘（墨韵图标库·用户相关） | 同本仓库 |

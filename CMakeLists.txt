@@ -39,7 +39,7 @@ if (HUXERUI_PROJECT_PLAN_ONLY)
     return()
 endif ()
 
-project(llm-switch VERSION 0.1.8 DESCRIPTION "Claude Code / Codex provider config switcher (cc-switch C++ rewrite)" LANGUAGES NONE)
+project(llm-switch VERSION 0.1.9 DESCRIPTION "Claude Code / Codex provider config switcher (cc-switch C++ rewrite)" LANGUAGES NONE)
 
 # HUXERUI_LIBRARY_GRAPH_ONLY：CLI 扫描 huxerui 库依赖图时的特殊配置——
 # 不启用语言、不构建，huxerui_add_app 只写出库图 JSON 即返回（见 SDK
@@ -364,9 +364,6 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
                 AND NOT LLMSWITCH_APP_INSTALL_COMPONENT MATCHES "-NOTFOUND$")
             huxerui_configure_windows_project_package(llm-switch
                 "${LLMSWITCH_APP_INSTALL_COMPONENT}")
-            install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/assets"
-                DESTINATION .
-                COMPONENT "${LLMSWITCH_APP_INSTALL_COMPONENT}")
         endif ()
     endif ()
     if (UNIX AND NOT APPLE AND COMMAND huxerui_configure_linux_project_package)
@@ -379,17 +376,16 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
         endif ()
     endif ()
 
-    # 图标资源放 <exe>/assets；HuxerUI 资源包（内置+app 合并，由 huxerui_add_app 的
-    # 资源构建生成）放 <exe>.resources。最新运行时除了 resources.bin 索引外，
-    # 还会按索引读取同目录下的 .huxv/.png 等实际 payload，必须把整个 package
-    # 目录复制到运行目录。
+    # HuxerUI 资源包（内置+app 合并，由 huxerui_add_app 的资源构建生成）放
+    # <exe>.resources。最新运行时除了 resources.bin 索引外，还会按索引读取同目录
+    # 下的 .huxv/.png 等实际 payload，必须把整个 package 目录复制到运行目录。
+    # Windows 应用、快捷方式和安装器使用 platform/windows/app.ico，不再复制脚手架
+    # 默认的 assets/icon.png。
     add_custom_command(TARGET llm-switch POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-                "${CMAKE_CURRENT_SOURCE_DIR}/assets" "$<TARGET_FILE_DIR:llm-switch>/assets"
         COMMAND ${CMAKE_COMMAND} -E copy_directory
                 "${CMAKE_BINARY_DIR}/huxerui-resources/llm-switch/package"
                 "$<TARGET_FILE_DIR:llm-switch>/llm-switch.resources"
-        COMMENT "Copying assets and the merged HuxerUI resource package next to llm-switch")
+        COMMENT "Copying the merged HuxerUI resource package next to llm-switch")
     if (WIN32)
         # HuxerUI 运行时 DLL 需在 exe 旁（抄自姊妹项目 apitab 顶层 WIN32 段）。
         # 源码通道没有 HUXERUI_SDK_DIR，且 dll 实际落在构建树 RUNTIME 输出
