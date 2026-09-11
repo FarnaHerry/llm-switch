@@ -1,7 +1,6 @@
 // providers_page.cpp — 供应商列表页：各 agent 工具组共用同一组件（参数化
-// tool，注册表见 models::toolRegistry()）。工具选择由 AgentPage 的受控索引
-// 和 Pager 负责保留页面；原来的工具图标栏仍位于供应商岛屿头部，头部右侧
-// 是新增按钮，无标题
+// tool，注册表见 models::toolRegistry()）。工具选择由 AgentPage 的
+// NavigationBar + Pager 负责；供应商岛屿头部右侧是新增按钮，无标题
 // 文字）。每个供应商一张卡片三段式：左信息列（名称 / 实际访问 URL / 备注 /
 // 「使用中」徽章（group.current 或 detectCurrent 命中），
 // Grow 吃满剩余宽度）｜ 中间状态列（连通检测延迟 + 用量文本/刷新图标，
@@ -899,44 +898,6 @@ void ReplaceModelList(const huxerui::StateList<std::string>& destination,
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)));
 }
 
-// 工具图标栏（供应商岛屿头部行左侧）：仍使用原来的紧凑图标按钮外观，
-// 但写 AgentPage 与 Pager 共用的稳定索引，不再通过切换工具重建整棵页面。
-[[huxerui::composable]] huxerui::View ToolBar(
-    huxerui::State<std::size_t> selectedTool) {
-    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
-    const IslandTheme islands = ResolveIslandTheme(theme);
-    auto tasks = huxerui::UseTaskScope();
-    const std::size_t selectedIndex = selectedTool.Get();
-    std::vector<huxerui::View> buttons;
-    buttons.reserve(models::toolRegistry().size());
-    std::size_t index = 0;
-    for (const auto& spec : models::toolRegistry()) {
-        const std::string displayName(spec.displayName);
-        const huxerui::ImageResource icon = ToolIcon(spec.iconName);
-        const std::size_t toolIndex = index++;
-        huxerui::View button =
-            huxerui::IconButton(icon, displayName)
-                .OnClick([tasks, selectedTool, toolIndex] {
-                    tasks.Launch([selectedTool, toolIndex]()
-                                     -> huxerui::Task<void> {
-                        co_await huxerui::Delay(
-                            std::chrono::duration<double>{0});
-                        selectedTool = toolIndex;
-                    });
-                })
-                .With(huxerui::Tooltip(displayName));
-        if (selectedIndex == toolIndex) {
-            button = std::move(button).With(
-                huxerui::Background(islands.raised),
-                huxerui::CornerRadius(islands.nested_radius));
-        }
-        buttons.push_back(std::move(button));
-    }
-    return huxerui::Row(std::move(buttons))
-        .With(huxerui::Spacing(theme.spacing.small),
-              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
-}
-
 // 官方常驻卡：有官方厂商的工具（models::officialVendorName 非空）固定在// 供应商列表第一位；切换 = store.restoreOfficial 还原厂商原生状态（与
 // 普通卡同样的切换语义，无确认框）。active = 组 current 与 detectCurrent
 // 均为空（即当前生效的就是厂商原生状态）。
@@ -1204,8 +1165,8 @@ void ReplaceModelList(const huxerui::StateList<std::string>& destination,
 } // namespace
 
 [[huxerui::composable]] huxerui::View ProvidersPage(
-    std::string tool, huxerui::State<std::size_t> selectedTool,
-    huxerui::State<int> revision, UsageCache usageCache, bool enableUsagePolling) {
+    std::string tool, huxerui::State<int> revision, UsageCache usageCache,
+    bool enableUsagePolling) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto tasks = huxerui::UseTaskScope();
     auto toast = huxerui::UseToast();
@@ -1383,14 +1344,13 @@ void ReplaceModelList(const huxerui::StateList<std::string>& destination,
     }
     const bool hasCards = hasOfficial || providerCount > 0;
 
-    // 列表模式用自定义一级岛（不走 PageScaffold）：原来的工具图标栏在岛屿
-    // 头部左侧，右侧是新增按钮；工具栏写 AgentPage 共享的受控索引。
+    // 列表模式用自定义一级岛（不走 PageScaffold）：NavigationBar 在岛屿外
+    // 负责工具选择，头部只保留新增按钮。
     const IslandTheme islands = ResolveIslandTheme(theme);
     const bool compact =
         huxerui::UseViewportClass() == huxerui::ViewportClass::Compact;
     std::vector<huxerui::View> listItems;
     listItems.push_back(huxerui::Row {
-        ToolBar(selectedTool),
         huxerui::Spacer(),
         huxerui::IconButton(app::images::add, "新增供应商")
             .OnClick([tasks, formTarget] {
