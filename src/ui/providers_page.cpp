@@ -1,6 +1,6 @@
 // providers_page.cpp — 供应商列表页：各 agent 工具组共用同一组件（参数化
 // tool，注册表见 models::toolRegistry()）。工具选择由 AgentPage 的
-// NavigationBar + Pager 负责，新增动作也由 AgentPage 顶部 action group 触发；
+// Agent 工具栏 + Pager 负责，新增动作也由 AgentPage 顶部 action group 触发；
 // 每个供应商一张卡片三段式：左信息列（名称 / 实际访问 URL / 备注 /
 // 「使用中」徽章（group.current 或 detectCurrent 命中），
 // Grow 吃满剩余宽度）｜ 中间状态列（连通检测延迟 + 用量文本/刷新图标，
@@ -1355,7 +1355,7 @@ void ReplaceModelList(const huxerui::StateList<std::string>& destination,
     }
     const bool hasCards = hasOfficial || providerCount > 0;
 
-    // 列表模式只提供 Agent 岛屿内的 page 内容；NavigationBar、action group
+    // 列表模式只提供 Agent 岛屿内的 page 内容；Agent 工具栏、action group
     // 与 Pager 的外层岛屿由 AgentPage 统一拥有，避免每个 page 各自形成岛屿。
     const IslandTheme islands = ResolveIslandTheme(theme);
     std::vector<huxerui::View> listItems;

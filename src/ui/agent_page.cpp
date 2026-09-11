@@ -1,4 +1,4 @@
-// agent_page.cpp — Agent 管理页：顶部 NavigationBar 与 action group 共用一行，
+// agent_page.cpp — Agent 管理页：顶部 Agent 工具栏与 action group 共用一行，
 // Pager 只切换下方 page；切换工具不会销毁供应商页的表单、列表和卡片局部状态。
 #include <huxerui/huxerui.h>
 
@@ -28,7 +28,7 @@ namespace llmswitch::ui {
     const bool compact =
         huxerui::UseViewportClass() == huxerui::ViewportClass::Compact;
 
-    std::vector<huxerui::NavigationItem> navigationItems;
+    std::vector<huxerui::SegmentedButtonItem> navigationItems;
     std::vector<huxerui::View> pages;
     navigationItems.reserve(registry.size());
     pages.reserve(registry.size());
@@ -55,19 +55,28 @@ namespace llmswitch::ui {
         }
     };
 
-    // NavigationBar 的选中承载块使用项目二级岛屿的圆角和表面；其余字段
-    // 继承当前 Material/Flat 主题，保留 HuxerUI 原有的动画、交互反馈和尺寸。
-    huxerui::NavigationBarStyle navigationStyle =
-        huxerui::UseEnvironment<huxerui::NavigationBarStyle>();
+    // 工具栏使用普通按钮尺寸：继承当前 SegmentedButton 主题，只移除边框、
+    // 缩小内边距与图标，并使用项目二级岛表面表达选中态。
+    huxerui::SegmentedButtonStyle navigationStyle =
+        huxerui::UseEnvironment<huxerui::SegmentedButtonStyle>();
     navigationStyle.background = huxerui::Color::Transparent();
-    navigationStyle.indicator = islands.overlay;
-    navigationStyle.indicator_corner_radius = islands.nested_radius;
-    navigationStyle.item_padding = huxerui::EdgeInsets::Symmetric(
+    navigationStyle.selected_background = islands.overlay;
+    navigationStyle.label_style.foreground = theme.colors.on_surface_variant;
+    navigationStyle.selected_label = theme.colors.on_surface;
+    navigationStyle.border = huxerui::Border{huxerui::Color::Transparent(), 0.0F};
+    navigationStyle.selected_border =
+        huxerui::Border{huxerui::Color::Transparent(), 0.0F};
+    navigationStyle.padding = huxerui::EdgeInsets::Symmetric(
         theme.spacing.small, theme.spacing.extra_small);
+    navigationStyle.icon_size = 18.0F;
+    navigationStyle.icon_spacing = theme.spacing.extra_small;
+    navigationStyle.minimum_segment_width = 48.0F;
+    navigationStyle.minimum_height = 40.0F;
+    navigationStyle.corner_radii = huxerui::CornerRadii{islands.nested_radius};
     huxerui::ThemeDefinition navigationTheme;
     navigationTheme.Set(navigationStyle);
 
-    huxerui::View navigationBar = huxerui::NavigationBar(
+    huxerui::View navigationBar = huxerui::SegmentedButton(
                                       std::move(navigationItems), selectedTool)
                                       .OnChanged(selectTool);
     huxerui::View navigationContainer = huxerui::Row {

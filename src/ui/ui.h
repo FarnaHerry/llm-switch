@@ -65,7 +65,7 @@ IslandTheme ResolveIslandTheme(const huxerui::ThemeSpec& theme);
 huxerui::View IslandSurface(huxerui::View content, IslandLevel level = IslandLevel::Base);
 
 // ---- 页面（定义在各自 .cpp，均为 [[huxerui::composable]]）----
-// Agent 管理页：持有 NavigationBar/Pager 的受控选中索引，并让各工具页保持
+// Agent 管理页：持有 Agent 工具栏/Pager 的受控选中索引，并让各工具页保持
 // 挂载，从而保留各页的表单、列表和检查状态。
 huxerui::View AgentPage(huxerui::State<int> revision);
 // 供应商列表页：各工具组共用同一组件，tool 是
