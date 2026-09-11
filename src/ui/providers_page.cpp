@@ -1344,11 +1344,9 @@ void ReplaceModelList(const huxerui::StateList<std::string>& destination,
     }
     const bool hasCards = hasOfficial || providerCount > 0;
 
-    // 列表模式用自定义一级岛（不走 PageScaffold）：NavigationBar 在岛屿外
-    // 负责工具选择，头部只保留新增按钮。
+    // 列表模式只提供 Agent 岛屿内的 page 内容；NavigationBar 与 Pager 的
+    // 外层岛屿由 AgentPage 统一拥有，避免每个 page 各自形成岛屿。
     const IslandTheme islands = ResolveIslandTheme(theme);
-    const bool compact =
-        huxerui::UseViewportClass() == huxerui::ViewportClass::Compact;
     std::vector<huxerui::View> listItems;
     listItems.push_back(huxerui::Row {
         huxerui::Spacer(),
@@ -1393,13 +1391,7 @@ void ReplaceModelList(const huxerui::StateList<std::string>& destination,
             : providerCards);
 
     huxerui::View root = huxerui::Column(std::move(listItems))
-        .With(huxerui::Padding(compact ? theme.spacing.medium
-                                       : theme.spacing.large),
-              huxerui::Spacing(theme.spacing.medium),
-              huxerui::Background(islands.base),
-              huxerui::CornerRadius(islands.island_radius),
-              huxerui::Border(islands.outline_soft, 0.75F),
-              huxerui::ClipChildren(),
+        .With(huxerui::Spacing(theme.spacing.medium),
               huxerui::Grow(1.0F),
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 
