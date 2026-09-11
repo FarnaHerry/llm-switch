@@ -60,7 +60,7 @@ namespace llmswitch::ui {
     huxerui::NavigationBarStyle navigationStyle =
         huxerui::UseEnvironment<huxerui::NavigationBarStyle>();
     navigationStyle.background = huxerui::Color::Transparent();
-    navigationStyle.indicator = islands.raised;
+    navigationStyle.indicator = islands.overlay;
     navigationStyle.indicator_corner_radius = islands.nested_radius;
     navigationStyle.item_padding = huxerui::EdgeInsets::Symmetric(
         theme.spacing.small, theme.spacing.extra_small);
@@ -71,10 +71,18 @@ namespace llmswitch::ui {
                                       std::move(navigationItems), selectedTool)
                                       .OnChanged(selectTool)
                                       .With(huxerui::Grow(1.0F));
+    huxerui::View navigationContainer = huxerui::Row {
+        huxerui::Theme(std::move(navigationTheme),
+                       std::move(navigationBar)),
+    }.With(huxerui::Padding(theme.spacing.extra_small),
+           huxerui::Background(islands.raised),
+           huxerui::CornerRadius(islands.nested_radius),
+           huxerui::ClipChildren(),
+           huxerui::Grow(1.0F),
+           huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
     return huxerui::Column {
         huxerui::Row {
-            huxerui::Theme(std::move(navigationTheme),
-                           std::move(navigationBar)),
+            std::move(navigationContainer),
             huxerui::Row {
                 huxerui::IconButton(app::images::add, "新增供应商")
                     .OnClick(requestAddProvider)
