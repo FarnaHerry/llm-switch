@@ -74,7 +74,6 @@ namespace llmswitch::ui {
            huxerui::Background(islands.raised),
            huxerui::CornerRadius(islands.nested_radius),
            huxerui::ClipChildren(),
-           huxerui::Grow(1.0F),
            huxerui::MainAlign(huxerui::MainAxisAlignment::Start),
            huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
     return huxerui::Column {
