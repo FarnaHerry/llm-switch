@@ -70,11 +70,15 @@ huxerui::View IslandSurface(huxerui::View content, IslandLevel level = IslandLev
 huxerui::View AgentPage(huxerui::State<int> revision);
 // 供应商列表页：各工具组共用同一组件，tool 是
 // models::toolRegistry() 的稳定注册表 id（claude-code / codex / ...）。
-// usageCache 在 AgentPage 中只创建一份；enableUsagePolling 只允许一个保留页
-// 负责全局用量轮询，避免 Pager 保留多个页面后重复请求。
+// usageCache 与 addProviderRequest 在 AgentPage 中只创建一份；
+// enableUsagePolling 只允许一个保留页负责全局用量轮询，避免 Pager 保留多页
+// 后重复请求。addProviderRequest 由顶部 action group 发出，目标页消费后打开
+// 自己的新增表单。
 using UsageCache = huxerui::State<std::map<std::string, std::string>>;
 huxerui::View ProvidersPage(std::string tool, huxerui::State<int> revision,
-                            UsageCache usageCache, bool enableUsagePolling);
+                            UsageCache usageCache,
+                            huxerui::State<std::string> addProviderRequest,
+                            bool enableUsagePolling);
 // 设置页持有主题模式 State（AppRoot 传入）。
 huxerui::View SettingsPage(huxerui::State<int> themeMode, huxerui::State<int> revision);
 

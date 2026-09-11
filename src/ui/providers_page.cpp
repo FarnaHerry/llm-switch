@@ -1,7 +1,7 @@
 // providers_page.cpp — 供应商列表页：各 agent 工具组共用同一组件（参数化
 // tool，注册表见 models::toolRegistry()）。工具选择由 AgentPage 的
-// NavigationBar + Pager 负责；供应商岛屿头部右侧是新增按钮，无标题
-// 文字）。每个供应商一张卡片三段式：左信息列（名称 / 实际访问 URL / 备注 /
+// NavigationBar + Pager 负责，新增动作也由 AgentPage 顶部 action group 触发；
+// 每个供应商一张卡片三段式：左信息列（名称 / 实际访问 URL / 备注 /
 // 「使用中」徽章（group.current 或 detectCurrent 命中），
 // Grow 吃满剩余宽度）｜ 中间状态列（连通检测延迟 + 用量文本/刷新图标，
 // 垂直居中落在内容与操作组之间，两者皆无时塌缩为零宽）｜ 右侧操作图标组
@@ -1166,7 +1166,7 @@ void ReplaceModelList(const huxerui::StateList<std::string>& destination,
 
 [[huxerui::composable]] huxerui::View ProvidersPage(
     std::string tool, huxerui::State<int> revision, UsageCache usageCache,
-    bool enableUsagePolling) {
+    huxerui::State<std::string> addProviderRequest, bool enableUsagePolling) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto tasks = huxerui::UseTaskScope();
     auto toast = huxerui::UseToast();
@@ -1182,6 +1182,17 @@ void ReplaceModelList(const huxerui::StateList<std::string>& destination,
     // 列表/表单多模式："" = 列表；"new" = 新增；"usage:" + id = 用量查询
     // 配置页；否则 = 编辑的 provider id。子页以 .Key 组合，换目标即重建状态。
     auto formTarget = huxerui::UseState<std::string>({});
+    // AgentPage 顶部 action group 发来的新增请求只由对应工具页消费，随后
+    // 清空请求，避免同一次点击在后续重组中重复打开表单。
+    huxerui::Lifecycle(
+        [tool, addProviderRequest, formTarget] {
+            if (addProviderRequest.Get() == tool) {
+                addProviderRequest = {};
+                formTarget = "new";
+            }
+            return [] {};
+        },
+        addProviderRequest.Get());
     // 编辑表单先显示轻量加载页，再异步拷贝目标供应商。这样切换编辑目标
     // 不必先构造整棵供应商卡片树；formDataTarget 也用来丢弃旧目标的迟到结果。
     auto formInitial = huxerui::UseState<models::Provider>({});
@@ -1344,23 +1355,10 @@ void ReplaceModelList(const huxerui::StateList<std::string>& destination,
     }
     const bool hasCards = hasOfficial || providerCount > 0;
 
-    // 列表模式只提供 Agent 岛屿内的 page 内容；NavigationBar 与 Pager 的
-    // 外层岛屿由 AgentPage 统一拥有，避免每个 page 各自形成岛屿。
+    // 列表模式只提供 Agent 岛屿内的 page 内容；NavigationBar、action group
+    // 与 Pager 的外层岛屿由 AgentPage 统一拥有，避免每个 page 各自形成岛屿。
     const IslandTheme islands = ResolveIslandTheme(theme);
     std::vector<huxerui::View> listItems;
-    listItems.push_back(huxerui::Row {
-        huxerui::Spacer(),
-        huxerui::IconButton(app::images::add, "新增供应商")
-            .OnClick([tasks, formTarget] {
-                // 写 formTarget 会卸载点击节点：推迟出指针事件路径。
-                tasks.Launch([=]() -> huxerui::Task<void> {
-                    co_await huxerui::Delay(std::chrono::duration<double>{0});
-                    formTarget = "new";
-                });
-            })
-            .With(huxerui::Tooltip("新增供应商")),
-    }.With(huxerui::Spacing(theme.spacing.small),
-           huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)));
 
     // Claude Desktop 平台提示条（仅 macOS / Windows 可用；图标照常显示，
     // 增删改可用但本平台无法切换生效）。
