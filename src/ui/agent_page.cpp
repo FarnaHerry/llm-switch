@@ -54,11 +54,27 @@ namespace llmswitch::ui {
             addProviderRequest = std::string(currentRegistry[index].id);
         }
     };
+
+    // NavigationBar 的选中承载块使用项目二级岛屿的圆角和表面；其余字段
+    // 继承当前 Material/Flat 主题，保留 HuxerUI 原有的动画、交互反馈和尺寸。
+    huxerui::NavigationBarStyle navigationStyle =
+        huxerui::UseEnvironment<huxerui::NavigationBarStyle>();
+    navigationStyle.background = huxerui::Color::Transparent();
+    navigationStyle.indicator = islands.raised;
+    navigationStyle.indicator_corner_radius = islands.nested_radius;
+    navigationStyle.item_padding = huxerui::EdgeInsets::Symmetric(
+        theme.spacing.small, theme.spacing.extra_small);
+    huxerui::ThemeDefinition navigationTheme;
+    navigationTheme.Set(navigationStyle);
+
+    huxerui::View navigationBar = huxerui::NavigationBar(
+                                      std::move(navigationItems), selectedTool)
+                                      .OnChanged(selectTool)
+                                      .With(huxerui::Grow(1.0F));
     return huxerui::Column {
         huxerui::Row {
-            huxerui::NavigationBar(std::move(navigationItems), selectedTool)
-                .OnChanged(selectTool)
-                .With(huxerui::Grow(1.0F)),
+            huxerui::Theme(std::move(navigationTheme),
+                           std::move(navigationBar)),
             huxerui::Row {
                 huxerui::IconButton(app::images::add, "新增供应商")
                     .OnClick(requestAddProvider)
@@ -67,6 +83,7 @@ namespace llmswitch::ui {
                    huxerui::CrossAlign(
                        huxerui::CrossAxisAlignment::Center)),
         }.With(huxerui::Spacing(theme.spacing.small),
+               huxerui::MainAlign(huxerui::MainAxisAlignment::SpaceBetween),
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
         huxerui::Pager(std::move(pages), selectedTool)
             .ScrollAxis(huxerui::Axis::Horizontal)
