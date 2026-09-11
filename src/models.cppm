@@ -103,6 +103,7 @@ export struct Provider {
     std::string modelFetchUrl;   // 可选，空 = 按 baseUrl + 上游格式自动获取模型
     std::string apiKey;
     std::string model;          // 可选，空 = 切换时不写 env.ANTHROPIC_MODEL
+    bool modelSupports1m = false;  // 主模型在 Claude Desktop 菜单中的 1M 能力声明
     // 三档模型映射（仅 hasModelMappings 工具：claude-code / claude，均选填）：
     // * *Model 是发送给上游的实际模型 ID；*DisplayName 是 Claude Desktop
     //   菜单显示名；*Supports1m 是写入 inferenceModels 的 1M 能力声明。
@@ -173,6 +174,7 @@ export nlohmann::json toJson(const Provider& p) {
     j["modelFetchUrl"] = p.modelFetchUrl;
     j["apiKey"] = p.apiKey;
     j["model"] = p.model;
+    j["modelSupports1m"] = p.modelSupports1m;
     j["haikuModel"] = p.haikuModel;
     j["sonnetModel"] = p.sonnetModel;
     j["opusModel"] = p.opusModel;
@@ -204,6 +206,7 @@ export Provider providerFromJson(const nlohmann::json& j) {
     p.modelFetchUrl = j.value("modelFetchUrl", "");
     p.apiKey = j.value("apiKey", "");
     p.model = j.value("model", "");
+    p.modelSupports1m = j.value("modelSupports1m", false);
     p.haikuModel = j.value("haikuModel", "");
     p.sonnetModel = j.value("sonnetModel", "");
     p.opusModel = j.value("opusModel", "");

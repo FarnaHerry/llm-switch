@@ -82,15 +82,15 @@ const std::vector<std::string> kThemeModes{"system", "dark", "light"};
 }
 
 // 用量查询刷新间隔选项（下标 ↔ AppConfig.usageRefreshMinutes 分钟数，0=仅手动）。
-const std::vector<huxerui::StringVariant> kUsageIntervals{"5 分钟", "10 分钟",
-                                                          "30 分钟", "仅手动"};
-const std::vector<int> kUsageMinutes{5, 10, 30, 0};
+const std::vector<huxerui::StringVariant> kUsageIntervals{
+    "1 分钟", "5 分钟", "10 分钟", "30 分钟", "仅手动"};
+const std::vector<int> kUsageMinutes{1, 5, 10, 30, 0};
 
 int UsageIntervalIndex(int minutes) {
     for (std::size_t i = 0; i < kUsageMinutes.size(); ++i) {
         if (kUsageMinutes[i] == minutes) return static_cast<int>(i);
     }
-    return 3;  // 未知值按「仅手动」显示
+    return 4;  // 未知值按「仅手动」显示
 }
 
 // 版本号编译期常量由顶层 CMake 注入（hcg 不支持 composable 内条件编译，

@@ -819,6 +819,7 @@ int main() {
                              .baseUrl = "https://d3.example.com",
                              .apiKey = "sk-d3",
                              .model = "claude-sonnet-4-6",
+                             .modelSupports1m = true,
                              .haikuModel = "deepseek-chat",
                              .opusModel = "kimi-k2",
                              .haikuDisplayName = "DeepSeek Haiku",
@@ -834,6 +835,7 @@ int main() {
         CHECK(profile["inferenceModels"].size() == 3);
         CHECK(profile["inferenceModels"][0]["name"] == "claude-sonnet-4-6");
         CHECK(!profile["inferenceModels"][0].contains("labelOverride"));
+        CHECK(profile["inferenceModels"][0]["supports1m"] == true);
         CHECK(profile["inferenceModels"][1]["name"] == "claude-haiku-4-5");
         CHECK(profile["inferenceModels"][1]["labelOverride"] == "DeepSeek Haiku");
         CHECK(profile["inferenceModels"][1]["supports1m"] == true);
@@ -847,7 +849,7 @@ int main() {
   "inferenceGatewayBaseUrl": "https://imp3.example.com",
   "inferenceGatewayApiKey": "sk-imp3",
   "inferenceModels": [
-    {"name": "claude-haiku-4-5", "labelOverride": "hk-real"},
+    {"name": "claude-haiku-4-5", "labelOverride": "hk-real", "supports1m": true},
     {"name": "claude-opus-4-9"}
   ]
 }
@@ -855,6 +857,7 @@ int main() {
         const auto imd = s.importLive("claude");
         CHECK(imd.name == "当前配置");
         CHECK(imd.model == "hk-real");  // 第一条同时填 model
+        CHECK(imd.modelSupports1m);
         CHECK(imd.haikuModel == "hk-real");
         CHECK(imd.opusModel == "claude-opus-4-9");
         CHECK(imd.sonnetModel.empty());

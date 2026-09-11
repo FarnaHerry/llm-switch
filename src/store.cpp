@@ -834,7 +834,8 @@ void ProviderStore::switchTo(std::string_view tool, const std::string& id) {
         nlohmann::json inferenceModels = nlohmann::json::array();
         if (!target->model.empty()) {
             inferenceModels.push_back(
-                claudeDesktopModelEntry(target->model, "claude-sonnet-4-6"));
+                claudeDesktopModelEntry(target->model, "claude-sonnet-4-6", {},
+                                        target->modelSupports1m));
         }
         if (!target->haikuModel.empty()) {
             inferenceModels.push_back(
@@ -1197,6 +1198,7 @@ models::Provider ProviderStore::importLive(std::string_view tool) {
                 if (actual.empty()) continue;
                 if (first) {
                     p.model = actual;
+                    p.modelSupports1m = m.value("supports1m", false);
                     first = false;
                 }
                 if (name.starts_with("claude-haiku-")) {

@@ -58,9 +58,10 @@ namespace {
 // （0=Anthropic，1=OpenAI）；fullUrl 打开时 URL 原样使用，不追加默认后缀。
 // apiFormat 为 opencode / pi 的 API 适配器下标（0=OpenAI 兼容（默认，
 // 存空串）/ 1=anthropic / 2=openai-responses）。
-// haiku/sonnet/opus 为三档模型映射（仅 hasModelMappings 工具展示），每档包含
-// 菜单显示名、实际请求模型和 supports1m 声明；
-// selModel/selHaiku/selSonnet/selOpus 为各行模型下拉的选中下标。
+// model 及 haiku/sonnet/opus 为模型字段；后三档映射（仅
+// hasModelMappings 工具展示）每档包含菜单显示名、实际请求模型和
+// supports1m 声明。各模型下拉只保留搜索值：选中后清空控件显示，实际模型
+// 始终由对应的 TextField 状态保存。
 // 用量查询三字段不在此——已拆到独立的 UsageFormPage（卡片 gauge 按钮进入）。
 struct FormStates {
     huxerui::State<huxerui::TextEditingValue> name;
@@ -68,6 +69,7 @@ struct FormStates {
     huxerui::State<huxerui::TextEditingValue> modelFetchUrl;
     huxerui::State<huxerui::TextEditingValue> apiKey;
     huxerui::State<huxerui::TextEditingValue> model;
+    huxerui::State<bool> modelSupports1m;
     huxerui::State<huxerui::TextEditingValue> website;
     huxerui::State<huxerui::TextEditingValue> notes;
     huxerui::State<huxerui::TextEditingValue> toml;  // 仅 codex 组展示
@@ -83,10 +85,10 @@ struct FormStates {
     huxerui::State<bool> haikuSupports1m;
     huxerui::State<bool> sonnetSupports1m;
     huxerui::State<bool> opusSupports1m;
-    huxerui::State<std::size_t> selModel;
-    huxerui::State<std::size_t> selHaiku;
-    huxerui::State<std::size_t> selSonnet;
-    huxerui::State<std::size_t> selOpus;
+    huxerui::State<huxerui::TextEditingValue> modelSearch;
+    huxerui::State<huxerui::TextEditingValue> haikuSearch;
+    huxerui::State<huxerui::TextEditingValue> sonnetSearch;
+    huxerui::State<huxerui::TextEditingValue> opusSearch;
 };
 
 // 表单状态初始化（ProviderFormPage 用）：hcg 要求 composable 返回 View（不能
@@ -99,6 +101,7 @@ struct FormStates {
      huxerui::UseState(huxerui::TextEditingValue{(p).modelFetchUrl}),        \
      huxerui::UseState(huxerui::TextEditingValue{(p).apiKey}),              \
      huxerui::UseState(huxerui::TextEditingValue{(p).model}),               \
+     huxerui::UseState((p).modelSupports1m),                                \
      huxerui::UseState(huxerui::TextEditingValue{(p).website}),             \
      huxerui::UseState(huxerui::TextEditingValue{(p).notes}),               \
      huxerui::UseState(huxerui::TextEditingValue{(p).codexConfigToml}),     \
@@ -116,10 +119,10 @@ struct FormStates {
      huxerui::UseState((p).haikuSupports1m),                                \
      huxerui::UseState((p).sonnetSupports1m),                               \
      huxerui::UseState((p).opusSupports1m),                                 \
-     huxerui::UseState(std::size_t{0}),                                     \
-     huxerui::UseState(std::size_t{0}),                                     \
-     huxerui::UseState(std::size_t{0}),                                     \
-     huxerui::UseState(std::size_t{0})}
+     huxerui::UseState(huxerui::TextEditingValue{}),                         \
+     huxerui::UseState(huxerui::TextEditingValue{}),                         \
+     huxerui::UseState(huxerui::TextEditingValue{}),                         \
+     huxerui::UseState(huxerui::TextEditingValue{})}
 
 void FillForm(const FormStates& fs, const models::Provider& p) {
     fs.name = huxerui::TextEditingValue{p.name};
@@ -127,6 +130,7 @@ void FillForm(const FormStates& fs, const models::Provider& p) {
     fs.modelFetchUrl = huxerui::TextEditingValue{p.modelFetchUrl};
     fs.apiKey = huxerui::TextEditingValue{p.apiKey};
     fs.model = huxerui::TextEditingValue{p.model};
+    fs.modelSupports1m = p.modelSupports1m;
     fs.website = huxerui::TextEditingValue{p.website};
     fs.notes = huxerui::TextEditingValue{p.notes};
     fs.toml = huxerui::TextEditingValue{p.codexConfigToml};
@@ -144,10 +148,10 @@ void FillForm(const FormStates& fs, const models::Provider& p) {
     fs.haikuSupports1m = p.haikuSupports1m;
     fs.sonnetSupports1m = p.sonnetSupports1m;
     fs.opusSupports1m = p.opusSupports1m;
-    fs.selModel = std::size_t{0};
-    fs.selHaiku = std::size_t{0};
-    fs.selSonnet = std::size_t{0};
-    fs.selOpus = std::size_t{0};
+    fs.modelSearch = huxerui::TextEditingValue{};
+    fs.haikuSearch = huxerui::TextEditingValue{};
+    fs.sonnetSearch = huxerui::TextEditingValue{};
+    fs.opusSearch = huxerui::TextEditingValue{};
 }
 
 // 用量缓存：providerId → 展示文本（含「查询失败：…」错误文本），页面级 State，
@@ -290,27 +294,47 @@ std::string DefaultUpstreamFormat(std::string_view tool) {
     return "openai";
 }
 
+std::vector<std::string> FilterModelIds(
+    const std::vector<std::string>& models, std::string_view query) {
+    if (query.empty()) return models;
+    std::vector<std::string> filtered;
+    for (const auto& model : models) {
+        if (model.find(query) != std::string::npos) filtered.push_back(model);
+    }
+    return filtered;
+}
+
 // 模型下拉：拉取成功后出现在模型行内（TextField 与「获取模型」按钮之间），
-// 点选回填目标模型字段；映射行还会同步回填菜单显示名，方便先选模型、再
-// 手动修改显示名称。受控值仍以 TextField 的 TextEditingValue 为权威，items
-// 会整体替换，factory 结果带稳定 Key。
+// 关闭时不显示当前模型名，也不显示下拉箭头；展开后由 ComboBox 提供搜索输入
+// 和模型列表。点选回填目标模型字段；映射行还会同步回填菜单显示名，方便先
+// 选模型、再手动修改显示名称。受控值仍以 TextField 的 TextEditingValue 为权威。
 huxerui::View ModelSelect(huxerui::State<std::vector<std::string>> fetched,
-                          huxerui::State<std::size_t> sel,
+                          huxerui::State<huxerui::TextEditingValue> search,
                           huxerui::State<huxerui::TextEditingValue> target,
                           huxerui::State<huxerui::TextEditingValue> displayTarget = {}) {
-    return huxerui::Select(fetched, sel,
-                           [](const std::string& id) {
-                               return huxerui::Text(id).Key(id);
-                           })
-        .Label("选择")
-        .OnChanged([fetched, sel, target, displayTarget](std::size_t index) {
-            const auto& items = fetched.Get();
-            if (index < items.size()) {
-                const huxerui::TextEditingValue value{items[index]};
+    const auto suggestions = FilterModelIds(fetched.Get(), search.Get().text);
+    return huxerui::ComboBox(
+               search, suggestions,
+               [](const std::string& id) { return id; },
+               [](const std::string& id) {
+                   return huxerui::Text(id).Key(id);
+               })
+        .Placeholder("选择模型")
+        .TrailingIcon(app::images::search)
+        .OnChanged([search](const huxerui::TextEditingValue& value) {
+            search = value;
+        })
+        .OnSelected([suggestions, search, target, displayTarget](
+                        std::size_t index,
+                        const huxerui::TextEditingValue& value) {
+            if (index < suggestions.size()) {
                 target = value;
                 if (displayTarget.IsValid()) displayTarget = value;
             }
-            sel = index;
+            search = huxerui::TextEditingValue{};
+        })
+        .OnExpandedChanged([search](bool expanded) {
+            if (!expanded) search = huxerui::TextEditingValue{};
         })
         .With(huxerui::Frame{.width = 150.0F});
 }
@@ -389,6 +413,14 @@ huxerui::View ModelSelect(huxerui::State<std::vector<std::string>> fetched,
         .Label("名称")
         .Variant(huxerui::TextFieldVariant::Outlined)
         .OnChanged([fs](const huxerui::TextEditingValue& v) { fs.name = v; }));
+    fields.push_back(huxerui::TextField(fs.website.Get())
+        .Label("官网（可选）")
+        .Variant(huxerui::TextFieldVariant::Outlined)
+        .OnChanged([fs](const huxerui::TextEditingValue& v) { fs.website = v; }));
+    fields.push_back(huxerui::TextField(fs.notes.Get())
+        .Label("备注（可选）")
+        .Variant(huxerui::TextFieldVariant::Outlined)
+        .OnChanged([fs](const huxerui::TextEditingValue& v) { fs.notes = v; }));
     fields.push_back(huxerui::Switch("完整 URL", fs.fullUrl.Get())
         .OnChanged([fs](bool checked) { fs.fullUrl = checked; }));
     fields.push_back(huxerui::TextField(fs.baseUrl.Get())
@@ -516,7 +548,11 @@ huxerui::View ModelSelect(huxerui::State<std::vector<std::string>> fetched,
                     .With(huxerui::Grow(1.0F)),
                 fetchedModels.Get().empty()
                     ? huxerui::View{huxerui::Row{}}
-                    : ModelSelect(fetchedModels, fs.selModel, fs.model),
+                    : ModelSelect(fetchedModels, fs.modelSearch, fs.model),
+                huxerui::Checkbox("1M", fs.modelSupports1m.Get())
+                    .OnChanged([fs](bool checked) {
+                        fs.modelSupports1m = checked;
+                    }),
             }.With(huxerui::Spacing(8.0F),
                    huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
             huxerui::Row{std::move(fetchButton)}
@@ -544,8 +580,8 @@ huxerui::View ModelSelect(huxerui::State<std::vector<std::string>> fetched,
             {"Sonnet", fs.sonnetDisplayName, fs.sonnet, fs.sonnetSupports1m},
             {"Opus", fs.opusDisplayName, fs.opus, fs.opusSupports1m},
         }};
-        const std::array<huxerui::State<std::size_t>, 3> mappingSels{
-            fs.selHaiku, fs.selSonnet, fs.selOpus};
+        const std::array<huxerui::State<huxerui::TextEditingValue>, 3>
+            mappingSearches{fs.haikuSearch, fs.sonnetSearch, fs.opusSearch};
         for (std::size_t i = 0; i < mappingFields.size(); ++i) {
             const auto& mapping = mappingFields[i];
             fields.push_back(huxerui::Column {
@@ -574,7 +610,7 @@ huxerui::View ModelSelect(huxerui::State<std::vector<std::string>> fetched,
                         .With(huxerui::Grow(1.0F)),
                     fetchedModels.Get().empty()
                         ? huxerui::View{huxerui::Row{}}
-                        : ModelSelect(fetchedModels, mappingSels[i], mapping.model,
+                        : ModelSelect(fetchedModels, mappingSearches[i], mapping.model,
                                       mapping.displayName),
                     huxerui::Checkbox("1M", mapping.supports1m.Get())
                         .OnChanged([supports1m = mapping.supports1m](bool checked) {
@@ -603,14 +639,6 @@ huxerui::View ModelSelect(huxerui::State<std::vector<std::string>> fetched,
                 }));
     }
     // 用量查询三字段不在这里——卡片 gauge 按钮进 UsageFormPage 独立配置。
-    fields.push_back(huxerui::TextField(fs.website.Get())
-        .Label("官网（可选）")
-        .Variant(huxerui::TextFieldVariant::Outlined)
-        .OnChanged([fs](const huxerui::TextEditingValue& v) { fs.website = v; }));
-    fields.push_back(huxerui::TextField(fs.notes.Get())
-        .Label("备注（可选）")
-        .Variant(huxerui::TextFieldVariant::Outlined)
-        .OnChanged([fs](const huxerui::TextEditingValue& v) { fs.notes = v; }));
     if (isCodex) {
         fields.push_back(
             huxerui::Text("config.toml 原文（可选；切换时整体替换）")
@@ -673,6 +701,7 @@ huxerui::View ModelSelect(huxerui::State<std::vector<std::string>> fetched,
                         p.modelFetchUrl = fs.modelFetchUrl.Get().text;
                         p.apiKey = apiKey;
                         p.model = model;
+                        p.modelSupports1m = fs.modelSupports1m.Get();
                         p.upstreamFormat =
                             UpstreamFormatFromIndex(fs.upstreamFormat.Get());
                         p.fullUrl = fs.fullUrl.Get();
