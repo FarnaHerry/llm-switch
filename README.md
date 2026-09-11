@@ -102,5 +102,6 @@ push `v*` tag 会自动建 release 并挂上三个平台包；三个平台均通
 见 [CLAUDE.md](CLAUDE.md)（架构、领域层设计要点、UI 硬约束）。
 自动化 agent 还必须遵守 [AGENTS.md](AGENTS.md)：每批修改完成后完整编译、
 运行测试、创建本地 Git 提交并尝试推送；推送失败时保留本地提交并报告原因。
+后续工程事项见 [TODO.md](TODO.md)。
 图标来源与许可见 [resources/README.md](resources/README.md)
 （Claude / OpenAI logo 来自 simple-icons，CC0）。
