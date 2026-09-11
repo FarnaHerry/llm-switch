@@ -1219,6 +1219,43 @@ std::vector<std::string> FilterModelIds(
     // 列表/表单多模式："" = 列表；"new" = 新增；"usage:" + id = 用量查询
     // 配置页；否则 = 编辑的 provider id。子页以 .Key 组合，换目标即重建状态。
     auto formTarget = huxerui::UseState<std::string>({});
+    // 编辑表单先显示轻量加载页，再异步拷贝目标供应商。这样切换编辑目标
+    // 不必先构造整棵供应商卡片树；formDataTarget 也用来丢弃旧目标的迟到结果。
+    auto formInitial = huxerui::UseState<models::Provider>({});
+    auto formDataTarget = huxerui::UseState<std::string>({});
+    auto formLoading = huxerui::UseState(false);
+    const std::string target = formTarget.Get();
+    huxerui::Lifecycle(
+        [tasks, tool, target, formTarget, formInitial, formDataTarget,
+         formLoading] {
+            formDataTarget = "";
+            formLoading = !target.empty() && target != "new";
+            if (target.empty()) return;
+            if (target == "new") {
+                formDataTarget = target;
+                formLoading = false;
+                return;
+            }
+            tasks.Launch([tool, target, formTarget, formInitial, formDataTarget,
+                          formLoading]() -> huxerui::Task<void> {
+                co_await huxerui::Delay(std::chrono::duration<double>{0});
+                if (formTarget.Get() != target) co_return;
+
+                models::Provider loaded;
+                const auto& group = providerStore().group(tool);
+                for (const auto& provider : group.providers) {
+                    if (provider.id == target) {
+                        loaded = provider;
+                        break;
+                    }
+                }
+                if (formTarget.Get() != target) co_return;
+                formInitial = loaded;
+                formDataTarget = target;
+                formLoading = false;
+            });
+        },
+        target);
 
     // 用量缓存（页面级）+ 自动轮询：页面可见期间运行（TaskScope 随页面卸载
     // 取消）。每个周期在 UI 线程重读 config：usageEnabled 且
@@ -1256,6 +1293,50 @@ std::vector<std::string> FilterModelIds(
 
     // 订阅全局变更计数：托盘切换 / 设置页导入后本页重读。
     (void)revision.Get();
+
+    // 表单模式必须在构造列表卡片之前返回。编辑时只先挂载一个轻量页面，
+    // 目标数据回填完成后再创建真正的表单，避免等待所有列表内容完成组合。
+    const bool formReady = formDataTarget.Get() == target && !formLoading.Get();
+    if (!target.empty()) {
+        if (!formReady) {
+            auto goBack = [tasks, formTarget] {
+                tasks.Launch([formTarget]() -> huxerui::Task<void> {
+                    co_await huxerui::Delay(std::chrono::duration<double>{0});
+                    formTarget = "";
+                });
+            };
+            const std::string title = target.starts_with("usage:")
+                                          ? "用量查询"
+                                          : "编辑供应商";
+            return PageScaffold(
+                       title,
+                       huxerui::Row {
+                           huxerui::Button("返回")
+                               .OnClick([goBack] { goBack(); }),
+                       },
+                       huxerui::Column {
+                           huxerui::Text("正在加载供应商配置…")
+                               .Style(huxerui::TextStyle{
+                                   huxerui::Font::System(font_size::kBody),
+                                   theme.colors.on_surface_variant}),
+                       }
+                           .With(huxerui::Grow(1.0F),
+                                 huxerui::MainAlign(
+                                     huxerui::MainAxisAlignment::Center),
+                                 huxerui::CrossAlign(
+                                     huxerui::CrossAxisAlignment::Center)))
+                .Key("form-loading:" + target);
+        }
+
+        const models::Provider initial = formInitial.Get();
+        if (target.starts_with("usage:")) {
+            return UsageFormPage(tool, initial, revision, formTarget)
+                .Key("usage:" + target.substr(6));
+        }
+        const bool isNew = target == "new";
+        return ProviderFormPage(tool, initial, isNew, revision, formTarget)
+            .Key("form:" + target);
+    }
 
     // 卡片列表：官方常驻卡（有官方厂商的工具）排第一，其后是供应商卡；
     // 「使用中」= 组内 current 或 detectCurrent 命中。
@@ -1357,28 +1438,6 @@ std::vector<std::string> FilterModelIds(
               huxerui::Grow(1.0F),
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 
-    // 表单/用量配置模式：initial = 目标拷贝（新增为空 Provider）。单 return
-    // 前的所有 UseState 都在分支之前，State 恒定性不受模式切换影响。
-    const std::string target = formTarget.Get();
-    if (target.starts_with("usage:")) {
-        const std::string id = target.substr(6);
-        models::Provider initial;
-        for (const auto& p : g.providers) {
-            if (p.id == id) initial = p;
-        }
-        root = UsageFormPage(tool, initial, revision, formTarget)
-                   .Key("usage:" + id);
-    } else if (!target.empty()) {
-        const bool isNew = target == "new";
-        models::Provider initial;
-        if (!isNew) {
-            for (const auto& p : g.providers) {
-                if (p.id == target) initial = p;
-            }
-        }
-        root = ProviderFormPage(tool, initial, isNew, revision, formTarget)
-                   .Key("form:" + target);
-    }
     return root;
 }
 
