@@ -69,8 +69,7 @@ namespace llmswitch::ui {
 
     huxerui::View navigationBar = huxerui::NavigationBar(
                                       std::move(navigationItems), selectedTool)
-                                      .OnChanged(selectTool)
-                                      .With(huxerui::Grow(1.0F));
+                                      .OnChanged(selectTool);
     huxerui::View navigationContainer = huxerui::Row {
         huxerui::Theme(std::move(navigationTheme),
                        std::move(navigationBar)),
@@ -79,6 +78,7 @@ namespace llmswitch::ui {
            huxerui::CornerRadius(islands.nested_radius),
            huxerui::ClipChildren(),
            huxerui::Grow(1.0F),
+           huxerui::MainAlign(huxerui::MainAxisAlignment::Start),
            huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
     return huxerui::Column {
         huxerui::Row {
