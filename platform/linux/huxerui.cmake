@@ -23,8 +23,4 @@ function(huxerui_configure_linux_project_package target_name install_component)
                 COMPONENT "${install_component}"
         )
     endif ()
-    install(DIRECTORY "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../../assets"
-            DESTINATION bin
-            COMPONENT "${install_component}"
-    )
 endfunction()

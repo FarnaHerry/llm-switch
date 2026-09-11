@@ -39,7 +39,7 @@ if (HUXERUI_PROJECT_PLAN_ONLY)
     return()
 endif ()
 
-project(llm-switch VERSION 0.1.9 DESCRIPTION "Claude Code / Codex provider config switcher (cc-switch C++ rewrite)" LANGUAGES NONE)
+project(llm-switch VERSION 0.1.10 DESCRIPTION "Claude Code / Codex provider config switcher (cc-switch C++ rewrite)" LANGUAGES NONE)
 
 # HUXERUI_LIBRARY_GRAPH_ONLY：CLI 扫描 huxerui 库依赖图时的特殊配置——
 # 不启用语言、不构建，huxerui_add_app 只写出库图 JSON 即返回（见 SDK
@@ -379,8 +379,7 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
     # HuxerUI 资源包（内置+app 合并，由 huxerui_add_app 的资源构建生成）放
     # <exe>.resources。最新运行时除了 resources.bin 索引外，还会按索引读取同目录
     # 下的 .huxv/.png 等实际 payload，必须把整个 package 目录复制到运行目录。
-    # Windows 应用、快捷方式和安装器使用 platform/windows/app.ico，不再复制脚手架
-    # 默认的 assets/icon.png。
+    # Windows 应用、快捷方式和安装器使用 platform/windows/app.ico。
     add_custom_command(TARGET llm-switch POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_directory
                 "${CMAKE_BINARY_DIR}/huxerui-resources/llm-switch/package"
