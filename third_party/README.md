@@ -10,6 +10,10 @@ x86_64 回落用静态包）以 tarball 提交在 `tarballs/`，configure 期校
 项目对 Windows 主窗口图标保留一个独立补丁
 `cmake/patches/huxerui-windows-icon.patch`，由 Windows CI 在检出 HuxerUI
 后应用；不要把这个项目补丁直接提交到第三方仓库。
+Linux RPM/DEB 另保留
+`cmake/patches/huxerui-linux-openssl-system.patch`，让打包使用发行版提供的
+OpenSSL，避免把 `libssl.so.3` / `libcrypto.so.3` 直接安装到 `/usr/lib` 与
+Fedora 多架构 `openssl-libs` 冲突；该补丁同样由 Linux CI 在检出后应用。
 
 ## 清单与来源
 

@@ -279,7 +279,8 @@ commit，不回滚已经验证的修改，并在最终回复中报告失败原�
   macos brew openssl@3 + `-DOPENSSL_ROOT_DIR`）；无 mihomo/Android
   （蓝本相关步骤已删）。
 - 打包：Linux tar.gz（二进制 + llm-switch.resources + lib/libhuxerui.so +
-  libc++ 三件套 + patchelf `$ORIGIN/lib`）、Windows zip（exe + 旁挂 dll +
+  libc++ 三件套 + patchelf `$ORIGIN/lib`；RPM/DEB 使用发行版 OpenSSL，不把
+  `libssl.so.3` / `libcrypto.so.3` 装进 `/usr/lib`）、Windows zip（exe + 旁挂 dll +
   resources）、macOS tar.gz（.app bundle）；push tag `v*` 时 release job
   （job 级 `contents: write`）下载三个平台产物，经
   softprops/action-gh-release 挂到 release；只有三个平台 job 全部成功且产物存在

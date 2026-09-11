@@ -87,6 +87,12 @@ jobs:
           set -euo pipefail
           git clone --filter=blob:none "$HUXERUI_REPO" third_party/huxerui
           git -C third_party/huxerui checkout "$HUXERUI_COMMIT"
+          # Fedora 的 32 位 openssl-libs 也占用 /usr/lib/libssl.so.3 和
+          # /usr/lib/libcrypto.so.3；Linux RPM/DEB 应使用发行版 OpenSSL，不能
+          # 将同名私有库直接安装到 /usr/lib。该项目补丁只调整 HuxerUI 的
+          # runtime 扫描规则，不改第三方源码仓库。
+          git -C third_party/huxerui apply \
+            "$GITHUB_WORKSPACE/cmake/patches/huxerui-linux-openssl-system.patch"
 
       - name: Install dependencies
         run: |
