@@ -304,39 +304,75 @@ std::vector<std::string> FilterModelIds(
     return filtered;
 }
 
-// 模型下拉：拉取成功后出现在模型行内（TextField 与「获取模型」按钮之间），
-// 关闭时不显示当前模型名，也不显示下拉箭头；展开后由 ComboBox 提供搜索输入
-// 和模型列表。点选回填目标模型字段；映射行还会同步回填菜单显示名，方便先
-// 选模型、再手动修改显示名称。受控值仍以 TextField 的 TextEditingValue 为权威。
-huxerui::View ModelSelect(huxerui::State<std::vector<std::string>> fetched,
-                          huxerui::State<huxerui::TextEditingValue> search,
-                          huxerui::State<huxerui::TextEditingValue> target,
-                          huxerui::State<huxerui::TextEditingValue> displayTarget = {}) {
-    const auto suggestions = FilterModelIds(fetched.Get(), search.Get().text);
-    return huxerui::ComboBox(
-               search, suggestions,
-               [](const std::string& id) { return id; },
-               [](const std::string& id) {
-                   return huxerui::Text(id).Key(id);
-               })
-        .Placeholder("选择模型")
-        .TrailingIcon(app::images::search)
-        .OnChanged([search](const huxerui::TextEditingValue& value) {
-            search = value;
+// 模型选择器：关闭时只有一个搜索图标；点击后由锚定 Popup 展开搜索框和模型
+// 列表，避免每一行都占用一个宽大的下拉输入框。点选回填目标模型字段；映射行
+// 还会同步回填菜单显示名，方便先选模型、再手动修改显示名称。
+[[huxerui::composable]] huxerui::View ModelSelect(
+    huxerui::State<std::vector<std::string>> fetched,
+    huxerui::State<huxerui::TextEditingValue> search,
+    huxerui::State<huxerui::TextEditingValue> target,
+    huxerui::State<huxerui::TextEditingValue> displayTarget = {}) {
+    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    const IslandTheme islands = ResolveIslandTheme(theme);
+    const auto popup = huxerui::UsePopup();
+
+    return huxerui::IconButton(app::images::search, "选择模型")
+        .OnClick([popup, fetched, search, target, displayTarget, islands] {
+            popup.Show(
+                [fetched, search, target, displayTarget, islands](
+                    huxerui::PopupContext context) {
+                    const auto suggestions =
+                        FilterModelIds(fetched.Get(), search.Get().text);
+                    std::vector<huxerui::View> items;
+                    items.reserve(suggestions.size());
+                    for (const auto& model : suggestions) {
+                        items.push_back(
+                            huxerui::Button(model)
+                                .Key(model)
+                                .OnClick([context, model, search, target,
+                                          displayTarget] {
+                                    context.Dismiss();
+                                    const huxerui::TextEditingValue value{model};
+                                    target = value;
+                                    if (displayTarget.IsValid()) {
+                                        displayTarget = value;
+                                    }
+                                    search = huxerui::TextEditingValue{};
+                                }));
+                    }
+                    if (items.empty()) {
+                        items.push_back(huxerui::Text("没有匹配的模型"));
+                    }
+                    return huxerui::Column {
+                        huxerui::TextField(search.Get())
+                            .Label("搜索模型")
+                            .Placeholder("输入模型名称")
+                            .LeadingIcon(app::images::search)
+                            .Variant(huxerui::TextFieldVariant::Outlined)
+                            .OnChanged([search](
+                                           const huxerui::TextEditingValue& value) {
+                                search = value;
+                            }),
+                        huxerui::ScrollView(
+                            huxerui::Column(std::move(items))
+                                .With(huxerui::Spacing(4.0F),
+                                      huxerui::CrossAlign(
+                                          huxerui::CrossAxisAlignment::Stretch)))
+                            .With(huxerui::Frame{.height = 240.0F}),
+                    }.With(huxerui::Spacing(8.0F),
+                           huxerui::Padding(islands.island_padding),
+                           huxerui::Background(islands.overlay),
+                           huxerui::Border(islands.outline_soft, 1.0F),
+                           huxerui::CornerRadius(islands.nested_radius),
+                           huxerui::Frame{.width = 320.0F},
+                           huxerui::CrossAlign(
+                               huxerui::CrossAxisAlignment::Stretch));
+                },
+                huxerui::PopupOptions{
+                    .placement = {huxerui::AnchorSide::Below,
+                                  huxerui::AnchorAlignment::End}});
         })
-        .OnSelected([suggestions, search, target, displayTarget](
-                        std::size_t index,
-                        const huxerui::TextEditingValue& value) {
-            if (index < suggestions.size()) {
-                target = value;
-                if (displayTarget.IsValid()) displayTarget = value;
-            }
-            search = huxerui::TextEditingValue{};
-        })
-        .OnExpandedChanged([search](bool expanded) {
-            if (!expanded) search = huxerui::TextEditingValue{};
-        })
-        .With(huxerui::Frame{.width = 150.0F});
+        .With(popup.Anchor(), huxerui::Tooltip("选择模型"));
 }
 
 // 新增/编辑供应商页（整页表单，不再是弹窗——字段太多弹窗太挤）。
