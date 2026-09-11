@@ -20,6 +20,7 @@
 
 #include <array>
 #include <chrono>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -412,24 +413,46 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(huxerui::WindowHandle window,
     const huxerui::ThemeSpec rootSpec = dark ? InkDarkThemeSpec() : InkLightThemeSpec();
     const IslandTheme rootIslands = ResolveIslandTheme(rootSpec);
 
-    std::vector<huxerui::View> pages;
-    pages.push_back(AgentPage(revision).Key("agents").With(huxerui::Grow(1.0F)));
-    pages.push_back(RouterPage().Key("router").With(huxerui::Grow(1.0F)));
-    pages.push_back(StatsPage().Key("stats").With(huxerui::Grow(1.0F)));
-    pages.push_back(McpPage().Key("mcp").With(huxerui::Grow(1.0F)));
-    pages.push_back(SkillsPage().Key("skills").With(huxerui::Grow(1.0F)));
-    pages.push_back(SessionsPage().Key("sessions").With(huxerui::Grow(1.0F)));
-    pages.push_back(SettingsPage(themeMode, revision)
-                        .Key("settings").With(huxerui::Grow(1.0F)));
-    pages.push_back(AboutPage().Key("about").With(huxerui::Grow(1.0F)));
+    // 顶层页面声明只在首次组合时构造一次。IndexedPages 负责保留已挂载页面；
+    // 这里再缓存 View 声明，避免侧栏切换时重新执行所有大页面（尤其是
+    // AgentPage 及其全部供应商卡片）的组合逻辑。
+    auto pageCache =
+        huxerui::UseState<std::shared_ptr<std::vector<huxerui::View>>>({});
+    std::shared_ptr<std::vector<huxerui::View>> cachedPages = pageCache.Get();
+    if (!cachedPages || cachedPages->size() != 8) {
+        auto nextPages = std::make_shared<std::vector<huxerui::View>>();
+        nextPages->reserve(8);
+        nextPages->push_back(
+            AgentPage(revision).Key("agents").With(huxerui::Grow(1.0F)));
+        nextPages->push_back(
+            RouterPage().Key("router").With(huxerui::Grow(1.0F)));
+        nextPages->push_back(
+            StatsPage().Key("stats").With(huxerui::Grow(1.0F)));
+        nextPages->push_back(
+            McpPage().Key("mcp").With(huxerui::Grow(1.0F)));
+        nextPages->push_back(
+            SkillsPage().Key("skills").With(huxerui::Grow(1.0F)));
+        nextPages->push_back(
+            SessionsPage().Key("sessions").With(huxerui::Grow(1.0F)));
+        nextPages->push_back(SettingsPage(themeMode, revision)
+                                 .Key("settings")
+                                 .With(huxerui::Grow(1.0F)));
+        nextPages->push_back(
+            AboutPage().Key("about").With(huxerui::Grow(1.0F)));
+        pageCache = nextPages;
+        cachedPages = std::move(nextPages);
+    }
 
     // 叠放根：全景水墨从页脚装饰升级为环境层。深浅主题分别使用低对比度画卷，
-    // Cover 铺满窗口、中央刻意净空；轻岛屿让顶部远山和四角近景隐约透出。
+    // Fill 铺满窗口、中央刻意净空；轻岛屿让顶部远山和四角近景隐约透出。
     // 最外层仍刷海面底色，保证图片加载前和极端宽高比下背景稳定。
     huxerui::View content = huxerui::Stack {
         huxerui::Image(dark ? app::images::ink_backdrop_dark
                             : app::images::ink_backdrop_light)
-            .Fit(huxerui::ImageFit::Cover)
+            // 极窄窗口下 Cover 的浮点裁剪源矩形可能比 SVG viewBox 多出
+            // 极小误差，触发 HuxerUI 的边界校验。背景是装饰层，Fill 使用
+            // 完整源矩形，优先保证窗口缩放始终安全。
+            .Fit(huxerui::ImageFit::Fill)
             .Align(huxerui::HorizontalAlignment::Center,
                    huxerui::VerticalAlignment::Center),
         huxerui::Column {
@@ -468,7 +491,7 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(huxerui::WindowHandle window,
             // 高度。内容区不再套外壳岛：区域划分由各页面自己的一级岛承担。
             huxerui::Row {
                 SideShell(navPage),
-                huxerui::IndexedPages(std::move(pages), navPage.Get())
+                huxerui::IndexedPages(*cachedPages, navPage.Get())
                     .With(huxerui::Grow(1.0F)),
             }
                 .With(huxerui::Spacing(rootIslands.page_gap),
@@ -491,7 +514,15 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(huxerui::WindowHandle window,
               huxerui::CornerRadius(12.0F), huxerui::ClipChildren(),
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 
-    return InkThemed(dark, std::move(content));
+    // Stack 的 Stretch 只拉伸子项，不会让 Stack 自身从自然尺寸扩展到窗口。
+    // 用一个有 Grow 子项的 Column 把完整窗口约束传入 Stack，保证四边都能
+    // 随窗口拉伸，也让内容区获得稳定的有限滚动视口。
+    huxerui::View filledContent = huxerui::Column {
+        std::move(content).With(huxerui::Grow(1.0F)),
+    }.With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
+           huxerui::Grow(1.0F));
+
+    return InkThemed(dark, std::move(filledContent));
 }
 
 } // namespace llmswitch::ui

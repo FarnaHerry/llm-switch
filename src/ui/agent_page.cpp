@@ -4,6 +4,7 @@
 
 #include <cstddef>
 #include <map>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -29,12 +30,29 @@ namespace llmswitch::ui {
         huxerui::UseViewportClass() == huxerui::ViewportClass::Compact;
 
     std::vector<huxerui::View> toolButtons;
-    std::vector<huxerui::View> pages;
     toolButtons.reserve(registry.size());
-    pages.reserve(registry.size());
+    auto providerPageCache =
+        huxerui::UseState<std::shared_ptr<std::vector<huxerui::View>>>({});
+    std::shared_ptr<std::vector<huxerui::View>> cachedPages =
+        providerPageCache.Get();
+    if (!cachedPages || cachedPages->size() != registry.size()) {
+        auto nextPages = std::make_shared<std::vector<huxerui::View>>();
+        nextPages->reserve(registry.size());
+        for (std::size_t index = 0; index < registry.size(); ++index) {
+            const auto& spec = registry[index];
+            const std::string id(spec.id);
+            nextPages->push_back(
+                ProvidersPage(id, revision, usageCache, addProviderRequest,
+                              index == 0)
+                    .Key("agent-providers:" + id)
+                    .With(huxerui::Grow(1.0F)));
+        }
+        providerPageCache = nextPages;
+        cachedPages = std::move(nextPages);
+    }
+
     for (std::size_t index = 0; index < registry.size(); ++index) {
         const auto& spec = registry[index];
-        const std::string id(spec.id);
         const std::string label(spec.displayName);
         huxerui::View toolButton =
             huxerui::IconButton(ToolIcon(spec.iconName), label)
@@ -46,11 +64,6 @@ namespace llmswitch::ui {
                 huxerui::CornerRadius(islands.nested_radius));
         }
         toolButtons.push_back(std::move(toolButton));
-        pages.push_back(ProvidersPage(
-                            id, revision, usageCache, addProviderRequest,
-                            index == 0)
-                            .Key("agent-providers:" + id)
-                            .With(huxerui::Grow(1.0F)));
     }
 
     auto selectTool = [selectedTool](std::size_t index) {
@@ -89,7 +102,7 @@ namespace llmswitch::ui {
         }.With(huxerui::Spacing(theme.spacing.small),
                huxerui::MainAlign(huxerui::MainAxisAlignment::SpaceBetween),
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
-        huxerui::Pager(std::move(pages), selectedTool)
+        huxerui::Pager(*cachedPages, selectedTool)
             .ScrollAxis(huxerui::Axis::Horizontal)
             .DragEnabled(false)
             .OnChanged(selectTool)
