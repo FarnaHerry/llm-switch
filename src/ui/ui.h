@@ -4,6 +4,7 @@
 
 #include <huxerui/huxerui.h>
 
+#include <map>
 #include <string>
 #include <string_view>
 
@@ -63,15 +64,16 @@ IslandTheme ResolveIslandTheme(const huxerui::ThemeSpec& theme);
 huxerui::View IslandSurface(huxerui::View content, IslandLevel level = IslandLevel::Base);
 
 // ---- 页面（定义在各自 .cpp，均为 [[huxerui::composable]]）----
-// Agent 管理页：薄宿主，持有当前工具 State 并转交 ProvidersPage（工具图标栏
-// 在供应商岛屿内部顶部）。
+// Agent 管理页：持有工具 Tab/Pager 的受控选中索引，并让各工具页保持挂载，
+// 从而保留各页的表单、列表和检查状态。
 huxerui::View AgentPage(huxerui::State<int> revision);
-// 供应商列表页：各工具组共用同一组件，currentTool 取 models::toolRegistry()
-// 的注册表 id（claude-code / codex / ...），岛屿内部顶部渲染工具图标栏。
-// revision 是全局变更计数（AppRoot 持有）：任何写库操作后 +1，驱动本页重读
-// 与托盘菜单重建。
-huxerui::View ProvidersPage(huxerui::State<std::string> currentTool,
-                            huxerui::State<int> revision);
+// 供应商列表页：各工具组共用同一组件，tool 是
+// models::toolRegistry() 的稳定注册表 id（claude-code / codex / ...）。
+// usageCache 在 AgentPage 中只创建一份；enableUsagePolling 只允许一个保留页
+// 负责全局用量轮询，避免 Pager 保留多个页面后重复请求。
+using UsageCache = huxerui::State<std::map<std::string, std::string>>;
+huxerui::View ProvidersPage(std::string tool, huxerui::State<int> revision,
+                            UsageCache usageCache, bool enableUsagePolling);
 // 设置页持有主题模式 State（AppRoot 传入）。
 huxerui::View SettingsPage(huxerui::State<int> themeMode, huxerui::State<int> revision);
 

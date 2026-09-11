@@ -1,7 +1,6 @@
 // providers_page.cpp — 供应商列表页：各 agent 工具组共用同一组件（参数化
-// currentTool State，注册表见 models::toolRegistry()）。工具图标栏在供应商
-// 岛屿头部行左侧（ToolBar，选中项实心变体 + raised 底块高亮，换工具写
-// currentTool，外层 .Key(tool) 重建整页；头部行右侧是新增按钮，无标题
+// tool，注册表见 models::toolRegistry()）。工具选择由 AgentPage 的 Tabs +
+// Pager 统一负责；各供应商页保持挂载，头部只保留新增按钮，无标题
 // 文字）。每个供应商一张卡片三段式：左信息列（名称 / 实际访问 URL / 备注 /
 // 「使用中」徽章（group.current 或 detectCurrent 命中），
 // Grow 吃满剩余宽度）｜ 中间状态列（连通检测延迟 + 用量文本/刷新图标，
@@ -23,9 +22,9 @@
 // 默认按当前实际 URL/apiKey/上游格式经 HuxerUI HttpClient 拉取模型列表，也支持在
 // 高级选项中覆盖完整模型列表 URL；平台异步请求完成后结果回 UI 线程写 State；拉取成功后模型行在按钮前出现 Select
 // 下拉，点选回填该行的模型字段（不弹窗）。
-// 用量查询：usageUrl 非空的卡片显示用量文本 + 手动刷新按钮；页面可见期间
-// 按 config 的 usageEnabled/usageRefreshMinutes 轮询全部配置了 usageUrl 的
-// 供应商，缓存为页面级 State（只在 UI 线程写）。
+// 用量查询：usageUrl 非空的卡片显示用量文本 + 手动刷新按钮；AgentPage
+// 共享缓存，且只允许一个保留页启动按 config 的 usageEnabled/
+// usageRefreshMinutes 轮询，避免 Pager 保留多页后重复请求。
 //
 // 数据流：所有 store 读写都在 UI 线程（store 无内部锁，UI 线程独占是契约；
 // live 文件读写为微秒级本地 IO，不经任务线程）。写操作后 revision+1，
@@ -153,10 +152,6 @@ void FillForm(const FormStates& fs, const models::Provider& p) {
     fs.sonnetSearch = huxerui::TextEditingValue{};
     fs.opusSearch = huxerui::TextEditingValue{};
 }
-
-// 用量缓存：providerId → 展示文本（含「查询失败：…」错误文本），页面级 State，
-// 只在 UI 线程写（HuxerUI HTTP 协程恢复点恒为 UI 线程）。
-using UsageCache = huxerui::State<std::map<std::string, std::string>>;
 
 std::string HttpBodyText(const huxerui::Bytes& body) {
     if (body.empty()) return {};
@@ -295,20 +290,28 @@ std::string DefaultUpstreamFormat(std::string_view tool) {
 }
 
 std::vector<std::string> FilterModelIds(
-    const std::vector<std::string>& models, std::string_view query) {
-    if (query.empty()) return models;
+    const huxerui::StateList<std::string>& models, std::string_view query) {
     std::vector<std::string> filtered;
+    filtered.reserve(models.Size());
     for (const auto& model : models) {
-        if (model.find(query) != std::string::npos) filtered.push_back(model);
+        if (query.empty() || model.find(query) != std::string::npos) {
+            filtered.push_back(model);
+        }
     }
     return filtered;
+}
+
+void ReplaceModelList(const huxerui::StateList<std::string>& destination,
+                      std::vector<std::string> values) {
+    destination.Clear();
+    for (auto& value : values) destination.PushBack(std::move(value));
 }
 
 // 模型选择器：关闭时只有一个搜索图标；点击后由锚定 Popup 展开搜索框和模型
 // 列表，避免每一行都占用一个宽大的下拉输入框。点选回填目标模型字段；映射行
 // 还会同步回填菜单显示名，方便先选模型、再手动修改显示名称。
 [[huxerui::composable]] huxerui::View ModelSelect(
-    huxerui::State<std::vector<std::string>> fetched,
+    huxerui::StateList<std::string> fetched,
     huxerui::State<huxerui::TextEditingValue> search,
     huxerui::State<huxerui::TextEditingValue> target,
     huxerui::State<huxerui::TextEditingValue> displayTarget = {}) {
@@ -322,26 +325,30 @@ std::vector<std::string> FilterModelIds(
                 [fetched, search, target, displayTarget, islands](
                     huxerui::PopupContext context) {
                     const auto suggestions =
-                        FilterModelIds(fetched.Get(), search.Get().text);
-                    std::vector<huxerui::View> items;
-                    items.reserve(suggestions.size());
-                    for (const auto& model : suggestions) {
-                        items.push_back(
-                            huxerui::Button(model)
-                                .Key(model)
-                                .OnClick([context, model, search, target,
-                                          displayTarget] {
-                                    context.Dismiss();
-                                    const huxerui::TextEditingValue value{model};
-                                    target = value;
-                                    if (displayTarget.IsValid()) {
-                                        displayTarget = value;
-                                    }
-                                    search = huxerui::TextEditingValue{};
-                                }));
-                    }
-                    if (items.empty()) {
-                        items.push_back(huxerui::Text("没有匹配的模型"));
+                        FilterModelIds(fetched, search.Get().text);
+                    huxerui::View modelList = huxerui::Text("没有匹配的模型");
+                    if (!suggestions.empty()) {
+                        modelList = huxerui::VirtualList(
+                                        suggestions,
+                                        [context, search, target,
+                                         displayTarget](const std::string& model) {
+                                            return huxerui::Button(model)
+                                                .Key(model)
+                                                .OnClick([context, model, search,
+                                                          target, displayTarget] {
+                                                    context.Dismiss();
+                                                    const huxerui::TextEditingValue value{
+                                                        model};
+                                                    target = value;
+                                                    if (displayTarget.IsValid()) {
+                                                        displayTarget = value;
+                                                    }
+                                                    search = huxerui::TextEditingValue{};
+                                                });
+                                        })
+                                        .EstimatedItemExtent(40.0F)
+                                        .CacheExtent(120.0F)
+                                        .With(huxerui::Spacing(4.0F));
                     }
                     return huxerui::Column {
                         huxerui::TextField(search.Get())
@@ -353,11 +360,7 @@ std::vector<std::string> FilterModelIds(
                                            const huxerui::TextEditingValue& value) {
                                 search = value;
                             }),
-                        huxerui::ScrollView(
-                            huxerui::Column(std::move(items))
-                                .With(huxerui::Spacing(4.0F),
-                                      huxerui::CrossAlign(
-                                          huxerui::CrossAxisAlignment::Stretch)))
+                        huxerui::View{modelList}
                             .With(huxerui::Frame{.height = 240.0F}),
                     }.With(huxerui::Spacing(8.0F),
                            huxerui::Padding(islands.island_padding),
@@ -405,7 +408,7 @@ std::vector<std::string> FilterModelIds(
     // 「获取模型」拉取状态：fetching 驱动按钮加载态；fetchedModels 缓存本次
     // 表单会话内最后一次拉取结果；非空时模型行出现下拉选择。
     auto fetching = huxerui::UseState(false);
-    auto fetchedModels = huxerui::UseState<std::vector<std::string>>({});
+    auto fetchedModels = huxerui::UseStateList<std::string>();
     auto showModelFetchOptions =
         huxerui::UseState(!formInitial.modelFetchUrl.empty());
     // API Key 明文开关：Secure(bool) 切换掩码，眼睛按钮用 SDK 内置的可交互
@@ -437,7 +440,7 @@ std::vector<std::string> FilterModelIds(
                 chips.push_back(
                     huxerui::Button(preset.name)
                         .OnClick([fs, fetchedModels, preset] {
-                            fetchedModels = std::vector<std::string>{};
+                            fetchedModels.Clear();
                             FillForm(fs, preset);
                         }));
             }
@@ -561,8 +564,9 @@ std::vector<std::string> FilterModelIds(
                         auto models = co_await FetchModelIdsWithFallback(
                             http, urls, k, f);
                         fetching = false;
-                        fetchedModels = models;
-                        toast.Show(std::format("已获取 {} 个模型", models.size()));
+                        const std::size_t modelCount = models.size();
+                        ReplaceModelList(fetchedModels, std::move(models));
+                        toast.Show(std::format("已获取 {} 个模型", modelCount));
                     } catch (const std::exception& e) {
                         fetching = false;
                         toast.Show(e.what());
@@ -582,7 +586,7 @@ std::vector<std::string> FilterModelIds(
                         fs.model = v;
                     })
                     .With(huxerui::Grow(1.0F)),
-                fetchedModels.Get().empty()
+                fetchedModels.Empty()
                     ? huxerui::View{huxerui::Row{}}
                     : ModelSelect(fetchedModels, fs.modelSearch, fs.model),
                 huxerui::Checkbox("1M", fs.modelSupports1m.Get())
@@ -644,7 +648,7 @@ std::vector<std::string> FilterModelIds(
                             field = v;
                         })
                         .With(huxerui::Grow(1.0F)),
-                    fetchedModels.Get().empty()
+                    fetchedModels.Empty()
                         ? huxerui::View{huxerui::Row{}}
                         : ModelSelect(fetchedModels, mappingSearches[i], mapping.model,
                                       mapping.displayName),
@@ -892,45 +896,6 @@ std::vector<std::string> FilterModelIds(
             }.With(huxerui::MainAlign(huxerui::MainAxisAlignment::SpaceBetween)),
         }.With(huxerui::Spacing(12.0F),
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)));
-}
-
-// 工具图标栏（供应商岛屿头部行左侧）：遍历注册表渲染 agent 图标（ToolIcon
-// 在 common.cpp，与会话页过滤组共用），单套图标由主题 tint 自适应，
-// 选中项用 raised 底块高亮。写 currentTool 会让外层
-// .Key(tool) 重建整个岛屿子树（含被点击的图标）：经 tasks.Launch +
-// Delay(0) 推迟出指针事件路径。
-[[huxerui::composable]] huxerui::View ToolBar(
-    huxerui::State<std::string> currentTool) {
-    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
-    const IslandTheme islands = ResolveIslandTheme(theme);
-    auto tasks = huxerui::UseTaskScope();
-    const std::string tool = currentTool.Get();
-    std::vector<huxerui::View> buttons;
-    for (const auto& spec : models::toolRegistry()) {
-        const std::string id(spec.id);
-        const huxerui::ImageResource icon = ToolIcon(spec.iconName);
-        const std::string displayName(spec.displayName);
-        const bool selected = tool == id;
-        huxerui::View button =
-            huxerui::IconButton(icon, displayName)
-                .OnClick([tasks, currentTool, id] {
-                    tasks.Launch([=]() -> huxerui::Task<void> {
-                        co_await huxerui::Delay(std::chrono::duration<double>{0});
-                        currentTool = id;
-                    });
-                })
-                .With(huxerui::Tooltip(displayName));
-        // 选中态只由 raised 承载底块表达，图标几何与主题 tint 保持一致。
-        if (selected) {
-            button = std::move(button).With(
-                huxerui::Background(islands.raised),
-                huxerui::CornerRadius(islands.nested_radius));
-        }
-        buttons.push_back(std::move(button));
-    }
-    return huxerui::Row(std::move(buttons))
-        .With(huxerui::Spacing(theme.spacing.small),
-              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
 }
 
 // 官方常驻卡：有官方厂商的工具（models::officialVendorName 非空）固定在// 供应商列表第一位；切换 = store.restoreOfficial 还原厂商原生状态（与
@@ -1200,14 +1165,12 @@ std::vector<std::string> FilterModelIds(
 } // namespace
 
 [[huxerui::composable]] huxerui::View ProvidersPage(
-    huxerui::State<std::string> currentTool, huxerui::State<int> revision) {
+    std::string tool, huxerui::State<int> revision, UsageCache usageCache,
+    bool enableUsagePolling) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto tasks = huxerui::UseTaskScope();
     auto toast = huxerui::UseToast();
     const auto http = huxerui::UseService<huxerui::HttpClient>();
-    // 当前工具 id：AgentPage 持有的 State，岛屿内部顶部的工具图标栏写它
-    // 换组；外层以 .Key(tool) 组合本页，换工具即整体重建。
-    const std::string tool = currentTool.Get();
     // 首组合时探测 live 文件命中（本地文件读，UI 线程直接跑）。
     auto detected = huxerui::UseState<std::string>({});
     huxerui::Lifecycle(
@@ -1257,39 +1220,42 @@ std::vector<std::string> FilterModelIds(
         },
         target);
 
-    // 用量缓存（页面级）+ 自动轮询：页面可见期间运行（TaskScope 随页面卸载
-    // 取消）。每个周期在 UI 线程重读 config：usageEnabled 且
+    // 用量缓存由 AgentPage 共享；自动轮询只由第一个保留页启动（TaskScope
+    // 随 Agent 页卸载取消）。每个周期在 UI 线程重读 config：usageEnabled 且
     // usageRefreshMinutes>0 时立即拉一轮所有配置了 usageUrl 的供应商（全部分组，
     // 不只当前工具）再睡一个间隔；关闭/仅手动时按 30s 轻量再检查（设置页改动
     // 至多 30s 生效，避免睡死在一个长间隔里）。State 只在 UI 线程写。
-    auto usageCache = huxerui::UseState<std::map<std::string, std::string>>({});
     huxerui::Lifecycle(
-        [tasks, usageCache, http] {
-            tasks.Launch([usageCache, http]() -> huxerui::Task<void> {
-                while (true) {
-                    const auto& config = providerStore().config();
-                    if (!config.usageEnabled || config.usageRefreshMinutes <= 0) {
-                        co_await huxerui::Delay(std::chrono::duration<double>{30});
-                        continue;
-                    }
-                    std::vector<models::Provider> targets;
-                    for (const auto& [toolId, grp] : config.groups) {
-                        for (const auto& p : grp.providers) {
-                            if (!p.usageUrl.empty()) targets.push_back(p);
+        [tasks, usageCache, http, enableUsagePolling] {
+            if (enableUsagePolling) {
+                tasks.Launch([usageCache, http]() -> huxerui::Task<void> {
+                    while (true) {
+                        const auto& config = providerStore().config();
+                        if (!config.usageEnabled ||
+                            config.usageRefreshMinutes <= 0) {
+                            co_await huxerui::Delay(
+                                std::chrono::duration<double>{30});
+                            continue;
                         }
+                        std::vector<models::Provider> targets;
+                        for (const auto& [toolId, grp] : config.groups) {
+                            for (const auto& p : grp.providers) {
+                                if (!p.usageUrl.empty()) targets.push_back(p);
+                            }
+                        }
+                        // 顺序拉取（每次最长 10s），每个完成即回写缓存。
+                        for (const auto& p : targets) {
+                            WriteUsageCache(usageCache, p.id,
+                                            co_await FetchUsageText(http, p));
+                        }
+                        co_await huxerui::Delay(std::chrono::duration<double>{
+                            config.usageRefreshMinutes * 60.0});
                     }
-                    // 顺序拉取（每次最长 10s），每个完成即回写缓存。
-                    for (const auto& p : targets) {
-                        WriteUsageCache(usageCache, p.id,
-                                        co_await FetchUsageText(http, p));
-                    }
-                    co_await huxerui::Delay(std::chrono::duration<double>{
-                        config.usageRefreshMinutes * 60.0});
-                }
-            });
+                });
+            }
             return [] {};
         },
-        0);
+        enableUsagePolling);
 
     // 订阅全局变更计数：托盘切换 / 设置页导入后本页重读。
     (void)revision.Get();
@@ -1378,14 +1344,13 @@ std::vector<std::string> FilterModelIds(
     }
     const bool hasCards = hasOfficial || providerCount > 0;
 
-    // 列表模式用自定义一级岛（不走 PageScaffold）：标题文字已删（选中图标
-    // 自带高亮可辨），头部一行 = 工具图标栏（左）+ 新增按钮（右）。
+    // 列表模式用自定义一级岛（不走 PageScaffold）：工具选择已由上层 Tabs
+    // 负责，头部只保留新增按钮。
     const IslandTheme islands = ResolveIslandTheme(theme);
     const bool compact =
         huxerui::UseViewportClass() == huxerui::ViewportClass::Compact;
     std::vector<huxerui::View> listItems;
     listItems.push_back(huxerui::Row {
-        ToolBar(currentTool),
         huxerui::Spacer(),
         huxerui::IconButton(app::images::add, "新增供应商")
             .OnClick([tasks, formTarget] {
