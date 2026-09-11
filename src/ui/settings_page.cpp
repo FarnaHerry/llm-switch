@@ -30,10 +30,15 @@ const std::vector<std::string> kThemeNames{"跟随系统", "玄墨（深色）",
                                            "宣纸（浅色）"};
 const std::vector<std::string> kThemeModes{"system", "dark", "light"};
 
+bool ResolvesToDark(int mode) {
+    return mode == 1 || (mode == 0 && cfg::systemPrefersDark());
+}
+
 [[huxerui::composable]] huxerui::View TaijiThemeSelector(
     huxerui::State<int> themeMode) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto tasks = huxerui::UseTaskScope();
+    const auto sceneTransition = huxerui::UseSceneTransition();
     auto hovering = huxerui::UseState(false);
     auto angle = huxerui::UseState(0.0F);
 
@@ -71,13 +76,28 @@ const std::vector<std::string> kThemeModes{"system", "dark", "light"};
               huxerui::Padding(5.0F),
               huxerui::Background(theme.colors.surface_container_high),
               huxerui::CornerRadius(21.0F),
+              sceneTransition.Anchor(),
               huxerui::PointerCursor(huxerui::PointerCursorKind::Hand),
               huxerui::Tooltip(tooltip))
         .On<huxerui::ViewEvents::Hover>(startSpin)
-        .OnClick([themeMode] {
+        .OnClick([sceneTransition, themeMode] {
             const int next = (themeMode.Get() + 1) % 3;
-            themeMode = next;
-            providerStore().setThemeMode(kThemeModes[next]);
+            const bool currentlyDark = ResolvesToDark(themeMode.Get());
+            const bool nextIsDark = ResolvesToDark(next);
+
+            huxerui::TransitionSpec transition{
+                huxerui::CircularRevealTransition{},
+                huxerui::TweenSpec{.duration = 0.36},
+            };
+            if (currentlyDark && !nextIsDark) {
+                transition = transition.Reversed();
+            }
+
+            sceneTransition.RunFromCurrentInteraction(
+                std::move(transition), [themeMode, next] {
+                    themeMode = next;
+                    providerStore().setThemeMode(kThemeModes[next]);
+                });
         });
 }
 
