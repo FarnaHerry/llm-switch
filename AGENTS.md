@@ -15,7 +15,7 @@ Claude、Codex、Gemini、Copilot、Cursor、Windsurf 及其他自动化 agent �
 - 保持用户已有改动，不顺手重排、格式化或重写无关代码。领域行为改变必须补充或
   更新相应测试。
 - HuxerUI 源码优先来自 `third_party/huxerui`，CI 固定版本见
-  `.github/workflows/build.yml`。当前基线 `065ab79` 提供 ApplicationHandle 的
+  `.github/workflows/build.yml`。当前基线 `d1d2daa` 提供 ApplicationHandle 的
   Clipboard/Directories 服务与 TreeView；剪贴板只在 UI 线程通过
   `UseApplication().Clipboard()` 使用，TreeView
   必须位于有界垂直视口。

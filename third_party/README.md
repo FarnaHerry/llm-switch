@@ -3,8 +3,8 @@
 nlohmann::json 以 single header 直接提交在 `json/`；curl 与 OpenSSL（Linux
 x86_64 回落用静态包）以 tarball 提交在 `tarballs/`，configure 期校验 SHA256
 解包构建；HuxerUI 0.2.0 的 Linux 离线 SDK 包提交在 `tarballs/` 兜底。日常源码
-构建跟随 HuxerUI 主干 0.3.0，CI 固定到已验证的 commit
-`065ab79fc989438221b964aaaf9b03226b0301d2`。构建
+构建跟随 HuxerUI v0.3.0 发布线之后的主干，CI 固定到已验证的 commit
+`d1d2daa154200ff293e556244a5bbf98011602bb`。构建
 离线、可复现；清单与姊妹项目 Clash-Flux 对齐（无 IXWebSocket / SQLiteCpp）。
 
 项目对 Windows 主窗口图标保留一个独立补丁
