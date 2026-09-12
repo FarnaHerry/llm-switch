@@ -194,6 +194,15 @@ int main() {
             CHECK(codexMessages[1].text == "PR 审查完成");
         }
 
+        const auto newest = sessions::readSessionPage("codex", codex1, 0, 1);
+        CHECK(newest.messages.size() == 1);
+        CHECK(newest.messages[0].text == "PR 审查完成");
+        CHECK(newest.hasMore);
+        const auto older = sessions::readSessionPage(
+            "codex", codex1, newest.nextBeforeOffset, 1);
+        CHECK(older.messages.size() == 1);
+        CHECK(older.messages[0].text == "审查这个 PR");
+
         // 大型非消息事件是实际会话文件最常见的体积来源。读取详情必须在 JSON
         // 解析前跳过它，同时不能影响前后的可显示消息。
         const fs::path noisy = codexSessions / "2026" / "09" / "07" / "noisy.jsonl";

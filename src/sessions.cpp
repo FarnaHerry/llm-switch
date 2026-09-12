@@ -345,6 +345,81 @@ std::vector<SessionMessage> readSession(std::string_view toolId,
     return messages;
 }
 
+SessionMessagePage readSessionPage(std::string_view toolId,
+                                   const std::filesystem::path& path,
+                                   std::uintmax_t beforeOffset,
+                                   std::size_t maxMessages) {
+    if (toolId != "claude-code" && toolId != "codex") {
+        throw std::runtime_error(std::format("未知工具：{}", toolId));
+    }
+    ensureKnownSessionPath(path);
+    if (maxMessages == 0) return {};
+
+    std::ifstream in(path, std::ios::binary);
+    if (!in) throw std::runtime_error(std::format("读取会话失败：{}", path.string()));
+    in.seekg(0, std::ios::end);
+    const auto fileEnd = in.tellg();
+    if (fileEnd <= 0) return {};
+    std::uintmax_t position = beforeOffset == 0
+                                  ? static_cast<std::uintmax_t>(fileEnd)
+                                  : std::min(beforeOffset,
+                                             static_cast<std::uintmax_t>(fileEnd));
+
+    constexpr std::uintmax_t kChunkBytes = 64 * 1024;
+    std::string carry;
+    SessionMessagePage page;
+    std::uintmax_t earliestMessageOffset = position;
+    while (position > 0 && page.messages.size() < maxMessages) {
+        const std::uintmax_t chunkStart = position > kChunkBytes
+                                              ? position - kChunkBytes
+                                              : 0;
+        const std::size_t chunkSize = static_cast<std::size_t>(position - chunkStart);
+        std::string data(chunkSize, '\0');
+        in.clear();
+        in.seekg(static_cast<std::streamoff>(chunkStart), std::ios::beg);
+        in.read(data.data(), static_cast<std::streamsize>(chunkSize));
+        data.resize(static_cast<std::size_t>(in.gcount()));
+        data += carry;
+
+        std::size_t completeStart = 0;
+        if (chunkStart > 0) {
+            const auto firstNewline = data.find('\n');
+            if (firstNewline == std::string::npos) {
+                carry = std::move(data);
+                position = chunkStart;
+                continue;
+            }
+            carry.assign(data, 0, firstNewline);
+            completeStart = firstNewline + 1;
+        }
+
+        std::size_t lineEnd = data.size();
+        while (lineEnd > completeStart && page.messages.size() < maxMessages) {
+            if (data[lineEnd - 1] == '\n') --lineEnd;
+            const auto newline = data.rfind('\n', lineEnd == 0 ? 0 : lineEnd - 1);
+            const std::size_t lineStart =
+                newline == std::string::npos || newline < completeStart
+                    ? completeStart
+                    : newline + 1;
+            if (const auto message = parseMessageLine(
+                    toolId, std::string_view(data).substr(lineStart, lineEnd - lineStart))) {
+                page.messages.push_back(*message);
+                earliestMessageOffset = chunkStart + lineStart;
+            }
+            if (lineStart == completeStart) break;
+            lineEnd = lineStart - 1;
+        }
+        position = chunkStart;
+    }
+    std::ranges::reverse(page.messages);
+    page.nextBeforeOffset = earliestMessageOffset;
+    // 只有因为达到页容量而提前停止，才可能还有更早的可显示消息；若已经扫到
+    // 文件起点（即使前面全是非消息事件），不要让 UI 在顶部反复请求空页。
+    page.hasMore = page.messages.size() == maxMessages &&
+                   earliestMessageOffset > 0;
+    return page;
+}
+
 void deleteSession(const std::filesystem::path& p) {
     ensureKnownSessionPath(p);
     std::error_code ec;

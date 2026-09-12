@@ -447,36 +447,53 @@ std::string FormatSize(std::uintmax_t bytes) {
     huxerui::State<sessions::SessionInfo> selectedSession) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto tasks = huxerui::UseTaskScope();
-    auto messages = huxerui::UseStateList<sessions::SessionMessage>();
+    auto messages = huxerui::UseState(
+        std::make_shared<const std::vector<sessions::SessionMessage>>());
     auto loading = huxerui::UseState(false);
+    auto loadingOlder = huxerui::UseState(false);
     auto loadError = huxerui::UseState(std::string{});
     auto requestGeneration = huxerui::UseState<std::uint64_t>(0);
+    auto beforeOffset = huxerui::UseState<std::uintmax_t>(0);
+    auto hasMore = huxerui::UseState(false);
+    auto scroll = huxerui::UseScrollController();
 
     const sessions::SessionInfo session = selectedSession.Get();
     const std::string targetKey = session.path.generic_string();
     const std::string tool = session.tool;
     const std::filesystem::path path = session.path;
 
-    auto load = [tasks, messages, loading, loadError, requestGeneration](
+    auto load = [tasks, messages, loading, loadingOlder, loadError,
+                 requestGeneration, beforeOffset, hasMore, scroll](
                     std::string targetTool, std::filesystem::path targetPath) {
         const std::uint64_t request = requestGeneration.Get() + 1;
         requestGeneration = request;
         loading = true;
+        loadingOlder = false;
         loadError = std::string{};
         tasks.Launch([messages, loading, loadError, requestGeneration,
+                      beforeOffset, hasMore, scroll,
                       targetTool = std::move(targetTool),
                       targetPath = std::move(targetPath), request]()
                          -> huxerui::Task<void> {
             try {
                 auto result = co_await huxerui::RunWorker(
                     [](std::string selectedTool, std::filesystem::path file) {
-                        return sessions::readSession(selectedTool, file);
+                        return sessions::readSessionPage(selectedTool, file, 0, 50);
                     },
                     targetTool, targetPath);
                 if (requestGeneration.Get() != request) co_return;
-                co_await ReplaceStateListInBatches(messages, std::move(result));
-                if (requestGeneration.Get() != request) co_return;
+                messages = std::make_shared<
+                    const std::vector<sessions::SessionMessage>>(
+                    std::move(result.messages));
+                beforeOffset = result.nextBeforeOffset;
+                hasMore = result.hasMore;
                 loading = false;
+                co_await huxerui::Delay(std::chrono::duration<double>{0});
+                const auto snapshot = messages.Get();
+                if (!snapshot->empty()) {
+                    static_cast<void>(scroll.ScrollToItem(
+                        snapshot->size() - 1, huxerui::ScrollAlignment::End));
+                }
             } catch (const std::exception& e) {
                 if (requestGeneration.Get() != request) co_return;
                 loadError = e.what();
@@ -485,9 +502,56 @@ std::string FormatSize(std::uintmax_t bytes) {
         });
     };
     huxerui::Lifecycle(
-        [load, tool, path] {
+        [load, tasks, messages, loading, loadingOlder, loadError,
+         requestGeneration, beforeOffset, hasMore, scroll, tool, path] {
             if (!path.empty()) load(tool, path);
-            return [] {};
+            const std::uint64_t lifecycleRequest = requestGeneration.Get();
+            tasks.Launch([messages, loading, loadingOlder, loadError,
+                          requestGeneration, beforeOffset, hasMore, scroll,
+                          tool, path, lifecycleRequest]() -> huxerui::Task<void> {
+                while (true) {
+                    co_await huxerui::Delay(std::chrono::duration<double>{0.15});
+                    if (requestGeneration.Get() != lifecycleRequest) co_return;
+                    if (path.empty() || loading.Get() || loadingOlder.Get() ||
+                        !hasMore.Get() || !scroll.IsConnected() ||
+                        scroll.Offset() > 240.0F) {
+                        continue;
+                    }
+                    const float oldOffset = scroll.Offset();
+                    loadingOlder = true;
+                    try {
+                        auto page = co_await huxerui::RunWorker(
+                            [](std::string selectedTool,
+                               std::filesystem::path file,
+                               std::uintmax_t offset) {
+                                return sessions::readSessionPage(
+                                    selectedTool, file, offset, 50);
+                            },
+                            tool, path, beforeOffset.Get());
+                        if (requestGeneration.Get() != lifecycleRequest) co_return;
+                        const std::size_t added = page.messages.size();
+                        auto combined = std::move(page.messages);
+                        const auto current = messages.Get();
+                        combined.insert(combined.end(), current->begin(), current->end());
+                        messages = std::make_shared<
+                            const std::vector<sessions::SessionMessage>>(
+                            std::move(combined));
+                        beforeOffset = page.nextBeforeOffset;
+                        hasMore = page.hasMore;
+                        loadingOlder = false;
+                        co_await huxerui::Delay(std::chrono::duration<double>{0});
+                        if (added > 0 && scroll.ScrollToItem(
+                                             added, huxerui::ScrollAlignment::Start)) {
+                            static_cast<void>(scroll.ScrollBy(oldOffset));
+                        }
+                    } catch (const std::exception& e) {
+                        if (requestGeneration.Get() != lifecycleRequest) co_return;
+                        loadError = e.what();
+                        loadingOlder = false;
+                    }
+                }
+            });
+            return [requestGeneration] { ++requestGeneration; };
         },
         targetKey);
 
@@ -501,8 +565,9 @@ std::string FormatSize(std::uintmax_t bytes) {
         if (!path.empty()) load(tool, path);
     };
 
-    const auto buildMessageRow = [messages](std::size_t index) {
-        const auto& message = messages.At(index);
+    const auto messageItems = messages.Get();
+    const auto buildMessageRow = [messageItems](std::size_t index) {
+        const auto& message = messageItems->at(index);
         return SessionMessageRow(message, index);
     };
 
@@ -528,7 +593,7 @@ std::string FormatSize(std::uintmax_t bytes) {
         }.With(huxerui::Spacing(12.0F), huxerui::Grow(1.0F),
                huxerui::MainAlign(huxerui::MainAxisAlignment::Center),
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
-    } else if (messages.Size() == 0) {
+    } else if (messageItems->empty()) {
         content = huxerui::Column {
             huxerui::Text("未找到可显示的文本消息。").Style(
                 huxerui::TextStyle{huxerui::Font::System(font_size::kBody),
@@ -537,9 +602,10 @@ std::string FormatSize(std::uintmax_t bytes) {
                huxerui::MainAlign(huxerui::MainAxisAlignment::Center),
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
     } else {
-        content = huxerui::VirtualList(messages.Size(), buildMessageRow)
+        content = huxerui::VirtualList(messageItems->size(), buildMessageRow)
                       .EstimatedItemExtent(140.0F)
                       .CacheExtent(480.0F)
+                      .Controller(scroll)
                       .With(huxerui::Grow(1.0F));
     }
 

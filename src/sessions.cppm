@@ -35,6 +35,12 @@ export struct SessionMessage {
     bool operator==(const SessionMessage&) const = default;
 };
 
+export struct SessionMessagePage {
+    std::vector<SessionMessage> messages; // 当前页内按时间正序
+    std::uintmax_t nextBeforeOffset = 0;  // 下一页从该字节偏移之前继续
+    bool hasMore = false;
+};
+
 // 两工具合并，按 mtime 倒序。
 export std::vector<SessionInfo> listSessions();
 // 单工具（"claude-code" / "codex"），按 mtime 倒序；未知工具抛中文错。
@@ -48,6 +54,12 @@ export SessionSummary summarizeSession(
 // 读取指定会话的完整可显示文本消息。调用方必须在 worker 线程执行。
 export std::vector<SessionMessage> readSession(
     std::string_view toolId, const std::filesystem::path& path);
+
+// 从 beforeOffset（0 表示文件末尾）向前读取最多 maxMessages 条可显示消息。
+// 用于详情页从最新消息开始、向上滚动时增量加载历史。
+export SessionMessagePage readSessionPage(
+    std::string_view toolId, const std::filesystem::path& path,
+    std::uintmax_t beforeOffset, std::size_t maxMessages);
 
 // 删除会话文件。安全检查：必须在已知的 sessions 根之下才删，否则抛中文错。
 export void deleteSession(const std::filesystem::path& p);
