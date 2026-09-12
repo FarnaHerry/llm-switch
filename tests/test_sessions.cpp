@@ -3,8 +3,8 @@
 // temp_directory_path()/llmswitch-test-sessions-<pid>。
 //
 // 覆盖：伪造 ~/.claude/projects/proj-x/*.jsonl（含 user 消息行）与
-// ~/.codex/sessions/2026/09/06/*.jsonl → listSessions 数量/排序/元数据，
-// summarizeSession 按需提取 title/preview；claude title 跳过命令样文本；codex 取不到回落
+// ~/.codex/sessions/2026/09/06/*.jsonl → listSessions 数量/排序/元数据/批量摘要，
+// summarizeSession 提取 title/preview；claude title 跳过命令样文本；codex 取不到回落
 // 文件 stem；deleteSession 删除且越界路径（/etc/passwd）被拒绝；
 // readSession 可读取完整消息；exportSession 复制成功。
 #include <cstdio>    // stderr（std 模块不导出 stdout/stderr 宏）
@@ -113,7 +113,7 @@ int main() {
         CHECK(all[4].id == "rollout-2");
     }
 
-    // 2. 字段：列表阶段只保留 tool / project / 文件 stem / 大小等元数据。
+    // 2. 字段：列表阶段在后台批量补齐固定大小摘要，同时保留文件元数据。
     {
         const auto claude = sessions::listSessions("claude-code");
         CHECK(claude.size() == 3);
@@ -122,15 +122,15 @@ int main() {
         if (itA != claude.end()) {
             CHECK(itA->tool == "claude-code");
             CHECK(itA->project == "proj-x");
-            CHECK(itA->title == "sess-a");
-            CHECK(itA->preview.empty());
+            CHECK(itA->title == "帮我修复登录页面的 bug");
+            CHECK(itA->preview == "登录页面已修复");
             CHECK(itA->sizeBytes > 0);
             CHECK(itA->path == claude1);
         }
         const auto itB = std::ranges::find(claude, "sess-b", &sessions::SessionInfo::id);
         CHECK(itB != claude.end());
         if (itB != claude.end()) {
-            CHECK(itB->title == "sess-b");
+            CHECK(itB->title == "解释一下这段代码");
         }
         const auto itC = std::ranges::find(claude, "sess-c", &sessions::SessionInfo::id);
         CHECK(itC != claude.end());
@@ -154,8 +154,8 @@ int main() {
         if (it1 != codex.end()) {
             CHECK(it1->tool == "codex");
             CHECK(it1->project == "2026/09/06");
-            CHECK(it1->title == "rollout-1");
-            CHECK(it1->preview.empty());
+            CHECK(it1->title == "审查这个 PR");
+            CHECK(it1->preview == "PR 审查完成");
         }
         const auto it2 = std::ranges::find(codex, "rollout-2", &sessions::SessionInfo::id);
         CHECK(it2 != codex.end());

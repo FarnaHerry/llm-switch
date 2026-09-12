@@ -2,7 +2,7 @@
 //
 // claude-code：~/.claude/projects/<项目>/*.jsonl（项目 = 目录名）；
 // codex：~/.codex/sessions/<年>/<月>/<日>/*.jsonl（project = 相对日期路径）。
-// 列表扫描只枚举文件和元数据；可见行再按需读取固定大小摘要，解析失败一律回落；
+// 列表扫描枚举文件并在同一个后台批次中读取固定大小的头尾摘要，解析失败一律回落；
 // 完整会话只在详情页按需读取。路径全部走 llmswitch.config（LLMSWITCH_* 可覆盖，
 // 测试可隔离）。
 export module llmswitch.sessions;
@@ -15,8 +15,8 @@ export struct SessionInfo {
     std::string tool;            // "claude-code" / "codex"
     std::string id;              // 文件 stem
     std::string project;         // claude: projects 下的目录名；codex: 相对日期路径
-    std::string title;           // 列表初始为文件 stem；可见行异步补全首条用户消息摘要
-    std::string preview;         // 可见行异步补全的文件尾部最近一条消息摘要
+    std::string title;           // 首条有效用户消息；取不到时回落文件 stem
+    std::string preview;         // 文件尾部最近一条有效消息；取不到时回落 title
     std::filesystem::path path;
     std::int64_t mtimeMillis = 0;
     std::uintmax_t sizeBytes = 0;
@@ -41,7 +41,7 @@ export std::vector<SessionInfo> listSessions();
 export std::vector<SessionInfo> listSessions(std::string_view toolId);
 
 // 读取一个会话的固定大小摘要。调用方必须在 worker 线程执行；路径必须位于已知
-// sessions 根目录之下。列表 UI 只为 VirtualList 已挂载的可见行调用。
+// sessions 根目录之下。列表扫描已批量完成同样的摘要读取，此接口保留给其他按需调用方。
 export SessionSummary summarizeSession(
     std::string_view toolId, const std::filesystem::path& path);
 

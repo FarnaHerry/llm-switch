@@ -1,4 +1,4 @@
-// sessions_page.cpp — 会话管理页：按 Agent 分开的列表只显示轻量摘要，
+// sessions_page.cpp — 会话管理页：按 Agent 分开的列表显示后台批量生成的轻量摘要，
 // 详情页按需加载完整会话。列表扫描和详情读取都通过 RunWorker 离开 UI 线程；
 // 列表与详情使用 IndexedPages 保留挂载状态，消息列表使用 StateList +
 // VirtualList 虚拟化。右上角 Agent 图标与 Agent 管理页使用同一注册表，
@@ -26,6 +26,14 @@ namespace {
 
 std::vector<sessions::SessionInfo> LoadAgentSessions(std::string tool) {
     return sessions::listSessions(tool);
+}
+
+constexpr std::int64_t kSessionCacheTtlMillis = 30'000;
+
+std::int64_t CurrentTimeMillis() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+               std::chrono::system_clock::now().time_since_epoch())
+        .count();
 }
 
 template <class T>
@@ -75,40 +83,17 @@ std::string FormatSize(std::uintmax_t bytes) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto tasks = huxerui::UseTaskScope();
     auto dialog = huxerui::UseDialog();
-    auto title = huxerui::UseState(session.title);
-    auto preview = huxerui::UseState(session.preview);
     const std::filesystem::path path = session.path;
+    const std::string title = session.title;
 
-    // VirtualList 只会挂载视口附近的行；摘要也绑定在行的生命周期内，避免列表
-    // 首次扫描时打开并解析全部历史文件。摘要加载失败时保留文件 stem，不打断列表。
+    // 摘要已经由 Agent 列表扫描 Worker 批量生成；行本身只负责展示和交互，
+    // 不在 VirtualList 的行生命周期内重复读取会话文件。
     const std::string rowKey = session.path.generic_string();
-    const std::string summaryKey = std::format(
-        "{}:{}:{}", rowKey, session.mtimeMillis, session.sizeBytes);
-    huxerui::Lifecycle(
-        [tasks, title, preview, tool = session.tool, path] {
-            tasks.Launch([title, preview, tool = std::move(tool), path]
-                             () -> huxerui::Task<void> {
-                try {
-                    const auto summary = co_await huxerui::RunWorker(
-                        [](std::string selectedTool,
-                           std::filesystem::path file) {
-                            return sessions::summarizeSession(selectedTool, file);
-                        },
-                        tool, path);
-                    title = summary.title;
-                    preview = summary.preview;
-                } catch (const std::exception&) {
-                    // 会话可能在扫描后被外部删除，列表仍可保留这条轻量记录。
-                }
-            });
-            return [] {};
-        },
-        summaryKey);
 
     auto showDeleteConfirm = [dialog, tasks, toast, title, path, onDeleted] {
         dialog.Show(
             "删除会话",
-            std::format("确定删除会话「{}」？此操作不可撤销。", title.Get()),
+            std::format("确定删除会话「{}」？此操作不可撤销。", title),
             "删除", "取消",
             [tasks, toast, title, path, onDeleted] {
                 tasks.Launch([toast, title, path, onDeleted]()
@@ -119,7 +104,7 @@ std::string FormatSize(std::uintmax_t bytes) {
                                 sessions::deleteSession(target);
                             },
                             path);
-                        toast.Show(std::format("已删除 {}", title.Get()));
+                        toast.Show(std::format("已删除 {}", title));
                         onDeleted();
                     } catch (const std::exception& e) {
                         toast.Show(e.what());
@@ -129,24 +114,21 @@ std::string FormatSize(std::uintmax_t bytes) {
             {});
     };
 
-    auto open = [tasks, onOpen, title, preview, session] {
+    auto open = [tasks, onOpen, session] {
         // 切换到保留的详情页也会改变当前命中节点，避开指针事件路径。
-        tasks.Launch([onOpen, title, preview, session]() mutable
+        tasks.Launch([onOpen, session]() mutable
                          -> huxerui::Task<void> {
             co_await huxerui::Delay(std::chrono::duration<double>{0});
-            auto selected = session;
-            selected.title = title.Get();
-            selected.preview = preview.Get();
-            onOpen(std::move(selected));
+            onOpen(session);
         });
     };
 
     huxerui::View content = huxerui::Column {
-        huxerui::Text(title.Get()).Style(huxerui::TextStyle{
+        huxerui::Text(session.title).Style(huxerui::TextStyle{
             huxerui::Font::System(font_size::kBody), theme.colors.on_surface}),
-        preview.Get() == title.Get() || preview.Get().empty()
+        session.preview == session.title || session.preview.empty()
             ? huxerui::View{huxerui::Row{}}
-            : huxerui::View{huxerui::Text(preview.Get()).Style(huxerui::TextStyle{
+            : huxerui::View{huxerui::Text(session.preview).Style(huxerui::TextStyle{
                   huxerui::Font::System(font_size::kCaption),
                   theme.colors.on_surface_variant})},
         huxerui::Text(std::format("{} · {} · {}",
@@ -201,23 +183,35 @@ std::string FormatSize(std::uintmax_t bytes) {
     auto loading = huxerui::UseState(supported);
     auto loadError = huxerui::UseState(std::string{});
     auto requestGeneration = huxerui::UseState<std::uint64_t>(0);
+    auto hasLoaded = huxerui::UseState(false);
+    auto loadedAtMillis = huxerui::UseState<std::int64_t>(0);
 
     auto reload = [tasks, toast, sessionsList, loading, loadError,
-                   requestGeneration, tool] {
+                   requestGeneration, hasLoaded, loadedAtMillis,
+                   selectedAgent, agentIndex, tool] {
         const std::uint64_t request = requestGeneration.Get() + 1;
         requestGeneration = request;
         loading = true;
         loadError = std::string{};
+        hasLoaded = false;
+        loadedAtMillis = 0;
         tasks.Launch([toast, sessionsList, loading, loadError,
-                      requestGeneration, tool, request]() -> huxerui::Task<void> {
+                      requestGeneration, hasLoaded, loadedAtMillis,
+                      selectedAgent, agentIndex, tool,
+                      request]() -> huxerui::Task<void> {
             try {
                 auto result = co_await huxerui::RunWorker(
                     [](std::string selectedTool) {
                         return LoadAgentSessions(std::move(selectedTool));
                     },
                     tool);
-                if (requestGeneration.Get() != request) co_return;
+                if (requestGeneration.Get() != request ||
+                    selectedAgent.Get() != agentIndex) {
+                    co_return;
+                }
                 ReplaceStateList(sessionsList, std::move(result));
+                hasLoaded = true;
+                loadedAtMillis = CurrentTimeMillis();
                 loading = false;
             } catch (const std::exception& e) {
                 if (requestGeneration.Get() != request) co_return;
@@ -228,10 +222,21 @@ std::string FormatSize(std::uintmax_t bytes) {
             }
         });
     };
+    auto loadIfNeeded = [reload, hasLoaded, loadedAtMillis] {
+        const std::int64_t now = CurrentTimeMillis();
+        const std::int64_t loaded = loadedAtMillis.Get();
+        const bool fresh = hasLoaded.Get() && loaded > 0 && now >= loaded &&
+                           now - loaded < kSessionCacheTtlMillis;
+        if (!fresh) reload();
+    };
     huxerui::Lifecycle(
-        [reload, active, supported] {
-            if (active && supported) reload();
-            return [] {};
+        [loadIfNeeded, requestGeneration, active, supported] {
+            if (active && supported) loadIfNeeded();
+            return [requestGeneration] {
+                // Pager 会保留未选中的页面；让切走时尚未完成的 Worker 结果失效，
+                // 避免隐藏页面在后台提交列表更新。
+                ++requestGeneration;
+            };
         },
         std::format("{}:{}", tool, active));
 

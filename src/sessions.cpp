@@ -1,8 +1,8 @@
 // sessions.cpp — llmswitch.sessions 实现单元。
 //
 // 解析约定：
-//   - 列表扫描只读取文件元数据；可见行再读取文件头 ~4KB 与尾部 ~8KB，提取标题
-//     和最近消息摘要，不为列表统计整文件行数；
+//   - 列表扫描在后台批次中读取每个文件头 ~4KB 与尾部 ~8KB，提取标题和最近消息
+//     摘要，不为列表统计整文件行数；
 //   - 完整消息只在详情页调用 readSession，并由 UI 放到 RunWorker 中执行；
 //   - mtime 用 file_clock → system_clock 近似换算，只用于排序与展示。
 // nlohmann::json 模块下禁用 .items() 结构化绑定，遍历用 it.key()/it.value()。
@@ -39,6 +39,21 @@ FileSummary readSummary(const std::filesystem::path& file) {
 
     const auto headSize = std::min<std::streamoff>(
         end, static_cast<std::streamoff>(kSummaryHeadBytes));
+
+    // 小文件同时作为头部和尾部摘要，单次读取即可，避免列表扫描为每个
+    // 短会话重复打开/定位/读取同一份 JSONL。
+    if (end <= static_cast<std::streamoff>(kSummaryHeadBytes + kSummaryTailBytes)) {
+        in.seekg(0, std::ios::beg);
+        FileSummary result;
+        std::string all;
+        all.resize(static_cast<std::size_t>(end));
+        in.read(all.data(), static_cast<std::streamsize>(all.size()));
+        all.resize(static_cast<std::size_t>(in.gcount()));
+        result.head = all;
+        result.tail = std::move(all);
+        return result;
+    }
+
     in.seekg(0, std::ios::beg);
     FileSummary result;
     result.head.resize(static_cast<std::size_t>(headSize));
@@ -169,6 +184,13 @@ std::string extractPreview(std::string_view tool, std::string_view tail) {
     return preview;
 }
 
+SessionSummary buildSessionSummary(std::string_view tool, const FileSummary& file) {
+    SessionSummary result;
+    result.title = extractTitle(tool, file.head);
+    result.preview = extractPreview(tool, file.tail);
+    return result;
+}
+
 SessionInfo makeInfo(std::string_view tool, std::string_view project,
                      const std::filesystem::path& path) {
     SessionInfo info;
@@ -183,8 +205,11 @@ SessionInfo makeInfo(std::string_view tool, std::string_view project,
     if (const auto s = std::filesystem::file_size(path, ec); !ec) {
         info.sizeBytes = s;
     }
-    // 摘要由可见的 VirtualList 行按需加载；全量扫描阶段不能逐个打开会话文件。
-    info.title = info.id;
+    // 在列表扫描 Worker 中一次完成固定大小摘要，避免每个 VirtualList 行再启动
+    // 一个文件读取协程。读取失败仍保留可展示的轻量元数据。
+    const SessionSummary summary = buildSessionSummary(tool, readSummary(path));
+    info.title = summary.title.empty() ? info.id : summary.title;
+    info.preview = summary.preview.empty() ? info.title : summary.preview;
     return info;
 }
 
@@ -271,11 +296,8 @@ SessionSummary summarizeSession(std::string_view toolId,
     }
     ensureKnownSessionPath(path);
 
-    const FileSummary summary = readSummary(path);
-    SessionSummary result;
-    result.title = extractTitle(toolId, summary.head);
+    SessionSummary result = buildSessionSummary(toolId, readSummary(path));
     if (result.title.empty()) result.title = path.stem().string();
-    result.preview = extractPreview(toolId, summary.tail);
     if (result.preview.empty()) result.preview = result.title;
     return result;
 }
