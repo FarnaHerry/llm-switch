@@ -199,8 +199,9 @@ std::string FormatSize(std::uintmax_t bytes) {
 }
 
 [[huxerui::composable]] huxerui::View SessionMessageRow(
-    const sessions::SessionMessage& message, std::size_t index) {
+    const sessions::SessionMessage& message) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    const IslandTheme islands = ResolveIslandTheme(theme);
     auto expanded = huxerui::UseState(false);
     const bool isUser = message.role == "user";
     const bool isLong = message.text.size() > kMessageCollapseThresholdBytes;
@@ -230,14 +231,18 @@ std::string FormatSize(std::uintmax_t bytes) {
                 .OnClick([expanded] { expanded = !expanded.Get(); }));
     }
 
+    const std::string messageKey = std::format(
+        "message:{}:{}", message.sourceOffset, message.role);
     const huxerui::View messageCard =
-        Card(huxerui::Column(std::move(cardChildren))
-                 .With(huxerui::Spacing(6.0F),
-                       huxerui::Padding(
-                           huxerui::EdgeInsets::Symmetric(10.0F, 8.0F)),
-                       huxerui::CrossAlign(
-                           huxerui::CrossAxisAlignment::Stretch)))
-            .Key(std::format("message-{}", index));
+        huxerui::Column(std::move(cardChildren))
+            .With(huxerui::Spacing(6.0F),
+                  huxerui::Padding(
+                      huxerui::EdgeInsets::Symmetric(10.0F, 8.0F)),
+                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
+                  huxerui::Background(theme.colors.surface_container),
+                  huxerui::CornerRadius(islands.nested_radius),
+                  huxerui::Border(islands.outline_soft, 0.75F))
+            .Key(messageKey);
     huxerui::View messageSlot =
         huxerui::Column {messageCard}.With(
             huxerui::Grow(4.0F),
@@ -246,7 +251,7 @@ std::string FormatSize(std::uintmax_t bytes) {
     huxerui::View row =
         isUser ? huxerui::View{huxerui::Row{huxerui::Spacer(), messageSlot}}
                : huxerui::View{huxerui::Row{messageSlot, huxerui::Spacer()}};
-    return std::move(row).Key(std::format("message-row-{}", index));
+    return std::move(row).Key("row:" + messageKey);
 }
 
 [[huxerui::composable]] huxerui::View AgentSessionsPanel(
@@ -447,8 +452,7 @@ std::string FormatSize(std::uintmax_t bytes) {
     huxerui::State<sessions::SessionInfo> selectedSession) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto tasks = huxerui::UseTaskScope();
-    auto messages = huxerui::UseState(
-        std::make_shared<const std::vector<sessions::SessionMessage>>());
+    auto messages = huxerui::UseStateList<sessions::SessionMessage>();
     auto loading = huxerui::UseState(false);
     auto loadingOlder = huxerui::UseState(false);
     auto loadError = huxerui::UseState(std::string{});
@@ -482,17 +486,17 @@ std::string FormatSize(std::uintmax_t bytes) {
                     },
                     targetTool, targetPath);
                 if (requestGeneration.Get() != request) co_return;
-                messages = std::make_shared<
-                    const std::vector<sessions::SessionMessage>>(
-                    std::move(result.messages));
+                messages.Clear();
+                for (auto& message : result.messages) {
+                    messages.PushBack(std::move(message));
+                }
                 beforeOffset = result.nextBeforeOffset;
                 hasMore = result.hasMore;
                 loading = false;
                 co_await huxerui::Delay(std::chrono::duration<double>{0});
-                const auto snapshot = messages.Get();
-                if (!snapshot->empty()) {
+                if (!messages.Empty()) {
                     static_cast<void>(scroll.ScrollToItem(
-                        snapshot->size() - 1, huxerui::ScrollAlignment::End));
+                        messages.Size() - 1, huxerui::ScrollAlignment::End));
                 }
             } catch (const std::exception& e) {
                 if (requestGeneration.Get() != request) co_return;
@@ -501,56 +505,52 @@ std::string FormatSize(std::uintmax_t bytes) {
             }
         });
     };
-    huxerui::Lifecycle(
-        [load, tasks, messages, loading, loadingOlder, loadError,
-         requestGeneration, beforeOffset, hasMore, scroll, tool, path] {
-            if (!path.empty()) load(tool, path);
-            const std::uint64_t lifecycleRequest = requestGeneration.Get();
-            tasks.Launch([messages, loading, loadingOlder, loadError,
-                          requestGeneration, beforeOffset, hasMore, scroll,
-                          tool, path, lifecycleRequest]() -> huxerui::Task<void> {
-                while (true) {
-                    co_await huxerui::Delay(std::chrono::duration<double>{0.15});
-                    if (requestGeneration.Get() != lifecycleRequest) co_return;
-                    if (path.empty() || loading.Get() || loadingOlder.Get() ||
-                        !hasMore.Get() || !scroll.IsConnected() ||
-                        scroll.Offset() > 240.0F) {
-                        continue;
-                    }
-                    const float oldOffset = scroll.Offset();
-                    loadingOlder = true;
-                    try {
-                        auto page = co_await huxerui::RunWorker(
-                            [](std::string selectedTool,
-                               std::filesystem::path file,
-                               std::uintmax_t offset) {
-                                return sessions::readSessionPage(
-                                    selectedTool, file, offset, 50);
-                            },
-                            tool, path, beforeOffset.Get());
-                        if (requestGeneration.Get() != lifecycleRequest) co_return;
-                        const std::size_t added = page.messages.size();
-                        auto combined = std::move(page.messages);
-                        const auto current = messages.Get();
-                        combined.insert(combined.end(), current->begin(), current->end());
-                        messages = std::make_shared<
-                            const std::vector<sessions::SessionMessage>>(
-                            std::move(combined));
-                        beforeOffset = page.nextBeforeOffset;
-                        hasMore = page.hasMore;
-                        loadingOlder = false;
-                        co_await huxerui::Delay(std::chrono::duration<double>{0});
-                        if (added > 0 && scroll.ScrollToItem(
-                                             added, huxerui::ScrollAlignment::Start)) {
-                            static_cast<void>(scroll.ScrollBy(oldOffset));
-                        }
-                    } catch (const std::exception& e) {
-                        if (requestGeneration.Get() != lifecycleRequest) co_return;
-                        loadError = e.what();
-                        loadingOlder = false;
-                    }
+    auto loadOlder = [tasks, messages, loading, loadingOlder, loadError,
+                      requestGeneration, beforeOffset, hasMore, scroll,
+                      tool, path] {
+        if (path.empty() || loading.Get() || loadingOlder.Get() ||
+            !hasMore.Get() || !scroll.IsConnected() ||
+            scroll.Offset() > 240.0F) {
+            return;
+        }
+        const std::uint64_t request = requestGeneration.Get();
+        const float oldOffset = scroll.Offset();
+        loadingOlder = true;
+        tasks.Launch([messages, loadingOlder, loadError, requestGeneration,
+                      beforeOffset, hasMore, scroll, tool, path, request,
+                      oldOffset]() -> huxerui::Task<void> {
+            try {
+                auto page = co_await huxerui::RunWorker(
+                    [](std::string selectedTool, std::filesystem::path file,
+                       std::uintmax_t offset) {
+                        return sessions::readSessionPage(selectedTool, file,
+                                                         offset, 50);
+                    },
+                    tool, path, beforeOffset.Get());
+                if (requestGeneration.Get() != request) co_return;
+                const std::size_t added = page.messages.size();
+                for (auto it = page.messages.rbegin();
+                     it != page.messages.rend(); ++it) {
+                    messages.Insert(0, std::move(*it));
                 }
-            });
+                beforeOffset = page.nextBeforeOffset;
+                hasMore = page.hasMore;
+                loadingOlder = false;
+                co_await huxerui::Delay(std::chrono::duration<double>{0});
+                if (added > 0 && scroll.ScrollToItem(
+                                     added, huxerui::ScrollAlignment::Start)) {
+                    static_cast<void>(scroll.ScrollBy(oldOffset));
+                }
+            } catch (const std::exception& e) {
+                if (requestGeneration.Get() != request) co_return;
+                loadError = e.what();
+                loadingOlder = false;
+            }
+        });
+    };
+    huxerui::Lifecycle(
+        [load, requestGeneration, tool, path] {
+            if (!path.empty()) load(tool, path);
             return [requestGeneration] { ++requestGeneration; };
         },
         targetKey);
@@ -565,10 +565,8 @@ std::string FormatSize(std::uintmax_t bytes) {
         if (!path.empty()) load(tool, path);
     };
 
-    const auto messageItems = messages.Get();
-    const auto buildMessageRow = [messageItems](std::size_t index) {
-        const auto& message = messageItems->at(index);
-        return SessionMessageRow(message, index);
+    const auto buildMessageRow = [messages](std::size_t index) {
+        return SessionMessageRow(messages.At(index));
     };
 
     huxerui::View content;
@@ -593,7 +591,7 @@ std::string FormatSize(std::uintmax_t bytes) {
         }.With(huxerui::Spacing(12.0F), huxerui::Grow(1.0F),
                huxerui::MainAlign(huxerui::MainAxisAlignment::Center),
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
-    } else if (messageItems->empty()) {
+    } else if (messages.Empty()) {
         content = huxerui::Column {
             huxerui::Text("未找到可显示的文本消息。").Style(
                 huxerui::TextStyle{huxerui::Font::System(font_size::kBody),
@@ -602,10 +600,15 @@ std::string FormatSize(std::uintmax_t bytes) {
                huxerui::MainAlign(huxerui::MainAxisAlignment::Center),
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
     } else {
-        content = huxerui::VirtualList(messageItems->size(), buildMessageRow)
+        content = huxerui::VirtualList(messages.Size(), buildMessageRow)
                       .EstimatedItemExtent(140.0F)
-                      .CacheExtent(480.0F)
+                      .CacheExtent(280.0F)
                       .Controller(scroll)
+                      .On<huxerui::ViewEvents::ScrollInput>(
+                          [loadOlder](const huxerui::ScrollInputEvent&) {
+                              loadOlder();
+                              return false;
+                          })
                       .With(huxerui::Grow(1.0F));
     }
 

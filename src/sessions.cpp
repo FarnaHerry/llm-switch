@@ -403,7 +403,9 @@ SessionMessagePage readSessionPage(std::string_view toolId,
                     : newline + 1;
             if (const auto message = parseMessageLine(
                     toolId, std::string_view(data).substr(lineStart, lineEnd - lineStart))) {
-                page.messages.push_back(*message);
+                auto positionedMessage = *message;
+                positionedMessage.sourceOffset = chunkStart + lineStart;
+                page.messages.push_back(std::move(positionedMessage));
                 earliestMessageOffset = chunkStart + lineStart;
             }
             if (lineStart == completeStart) break;
