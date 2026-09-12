@@ -10,6 +10,12 @@ Claude、Codex、Gemini、Copilot、Cursor、Windsurf 及其他自动化 agent �
 - 项目是 C++23 modules + HuxerUI 桌面应用；UI 普通源在 `src/ui/*.cpp`，领域模块
   在 `src/*.cppm` 与对应实现文件。不要引入 Electron、数据库或新的大型依赖来
   绕过现有架构。
+- C++23 命名模块约定：`.cppm` 命名模块 purview 中定义在 class 体内的成员函数
+  不继承 `#include` 头文件在全局模块中的隐式 `inline` 规则；如果成员函数定义
+  保留在模块接口中且希望作为接口内联函数使用，必须显式声明 `inline`
+  （`constexpr` / `consteval` 除外）。普通命名空间函数不因 `.cppm` 或头文件
+  自动 inline，不得全量添加 `inline`；`inline` 也不保证实际内联替换，性能判断
+  需结合编译器、LTO/IPO 和反汇编验证。
 - 开始修改前先读与任务相关的现有代码和文档。HuxerUI 开发细节、架构和已知取舍
   见 `CLAUDE.md`；图标资源规则与来源许可见 `resources/README.md`。
 - 保持用户已有改动，不顺手重排、格式化或重写无关代码。领域行为改变必须补充或

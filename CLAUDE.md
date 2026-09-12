@@ -188,6 +188,15 @@ commit，不回滚已经验证的修改，并在最终回复中报告失败原�
 - ProviderStore **不强制单例**（测试可实例化）；UI 侧的全局实例在
   `src/ui/common.cpp::providerStore()`（首次访问即 load）。
 
+## C++23 命名模块内联约定
+
+`.cppm` 的命名模块 purview 不使用 `#include` 头文件的全局模块语义。class 体内定义的
+成员函数不会自动获得全局模块下的隐式 `inline`；如果成员函数定义留在模块接口中且
+希望作为接口内联函数使用，必须显式写 `inline`（`constexpr` / `consteval` 除外）。
+普通命名空间函数在头文件和 `.cppm` 中都不会自动 `inline`，不能据此给所有函数加关键字。
+`inline` 不是性能保证，实际是否内联需结合 `-O`、LTO/IPO、反汇编和基准确认。重量级
+I/O、解析和 JSON 函数默认保留在 `.cpp` 中。
+
 ## 关键约定（改代码前必读）
 
 1. **`import std;` 后禁止再 `#include` 标准头**。C/系统头放全局模块片段
