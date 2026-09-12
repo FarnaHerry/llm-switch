@@ -478,18 +478,6 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(huxerui::WindowHandle window,
                             .WithWeight(huxerui::FontWeight::Bold),
                         rootSpec.colors.on_surface})
                     .With(huxerui::WindowDragRegion{}),
-                // 朱砂印章「易」（取其「变易/切换」意，应太极八卦题）：深浅
-                // 主题都用固定印泥红 + 宣纸白字。
-                huxerui::Text("易")
-                    .Style(huxerui::TextStyle{
-                        huxerui::Font::System(9.0F)
-                            .WithWeight(huxerui::FontWeight::Bold),
-                        huxerui::Color::Rgb(248, 245, 236)})
-                    .With(huxerui::Background(huxerui::Color::Rgb(178, 58, 42)),
-                          huxerui::CornerRadius(2.5F),
-                          huxerui::Padding(
-                              huxerui::EdgeInsets::Symmetric(3.5F, 1.5F)),
-                          huxerui::WindowDragRegion{}),
                 huxerui::Spacer{}.With(huxerui::Grow(1.0F),
                                        huxerui::WindowDragRegion{}),
             }
