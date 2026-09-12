@@ -615,6 +615,7 @@ void ReplaceModelList(const huxerui::StateList<std::string>& destination,
                         p.sonnetSupports1m = fs.sonnetSupports1m.Get();
                         p.opusSupports1m = fs.opusSupports1m.Get();
                         // 用量查询配置归 UsageFormPage 管，编辑保留原值。
+                        p.usageEnabled = initial.usageEnabled;
                         p.usageUrl = initial.usageUrl;
                         p.usagePath = initial.usagePath;
                         p.usageLabel = initial.usageLabel;
@@ -646,9 +647,9 @@ void ReplaceModelList(const huxerui::StateList<std::string>& destination,
 }
 
 // 用量查询配置页（整页，从卡片的 gauge 图标进入，formTarget = "usage:" + id）。
-// 字段：用量 URL / 取值路径 / 单位标签；「自动填充」按供应商 baseUrl 匹配
-// models::suggestUsageQuery 的内置端点模板。usageUrl 留空 = 不查询（清空已
-// 有配置也用这招）。保存 = updateProvider 只改三个用量字段。
+// 字段：启用开关 / 用量 URL / 取值路径 / 单位标签；「自动填充」按供应商
+// baseUrl 匹配 models::suggestUsageQuery 的内置端点模板。关闭开关会保留已填
+// 配置，重新打开即可恢复查询。保存 = updateProvider 只改用量字段。
 [[huxerui::composable]] huxerui::View UsageFormPage(
     std::string tool, models::Provider initial, huxerui::State<int> revision,
     huxerui::State<std::string> formTarget) {
@@ -660,6 +661,7 @@ void ReplaceModelList(const huxerui::StateList<std::string>& destination,
         huxerui::UseState(huxerui::TextEditingValue{initial.usagePath});
     auto usageLabel =
         huxerui::UseState(huxerui::TextEditingValue{initial.usageLabel});
+    auto usageEnabled = huxerui::UseState(initial.usageEnabled);
 
     // 返回列表（写 formTarget 会卸载点击路径上的节点：推迟出指针事件路径）。
     auto goBack = [tasks, formTarget] {
@@ -671,9 +673,19 @@ void ReplaceModelList(const huxerui::StateList<std::string>& destination,
 
     std::vector<huxerui::View> fields;
     fields.push_back(huxerui::Row {
+        huxerui::Text("启用用量查询")
+            .Style(huxerui::TextStyle{huxerui::Font::System(font_size::kBody),
+                                      theme.colors.on_surface}),
+        huxerui::Spacer(),
+        huxerui::Switch(usageEnabled.Get())
+            .OnChanged([usageEnabled](bool enabled) {
+                usageEnabled = enabled;
+            }),
+    }.With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)));
+    fields.push_back(huxerui::Row {
         huxerui::TextField(usageUrl.Get())
             .Label("用量 URL")
-            .Placeholder("https://...（留空 = 不查询）")
+            .Placeholder("https://...")
             .Variant(huxerui::TextFieldVariant::Outlined)
             .OnChanged([usageUrl](const huxerui::TextEditingValue& v) {
                 usageUrl = v;
@@ -708,7 +720,7 @@ void ReplaceModelList(const huxerui::StateList<std::string>& destination,
             usageLabel = v;
         }));
     fields.push_back(huxerui::Text(
-        "轮询开关与间隔在「设置」页统一配置；查询带供应商 API Key 做 Bearer 鉴权。")
+        "每个供应商单独控制是否查询；自动轮询间隔在「设置」页配置，查询带供应商 API Key 做 Bearer 鉴权。")
         .Style(huxerui::TextStyle{
             huxerui::Font::System(font_size::kCaption),
             theme.colors.on_surface_variant}));
@@ -731,11 +743,12 @@ void ReplaceModelList(const huxerui::StateList<std::string>& destination,
                     .OnClick([=] {
                         const std::string url = usageUrl.Get().text;
                         const std::string path = usagePath.Get().text;
-                        if (!url.empty() && path.empty()) {
-                            toast.Show("取值路径不能为空（或清空用量 URL 停用查询）");
+                        if (usageEnabled.Get() && !url.empty() && path.empty()) {
+                            toast.Show("启用查询时取值路径不能为空");
                             return;
                         }
                         models::Provider p = initial;
+                        p.usageEnabled = usageEnabled.Get();
                         p.usageUrl = url;
                         p.usagePath = path;
                         p.usageLabel = usageLabel.Get().text;

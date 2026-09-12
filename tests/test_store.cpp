@@ -536,6 +536,13 @@ int main() {
         const auto legacy = models::providerFromJson(
             nlohmann::json{{"baseUrl", "https://legacy.example.com/v1"}});
         CHECK(legacy.fullUrl);
+        const auto legacyUsage = models::providerFromJson(
+            nlohmann::json{{"usageUrl", "https://legacy.example.com/usage"}});
+        CHECK(legacyUsage.usageEnabled);
+        const auto disabledUsage = models::providerFromJson(
+            nlohmann::json{{"usageEnabled", false},
+                           {"usageUrl", "https://legacy.example.com/usage"}});
+        CHECK(!disabledUsage.usageEnabled);
         const auto sug =
             models::suggestUsageQuery("https://api.deepseek.com/v1");
         CHECK(sug.has_value());
@@ -548,6 +555,7 @@ int main() {
         models::Provider pu{.name = "带用量",
                             .baseUrl = "https://api.deepseek.com/v1",
                             .apiKey = "sk-usage",
+                            .usageEnabled = true,
                             .usageUrl = "https://api.deepseek.com/user/balance",
                             .usagePath = "balance_infos.0.total_balance",
                             .usageLabel = "CNY"};
@@ -558,13 +566,14 @@ int main() {
         for (const auto& p : reloaded.group("claude-code").providers) {
             if (p.id == idU) {
                 found = true;
+                CHECK(p.usageEnabled);
                 CHECK(p.usageUrl == "https://api.deepseek.com/user/balance");
                 CHECK(p.usagePath == "balance_infos.0.total_balance");
                 CHECK(p.usageLabel == "CNY");
             }
         }
         CHECK(found);
-        // 用量查询始终启用，只保留刷新间隔设置。
+        // 全局只保留刷新间隔；是否查询由每个 Provider.usageEnabled 控制。
         CHECK(reloaded.config().usageRefreshMinutes == 10);
         reloaded.setUsageRefreshMinutes(0);
         auto again = store::ProviderStore::load();

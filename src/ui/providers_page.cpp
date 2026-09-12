@@ -22,7 +22,7 @@
 // 默认按当前实际 URL/apiKey/上游格式经 HuxerUI HttpClient 拉取模型列表，也支持在
 // 高级选项中覆盖完整模型列表 URL；平台异步请求完成后结果回 UI 线程写 State；拉取成功后模型行在按钮前出现 Select
 // 下拉，点选回填该行的模型字段（不弹窗）。
-// 用量查询：usageUrl 非空的卡片显示用量文本 + 手动刷新按钮；AgentPage
+// 用量查询：启用开关打开且 usageUrl 非空的卡片显示用量文本 + 手动刷新按钮；AgentPage
 // 共享缓存，且只允许一个保留页启动按 config 的 usageRefreshMinutes
 // 轮询，避免 Pager 保留多页后重复请求。
 //
@@ -124,7 +124,7 @@ using provider_detail::WriteUsageCache;
 
     // 用量缓存由 AgentPage 共享；自动轮询只由第一个保留页启动（TaskScope
     // 随 Agent 页卸载取消）。每个周期在 UI 线程重读 config：
-    // usageRefreshMinutes>0 时立即拉一轮所有配置了 usageUrl 的供应商（全部分组，
+    // usageRefreshMinutes>0 时立即拉一轮所有启用且配置了 usageUrl 的供应商（全部分组，
     // 不只当前工具）再睡一个间隔；仅手动时按 30s 轻量再检查（设置页改动至多
     // 30s 生效，避免睡死在一个长间隔里）。State 只在 UI 线程写。
     huxerui::Lifecycle(
@@ -141,7 +141,9 @@ using provider_detail::WriteUsageCache;
                         std::vector<models::Provider> targets;
                         for (const auto& [toolId, grp] : config.groups) {
                             for (const auto& p : grp.providers) {
-                                if (!p.usageUrl.empty()) targets.push_back(p);
+                                if (p.usageEnabled && !p.usageUrl.empty()) {
+                                    targets.push_back(p);
+                                }
                             }
                         }
                         // 顺序拉取（每次最长 10s），每个完成即回写缓存。

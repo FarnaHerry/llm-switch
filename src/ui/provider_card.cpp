@@ -93,10 +93,11 @@ using provider_detail::WriteUsageCache;
     auto checking = huxerui::UseState(false);
     auto latency = huxerui::UseState<std::string>({});
 
-    // 用量展示：usageUrl 非空才显示；缓存未命中显示占位，错误文本用 error 色。
+    // 用量展示：启用开关打开且 usageUrl 非空才显示；缓存未命中显示占位。
     std::string usageText;
     bool usageError = false;
-    if (!provider.usageUrl.empty()) {
+    const bool usageConfigured = provider.usageEnabled && !provider.usageUrl.empty();
+    if (usageConfigured) {
         const auto& cache = usageCache.Get();
         if (const auto it = cache.find(id); it != cache.end()) {
             usageText = it->second;
@@ -179,7 +180,8 @@ using provider_detail::WriteUsageCache;
                huxerui::Grow(1.0F),
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Start)),
         // 中间状态列：连通检测结果（未检测不显示；失败 error 色）+ 用量
-        // （usageUrl 非空才显示，带手动刷新图标）。两者皆无时整列塌缩为零宽。
+        // （启用开关打开且 usageUrl 非空才显示，带手动刷新图标）。两者皆无时
+        // 整列塌缩为零宽。
         huxerui::Column {
             (!checking.Get() && latency.Get().empty())
                 ? huxerui::View{huxerui::Row{}}
@@ -190,7 +192,7 @@ using provider_detail::WriteUsageCache;
                           latency.Get().starts_with("不可达")
                               ? theme.colors.error
                               : theme.colors.on_surface_variant})},
-            provider.usageUrl.empty()
+            !usageConfigured
                 ? huxerui::View{huxerui::Row{}}
                 : huxerui::View{huxerui::Row {
                       huxerui::Text(usageText)

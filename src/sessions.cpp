@@ -1,8 +1,8 @@
 // sessions.cpp — llmswitch.sessions 实现单元。
 //
 // 解析约定：
-//   - 列表只读取文件头尾各 ~32KB：头部提取标题，尾部提取最近消息摘要，
-//     不为列表统计整文件行数；
+//   - 列表扫描只读取文件元数据；可见行再读取文件头 ~4KB 与尾部 ~8KB，提取标题
+//     和最近消息摘要，不为列表统计整文件行数；
 //   - 完整消息只在详情页调用 readSession，并由 UI 放到 RunWorker 中执行；
 //   - mtime 用 file_clock → system_clock 近似换算，只用于排序与展示。
 // nlohmann::json 模块下禁用 .items() 结构化绑定，遍历用 it.key()/it.value()。
@@ -15,7 +15,8 @@ import llmswitch.config;
 namespace sessions {
 namespace {
 
-constexpr std::size_t kSummaryReadBytes = 32 * 1024;
+constexpr std::size_t kSummaryHeadBytes = 4 * 1024;
+constexpr std::size_t kSummaryTailBytes = 8 * 1024;
 constexpr std::size_t kTitleMaxLen = 80;
 
 std::int64_t fileTimeToMillis(std::filesystem::file_time_type t) {
@@ -24,29 +25,35 @@ std::int64_t fileTimeToMillis(std::filesystem::file_time_type t) {
     return std::chrono::duration_cast<std::chrono::milliseconds>(sys.time_since_epoch()).count();
 }
 
-std::string readHead(const std::filesystem::path& file, std::size_t maxBytes) {
-    std::ifstream in(file, std::ios::binary);
-    if (!in) return "";
-    std::string buf(maxBytes, '\0');
-    in.read(buf.data(), static_cast<std::streamsize>(maxBytes));
-    buf.resize(static_cast<std::size_t>(in.gcount()));
-    return buf;
-}
+struct FileSummary {
+    std::string head;
+    std::string tail;
+};
 
-std::string readTail(const std::filesystem::path& file, std::size_t maxBytes) {
+FileSummary readSummary(const std::filesystem::path& file) {
     std::ifstream in(file, std::ios::binary);
-    if (!in) return "";
+    if (!in) return {};
     in.seekg(0, std::ios::end);
     const auto end = in.tellg();
-    if (end <= 0) return "";
+    if (end <= 0) return {};
+
+    const auto headSize = std::min<std::streamoff>(
+        end, static_cast<std::streamoff>(kSummaryHeadBytes));
+    in.seekg(0, std::ios::beg);
+    FileSummary result;
+    result.head.resize(static_cast<std::size_t>(headSize));
+    in.read(result.head.data(), static_cast<std::streamsize>(headSize));
+    result.head.resize(static_cast<std::size_t>(in.gcount()));
+
+    in.clear();
     const auto start = std::max<std::streamoff>(
-        0, end - static_cast<std::streamoff>(maxBytes));
+        0, end - static_cast<std::streamoff>(kSummaryTailBytes));
     in.seekg(start, std::ios::beg);
     const auto available = end - start;
-    std::string buf(static_cast<std::size_t>(available), '\0');
-    in.read(buf.data(), static_cast<std::streamsize>(buf.size()));
-    buf.resize(static_cast<std::size_t>(in.gcount()));
-    return buf;
+    result.tail.resize(static_cast<std::size_t>(available));
+    in.read(result.tail.data(), static_cast<std::streamsize>(available));
+    result.tail.resize(static_cast<std::size_t>(in.gcount()));
+    return result;
 }
 
 // 截取 80 字符：按字节截到 80 后回退到 UTF-8 边界，不切碎多字节字符。
@@ -176,12 +183,8 @@ SessionInfo makeInfo(std::string_view tool, std::string_view project,
     if (const auto s = std::filesystem::file_size(path, ec); !ec) {
         info.sizeBytes = s;
     }
-    const std::string head = readHead(path, kSummaryReadBytes);
-    const std::string tail = readTail(path, kSummaryReadBytes);
-    info.title = extractTitle(tool, head);
-    if (info.title.empty()) info.title = info.id;
-    info.preview = extractPreview(tool, tail);
-    if (info.preview.empty()) info.preview = info.title;
+    // 摘要由可见的 VirtualList 行按需加载；全量扫描阶段不能逐个打开会话文件。
+    info.title = info.id;
     return info;
 }
 
@@ -259,6 +262,22 @@ std::vector<SessionInfo> listSessions(std::string_view toolId) {
     }
     sortByMtimeDesc(out);
     return out;
+}
+
+SessionSummary summarizeSession(std::string_view toolId,
+                                const std::filesystem::path& path) {
+    if (toolId != "claude-code" && toolId != "codex") {
+        throw std::runtime_error(std::format("未知工具：{}", toolId));
+    }
+    ensureKnownSessionPath(path);
+
+    const FileSummary summary = readSummary(path);
+    SessionSummary result;
+    result.title = extractTitle(toolId, summary.head);
+    if (result.title.empty()) result.title = path.stem().string();
+    result.preview = extractPreview(toolId, summary.tail);
+    if (result.preview.empty()) result.preview = result.title;
+    return result;
 }
 
 std::vector<SessionMessage> readSession(std::string_view toolId,

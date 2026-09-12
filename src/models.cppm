@@ -123,7 +123,8 @@ export struct Provider {
     std::string codexConfigToml;  // 仅 codex 组用：config.toml 整段原文（空 = 切换时不改 config.toml）
     std::string apiFormat;        // 仅 opencode / pi 组用："" / "openai-chat"（默认）/
                                   // "openai-responses" / "anthropic"
-    // 用量查询（可选；usageUrl 空 = 不查）：
+    // 用量查询（可选；usageEnabled 关闭或 usageUrl 为空 = 不查）：
+    bool usageEnabled = false;
     std::string usageUrl;    // 用量查询端点（GET + Bearer）
     std::string usagePath;   // 响应 JSON 点分取值路径（支持数组下标，如
                              // balance_infos.0.total_balance）
@@ -150,8 +151,8 @@ export struct AppConfig {
     // 用 map 而非固定字段，新增工具不改序列化结构。
     std::map<std::string, ProviderGroup> groups;
     std::string themeMode = "system";  // system / dark / light
-    // 用量查询刷新设置（Provider.usageUrl 非空的供应商才参与）；
-    // 用量查询始终启用，0 = 仅手动刷新。
+    // 用量查询刷新设置（Provider.usageEnabled 且 usageUrl 非空的供应商才参与）；
+    // 0 = 仅手动刷新。
     int usageRefreshMinutes = 10;
     // 本地路由（llmswitch.router）设置：
     bool routerEnabled = false;    // 启动应用时自动开启本地路由
@@ -188,6 +189,7 @@ export nlohmann::json toJson(const Provider& p) {
     j["notes"] = p.notes;
     j["codexConfigToml"] = p.codexConfigToml;
     j["apiFormat"] = p.apiFormat;
+    j["usageEnabled"] = p.usageEnabled;
     j["usageUrl"] = p.usageUrl;
     j["usagePath"] = p.usagePath;
     j["usageLabel"] = p.usageLabel;
@@ -220,6 +222,9 @@ export Provider providerFromJson(const nlohmann::json& j) {
     p.notes = j.value("notes", "");
     p.codexConfigToml = j.value("codexConfigToml", "");
     p.apiFormat = j.value("apiFormat", "");
+    p.usageEnabled = j.contains("usageEnabled")
+                          ? j.value("usageEnabled", false)
+                          : !j.value("usageUrl", "").empty();
     p.usageUrl = j.value("usageUrl", "");
     p.usagePath = j.value("usagePath", "");
     p.usageLabel = j.value("usageLabel", "");

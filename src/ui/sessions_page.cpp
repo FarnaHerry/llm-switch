@@ -71,19 +71,46 @@ std::string FormatSize(std::uintmax_t bytes) {
 }
 
 [[huxerui::composable]] huxerui::View SessionRow(
-    const sessions::SessionInfo& session, huxerui::TaskScope tasks,
-    huxerui::ToastHandle toast, std::function<void()> onOpen,
+    const sessions::SessionInfo& session, huxerui::ToastHandle toast,
+    std::function<void(sessions::SessionInfo)> onOpen,
     std::function<void()> onDeleted) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    auto tasks = huxerui::UseTaskScope();
     auto dialog = huxerui::UseDialog();
-    const std::string title = session.title;
-    const std::string preview = session.preview;
+    auto title = huxerui::UseState(session.title);
+    auto preview = huxerui::UseState(session.preview);
     const std::filesystem::path path = session.path;
+
+    // VirtualList 只会挂载视口附近的行；摘要也绑定在行的生命周期内，避免列表
+    // 首次扫描时打开并解析全部历史文件。摘要加载失败时保留文件 stem，不打断列表。
+    const std::string rowKey = session.path.generic_string();
+    const std::string summaryKey = std::format(
+        "{}:{}:{}", rowKey, session.mtimeMillis, session.sizeBytes);
+    huxerui::Lifecycle(
+        [tasks, title, preview, tool = session.tool, path] {
+            tasks.Launch([title, preview, tool = std::move(tool), path]
+                             () -> huxerui::Task<void> {
+                try {
+                    const auto summary = co_await huxerui::RunWorker(
+                        [](std::string selectedTool,
+                           std::filesystem::path file) {
+                            return sessions::summarizeSession(selectedTool, file);
+                        },
+                        tool, path);
+                    title = summary.title;
+                    preview = summary.preview;
+                } catch (const std::exception&) {
+                    // 会话可能在扫描后被外部删除，列表仍可保留这条轻量记录。
+                }
+            });
+            return [] {};
+        },
+        summaryKey);
 
     auto showDeleteConfirm = [dialog, tasks, toast, title, path, onDeleted] {
         dialog.Show(
             "删除会话",
-            std::format("确定删除会话「{}」？此操作不可撤销。", title),
+            std::format("确定删除会话「{}」？此操作不可撤销。", title.Get()),
             "删除", "取消",
             [tasks, toast, title, path, onDeleted] {
                 tasks.Launch([toast, title, path, onDeleted]()
@@ -94,7 +121,7 @@ std::string FormatSize(std::uintmax_t bytes) {
                                 sessions::deleteSession(target);
                             },
                             path);
-                        toast.Show(std::format("已删除 {}", title));
+                        toast.Show(std::format("已删除 {}", title.Get()));
                         onDeleted();
                     } catch (const std::exception& e) {
                         toast.Show(e.what());
@@ -104,20 +131,24 @@ std::string FormatSize(std::uintmax_t bytes) {
             {});
     };
 
-    auto open = [tasks, onOpen] {
+    auto open = [tasks, onOpen, title, preview, session] {
         // 切换到保留的详情页也会改变当前命中节点，避开指针事件路径。
-        tasks.Launch([onOpen]() -> huxerui::Task<void> {
+        tasks.Launch([onOpen, title, preview, session]() mutable
+                         -> huxerui::Task<void> {
             co_await huxerui::Delay(std::chrono::duration<double>{0});
-            onOpen();
+            auto selected = session;
+            selected.title = title.Get();
+            selected.preview = preview.Get();
+            onOpen(std::move(selected));
         });
     };
 
     huxerui::View content = huxerui::Column {
-        huxerui::Text(title).Style(huxerui::TextStyle{
+        huxerui::Text(title.Get()).Style(huxerui::TextStyle{
             huxerui::Font::System(font_size::kBody), theme.colors.on_surface}),
-        preview == title || preview.empty()
+        preview.Get() == title.Get() || preview.Get().empty()
             ? huxerui::View{huxerui::Row{}}
-            : huxerui::View{huxerui::Text(preview).Style(huxerui::TextStyle{
+            : huxerui::View{huxerui::Text(preview.Get()).Style(huxerui::TextStyle{
                   huxerui::Font::System(font_size::kCaption),
                   theme.colors.on_surface_variant})},
         huxerui::Text(std::format("{} · {} · {}",
@@ -156,7 +187,7 @@ std::string FormatSize(std::uintmax_t bytes) {
            huxerui::PointerCursor(huxerui::PointerCursorKind::Hand),
            huxerui::Tooltip("查看会话详情"))
         .OnClick(open)
-        .Key(session.tool + "/" + session.id);
+        .Key(rowKey);
     return content;
 }
 
@@ -219,16 +250,16 @@ std::string FormatSize(std::uintmax_t bytes) {
                               .WithWeight(huxerui::FontWeight::SemiBold),
                           projectTextColor})}
                 : huxerui::View{huxerui::Row{}};
-        const auto open = [selectedSession, session] {
-            selectedSession = session;
+        const auto open = [selectedSession](sessions::SessionInfo session) {
+            selectedSession = std::move(session);
         };
         return Card(huxerui::Column {
             projectHeader,
-            SessionRow(session, tasks, toast, open,
+            SessionRow(session, toast, open,
                        [reload, filter] { reload(filter.Get()); }),
         }.With(huxerui::Spacing(firstInProject ? 6.0F : 0.0F),
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)))
-            .Key(session.tool + "/" + session.id);
+            .Key(session.path.generic_string());
     };
 
     struct FilterItem {
@@ -371,18 +402,37 @@ std::string FormatSize(std::uintmax_t bytes) {
 
     const auto buildMessageRow = [messages, theme](std::size_t index) {
         const auto& message = messages.At(index);
-        const std::string role = message.role == "user" ? "用户" : "助手";
-        return Card(huxerui::Column {
-            huxerui::Text(role).Style(huxerui::TextStyle{
-                huxerui::Font::System(font_size::kChip)
-                    .WithWeight(huxerui::FontWeight::SemiBold),
-                theme.colors.on_surface_variant}),
-            huxerui::Text(message.text).Style(huxerui::TextStyle{
-                huxerui::Font::System(font_size::kBody), theme.colors.on_surface}),
-        }.With(huxerui::Spacing(6.0F),
-               huxerui::Padding(huxerui::EdgeInsets::Symmetric(10.0F, 8.0F)),
-               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)))
-            .Key(std::format("message-{}", index));
+        const bool isUser = message.role == "user";
+        const std::string role = isUser ? "用户" : "助手";
+        const huxerui::TextAlign textAlign = isUser
+                                                  ? huxerui::TextAlign::Trailing
+                                                  : huxerui::TextAlign::Leading;
+        const huxerui::CrossAxisAlignment contentAlign =
+            isUser ? huxerui::CrossAxisAlignment::End
+                   : huxerui::CrossAxisAlignment::Start;
+        const huxerui::View messageCard =
+            Card(huxerui::Column {
+                     huxerui::Text(role).Align(textAlign).Style(huxerui::TextStyle{
+                         huxerui::Font::System(font_size::kChip)
+                             .WithWeight(huxerui::FontWeight::SemiBold),
+                         theme.colors.on_surface_variant}),
+                     huxerui::Text(message.text).Align(textAlign).Style(
+                         huxerui::TextStyle{huxerui::Font::System(font_size::kBody),
+                                            theme.colors.on_surface}),
+                 }.With(huxerui::Spacing(6.0F),
+                        huxerui::Padding(huxerui::EdgeInsets::Symmetric(10.0F, 8.0F)),
+                        huxerui::CrossAlign(contentAlign)))
+                .With(huxerui::Frame{.max_width = 720.0F})
+                .Key(std::format("message-{}", index));
+        huxerui::View row =
+            isUser
+                ? huxerui::View{huxerui::Row{huxerui::Spacer(), messageCard}
+                                    .With(huxerui::CrossAlign(
+                                        huxerui::CrossAxisAlignment::Start))}
+                : huxerui::View{huxerui::Row{messageCard, huxerui::Spacer()}
+                                    .With(huxerui::CrossAlign(
+                                        huxerui::CrossAxisAlignment::Start))};
+        return std::move(row).Key(std::format("message-row-{}", index));
     };
 
     huxerui::View content;
