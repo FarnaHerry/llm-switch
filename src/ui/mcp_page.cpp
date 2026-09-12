@@ -332,7 +332,7 @@ void ShowMcpForm(huxerui::DialogHandle dialog, huxerui::ToastHandle toast,
                 }));
     }
 
-    return ListCard(huxerui::Column {
+    return Card(huxerui::Column {
         huxerui::Row {
             huxerui::Text(name).Style(huxerui::TextStyle{
                 huxerui::Font::System(font_size::kBody)

@@ -232,10 +232,8 @@ I/O、解析和 JSON 函数默认保留在 `.cpp` 中。
    层级取，不直接用 surface_container_*。删除确认用内置
    `dialog.Show(title, message, positive, negative, ...)`（DialogStyle 已在
    MinimalThemed 里主题化）。
-   通用 `Card` 不画规整 Border：以 `ink_card_frame.svg` 的断续墨线、飞白和
-   角部淡晕作为卡片自身边界；高频滚动行使用 `ListCard`，只保留主题表面、
-   6pt 圆角和内边距，避免逐行 SVG/裁剪合成；弹窗仍保留规则边框以保证浮层
-   识别度。
+   通用 `Card` 使用主题 raised 表面、6pt 圆角和内边距的单层轻量样式，不叠加
+   SVG 边框或裁剪层；弹窗仍保留规则边框以保证浮层识别度。
 8. **水墨图标契约**：所有 24×24 功能 SVG 必须遵守
    `resources/README.md` 的水墨规范——每个语义只保留一套 `#FFFFFF` 无色
    alpha-mask，深浅主题由运行时 tint 自适应，选中态由承载底块表达；禁止

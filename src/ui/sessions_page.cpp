@@ -231,7 +231,7 @@ std::string FormatSize(std::uintmax_t bytes) {
     }
 
     const huxerui::View messageCard =
-        ListCard(huxerui::Column(std::move(cardChildren))
+        Card(huxerui::Column(std::move(cardChildren))
                  .With(huxerui::Spacing(6.0F),
                        huxerui::Padding(
                            huxerui::EdgeInsets::Symmetric(10.0F, 8.0F)),
@@ -343,7 +343,7 @@ std::string FormatSize(std::uintmax_t bytes) {
         const auto open = [selectedSession](sessions::SessionInfo session) {
             selectedSession = std::move(session);
         };
-        return ListCard(huxerui::Column {
+        return Card(huxerui::Column {
             projectHeader,
             SessionRow(session, toast, open, [reload] { reload(); }),
         }.With(huxerui::Spacing(firstInProject ? 6.0F : 0.0F),

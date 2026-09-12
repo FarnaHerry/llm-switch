@@ -222,7 +222,7 @@ bool IsLinked(const skills::SkillInfo& skill, std::string_view toolId) {
                                            : "仅中央库中的 Skill 可同步")));
     }
 
-    return ListCard(huxerui::Column {
+    return Card(huxerui::Column {
         huxerui::Row {
             huxerui::Text(name).Style(huxerui::TextStyle{
                 huxerui::Font::System(font_size::kBody)

@@ -89,12 +89,9 @@ huxerui::View SettingsPage(huxerui::State<int> themeMode, huxerui::State<int> re
 huxerui::View PageScaffold(const std::string& title, huxerui::View actions,
                            huxerui::View content);
 
-// 卡片容器（二级岛）：raised 表面 + 断续墨线/飞白纹理 + 内边距。
+// 卡片容器（二级岛）：raised 表面 + 6pt 圆角 + 内边距。保持单层绘制，避免
+// 滚动时产生逐卡片矢量叠层和裁剪合成。
 huxerui::View Card(huxerui::View content);
-
-// 滚动列表专用二级岛：保留主题表面、圆角和内边距，不叠加全尺寸 SVG 或裁剪层，
-// 避免每个可见列表项在滚动期间重复承担透明矢量合成成本。
-huxerui::View ListCard(huxerui::View content);
 
 // 自定义内容弹窗的卡片包裹：SDK 的 dialog.Show(ViewFactory/DialogFactory) 不给
 // 内容加底板（只有标题+消息的内置形态才有 DialogStyle），统一包一层：

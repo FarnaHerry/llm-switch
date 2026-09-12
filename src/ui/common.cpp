@@ -121,27 +121,7 @@ huxerui::Color IslandColor(const IslandTheme& islands, IslandLevel level) {
 [[huxerui::composable]] huxerui::View Card(huxerui::View content) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     const IslandTheme islands = ResolveIslandTheme(theme);
-    // 二级岛本身“落墨”：不再用规整矢量边框模拟水墨。底层墨框由断续、
-    // 不等宽笔触和角部淡晕构成，内容仍按常规约束排版，避免造型损害可用性。
-    return huxerui::Stack {
-        huxerui::Image(app::images::ink_card_frame)
-            .Fit(huxerui::ImageFit::Fill),
-        huxerui::Column { std::move(content) }
-            .With(huxerui::Padding(islands.island_padding),
-                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)),
-    }.With(huxerui::Background(islands.raised),
-           huxerui::CornerRadius(3.0F),
-           huxerui::ClipChildren(),
-           huxerui::Align(huxerui::HorizontalAlignment::Stretch,
-                          huxerui::VerticalAlignment::Stretch));
-}
-
-[[huxerui::composable]] huxerui::View ListCard(huxerui::View content) {
-    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
-    const IslandTheme islands = ResolveIslandTheme(theme);
     huxerui::View card = content;
-    // 列表项在滚动时持续改变屏幕位置。这里刻意不使用 ink_card_frame 的全尺寸
-    // SVG 叠层，也不做 ClipChildren；静态 Card 继续承担完整水墨视觉。
     return std::move(card).With(
         huxerui::Background(islands.raised),
         huxerui::CornerRadius(islands.nested_radius),
