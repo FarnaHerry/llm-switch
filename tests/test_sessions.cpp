@@ -193,6 +193,20 @@ int main() {
             CHECK(codexMessages[1].role == "assistant");
             CHECK(codexMessages[1].text == "PR 审查完成");
         }
+
+        // 大型非消息事件是实际会话文件最常见的体积来源。读取详情必须在 JSON
+        // 解析前跳过它，同时不能影响前后的可显示消息。
+        const fs::path noisy = codexSessions / "2026" / "09" / "07" / "noisy.jsonl";
+        writeFile(noisy,
+                  "{\"type\":\"event_msg\",\"payload\":{\"type\":\"tool_output\",\"data\":\"" +
+                      std::string(2 * 1024 * 1024, 'x') +
+                      "\"}}\n"
+                      "{\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"噪声后的消息\"}]}}\n");
+        const auto noisyMessages = sessions::readSession("codex", noisy);
+        CHECK(noisyMessages.size() == 1);
+        if (noisyMessages.size() == 1) {
+            CHECK(noisyMessages[0].text == "噪声后的消息");
+        }
     }
 
     // 6. deleteSession：正常删除 + 越界路径拒绝

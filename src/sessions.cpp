@@ -19,6 +19,24 @@ constexpr std::size_t kSummaryHeadBytes = 4 * 1024;
 constexpr std::size_t kSummaryTailBytes = 8 * 1024;
 constexpr std::size_t kTitleMaxLen = 80;
 
+// 会话文件里绝大多数记录是工具调用、增量事件和上下文快照，其中有些单行可达
+// 数 MB。先做不分配内存的宽松筛选，避免为了最终必然丢弃的记录构造完整 JSON
+// DOM；筛选允许假阳性，正确性仍由 parseMessageLine 的结构检查保证。
+bool mayContainDisplayMessage(std::string_view tool, std::string_view line) {
+    if (tool == "claude-code") {
+        return line.find("\"type\"") != std::string_view::npos &&
+               (line.find("\"user\"") != std::string_view::npos ||
+                line.find("\"assistant\"") != std::string_view::npos) &&
+               line.find("\"message\"") != std::string_view::npos;
+    }
+    if (tool == "codex") {
+        return line.find("\"payload\"") != std::string_view::npos &&
+               line.find("\"message\"") != std::string_view::npos &&
+               line.find("\"role\"") != std::string_view::npos;
+    }
+    return true;
+}
+
 std::int64_t fileTimeToMillis(std::filesystem::file_time_type t) {
     const auto sys = std::chrono::time_point_cast<std::chrono::system_clock::duration>(
         t - std::filesystem::file_time_type::clock::now() + std::chrono::system_clock::now());
@@ -115,7 +133,7 @@ std::string contentText(const nlohmann::json& content) {
 
 std::optional<SessionMessage> parseMessageLine(std::string_view tool,
                                                 std::string_view line) {
-    if (line.empty()) return std::nullopt;
+    if (line.empty() || !mayContainDisplayMessage(tool, line)) return std::nullopt;
     const auto j = nlohmann::json::parse(line, nullptr, false);
     if (j.is_discarded() || !j.is_object()) return std::nullopt;
 

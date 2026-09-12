@@ -36,18 +36,32 @@ std::int64_t CurrentTimeMillis() {
         .count();
 }
 
+constexpr std::size_t kStateListCommitBatchSize = 64;
+
+// StateList 的每次写入都会使观察它的组合失效。大列表若在一个 UI 回调里一次性
+// 逐项提交，会把 worker 中省下来的时间又变成主线程长任务。分批提交并在批次间
+// 让出事件循环，保证滚动、窗口拖动和加载动画仍能及时响应。
 template <class T>
-void ReplaceStateList(const huxerui::StateList<T>& destination,
-                      std::vector<T> values) {
+huxerui::Task<void> ReplaceStateListInBatches(
+    const huxerui::StateList<T>& destination, std::vector<T> values) {
     const std::size_t shared = std::min(destination.Size(), values.size());
+    std::size_t writesSinceYield = 0;
+    const auto yieldIfNeeded = [&writesSinceYield]() -> huxerui::Task<void> {
+        if (++writesSinceYield < kStateListCommitBatchSize) co_return;
+        writesSinceYield = 0;
+        co_await huxerui::Delay(std::chrono::duration<double>{0});
+    };
     for (std::size_t i = 0; i < shared; ++i) {
         destination.Set(i, std::move(values[i]));
+        co_await yieldIfNeeded();
     }
     while (destination.Size() > values.size()) {
         destination.PopBack();
+        co_await yieldIfNeeded();
     }
     for (std::size_t i = shared; i < values.size(); ++i) {
         destination.PushBack(std::move(values[i]));
+        co_await yieldIfNeeded();
     }
 }
 
@@ -209,7 +223,12 @@ std::string FormatSize(std::uintmax_t bytes) {
                     selectedAgent.Get() != agentIndex) {
                     co_return;
                 }
-                ReplaceStateList(sessionsList, std::move(result));
+                co_await ReplaceStateListInBatches(sessionsList,
+                                                   std::move(result));
+                if (requestGeneration.Get() != request ||
+                    selectedAgent.Get() != agentIndex) {
+                    co_return;
+                }
                 hasLoaded = true;
                 loadedAtMillis = CurrentTimeMillis();
                 loading = false;
@@ -390,7 +409,8 @@ std::string FormatSize(std::uintmax_t bytes) {
                     },
                     targetTool, targetPath);
                 if (requestGeneration.Get() != request) co_return;
-                ReplaceStateList(messages, std::move(result));
+                co_await ReplaceStateListInBatches(messages, std::move(result));
+                if (requestGeneration.Get() != request) co_return;
                 loading = false;
             } catch (const std::exception& e) {
                 if (requestGeneration.Get() != request) co_return;
