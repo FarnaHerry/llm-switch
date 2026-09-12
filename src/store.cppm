@@ -18,7 +18,7 @@ export class ProviderStore {
 public:
     ProviderStore() = default;
     // 便于测试直接组装内存配置。
-    explicit ProviderStore(models::AppConfig config) : config_(std::move(config)) {}
+    inline explicit ProviderStore(models::AppConfig config) : config_(std::move(config)) {}
 
     // 读 dataDir()/config.json：不存在 → 默认配置，且对「组为空且 live 文件
     // 存在」的工具执行首次导入（importLive，失败静默——如 opencode 的 JSON5
@@ -30,7 +30,7 @@ public:
     void save() const;
 
     // 当前配置快照（只读；修改一律走下面的方法，保证落盘一致）。
-    const models::AppConfig& config() const { return config_; }
+    inline const models::AppConfig& config() const { return config_; }
     // 组访问（tool 不在注册表抛 std::runtime_error；已注册但尚无组时返回空组）。
     const models::ProviderGroup& group(std::string_view tool) const;
 

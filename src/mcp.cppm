@@ -36,7 +36,7 @@ public:
     // CRUD
     void upsert(McpServer srv);       // 按 name 覆盖/新增；对 enabledTools 里每个工具同步写 live
     void remove(std::string_view name);  // 先从各 enabledTools 的 live 配置移除条目再删
-    const std::vector<McpServer>& servers() const { return servers_; }
+    inline const std::vector<McpServer>& servers() const { return servers_; }
     // 启停 = 写/删该工具 live 配置里的对应条目 + 更新 enabledTools + save
     void setEnabled(std::string_view name, std::string_view toolId, bool enabled);
     // 从某工具 live 配置回读收编已有 MCP 条目（首次导入用；已存在同名则只补

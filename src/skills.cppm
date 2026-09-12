@@ -41,7 +41,7 @@ public:
     // 实体目录（用户自己装的）时跳过，不删。
     void remove(std::string_view name);
 
-    const std::vector<SkillInfo>& skills() const { return skills_; }
+    inline const std::vector<SkillInfo>& skills() const { return skills_; }
 
     // 读 skill 正文（编辑用；frontmatter 之后的内容，无 frontmatter 则整文件）。
     std::string readBody(std::string_view name) const;
