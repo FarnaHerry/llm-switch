@@ -22,25 +22,25 @@ CMake 配置阶段会检查全部 24×24 SVG：包含硬编码颜色（非 `#FFF
 
 ## 图标来源与许可
 
+本次图标系统以仓库内的 `docs/icon-reference.png` 作为水墨图形参考，转换后的
+24×24 SVG 只保留白色 alpha-mask；参考图本身不属于运行时资源，也不会随应用打包。
+
 | 文件 | 来源 | 许可 |
 |------|------|------|
-| `agents.svg` | 本仓库自绘机器人图标（顶级「Agent 管理」入口） | 同本仓库 |
 | `claudecode.svg` | 本仓库自绘终端窗口 + 提示符（Claude Code 是 CLI） | 同本仓库 |
 | `claude.svg` | Claude 官方 logo，[simple-icons](https://simpleicons.org) `claude`（官方轮廓不变，增加 alpha 水墨纹理） | CC0 1.0 |
 | `codex.svg` | OpenAI 官方 logo，simple-icons `openai`（取自 release tag 15.1.0；官方轮廓不变，增加 alpha 水墨纹理） | CC0 1.0 |
 | `opencode.svg` | opencode 官方 logo，simple-icons develop 分支 `opencode`（保留镂空规则与官方轮廓） | CC0 1.0 |
 | `pi.svg` | pi-mono 官方 logo，[pi.dev](https://pi.dev) `logo-auto.svg`（等比缩到 24×24，官方轮廓不变） | MIT（[pi-mono 仓库](https://github.com/badlogic/pi-mono)） |
-| `settings.svg` | 姊妹项目 Clash-Flux（水墨化手绘轮廓） | 同本仓库 |
-| `router.svg` | 本仓库自绘双向交换箭头（顶级「本地路由」入口） | 同本仓库 |
-| `stats.svg` | 本仓库自绘柱状图（顶级「使用统计」入口） | 同本仓库 |
-| `mcp.svg` | 本仓库自绘三方块连接（顶级「MCP 服务器」入口） | 同本仓库 |
-| `skills.svg` | 本仓库自绘魔法棒 + 星星（顶级「Skills」入口） | 同本仓库 |
-| `sessions.svg` | 本仓库自绘时钟（顶级「会话」入口） | 同本仓库 |
+| `home/agents/providers/models/router/skills/mcp/sessions/stats/settings.svg` | `docs/icon-reference.png` 中的核心导航水墨图标（对应首页、Agent、供应商、模型、本地路由、Skills、MCP、会话、用量、设置） | 本仓库转换稿 |
+| `trash/download/upload/search/refresh/add/edit/import/export/backup/restore.svg` | `docs/icon-reference.png` 中的常用操作水墨图标 | 本仓库转换稿 |
+| `success/error/warning/info/loading/more/disabled/processing.svg` | `docs/icon-reference.png` 中的状态提示水墨图标 | 本仓库转换稿 |
+| `user/api_key/link/options/logout.svg` | `docs/icon-reference.png` 中的辅助水墨图标 | 本仓库转换稿 |
 | `about.svg` | 本仓库自绘圆圈 i（顶级「关于」入口） | 同本仓库 |
 | `tray*.png` | 本仓库自绘太极图标的多倍率栅格版本 | 同本仓库 |
 | `platform/windows/app.ico` | 由 `tray*.png` 生成的 Windows 应用、快捷方式和安装器图标 | 同本仓库 |
-| `home/back/forward/search.svg` | 本仓库自绘（墨韵图标库·基础操作） | 同本仓库 |
-| `file/folder/image/video/audio/link/download.svg` | 本仓库自绘（墨韵图标库·内容相关） | 同本仓库 |
-| `user/group/message/bell/star/heart/more.svg` | 本仓库自绘（墨韵图标库·用户相关） | 同本仓库 |
-| `success/warning/error/info/loading/help/lock/unlock.svg` | 本仓库自绘（墨韵图标库·状态提示） | 同本仓库 |
+| `back/forward.svg` | 本仓库自绘（墨韵图标库·基础操作） | 同本仓库 |
+| `file/folder/image/video/audio.svg` | 本仓库自绘（墨韵图标库·内容相关） | 同本仓库 |
+| `group/message/bell/star/heart.svg` | 本仓库自绘（墨韵图标库·用户相关） | 同本仓库 |
+| `help/lock/unlock.svg` | 本仓库自绘（墨韵图标库·状态提示） | 同本仓库 |
 | `calendar/clock/location/filter/sort/menu.svg` | 本仓库自绘（墨韵图标库·其他常用） | 同本仓库 |
