@@ -18,6 +18,9 @@ namespace {
 constexpr std::size_t kSummaryHeadBytes = 4 * 1024;
 constexpr std::size_t kSummaryTailBytes = 8 * 1024;
 constexpr std::size_t kTitleMaxLen = 80;
+// 单条消息进入 UI 的文本上限：详情页的展开/滚动都要对它做原生文本排版，
+// 不设界的话超大工具输出会冻结 UI（完整内容走导出，不经过该路径）。
+constexpr std::size_t kMaxStoredMessageBytes = 16 * 1024;
 
 // 会话文件里绝大多数记录是工具调用、增量事件和上下文快照，其中有些单行可达
 // 数 MB。先做不分配内存的宽松筛选，避免为了最终必然丢弃的记录构造完整 JSON
@@ -167,9 +170,21 @@ std::optional<SessionMessage> parseMessageLine(std::string_view tool,
     if (role != "user" && role != "assistant" || !message->contains("content")) {
         return std::nullopt;
     }
-    const std::string text = trim(contentText((*message)["content"]));
+    std::string text = trim(contentText((*message)["content"]));
     if (text.empty()) return std::nullopt;
-    return SessionMessage{std::move(role), text};
+    // 原生 Text 的排版成本随长度线性膨胀（Pango 逐段 itemize + shaping），
+    // 几百 KB 的工具输出会让详情页在展开/滚动时冻结 UI。详情展示做有界
+    // 截断；完整内容始终可通过导出（原文件）获取。
+    if (text.size() > kMaxStoredMessageBytes) {
+        std::size_t end = kMaxStoredMessageBytes;
+        while (end > 0 &&
+               (static_cast<unsigned char>(text[end]) & 0xC0U) == 0x80U) {
+            --end;
+        }
+        text.resize(end);
+        text += "\n……（内容过长已截断，完整内容请导出后查看）";
+    }
+    return SessionMessage{std::move(role), std::move(text)};
 }
 
 template <class Callback>

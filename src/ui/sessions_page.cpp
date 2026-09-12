@@ -41,6 +41,7 @@ constexpr std::size_t kStateListCommitBatchSize = 64;
 constexpr std::size_t kMessageCollapseThresholdBytes = 3'000;
 constexpr std::size_t kMessageCollapsedBytes = 1'500;
 
+
 // StateList 的每次写入都会使观察它的组合失效。大列表若在一个 UI 回调里一次性
 // 逐项提交，会把 worker 中省下来的时间又变成主线程长任务。分批提交并在批次间
 // 让出事件循环，保证滚动、窗口拖动和加载动画仍能及时响应。
@@ -452,7 +453,12 @@ std::string FormatSize(std::uintmax_t bytes) {
     huxerui::State<sessions::SessionInfo> selectedSession) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto tasks = huxerui::UseTaskScope();
-    auto messages = huxerui::UseStateList<sessions::SessionMessage>();
+    // 消息列表用不可变快照承载（与列表页的 sessionsSnapshot 同一模式）：
+    // worker 结果在 UI 线程以一次 O(1) 状态写入生效。长会话逐项
+    // Insert/PushBack 会产生几十次重组失效，每次都让 VirtualList 全量
+    // 重测量、Pango 重排版可见行——这是详情页卡顿的根源。
+    auto messages = huxerui::UseState(
+        std::make_shared<const std::vector<sessions::SessionMessage>>());
     auto loading = huxerui::UseState(false);
     auto loadingOlder = huxerui::UseState(false);
     auto loadError = huxerui::UseState(std::string{});
@@ -486,17 +492,17 @@ std::string FormatSize(std::uintmax_t bytes) {
                     },
                     targetTool, targetPath);
                 if (requestGeneration.Get() != request) co_return;
-                messages.Clear();
-                for (auto& message : result.messages) {
-                    messages.PushBack(std::move(message));
-                }
+                messages =
+                    std::make_shared<const std::vector<sessions::SessionMessage>>(
+                        std::move(result.messages));
                 beforeOffset = result.nextBeforeOffset;
                 hasMore = result.hasMore;
                 loading = false;
                 co_await huxerui::Delay(std::chrono::duration<double>{0});
-                if (!messages.Empty()) {
+                if (!messages.Get()->empty()) {
                     static_cast<void>(scroll.ScrollToItem(
-                        messages.Size() - 1, huxerui::ScrollAlignment::End));
+                        messages.Get()->size() - 1,
+                        huxerui::ScrollAlignment::End));
                 }
             } catch (const std::exception& e) {
                 if (requestGeneration.Get() != request) co_return;
@@ -515,10 +521,11 @@ std::string FormatSize(std::uintmax_t bytes) {
         }
         const std::uint64_t request = requestGeneration.Get();
         const float oldOffset = scroll.Offset();
+        const auto current = messages.Get();
         loadingOlder = true;
         tasks.Launch([messages, loadingOlder, loadError, requestGeneration,
                       beforeOffset, hasMore, scroll, tool, path, request,
-                      oldOffset]() -> huxerui::Task<void> {
+                      oldOffset, current]() -> huxerui::Task<void> {
             try {
                 auto page = co_await huxerui::RunWorker(
                     [](std::string selectedTool, std::filesystem::path file,
@@ -528,11 +535,16 @@ std::string FormatSize(std::uintmax_t bytes) {
                     },
                     tool, path, beforeOffset.Get());
                 if (requestGeneration.Get() != request) co_return;
-                const std::size_t added = page.messages.size();
-                for (auto it = page.messages.rbegin();
-                     it != page.messages.rend(); ++it) {
-                    messages.Insert(0, std::move(*it));
+                auto next = std::make_shared<std::vector<sessions::SessionMessage>>();
+                next->reserve(page.messages.size() + current->size());
+                for (auto& message : page.messages) {
+                    next->push_back(std::move(message));
                 }
+                next->insert(next->end(), current->begin(), current->end());
+                const std::size_t added = page.messages.size();
+                messages =
+                    std::make_shared<const std::vector<sessions::SessionMessage>>(
+                        std::move(*next));
                 beforeOffset = page.nextBeforeOffset;
                 hasMore = page.hasMore;
                 loadingOlder = false;
@@ -565,8 +577,11 @@ std::string FormatSize(std::uintmax_t bytes) {
         if (!path.empty()) load(tool, path);
     };
 
-    const auto buildMessageRow = [messages](std::size_t index) {
-        return SessionMessageRow(messages.At(index));
+    // 本轮组合绑定当前快照：快照不可变，行构建期间数据恒定；新快照写入
+    // 触发一次重组后整体切换。
+    const auto snapshot = messages.Get();
+    const auto buildMessageRow = [snapshot](std::size_t index) {
+        return SessionMessageRow((*snapshot)[index]);
     };
 
     huxerui::View content;
@@ -591,7 +606,7 @@ std::string FormatSize(std::uintmax_t bytes) {
         }.With(huxerui::Spacing(12.0F), huxerui::Grow(1.0F),
                huxerui::MainAlign(huxerui::MainAxisAlignment::Center),
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
-    } else if (messages.Empty()) {
+    } else if (snapshot->empty()) {
         content = huxerui::Column {
             huxerui::Text("未找到可显示的文本消息。").Style(
                 huxerui::TextStyle{huxerui::Font::System(font_size::kBody),
@@ -600,7 +615,7 @@ std::string FormatSize(std::uintmax_t bytes) {
                huxerui::MainAlign(huxerui::MainAxisAlignment::Center),
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
     } else {
-        content = huxerui::VirtualList(messages.Size(), buildMessageRow)
+        content = huxerui::VirtualList(snapshot->size(), buildMessageRow)
                       .EstimatedItemExtent(140.0F)
                       .CacheExtent(280.0F)
                       .Controller(scroll)
