@@ -4,9 +4,9 @@
 //
 // 覆盖：伪造 ~/.claude/projects/proj-x/*.jsonl（含 user 消息行）与
 // ~/.codex/sessions/2026/09/06/*.jsonl → listSessions 数量/排序/title 摘要/
-// project/mtime/行数正确；claude title 跳过命令样文本；codex 取不到回落
+// project/mtime/摘要正确；claude title 跳过命令样文本；codex 取不到回落
 // 文件 stem；deleteSession 删除且越界路径（/etc/passwd）被拒绝；
-// exportSession 复制成功。
+// readSession 可读取完整消息；exportSession 复制成功。
 #include <cstdio>    // stderr（std 模块不导出 stdout/stderr 宏）
 #include "test_env.h"  // setenv/getpid/unsetenv 可移植封装
 
@@ -71,7 +71,7 @@ int main() {
     writeFile(claude1,
               "{\"type\":\"summary\",\"summary\":\"旧摘要\"}\n"
               "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"帮我修复登录页面的 bug\"}]}}\n"
-              "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":[]}}\n");
+              "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"登录页面已修复\"}]}}\n");
     // claude：首条 user 是命令样文本，应跳过取第二条；content 为纯字符串
     const fs::path claude2 = claudeProjects / "proj-x" / "sess-b.jsonl";
     writeFile(claude2,
@@ -85,7 +85,7 @@ int main() {
     const fs::path codex1 = codexSessions / "2026" / "09" / "06" / "rollout-1.jsonl";
     writeFile(codex1,
               "{\"timestamp\":\"2026-09-06T01:00:00Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"审查这个 PR\"}]}}\n"
-              "{\"timestamp\":\"2026-09-06T01:00:01Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"assistant\",\"content\":[]}}\n");
+              "{\"timestamp\":\"2026-09-06T01:00:01Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"PR 审查完成\"}]}}\n");
     // codex：结构取不到标题 → 回落文件 stem
     const fs::path codex2 = codexSessions / "2026" / "09" / "05" / "rollout-2.jsonl";
     writeFile(codex2, "{\"type\":\"turn_context\",\"payload\":{}}\n");
@@ -113,7 +113,7 @@ int main() {
         CHECK(all[4].id == "rollout-2");
     }
 
-    // 2. 字段：tool / project / title / 行数 / 大小
+    // 2. 字段：tool / project / title / 最近摘要 / 大小
     {
         const auto claude = sessions::listSessions("claude-code");
         CHECK(claude.size() == 3);
@@ -123,7 +123,7 @@ int main() {
             CHECK(itA->tool == "claude-code");
             CHECK(itA->project == "proj-x");
             CHECK(itA->title == "帮我修复登录页面的 bug");
-            CHECK(itA->messageCount == 3);
+            CHECK(itA->preview == "登录页面已修复");
             CHECK(itA->sizeBytes > 0);
             CHECK(itA->path == claude1);
         }
@@ -150,7 +150,7 @@ int main() {
             CHECK(it1->tool == "codex");
             CHECK(it1->project == "2026/09/06");
             CHECK(it1->title == "审查这个 PR");
-            CHECK(it1->messageCount == 2);
+            CHECK(it1->preview == "PR 审查完成");
         }
         const auto it2 = std::ranges::find(codex, "rollout-2", &sessions::SessionInfo::id);
         CHECK(it2 != codex.end());
@@ -162,8 +162,29 @@ int main() {
 
     // 4. 未知工具报错；空目录不炸
     CHECK(throwsRuntimeError([] { (void)sessions::listSessions("nope"); }));
+    CHECK(throwsRuntimeError([&] {
+        (void)sessions::readSession("nope", claude1);
+    }));
 
-    // 5. deleteSession：正常删除 + 越界路径拒绝
+    // 5. 详情读取完整消息，不影响列表只读摘要的路径
+    {
+        const auto messages = sessions::readSession("claude-code", claude1);
+        CHECK(messages.size() == 2);
+        if (messages.size() == 2) {
+            CHECK(messages[0].role == "user");
+            CHECK(messages[0].text == "帮我修复登录页面的 bug");
+            CHECK(messages[1].role == "assistant");
+            CHECK(messages[1].text == "登录页面已修复");
+        }
+        const auto codexMessages = sessions::readSession("codex", codex1);
+        CHECK(codexMessages.size() == 2);
+        if (codexMessages.size() == 2) {
+            CHECK(codexMessages[1].role == "assistant");
+            CHECK(codexMessages[1].text == "PR 审查完成");
+        }
+    }
+
+    // 6. deleteSession：正常删除 + 越界路径拒绝
     {
         sessions::deleteSession(claude3);
         CHECK(!fs::exists(claude3));
@@ -178,7 +199,7 @@ int main() {
             [&] { sessions::deleteSession(claude2); }));  // 已删的文件再删报错
     }
 
-    // 6. exportSession：复制成功返回目标路径
+    // 7. exportSession：复制成功返回目标路径
     {
         const fs::path destDir = root / "export";
         const fs::path dest = sessions::exportSession(claude1, destDir);

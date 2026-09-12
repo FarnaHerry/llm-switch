@@ -114,7 +114,7 @@ router::LocalRouter& routerInstance();
 huxerui::View McpPage();
 // Skills 管理页（页面级持有 skills::SkillsStore）。
 huxerui::View SkillsPage();
-// 历史会话管理页（页面级持有会话列表 State）。
+// 历史会话管理页：列表只持有轻量摘要，点击后进入异步全文详情页。
 huxerui::View SessionsPage();
 
 // ---- 关于页（about_page.cpp）----

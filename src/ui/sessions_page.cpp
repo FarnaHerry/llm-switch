@@ -1,17 +1,6 @@
-// sessions_page.cpp — 会话管理页：扫描 claude-code / codex 的历史会话
-// （sessions::listSessions），按 project 分组展示。顶部工具过滤图标组
-// （全部 / Claude Code / Codex——与 Agent 管理页同一套图标资源，选中项
-// 实心变体 + raised 底块）+ 刷新图标。每行：标题（store 层已截取 80 字符
-// 摘要）+ 相对时间 + 大小 + 消息数；行操作：导出（exportSession 到
-// dataDir()/exports/，toast 显示导出路径）、删除（确认框 → deleteSession）。
-// 列表整体用 VirtualList 虚拟化。
-//
-// 性能：扫描含真实磁盘 IO（countLines 块读全文件数行、标题提取解析前
-// 64KB JSONL），文件一多 UI 线程同步跑会明显卡顿——首载 / 切过滤 / 刷新 /
-// 删除后重载一律经 huxerui::RunWorker 派到 worker 线程，恢复点回 UI 线程
-// 写 State。请求代次保证快速切换过滤时只有最新结果可提交；加载失败会结束
-// loading 并反馈错误。导出 / 删除文件 IO 同样不阻塞 UI。重载期间旧列表保持
-// 显示不清空，刷新图标自转指示（无文字提示）。
+// sessions_page.cpp — 会话管理页：列表只显示轻量摘要，详情页按需加载完整会话。
+// 列表扫描和详情读取都通过 RunWorker 离开 UI 线程；列表与详情使用
+// IndexedPages 保留挂载状态，消息列表使用 StateList + VirtualList 虚拟化。
 #include <huxerui/huxerui.h>
 
 #include <array>
@@ -20,9 +9,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
-#include <optional>
 #include <string>
-#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -43,9 +30,9 @@ std::vector<sessions::SessionInfo> LoadSessions(int filter) {
     return sessions::listSessions();
 }
 
-void ReplaceStateList(
-    const huxerui::StateList<sessions::SessionInfo>& destination,
-    std::vector<sessions::SessionInfo> values) {
+template <class T>
+void ReplaceStateList(const huxerui::StateList<T>& destination,
+                      std::vector<T> values) {
     const std::size_t shared = std::min(destination.Size(), values.size());
     for (std::size_t i = 0; i < shared; ++i) {
         destination.Set(i, std::move(values[i]));
@@ -65,7 +52,6 @@ std::string RelativeTime(std::int64_t mtimeMillis) {
         std::chrono::milliseconds{mtimeMillis}};
     const auto secs =
         std::chrono::duration_cast<std::chrono::seconds>(now - mtime).count();
-    if (secs < 0) return "刚刚";
     if (secs < 60) return "刚刚";
     const auto mins = secs / 60;
     if (mins < 60) return std::format("{} 分钟前", mins);
@@ -86,10 +72,12 @@ std::string FormatSize(std::uintmax_t bytes) {
 
 [[huxerui::composable]] huxerui::View SessionRow(
     const sessions::SessionInfo& session, huxerui::TaskScope tasks,
-    huxerui::ToastHandle toast, std::function<void()> onDeleted) {
+    huxerui::ToastHandle toast, std::function<void()> onOpen,
+    std::function<void()> onDeleted) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto dialog = huxerui::UseDialog();
     const std::string title = session.title;
+    const std::string preview = session.preview;
     const std::filesystem::path path = session.path;
 
     auto showDeleteConfirm = [dialog, tasks, toast, title, path, onDeleted] {
@@ -116,14 +104,25 @@ std::string FormatSize(std::uintmax_t bytes) {
             {});
     };
 
-    return huxerui::Column {
+    auto open = [tasks, onOpen] {
+        // 切换到保留的详情页也会改变当前命中节点，避开指针事件路径。
+        tasks.Launch([onOpen]() -> huxerui::Task<void> {
+            co_await huxerui::Delay(std::chrono::duration<double>{0});
+            onOpen();
+        });
+    };
+
+    huxerui::View content = huxerui::Column {
         huxerui::Text(title).Style(huxerui::TextStyle{
-            huxerui::Font::System(font_size::kBody),
-            theme.colors.on_surface}),
-        huxerui::Text(std::format("{} · {} · {} 条消息 · {}",
+            huxerui::Font::System(font_size::kBody), theme.colors.on_surface}),
+        preview == title || preview.empty()
+            ? huxerui::View{huxerui::Row{}}
+            : huxerui::View{huxerui::Text(preview).Style(huxerui::TextStyle{
+                  huxerui::Font::System(font_size::kCaption),
+                  theme.colors.on_surface_variant})},
+        huxerui::Text(std::format("{} · {} · {}",
                                   RelativeTime(session.mtimeMillis),
                                   FormatSize(session.sizeBytes),
-                                  session.messageCount,
                                   ToolName(session.tool)))
             .Style(huxerui::TextStyle{huxerui::Font::System(font_size::kCaption),
                                       theme.colors.on_surface_variant}),
@@ -145,8 +144,7 @@ std::string FormatSize(std::uintmax_t bytes) {
                 });
             }),
             huxerui::Button("删除").OnClick([tasks, showDeleteConfirm] {
-                // 弹窗会卸载点击路径上的节点：推迟出指针事件路径。
-                tasks.Launch([=]() -> huxerui::Task<void> {
+                tasks.Launch([showDeleteConfirm]() -> huxerui::Task<void> {
                     co_await huxerui::Delay(std::chrono::duration<double>{0});
                     showDeleteConfirm();
                 });
@@ -154,13 +152,16 @@ std::string FormatSize(std::uintmax_t bytes) {
         }.With(huxerui::Spacing(8.0F)),
     }.With(huxerui::Spacing(4.0F),
            huxerui::Padding(huxerui::EdgeInsets::Symmetric(10.0F, 8.0F)),
-           huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))
+           huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
+           huxerui::PointerCursor(huxerui::PointerCursorKind::Hand),
+           huxerui::Tooltip("查看会话详情"))
+        .OnClick(open)
         .Key(session.tool + "/" + session.id);
+    return content;
 }
 
-} // namespace
-
-[[huxerui::composable]] huxerui::View SessionsPage() {
+[[huxerui::composable]] huxerui::View SessionsListPage(
+    huxerui::State<sessions::SessionInfo> selectedSession) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     const IslandTheme islands = ResolveIslandTheme(theme);
     auto tasks = huxerui::UseTaskScope();
@@ -171,9 +172,6 @@ std::string FormatSize(std::uintmax_t bytes) {
     auto loadError = huxerui::UseState(std::string{});
     auto requestGeneration = huxerui::UseState<std::uint64_t>(0);
 
-    // 重载：扫描经 RunWorker 派到 worker 线程（磁盘 IO 不占 UI 线程），
-    // 恢复点回 UI 线程写 State。代次检查丢弃较慢的旧请求结果，避免快速切换
-    // 过滤时列表回跳；异常也必须收束 loading 状态。
     auto reload = [tasks, toast, sessionsList, loading, loadError,
                    requestGeneration](int f) {
         const std::uint64_t request = requestGeneration.Get() + 1;
@@ -198,7 +196,6 @@ std::string FormatSize(std::uintmax_t bytes) {
             }
         });
     };
-    // 首组合加载。
     huxerui::Lifecycle(
         [reload] {
             reload(0);
@@ -209,7 +206,7 @@ std::string FormatSize(std::uintmax_t bytes) {
     const std::size_t sessionCount = sessionsList.Size();
     const huxerui::Color projectTextColor = theme.colors.on_surface_variant;
     const auto buildSessionRow = [sessionsList, tasks, toast, reload, filter,
-                                  projectTextColor](
+                                  selectedSession, projectTextColor](
                                      std::size_t index) {
         const auto& session = sessionsList.At(index);
         const bool firstInProject =
@@ -222,18 +219,18 @@ std::string FormatSize(std::uintmax_t bytes) {
                               .WithWeight(huxerui::FontWeight::SemiBold),
                           projectTextColor})}
                 : huxerui::View{huxerui::Row{}};
+        const auto open = [selectedSession, session] {
+            selectedSession = session;
+        };
         return Card(huxerui::Column {
             projectHeader,
-            SessionRow(session, tasks, toast,
+            SessionRow(session, tasks, toast, open,
                        [reload, filter] { reload(filter.Get()); }),
         }.With(huxerui::Spacing(firstInProject ? 6.0F : 0.0F),
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)))
             .Key(session.tool + "/" + session.id);
     };
 
-    // 过滤图标组：全部（agents 图标）/ Claude Code / Codex，与 Agent 管理页
-    // 同一套无色图标资源，选中态只由 raised 底块表达。点击不重挂载本页，
-    // 直接写 filter 并触发 worker 重载。
     struct FilterItem {
         int index;
         huxerui::ImageResource icon;
@@ -263,8 +260,6 @@ std::string FormatSize(std::uintmax_t bytes) {
         }
         headerItems.push_back(std::move(button));
     }
-    // 加载指示：重载期间旧列表保持显示，刷新图标自转（无限 Tween 360°），
-    // 不再使用文字提示。
     huxerui::View refreshButton =
         huxerui::IconButton(app::images::refresh, "刷新")
             .OnClick([filter, reload] { reload(filter.Get()); })
@@ -286,8 +281,6 @@ std::string FormatSize(std::uintmax_t bytes) {
         sessionCount == 0
             ? huxerui::View{
                   huxerui::Column {
-                      // 空态：加载中显示自转刷新图标（无文字），失败显示原因，
-                      // 否则提示无会话。
                       loading.Get()
                           ? huxerui::View{
                                 huxerui::Image(app::images::refresh)
@@ -299,8 +292,7 @@ std::string FormatSize(std::uintmax_t bytes) {
                                               huxerui::TweenSpec{
                                                   1.0, huxerui::Easing::Linear},
                                               huxerui::AnimationPlayback{
-                                                  .iterations =
-                                                      std::nullopt})))}
+                                                  .iterations = std::nullopt}))) }
                           : huxerui::View{
                                 huxerui::Text(
                                     loadError.Get().empty()
@@ -315,9 +307,152 @@ std::string FormatSize(std::uintmax_t bytes) {
                          huxerui::CrossAlign(
                              huxerui::CrossAxisAlignment::Center))}
             : huxerui::View{huxerui::VirtualList(sessionCount, buildSessionRow)
-                                .EstimatedItemExtent(132.0F)
+                                .EstimatedItemExtent(148.0F)
                                 .CacheExtent(320.0F)
                                 .With(huxerui::Grow(1.0F))});
+}
+
+[[huxerui::composable]] huxerui::View SessionDetailPage(
+    huxerui::State<sessions::SessionInfo> selectedSession) {
+    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    auto tasks = huxerui::UseTaskScope();
+    auto messages = huxerui::UseStateList<sessions::SessionMessage>();
+    auto loading = huxerui::UseState(false);
+    auto loadError = huxerui::UseState(std::string{});
+    auto requestGeneration = huxerui::UseState<std::uint64_t>(0);
+
+    const sessions::SessionInfo session = selectedSession.Get();
+    const std::string targetKey = session.path.generic_string();
+    const std::string tool = session.tool;
+    const std::filesystem::path path = session.path;
+
+    auto load = [tasks, messages, loading, loadError, requestGeneration](
+                    std::string targetTool, std::filesystem::path targetPath) {
+        const std::uint64_t request = requestGeneration.Get() + 1;
+        requestGeneration = request;
+        loading = true;
+        loadError = std::string{};
+        tasks.Launch([messages, loading, loadError, requestGeneration,
+                      targetTool = std::move(targetTool),
+                      targetPath = std::move(targetPath), request]()
+                         -> huxerui::Task<void> {
+            try {
+                auto result = co_await huxerui::RunWorker(
+                    [](std::string selectedTool, std::filesystem::path file) {
+                        return sessions::readSession(selectedTool, file);
+                    },
+                    targetTool, targetPath);
+                if (requestGeneration.Get() != request) co_return;
+                ReplaceStateList(messages, std::move(result));
+                loading = false;
+            } catch (const std::exception& e) {
+                if (requestGeneration.Get() != request) co_return;
+                loadError = e.what();
+                loading = false;
+            }
+        });
+    };
+    huxerui::Lifecycle(
+        [load, tool, path] {
+            if (!path.empty()) load(tool, path);
+            return [] {};
+        },
+        targetKey);
+
+    auto goBack = [tasks, selectedSession] {
+        tasks.Launch([selectedSession]() -> huxerui::Task<void> {
+            co_await huxerui::Delay(std::chrono::duration<double>{0});
+            selectedSession = sessions::SessionInfo{};
+        });
+    };
+    auto retry = [load, tool, path] {
+        if (!path.empty()) load(tool, path);
+    };
+
+    const auto buildMessageRow = [messages, theme](std::size_t index) {
+        const auto& message = messages.At(index);
+        const std::string role = message.role == "user" ? "用户" : "助手";
+        return Card(huxerui::Column {
+            huxerui::Text(role).Style(huxerui::TextStyle{
+                huxerui::Font::System(font_size::kChip)
+                    .WithWeight(huxerui::FontWeight::SemiBold),
+                theme.colors.on_surface_variant}),
+            huxerui::Text(message.text).Style(huxerui::TextStyle{
+                huxerui::Font::System(font_size::kBody), theme.colors.on_surface}),
+        }.With(huxerui::Spacing(6.0F),
+               huxerui::Padding(huxerui::EdgeInsets::Symmetric(10.0F, 8.0F)),
+               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)))
+            .Key(std::format("message-{}", index));
+    };
+
+    huxerui::View content;
+    if (loading.Get()) {
+        content = huxerui::Column {
+            huxerui::Image(app::images::refresh)
+                .Tint(theme.colors.on_surface_variant)
+                .With(huxerui::Frame{.width = 24.0F, .height = 24.0F},
+                      huxerui::Rotation(huxerui::AnimateTo(
+                          360.0F,
+                          huxerui::TweenSpec{1.0, huxerui::Easing::Linear},
+                          huxerui::AnimationPlayback{.iterations = std::nullopt}))),
+        }.With(huxerui::Grow(1.0F),
+               huxerui::MainAlign(huxerui::MainAxisAlignment::Center),
+               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
+    } else if (!loadError.Get().empty()) {
+        content = huxerui::Column {
+            huxerui::Text("加载会话失败：" + loadError.Get()).Style(
+                huxerui::TextStyle{huxerui::Font::System(font_size::kBody),
+                                   theme.colors.on_surface_variant}),
+            huxerui::Button("重试").OnClick(retry),
+        }.With(huxerui::Spacing(12.0F), huxerui::Grow(1.0F),
+               huxerui::MainAlign(huxerui::MainAxisAlignment::Center),
+               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
+    } else if (messages.Size() == 0) {
+        content = huxerui::Column {
+            huxerui::Text("未找到可显示的文本消息。").Style(
+                huxerui::TextStyle{huxerui::Font::System(font_size::kBody),
+                                   theme.colors.on_surface_variant}),
+        }.With(huxerui::Grow(1.0F),
+               huxerui::MainAlign(huxerui::MainAxisAlignment::Center),
+               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
+    } else {
+        content = huxerui::VirtualList(messages.Size(), buildMessageRow)
+                      .EstimatedItemExtent(140.0F)
+                      .CacheExtent(480.0F)
+                      .With(huxerui::Grow(1.0F));
+    }
+
+    return PageScaffold(
+        "会话详情",
+        huxerui::Button("返回").OnClick(goBack),
+        huxerui::Column {
+            huxerui::Text(session.title).Style(huxerui::TextStyle{
+                huxerui::Font::System(font_size::kBody), theme.colors.on_surface}),
+            huxerui::Text(std::format("{} · {} · {}",
+                                      ToolName(session.tool),
+                                      RelativeTime(session.mtimeMillis),
+                                      FormatSize(session.sizeBytes)))
+                .Style(huxerui::TextStyle{
+                    huxerui::Font::System(font_size::kCaption),
+                    theme.colors.on_surface_variant}),
+            content,
+        }.With(huxerui::Spacing(8.0F),
+               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)));
+}
+
+} // namespace
+
+[[huxerui::composable]] huxerui::View SessionsPage() {
+    auto selectedSession = huxerui::UseState(sessions::SessionInfo{});
+    const std::size_t selectedPage =
+        selectedSession.Get().path.empty() ? 0U : 1U;
+    return huxerui::IndexedPages(
+               std::vector<huxerui::View>{
+                   SessionsListPage(selectedSession).Key("sessions-list"),
+                   SessionDetailPage(selectedSession).Key("session-detail"),
+               },
+               selectedPage)
+        .With(huxerui::Grow(1.0F));
 }
 
 } // namespace llmswitch::ui

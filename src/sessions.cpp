@@ -1,11 +1,9 @@
 // sessions.cpp — llmswitch.sessions 实现单元。
 //
-// 解析约定（全 best-effort，任何失败都回落，绝不抛）：
-//   - title 只读文件前 ~64KB；claude 取第一条 type=="user" 且文本非命令/系统样
-//     （不以 '/' 或 '<' 开头）的行的 text，截取 80 字符（按 UTF-8 边界截断）；
-//     codex rollout 结构不同，尽力从 payload 里取 user 文本，取不到用文件 stem；
-//   - messageCount 是 jsonl 行数（64KB 块读数换行，比 getline 逐行快一个
-//     量级；末行无换行符也算一行），数到 10000 封顶；
+// 解析约定：
+//   - 列表只读取文件头尾各 ~32KB：头部提取标题，尾部提取最近消息摘要，
+//     不为列表统计整文件行数；
+//   - 完整消息只在详情页调用 readSession，并由 UI 放到 RunWorker 中执行；
 //   - mtime 用 file_clock → system_clock 近似换算，只用于排序与展示。
 // nlohmann::json 模块下禁用 .items() 结构化绑定，遍历用 it.key()/it.value()。
 module llmswitch.sessions;
@@ -17,8 +15,7 @@ import llmswitch.config;
 namespace sessions {
 namespace {
 
-constexpr std::size_t kMaxCountLines = 10000;
-constexpr std::size_t kTitleReadBytes = 64 * 1024;
+constexpr std::size_t kSummaryReadBytes = 32 * 1024;
 constexpr std::size_t kTitleMaxLen = 80;
 
 std::int64_t fileTimeToMillis(std::filesystem::file_time_type t) {
@@ -36,24 +33,20 @@ std::string readHead(const std::filesystem::path& file, std::size_t maxBytes) {
     return buf;
 }
 
-std::size_t countLines(const std::filesystem::path& file) {
+std::string readTail(const std::filesystem::path& file, std::size_t maxBytes) {
     std::ifstream in(file, std::ios::binary);
-    if (!in) return 0;
-    std::size_t n = 0;
-    char last = '\n';
-    std::array<char, 64 * 1024> buf;
-    while (n < kMaxCountLines) {
-        in.read(buf.data(), static_cast<std::streamsize>(buf.size()));
-        const auto got = static_cast<std::size_t>(in.gcount());
-        if (got == 0) break;
-        last = buf[got - 1];
-        n += static_cast<std::size_t>(
-            std::count(buf.data(), buf.data() + got, '\n'));
-    }
-    if (n > kMaxCountLines) n = kMaxCountLines;
-    // 末行无换行符也算一行（与原 getline 计数口径一致）。
-    if (n < kMaxCountLines && last != '\n') ++n;
-    return n;
+    if (!in) return "";
+    in.seekg(0, std::ios::end);
+    const auto end = in.tellg();
+    if (end <= 0) return "";
+    const auto start = std::max<std::streamoff>(
+        0, end - static_cast<std::streamoff>(maxBytes));
+    in.seekg(start, std::ios::beg);
+    const auto available = end - start;
+    std::string buf(static_cast<std::size_t>(available), '\0');
+    in.read(buf.data(), static_cast<std::streamsize>(buf.size()));
+    buf.resize(static_cast<std::size_t>(in.gcount()));
+    return buf;
 }
 
 // 截取 80 字符：按字节截到 80 后回退到 UTF-8 边界，不切碎多字节字符。
@@ -86,58 +79,87 @@ bool looksLikeCommand(std::string_view text) {
 std::string contentText(const nlohmann::json& content) {
     if (content.is_string()) return content.get<std::string>();
     if (content.is_array()) {
+        std::string result;
         for (const auto& item : content) {
             if (item.is_object() && item.contains("text") && item["text"].is_string()) {
-                return item["text"].get<std::string>();
+                if (!result.empty()) result.push_back('\n');
+                result += item["text"].get<std::string>();
             }
         }
+        return result;
     }
     return "";
 }
 
-// claude jsonl：{"type":"user","message":{"role":"user","content":[...]}}。
-std::string extractClaudeTitle(std::string_view head) {
-    std::size_t pos = 0;
-    while (pos <= head.size()) {
-        const auto nl = head.find('\n', pos);
-        const std::string_view line =
-            nl == std::string_view::npos ? head.substr(pos) : head.substr(pos, nl - pos);
-        pos = nl == std::string_view::npos ? head.size() + 1 : nl + 1;
-        if (line.empty()) continue;
-        const auto j = nlohmann::json::parse(line, nullptr, false);
-        if (j.is_discarded() || !j.is_object()) continue;
-        if (!j.contains("type") || j["type"] != "user") continue;
-        if (!j.contains("message") || !j["message"].is_object()) continue;
-        const auto& msg = j["message"];
-        if (!msg.contains("content")) continue;
-        const std::string text = trim(contentText(msg["content"]));
-        if (text.empty() || looksLikeCommand(text)) continue;
-        return truncateTitle(text);
-    }
-    return "";
-}
+std::optional<SessionMessage> parseMessageLine(std::string_view tool,
+                                                std::string_view line) {
+    if (line.empty()) return std::nullopt;
+    const auto j = nlohmann::json::parse(line, nullptr, false);
+    if (j.is_discarded() || !j.is_object()) return std::nullopt;
 
-// codex rollout jsonl：{"type":"response_item","payload":{"type":"message",
-// "role":"user","content":[{"type":"input_text","text":"..."}]}}。取不到就回落。
-std::string extractCodexTitle(std::string_view head) {
-    std::size_t pos = 0;
-    while (pos <= head.size()) {
-        const auto nl = head.find('\n', pos);
-        const std::string_view line =
-            nl == std::string_view::npos ? head.substr(pos) : head.substr(pos, nl - pos);
-        pos = nl == std::string_view::npos ? head.size() + 1 : nl + 1;
-        if (line.empty()) continue;
-        const auto j = nlohmann::json::parse(line, nullptr, false);
-        if (j.is_discarded() || !j.is_object() || !j.contains("payload")) continue;
+    const nlohmann::json* message = nullptr;
+    std::string role;
+    if (tool == "claude-code") {
+        if (!j.contains("type") || (j["type"] != "user" && j["type"] != "assistant")) {
+            return std::nullopt;
+        }
+        role = j["type"].get<std::string>();
+        if (!j.contains("message") || !j["message"].is_object()) return std::nullopt;
+        message = &j["message"];
+        if (message->contains("role") && (*message)["role"].is_string()) {
+            role = (*message)["role"].get<std::string>();
+        }
+    } else if (tool == "codex") {
+        if (!j.contains("payload") || !j["payload"].is_object()) return std::nullopt;
         const auto& payload = j["payload"];
-        if (!payload.is_object()) continue;
-        if (!payload.contains("role") || payload["role"] != "user") continue;
-        if (!payload.contains("content")) continue;
-        const std::string text = trim(contentText(payload["content"]));
-        if (text.empty() || looksLikeCommand(text)) continue;
-        return truncateTitle(text);
+        if (!payload.contains("type") || payload["type"] != "message") {
+            return std::nullopt;
+        }
+        if (!payload.contains("role") || !payload["role"].is_string()) {
+            return std::nullopt;
+        }
+        role = payload["role"].get<std::string>();
+        message = &payload;
+    } else {
+        throw std::runtime_error(std::format("未知工具：{}", tool));
     }
-    return "";
+
+    if (role != "user" && role != "assistant" || !message->contains("content")) {
+        return std::nullopt;
+    }
+    const std::string text = trim(contentText((*message)["content"]));
+    if (text.empty()) return std::nullopt;
+    return SessionMessage{std::move(role), text};
+}
+
+template <class Callback>
+void forEachMessage(std::string_view tool, std::string_view text, Callback&& callback) {
+    std::size_t pos = 0;
+    while (pos <= text.size()) {
+        const auto nl = text.find('\n', pos);
+        const std::string_view line =
+            nl == std::string_view::npos ? text.substr(pos) : text.substr(pos, nl - pos);
+        pos = nl == std::string_view::npos ? text.size() + 1 : nl + 1;
+        if (const auto message = parseMessageLine(tool, line)) callback(*message);
+    }
+}
+
+std::string extractTitle(std::string_view tool, std::string_view head) {
+    std::string title;
+    forEachMessage(tool, head, [&title](const SessionMessage& message) {
+        if (title.empty() && message.role == "user" && !looksLikeCommand(message.text)) {
+            title = truncateTitle(message.text);
+        }
+    });
+    return title;
+}
+
+std::string extractPreview(std::string_view tool, std::string_view tail) {
+    std::string preview;
+    forEachMessage(tool, tail, [&preview](const SessionMessage& message) {
+        if (!looksLikeCommand(message.text)) preview = truncateTitle(message.text);
+    });
+    return preview;
 }
 
 SessionInfo makeInfo(std::string_view tool, std::string_view project,
@@ -154,10 +176,12 @@ SessionInfo makeInfo(std::string_view tool, std::string_view project,
     if (const auto s = std::filesystem::file_size(path, ec); !ec) {
         info.sizeBytes = s;
     }
-    info.messageCount = countLines(path);
-    const std::string head = readHead(path, kTitleReadBytes);
-    info.title = tool == "claude-code" ? extractClaudeTitle(head) : extractCodexTitle(head);
+    const std::string head = readHead(path, kSummaryReadBytes);
+    const std::string tail = readTail(path, kSummaryReadBytes);
+    info.title = extractTitle(tool, head);
     if (info.title.empty()) info.title = info.id;
+    info.preview = extractPreview(tool, tail);
+    if (info.preview.empty()) info.preview = info.title;
     return info;
 }
 
@@ -235,6 +259,31 @@ std::vector<SessionInfo> listSessions(std::string_view toolId) {
     }
     sortByMtimeDesc(out);
     return out;
+}
+
+std::vector<SessionMessage> readSession(std::string_view toolId,
+                                        const std::filesystem::path& path) {
+    if (toolId != "claude-code" && toolId != "codex") {
+        throw std::runtime_error(std::format("未知工具：{}", toolId));
+    }
+    ensureKnownSessionPath(path);
+
+    std::ifstream in(path, std::ios::binary);
+    if (!in) {
+        throw std::runtime_error(std::format("读取会话失败：{}", path.string()));
+    }
+
+    std::vector<SessionMessage> messages;
+    std::string line;
+    while (std::getline(in, line)) {
+        if (const auto message = parseMessageLine(toolId, line)) {
+            messages.push_back(*message);
+        }
+    }
+    if (in.bad()) {
+        throw std::runtime_error(std::format("读取会话失败：{}", path.string()));
+    }
+    return messages;
 }
 
 void deleteSession(const std::filesystem::path& p) {
