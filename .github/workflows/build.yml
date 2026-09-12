@@ -54,11 +54,11 @@ concurrency:
 
 env:
   HUXERUI_REPO: 'https://github.com/HuxerUI/HuxerUI.git'
-  # 与 Clash-Flux CI 钉同一 commit（该目录 gitignore，不入库，CI 必须自行
-  # clone 并钉 commit，保证可复现）。d1d2daa 位于 HuxerUI v0.3.0 发布线之后，
-  # 包含 ApplicationHandle 的 Clipboard/Directories API、TreeView，以及模板
-  # manifest 的 CRLF 修复；此前的 TextField::Secure(bool) / TrailingIcon 也在此线。
-  HUXERUI_COMMIT: 'd1d2daa154200ff293e556244a5bbf98011602bb'
+  # 该目录 gitignore，不入库，CI 必须自行 clone 并钉 commit，保证可复现。
+  # 445488a 位于 HuxerUI v0.3.0 发布线之后：在 d1d2daa（ApplicationHandle 的
+  # Clipboard/Directories API、TreeView、模板 manifest CRLF 修复）之上新增
+  # Windows GUI 子系统启动修复（huxerui_add_app 自动 WIN32_EXECUTABLE + 入口）。
+  HUXERUI_COMMIT: '445488a6672f225d73b6bf093fe7e004f354a3c0'
 
 jobs:
   # ------------------------------------------------------------------ Linux

@@ -4,7 +4,7 @@ nlohmann::json 以 single header 直接提交在 `json/`；curl 与 OpenSSL（Li
 x86_64 回落用静态包）以 tarball 提交在 `tarballs/`，configure 期校验 SHA256
 解包构建；HuxerUI 0.2.0 的 Linux 离线 SDK 包提交在 `tarballs/` 兜底。日常源码
 构建跟随 HuxerUI v0.3.0 发布线之后的主干，CI 固定到已验证的 commit
-`d1d2daa154200ff293e556244a5bbf98011602bb`。构建
+`445488a6672f225d73b6bf093fe7e004f354a3c0`。构建
 离线、可复现；清单与姊妹项目 Clash-Flux 对齐（无 IXWebSocket / SQLiteCpp）。
 
 项目对 Windows 主窗口图标保留一个独立补丁
@@ -23,7 +23,7 @@ Fedora 多架构 `openssl-libs` 冲突；该补丁同样由 Linux CI 在检出�
 | curl | 8.22.0 | `curl-8.22.0.tar.gz` | 上游官方发布包；OpenSSL 后端静态库（不编 curl.exe，brotli/zstd/psl/ssh2/ldap 全关），供 llmswitch.net 拉取模型列表 |
 | OpenSSL | 3.5.1 | `openssl-3.5.1-linux-x86_64.tar.gz` | 预编译静态库，仅作 Linux x86_64 找不到系统 OpenSSL 时的回落；其余平台用系统包（CI：libssl-dev / choco openssl / brew openssl@3） |
 | nlohmann::json | 3.12.0 | `json/nlohmann/json.hpp`（single header） | 上游 `nlohmann/json` v3.12.0 `single_include`；配 `cmake/nlohmann.json.cppm` 提供 `import nlohmann.json` 模块 |
-| cpp-httplib | 0.54.1 | `httplib/httplib.h`（single header，MIT） | 上游 `yhirose/cpp-httplib` v0.54.1；`llmswitch_httplib` INTERFACE 目标导出包含目录，供 llmswitch.router 本地代理服务器（仅监听 127.0.0.1；出站转发走 curl，无 TLS 服务端需求） |
+| cpp-httplib | 0.56.0 | `httplib/httplib.h`（single header，MIT） | 上游 `yhirose/cpp-httplib` v0.56.0；`llmswitch_httplib` INTERFACE 目标导出包含目录，供 llmswitch.router 本地代理服务器（仅监听 127.0.0.1；出站转发走 curl，无 TLS 服务端需求） |
 
 ## 更新某个依赖
 

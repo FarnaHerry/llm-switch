@@ -27,7 +27,7 @@ target_sources(llmswitch_json PUBLIC FILE_SET json_modules TYPE CXX_MODULES
 set_target_properties(llmswitch_json PROPERTIES CXX_STANDARD 23 CXX_STANDARD_REQUIRED ON CXX_MODULE_STD ON)
 target_include_directories(llmswitch_json PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/json")
 
-# ---- cpp-httplib 0.54.1（single header，MIT）---------------------------------
+# ---- cpp-httplib 0.56.0（single header，MIT）---------------------------------
 # 用途：llmswitch.router 的本地 HTTP 代理服务器（仅监听 127.0.0.1，无 TLS 服务端
 # 需求；出站转发走 curl）。头文件直接提交在 httplib/，INTERFACE 目标导出包含目录。
 add_library(llmswitch_httplib INTERFACE)
