@@ -19,7 +19,6 @@
 #include <huxerui/huxerui.h>
 
 #include <array>
-#include <chrono>
 #include <memory>
 #include <string>
 #include <vector>
@@ -288,10 +287,10 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(huxerui::WindowHandle window,
 }
 
 // 左列：图标侧边栏（无岛屿包裹，单套无色图标由主题 tint 自适应；
-// 选中态用承载底块表达，悬停显示文字提示）。
+// 选中态用承载底块表达，悬停显示文字提示）。导航状态由
+// TopLevelNavigation 持有，因此点击只让本栏和页面宿主订阅者重组。
 [[huxerui::composable]] huxerui::View SideShell(huxerui::State<std::size_t> navPage) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
-    auto tasks = huxerui::UseTaskScope();
     // 响应式：Compact(<600) 收窄侧栏宽度与内边距。
     const bool compact =
         huxerui::UseViewportClass() == huxerui::ViewportClass::Compact;
@@ -319,13 +318,7 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(huxerui::WindowHandle window,
         const std::size_t page = item.page;
         huxerui::View button =
             huxerui::IconButton(item.icon, item.tooltip)
-                .OnClick([tasks, navPage, page] {
-                    // 切页会卸载内容子树：推迟出指针事件路径
-                    tasks.Launch([=]() -> huxerui::Task<void> {
-                        co_await huxerui::Delay(std::chrono::duration<double>{0});
-                        navPage = page;
-                    });
-                })
+                .OnClick([navPage, page] { navPage = page; })
                 .With(huxerui::Tooltip(item.tooltip));
         if (navPage.Get() == page) {
             button = std::move(button).With(
@@ -344,6 +337,54 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(huxerui::WindowHandle window,
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
 }
 
+// 页面宿主单独订阅导航状态。IndexedPages 保留全部页面及其局部状态，
+// 页面切换的重组范围被限制在页面宿主，不再让 AppRoot 重组整套窗口壳。
+[[huxerui::composable]] huxerui::View TopLevelPageHost(
+    huxerui::State<std::size_t> navPage,
+    const std::shared_ptr<std::vector<huxerui::View>>& cachedPages) {
+    return huxerui::IndexedPages(*cachedPages, navPage.Get())
+        .With(huxerui::Grow(1.0F));
+}
+
+// 顶级导航自己的作用域：这里只创建一次固定的页面声明缓存，并把状态
+// 传给两个独立子作用域（SideShell / TopLevelPageHost）。本作用域不读取
+// navPage，所以侧栏切换不会向上冒泡到 AppRoot 或重新生成背景与标题栏。
+[[huxerui::composable]] huxerui::View TopLevelNavigation(
+    huxerui::State<int> revision, huxerui::State<int> themeMode) {
+    auto navPage = huxerui::UseState<std::size_t>(pages::kAgents);
+    auto pageCache =
+        huxerui::UseState<std::shared_ptr<std::vector<huxerui::View>>>({});
+    std::shared_ptr<std::vector<huxerui::View>> cachedPages = pageCache.Get();
+    if (!cachedPages || cachedPages->size() != 8) {
+        auto nextPages = std::make_shared<std::vector<huxerui::View>>();
+        nextPages->reserve(8);
+        nextPages->push_back(
+            AgentPage(revision).Key("agents").With(huxerui::Grow(1.0F)));
+        nextPages->push_back(
+            RouterPage().Key("router").With(huxerui::Grow(1.0F)));
+        nextPages->push_back(
+            StatsPage().Key("stats").With(huxerui::Grow(1.0F)));
+        nextPages->push_back(
+            McpPage().Key("mcp").With(huxerui::Grow(1.0F)));
+        nextPages->push_back(
+            SkillsPage().Key("skills").With(huxerui::Grow(1.0F)));
+        nextPages->push_back(
+            SessionsPage().Key("sessions").With(huxerui::Grow(1.0F)));
+        nextPages->push_back(SettingsPage(themeMode, revision)
+                                 .Key("settings")
+                                 .With(huxerui::Grow(1.0F)));
+        nextPages->push_back(
+            AboutPage().Key("about").With(huxerui::Grow(1.0F)));
+        pageCache = nextPages;
+        cachedPages = std::move(nextPages);
+    }
+
+    return huxerui::Row {
+        SideShell(navPage),
+        TopLevelPageHost(navPage, cachedPages),
+    }.With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
+}
+
 } // namespace
 
 [[huxerui::composable]] huxerui::View AppRoot() {
@@ -351,7 +392,6 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(huxerui::WindowHandle window,
     const huxerui::WindowHandle window = huxerui::UseWindow();
     const huxerui::SystemTrayHandle tray = application.SystemTray();
     const bool trayAvailable = tray.IsAvailable();
-    auto tasks = huxerui::UseTaskScope();
     auto toast = huxerui::UseToast();
 
     // 初始值在 UseState 之前算好（组合体内不写 State）：
@@ -363,7 +403,6 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(huxerui::WindowHandle window,
         if (saved == "light") initialThemeMode = 2;
     }
     auto themeMode = huxerui::UseState<int>(std::move(initialThemeMode));
-    auto navPage = huxerui::UseState<std::size_t>(pages::kAgents);
     // 全局变更计数：任何写库操作（含托盘切换）后 +1，驱动托盘菜单重建
     // （Lifecycle 依赖）与页面重读。
     auto revision = huxerui::UseState<int>(0);
@@ -413,36 +452,6 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(huxerui::WindowHandle window,
     const huxerui::ThemeSpec rootSpec = dark ? InkDarkThemeSpec() : InkLightThemeSpec();
     const IslandTheme rootIslands = ResolveIslandTheme(rootSpec);
 
-    // 顶层页面声明只在首次组合时构造一次。IndexedPages 负责保留已挂载页面；
-    // 这里再缓存 View 声明，避免侧栏切换时重新执行所有大页面（尤其是
-    // AgentPage 及其全部供应商卡片）的组合逻辑。
-    auto pageCache =
-        huxerui::UseState<std::shared_ptr<std::vector<huxerui::View>>>({});
-    std::shared_ptr<std::vector<huxerui::View>> cachedPages = pageCache.Get();
-    if (!cachedPages || cachedPages->size() != 8) {
-        auto nextPages = std::make_shared<std::vector<huxerui::View>>();
-        nextPages->reserve(8);
-        nextPages->push_back(
-            AgentPage(revision).Key("agents").With(huxerui::Grow(1.0F)));
-        nextPages->push_back(
-            RouterPage().Key("router").With(huxerui::Grow(1.0F)));
-        nextPages->push_back(
-            StatsPage().Key("stats").With(huxerui::Grow(1.0F)));
-        nextPages->push_back(
-            McpPage().Key("mcp").With(huxerui::Grow(1.0F)));
-        nextPages->push_back(
-            SkillsPage().Key("skills").With(huxerui::Grow(1.0F)));
-        nextPages->push_back(
-            SessionsPage().Key("sessions").With(huxerui::Grow(1.0F)));
-        nextPages->push_back(SettingsPage(themeMode, revision)
-                                 .Key("settings")
-                                 .With(huxerui::Grow(1.0F)));
-        nextPages->push_back(
-            AboutPage().Key("about").With(huxerui::Grow(1.0F)));
-        pageCache = nextPages;
-        cachedPages = std::move(nextPages);
-    }
-
     // 叠放根：全景水墨从页脚装饰升级为环境层。深浅主题分别使用低对比度画卷，
     // Fill 铺满窗口、中央刻意净空；轻岛屿让顶部远山和四角近景隐约透出。
     // 最外层仍刷海面底色，保证图片加载前和极端宽高比下背景稳定。
@@ -490,8 +499,7 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(huxerui::WindowHandle window,
             // 主行：图标侧栏（无岛屿包裹）+ 内容区；Grow 吃满标题栏之外剩余
             // 高度。内容区不再套外壳岛：区域划分由各页面自己的一级岛承担。
             huxerui::Row {
-                SideShell(navPage),
-                huxerui::IndexedPages(*cachedPages, navPage.Get())
+                TopLevelNavigation(revision, themeMode)
                     .With(huxerui::Grow(1.0F)),
             }
                 .With(huxerui::Spacing(rootIslands.page_gap),
