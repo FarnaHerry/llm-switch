@@ -5,7 +5,8 @@
 // 覆盖：转发 path/query/头替换（anthropic 双头与 openai 单头）、响应原样
 // 透传、stats 记录与 usage token 提取、故障转移开关、逐 Agent 代理开关、
 // 未知工具 404、无 current 502、clearStats、JSONL 落盘与重启回填。
-// 假上游与客户端都用 cpp-httplib（测试目标已链 llmswitch_httplib）。
+// 假上游与客户端都用 cpp-httplib（测试目标已链 llmswitch_httplib）；出站
+// 注入 httplib::Client 版 UpstreamSession 替身生产的平台 HttpClient 桥接。
 #include <cstdio>    // stderr（std 模块不导出 stdout/stderr 宏）
 #include "test_env.h"  // setenv/getpid/unsetenv 可移植封装
 #include <httplib.h>
@@ -105,6 +106,72 @@ int perProviderCount(const router::StatsSnapshot& s, std::string_view name) {
     return -1;
 }
 
+// 测试上游会话：httplib::Client 直连 127.0.0.1 假上游，替身生产的
+// 平台 HttpClient 桥接会话。content-type 从透传头里取出按 httplib 参数传递，
+// 其余头原样透传；content-type 摘取由 router 侧统一整形，会话不负责。
+class HttplibUpstreamSession final : public router::UpstreamSession {
+public:
+    router::UpstreamResponse Send(const router::UpstreamRequest& request) override {
+        router::UpstreamResponse out;
+        // 拆 scheme://host[:port]/path?query（假上游恒为 http 回环地址）。
+        const std::string& url = request.url;
+        const auto schemeEnd = url.find("://");
+        if (schemeEnd == std::string::npos) {
+            out.error = "测试会话：无效 URL";
+            return out;
+        }
+        const auto pathStart = url.find('/', schemeEnd + 3);
+        const std::string hostPort = url.substr(
+            schemeEnd + 3,
+            pathStart == std::string::npos ? std::string::npos
+                                           : pathStart - schemeEnd - 3);
+        const std::string path = pathStart == std::string::npos
+                                     ? "/"
+                                     : url.substr(pathStart);
+
+        std::string contentType = "application/octet-stream";
+        httplib::Headers headers;
+        for (const auto& [name, value] : request.headers) {
+            const std::string_view lower(name);
+            if (lower.size() == 11 &&
+                std::ranges::equal(lower, std::string_view("content-type"),
+                                   [](char a, char b) {
+                                       return std::tolower(static_cast<unsigned char>(a)) ==
+                                              static_cast<unsigned char>(b);
+                                   })) {
+                contentType = value;
+                continue;
+            }
+            headers.emplace(name, value);
+        }
+
+        httplib::Client cli("http://" + hostPort);
+        const std::string& body = request.body;
+        httplib::Result result = [&] {
+            const std::string& m = request.method;
+            if (m == "POST") return cli.Post(path, headers, body, contentType);
+            if (m == "PUT") return cli.Put(path, headers, body, contentType);
+            if (m == "PATCH") return cli.Patch(path, headers, body, contentType);
+            if (m == "DELETE") return cli.Delete(path, headers, body, contentType);
+            if (m == "HEAD") return cli.Head(path, headers);
+            if (m == "OPTIONS") return cli.Options(path, headers);
+            return cli.Get(path, headers);
+        }();
+        if (!result) {
+            out.error = httplib::to_string(result.error());
+            return out;
+        }
+        out.status = result->status;
+        for (const auto& [name, value] : result->headers) {
+            out.headers.emplace_back(name, value);
+        }
+        out.body = std::move(result->body);
+        return out;
+    }
+
+    void AbortInFlight() override {}
+};
+
 } // namespace
 
 int main() {
@@ -163,7 +230,7 @@ int main() {
         return std::nullopt;
     };
 
-    router::LocalRouter router1(resolver);
+    router::LocalRouter router1(resolver, std::make_shared<HttplibUpstreamSession>());
     router1.start(0);
     CHECK(router1.running());
     CHECK(router1.port() > 0);

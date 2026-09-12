@@ -202,27 +202,6 @@ elseif (UNIX)
 endif ()
 
 if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
-    # ---- OpenSSL 解析（必须在 add_subdirectory(third_party) 前：imported target
-    # 要对 curl 子项目全局可见）------------------------------------------------
-    # 优先系统 OpenSSL；系统没有时，linux x86_64 使用 vendor 的静态 3.5.1。
-    find_package(OpenSSL QUIET)
-    if (NOT OpenSSL_FOUND)
-        if (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR MATCHES "(x86_64|AMD64)")
-            llmswitch_extract(openssl
-                "${CMAKE_CURRENT_SOURCE_DIR}/third_party/tarballs/openssl-3.5.1-linux-x86_64.tar.gz"
-                "d749ee7ec6bda301dba4a67dc7196d4a04b310f664dc360d6ab2e49298b731cf"
-                "openssl-3.5.1-linux-x86_64")
-            set(OPENSSL_ROOT_DIR "${openssl_SOURCE_DIR}" CACHE PATH "vendored OpenSSL" FORCE)
-            set(OPENSSL_USE_STATIC_LIBS TRUE CACHE BOOL "" FORCE)
-            find_package(OpenSSL REQUIRED)
-            message(STATUS "llm-switch: using vendored OpenSSL ${OPENSSL_VERSION} (static)")
-        else ()
-            message(FATAL_ERROR
-                "未找到 OpenSSL 开发头文件/库。请安装系统 OpenSSL（libssl-dev / "
-                "openssl@3 / vcpkg openssl），或为该平台补充 third_party/tarballs 下的静态包。")
-        endif ()
-    endif ()
-
     add_subdirectory(third_party)
 endif ()
 
@@ -332,9 +311,6 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
     target_link_libraries(llm-switch PRIVATE
         llmswitch_json
         llmswitch_httplib
-        CURL::libcurl
-        OpenSSL::SSL
-        OpenSSL::Crypto
         Threads::Threads
     )
 
@@ -409,27 +385,6 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
                 COMMENT "Copying huxerui.dll next to llm-switch")
         endif ()
 
-        # OpenSSL 运行库：系统/安装版 OpenSSL（CI chocolatey）是共享库，
-        # llm-switch.exe 直接导入 libssl-N-x64.dll/libcrypto-N-x64.dll，干净
-        # Windows 上没有，必须随 exe 带出。静态 OpenSSL 时 bin 下无 dll，
-        # glob 为空自然跳过。DLL 统一在 <OpenSSL根>/bin（根由 include 目录推导）。
-        if (OPENSSL_INCLUDE_DIR)
-            get_filename_component(_llmswitch_openssl_root "${OPENSSL_INCLUDE_DIR}" DIRECTORY)
-            file(GLOB _llmswitch_openssl_dlls
-                "${_llmswitch_openssl_root}/bin/libssl-*.dll"
-                "${_llmswitch_openssl_root}/bin/libcrypto-*.dll")
-            if (_llmswitch_openssl_dlls)
-                add_custom_command(TARGET llm-switch POST_BUILD
-                    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                            ${_llmswitch_openssl_dlls} "$<TARGET_FILE_DIR:llm-switch>"
-                    COMMENT "Copying OpenSSL runtime DLLs next to llm-switch")
-            elseif (NOT OPENSSL_USE_STATIC_LIBS)
-                message(WARNING
-                    "llm-switch: 未在 ${_llmswitch_openssl_root}/bin 找到 OpenSSL 运行库 dll，"
-                    "发布包缺 libssl/libcrypto 将无法在干净 Windows 上启动")
-            endif ()
-        endif ()
-
         # MSVC 桌面 CRT：llm-switch.exe/huxerui.dll 都按 /MD 链接，导入
         # msvcp140/vcruntime140/vcruntime140_1；没装 VC++ redist 的机器直接
         # 起不来，随 exe 带出（许可允许 app-local 分发）。vcvars 环境（CI 的
@@ -496,7 +451,7 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
         if (MSVC)
             add_compile_options(/utf-8)
         endif ()
-        # 测试目标直接编译 src/*.cpp（curl/httplib 头链会拉进 windows.h）：
+        # 测试目标直接编译 src/*.cpp（httplib 头链会拉进 windows.h）：
         # 不定 NOMINMAX 时 min/max 宏会炸掉 std::min 调用（C2589）。
         if (WIN32)
             add_compile_definitions(WIN32_LEAN_AND_MEAN NOMINMAX)
@@ -520,19 +475,19 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
         target_link_libraries(test_store PRIVATE llmswitch_json Threads::Threads)
         add_test(NAME store COMMAND test_store)
 
-        # 网络层测试：只测 parseModelIds 纯函数（不碰真实网络）；net.cpp 实现
-        # 单元引用了 curl 符号，须链接 CURL::libcurl + OpenSSL。
+        # 网络层测试：只测模型列表地址/响应解析纯函数（不碰真实网络；
+        # 实际请求走 HuxerUI HttpClient / 路由 UpstreamSession，见 UI 层）。
         add_executable(test_net tests/test_net.cpp src/net.cpp)
         target_sources(test_net PRIVATE FILE_SET llmswitch_modules TYPE CXX_MODULES
             BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
             FILES src/net.cppm)
         set_target_properties(test_net PROPERTIES CXX_MODULE_STD ON CXX_SCAN_FOR_MODULES ON)
         target_compile_features(test_net PRIVATE cxx_std_23)
-        target_link_libraries(test_net PRIVATE
-            llmswitch_json CURL::libcurl OpenSSL::SSL OpenSSL::Crypto Threads::Threads)
+        target_link_libraries(test_net PRIVATE llmswitch_json Threads::Threads)
         add_test(NAME net COMMAND test_net)
 
-        # 本地路由测试：httplib 假上游 + 路由转发/换 key/故障转移/统计日志。
+        # 本地路由测试：httplib 假上游 + httplib::Client 版 UpstreamSession +
+        # 路由转发/换 key/故障转移/统计日志。
         add_executable(test_router tests/test_router.cpp src/router.cpp)
         target_sources(test_router PRIVATE FILE_SET llmswitch_modules TYPE CXX_MODULES
             BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
@@ -540,8 +495,7 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
         set_target_properties(test_router PROPERTIES CXX_MODULE_STD ON CXX_SCAN_FOR_MODULES ON)
         target_compile_features(test_router PRIVATE cxx_std_23)
         target_link_libraries(test_router PRIVATE
-            llmswitch_json llmswitch_httplib
-            CURL::libcurl OpenSSL::SSL OpenSSL::Crypto Threads::Threads)
+            llmswitch_json llmswitch_httplib Threads::Threads)
         add_test(NAME router COMMAND test_router)
 
         # MCP 管理测试：统一清单读写 + 各工具 live 配置写入。

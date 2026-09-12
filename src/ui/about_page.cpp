@@ -81,7 +81,7 @@ const std::string kVersionLine = std::format("llm-switch v{}", LLMSWITCH_VERSION
                 Card(huxerui::Column {
                     AboutSectionTitle("技术栈"),
                     BodyLine("C++23 modules · HuxerUI 0.3.0 · cpp-httplib · "
-                             "curl · nlohmann::json"),
+                             "nlohmann::json"),
                 }.With(huxerui::Spacing(8.0F),
                        huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))),
 

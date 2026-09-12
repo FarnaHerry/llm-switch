@@ -2,7 +2,8 @@
 #
 # 形态蓝本：姊妹项目 Clash-Flux 的 .github/workflows/build.yml（已跑通的
 # HuxerUI + C++23 modules + import std 解法），按本仓库适配：目标名
-# llm-switch、依赖 nlohmann::json + curl/OpenSSL（模型列表拉取）+ HuxerUI
+# llm-switch、依赖 nlohmann::json + cpp-httplib（本地路由监听；出站转发走
+# HuxerUI 平台 HttpClient，无 vendor curl/OpenSSL）+ HuxerUI
 # （无 IXWebSocket/SQLiteCpp）、无 mihomo 内核下载、无 Android job；新增
 # tag 触发与 release job。
 #
@@ -20,7 +21,7 @@
 #     不会触发回落）。
 #
 # 三个平台均作为发布门禁：Linux、Windows 和 macOS 必须完成编译、测试和打包。
-# 工具链沿用 Clash-Flux 实证配方（Windows=MSVC + choco ninja/OpenSSL；
+# 工具链沿用 Clash-Flux 实证配方（Windows=MSVC + choco ninja；
 # macOS=brew llvm/libc++ + 手写 libc++.modules.json + 内联 P0960 补丁）。
 #
 # 已知风险：
@@ -87,20 +88,15 @@ jobs:
           set -euo pipefail
           git clone --filter=blob:none "$HUXERUI_REPO" third_party/huxerui
           git -C third_party/huxerui checkout "$HUXERUI_COMMIT"
-          # Fedora 的 32 位 openssl-libs 也占用 /usr/lib/libssl.so.3 和
-          # /usr/lib/libcrypto.so.3；Linux RPM/DEB 应使用发行版 OpenSSL，不能
-          # 将同名私有库直接安装到 /usr/lib。该项目补丁只调整 HuxerUI 的
-          # runtime 扫描规则，不改第三方源码仓库。
-          git -C third_party/huxerui apply \
-            "$GITHUB_WORKSPACE/cmake/patches/huxerui-linux-openssl-system.patch"
 
       - name: Install dependencies
         run: |
-          # patchelf 打包改 rpath 用；libssl-dev 供 curl（OpenSSL 后端）
+          # patchelf 打包改 rpath 用；libsoup 的 HTTPS 由 glib-networking
+          # （系统依赖，应用运行环境自带）提供，CI 只需开发头
           apt-get install -y --no-install-recommends \
             clang-21 libc++-21-dev g++ ninja-build pkg-config file gzip \
             dpkg-dev fakeroot rpm \
-            python3 python3-pip patchelf libssl-dev \
+            python3 python3-pip patchelf \
             libgtk-4-dev libepoxy-dev libsoup-3.0-dev
           # 26.04 的 apt cmake 是 3.31（GNU import-std 发现不行），固定 pip 4.4.2
           python3 -m pip install --break-system-packages -q cmake==4.4.2
@@ -188,7 +184,7 @@ jobs:
 
   # ---------------------------------------------------------------- Windows
   # 工具链沿用 Clash-Flux 实证：MSVC（VS2022，C++23 模块 + import std）+
-  # choco ninja + choco OpenSSL（curl 的 TLS 后端）。
+  # choco ninja。
   build-windows:
     name: build-windows-x86_64
     runs-on: windows-latest
@@ -213,13 +209,6 @@ jobs:
           cmake --version | Select-Object -First 1
           choco install ninja -y --no-progress
 
-      - name: Install OpenSSL
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          choco install openssl -y --no-progress
-          Write-Host "OPENSSL_ROOT_DIR=C:/Program Files/OpenSSL" | Out-File -FilePath $env:GITHUB_ENV -Append
-
       - name: Set up MSVC environment
         uses: ilammy/msvc-dev-cmd@v1
 
@@ -227,7 +216,6 @@ jobs:
         shell: pwsh
         run: |
           cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release `
-            "-DOPENSSL_ROOT_DIR=$env:OPENSSL_ROOT_DIR" `
             -DHUXERUI_BUILD_CLI=ON
 
       - name: Build release
@@ -251,7 +239,7 @@ jobs:
           foreach ($dll in @(Get-ChildItem (Split-Path -Parent (Resolve-Path $exe)) -File -Filter '*.dll')) {
             Copy-Item $dll.FullName "dist-src\$($dll.Name)" -Force
           }
-          foreach ($pattern in @('huxerui.dll', 'libssl-*.dll', 'libcrypto-*.dll', 'msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll')) {
+          foreach ($pattern in @('huxerui.dll', 'msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll')) {
             if (-not (Get-ChildItem dist-src -File -Filter $pattern -ErrorAction SilentlyContinue)) {
               throw "Windows runtime payload is missing $pattern"
             }
@@ -305,8 +293,7 @@ jobs:
   # CMake 的 C++20 模块扫描支持）。brew llvm 不带 libc++.modules.json，按
   # 上游 schema 生成。上游 window.h 的 CrossAlign(...) 函数式转型依赖
   # P0960（clang 的 ObjC++ 模式未实现），CI 内联打补丁（仓库不持有
-  # cmake/patches）。OpenSSL 用 brew openssl@3（curl 的 TLS 后端），
-  # configure 显式传 -DOPENSSL_ROOT_DIR。
+  # cmake/patches）。
   build-macos:
     name: build-macos-arm64
     runs-on: macos-15
@@ -342,9 +329,8 @@ jobs:
              /// Constructs a title bar from ordinary View children.
           PATCH
 
-      - name: Install dependencies (brew llvm + openssl)
+      - name: Install dependencies (brew llvm)
         run: |
-          brew list openssl@3 &>/dev/null || brew install openssl@3
           brew install llvm
           llvm_prefix="$(brew --prefix llvm)"
           mod_dir="$llvm_prefix/share/libc++/v1"
@@ -384,8 +370,7 @@ jobs:
             -DCMAKE_SHARED_LINKER_FLAGS="-stdlib=libc++ -L$LLVM_PREFIX/lib/c++ -L$LLVM_PREFIX/lib/unwind -lc++ -lc++abi -lunwind" \
             -DCMAKE_MODULE_LINKER_FLAGS="-stdlib=libc++ -L$LLVM_PREFIX/lib/c++ -L$LLVM_PREFIX/lib/unwind -lc++ -lc++abi -lunwind" \
             -DCMAKE_CXX_STDLIB_MODULES_JSON="$LLVM_PREFIX/lib/libc++.modules.json" \
-            -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
-            -DOPENSSL_ROOT_DIR=/opt/homebrew/opt/openssl@3
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0
 
       - name: Build release
         run: cmake --build build --config Release --parallel

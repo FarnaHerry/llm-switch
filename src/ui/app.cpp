@@ -431,6 +431,12 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(huxerui::WindowHandle window,
         return true;
     });
 
+    // 路由上游会话绑定（首组合）：生产桥接 = HuxerUI 平台 HttpClient。UseService/
+    // UseTaskScope 在组合体内求值；本调用早于下方自启与一切托盘/页面/事件
+    // 调用点——routerInstance() 单例也在此首次构造。
+    BindRouterUpstreamSession(huxerui::UseService<huxerui::HttpClient>(),
+                              huxerui::UseTaskScope());
+
     // 路由自动启动（任务G）：首组合一次。config().routerEnabled 且路由器未运行
     // 时按 config().routerPort 启动；start 失败抛 std::runtime_error，toast 提示。
     huxerui::Lifecycle(

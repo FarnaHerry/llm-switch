@@ -110,6 +110,13 @@ huxerui::View StatsPage();
 // 则 try { routerInstance().start(config().routerPort); } catch 后 toast 中文错误。
 router::LocalRouter& routerInstance();
 
+// 把生产路由上游会话（HuxerUI 平台 HttpClient 桥接，见 router_transport.cpp）
+// 绑定进 routerInstance()。普通函数 + static 守卫，进程内只生效一次；http 与
+// tasks 必须由组合期调用点（app.cpp 根组合）经 UseService/UseTaskScope 求值
+// 传入，且早于一切托盘/页面/事件对 routerInstance() 的调用。
+void BindRouterUpstreamSession(std::shared_ptr<huxerui::HttpClient> http,
+                               huxerui::TaskScope tasks);
+
 // ---- MCP/Skills/会话页面（mcp_page.cpp / skills_page.cpp / sessions_page.cpp）----
 // MCP 服务器管理页（页面级持有 mcp::McpStore）。
 huxerui::View McpPage();

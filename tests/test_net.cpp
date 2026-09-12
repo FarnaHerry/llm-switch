@@ -1,7 +1,7 @@
 // test_net.cpp — llmswitch.net 测试（无框架：CHECK 失败计数，非零即败）。
 // 只测模型列表地址和响应解析纯函数：openai/anthropic 端点、data 形状、models
 // 键形状、字符串元素、空列表、坏 JSON 抛错、缺键抛错、重复 id 去重保序。
-// 不测真实网络（fetchModels 由 UI 实操验证）。
+// 网络请求不在此层（UI 走 HttpClient，路由走 UpstreamSession），不测真实网络。
 #include <cstdio>  // stderr（std 模块不导出 stdout/stderr 宏）
 
 import std;
@@ -22,15 +22,6 @@ int g_failures = 0;
 bool throwsRuntimeError(std::string_view body) {
     try {
         (void)net::parseModelIds(body);
-    } catch (const std::runtime_error&) {
-        return true;
-    }
-    return false;
-}
-
-bool rejectsEmptyModelFetchUrl() {
-    try {
-        (void)net::fetchModelsFromUrl("", "", "openai");
     } catch (const std::runtime_error&) {
         return true;
     }
@@ -62,7 +53,6 @@ int main() {
             CHECK(candidate.find("/v1/v1/") == std::string::npos);
         }
     }
-    CHECK(rejectsEmptyModelFetchUrl());
 
     // 2. OpenAI 兼容形状：{"data":[{"id":...}]}
     {

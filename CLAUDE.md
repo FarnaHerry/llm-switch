@@ -15,7 +15,8 @@ Claude Desktop 3p profile 组），并提供收编、备份、导入导出。在
 MCP 服务器统一清单、Skills 中央库同步、历史会话管理。用 **HuxerUI**（组件式
 声明 UI）做桌面壳，全程 C++；供应商页面的模型列表、用量查询和连通检测使用
 HuxerUI HttpClient（按平台使用 WinHTTP/libsoup/Foundation），本地路由服务器
-仍使用 curl/OpenSSL + cpp-httplib，无数据库。
+用 cpp-httplib 监听 127.0.0.1、出站转发同样走平台 HttpClient（UpstreamSession
+桥接），无数据库。
 构建系统 CMake（脚手架与姊妹项目 `../Clash-Flux` 同源）。分层：
 UI（src/ui/*.cpp 普通源走 hcg codegen）/ 领域层（llmswitch.config/models/store/
 net/router/mcp/skills/sessions 八个 C++23 模块）。
@@ -77,21 +78,18 @@ commit，不回滚已经验证的修改，并在最终回复中报告失败原�
   experimental：UUID 表在 `cmake/CxxImportStdGate.cmake`）。
 - **依赖极简**：nlohmann::json 3.12.0 以 single header 提交在
   `third_party/json/`（配 `cmake/nlohmann.json.cppm` 提供 `import nlohmann.json`，
-  静态库目标 `llmswitch_json`）；curl 8.22.0 以 tarball vendor 构建
-  （OpenSSL 后端静态库；OpenSSL 优先系统包，Linux x86_64 回落
-  `third_party/tarballs/openssl-3.5.1-linux-x86_64.tar.gz` 静态包，解析段在
-  `add_subdirectory(third_party)` 之前）；cpp-httplib 0.56.0 单头提交在
+  静态库目标 `llmswitch_json`）；cpp-httplib 0.56.0 单头提交在
   `third_party/httplib/`（INTERFACE 目标 `llmswitch_httplib`，仅
   llmswitch.router 用）；HuxerUI 0.2.0 走双通道（见上）。
-  无 SQLite/IXWebSocket。
+  网络（模型列表/用量/连通检测/路由出站转发）统一走 HuxerUI 平台
+  HttpClient，不 vendor curl/OpenSSL。无 SQLite/IXWebSocket。
 - 测试目标独立（7 个，均无框架、断言失败计数非零即败）：`test_smoke`
   （编译+运行冒烟）、`test_store`（领域层；全程 setenv 隔离到临时目录）、
   `test_net`（parseModelIds / extractByPath 纯函数；不测真实网络）、
   `test_router`（httplib 假上游：转发/换 key/故障转移/统计日志）、
   `test_mcp` / `test_skills` / `test_sessions`。测试目标经 FILE_SET 显式
   追加领域模块接口 + 对应实现单元（glob 只进 app 目标），链接
-  `llmswitch_json`（test_net 另链 curl/OpenSSL，test_router 另链
-  `llmswitch_httplib`）。
+  `llmswitch_json`（test_router 另链 `llmswitch_httplib`）。
 
 ## 架构
 
@@ -100,7 +98,7 @@ commit，不回滚已经验证的修改，并在最终回复中报告失败原�
 | `llmswitch.config` | `src/config.cppm` | 数据目录（~/.local/share/llm-switch）/ config.json、backups/、mcp.json、skills-store/、router/requests.jsonl 路径 / live 配置与会话/技能目录解析（全部 LLMSWITCH_* 环境变量可覆盖）/ 深色检测 |
 | `llmswitch.models` | `src/models.cppm` | 工具注册表（ToolSpec/toolRegistry/findTool：claude-code/claude/codex/opencode/pi；needsModel/hasApiFormat/hasModelMappings 三标记驱动表单适配）+ Provider/ProviderGroup/AppConfig（groups 以注册表 id 为键的 map，旧格式顶层 claude/codex 自动迁移；router/usage 设置字段，Provider.usageEnabled 控制单个供应商是否查询，routerTools 保存逐 Agent 代理选择；Provider 含 modelFetchUrl、haiku/sonnet/opusModel 三档映射与 upstreamFormat/fullUrl URL 模式）+ JSON 序列化 + 内置预设（builtinPresets）+ 官方厂商名（officialVendorName：claude 系/codex 有官方常驻卡）+ apiFormat 三档归一（normalizeApiFormat/apiFormatLabel）+ 上游 URL 归一/后缀（normalizeUpstreamFormat/upstreamFormatSuffix/effectiveBaseUrl）+ 用量端点模板（suggestUsageQuery） |
 | `llmswitch.store` | `src/store.cppm` + `src/store.cpp` | ProviderStore：config.json 读写、CRUD、switchTo 按工具 id 分发五个 writer（原子写+备份）、restoreOfficial 恢复厂商原生状态（claude-code/claude/codex）、detectCurrent/importLive、导出导入、theme/usage/router 与逐 Agent 路由设置 setter |
-| `llmswitch.net` | `src/net.cppm` + `src/net.cpp` | URL 拼接与纯解析：`modelListUrl`、`parseModelIds`（data/models 两种形状，去重保序）和 `extractByPath`（点分路径+数组下标取标量）；同步 curl 接口仍保留给领域/测试调用方，供应商页面网络请求使用 HuxerUI HttpClient |
+| `llmswitch.net` | `src/net.cppm` + `src/net.cpp` | 纯函数：模型列表 URL 拼接 `modelListUrl`/候选推导、响应解析 `parseModelIds`（data/models 两种形状，去重保序）和用量取值 `extractByPath`（点分路径+数组下标取标量）；实际网络请求不在此层——供应商页面走 HuxerUI HttpClient（provider_network.cpp），路由出站走 UpstreamSession |
 | `llmswitch.router` | `src/router.cppm` + `src/router.cpp` | LocalRouter：cpp-httplib 服务器监听 127.0.0.1，`/<tool>/` 前缀路由到该组 current 供应商的实际 URL（按 upstreamFormat 追加 /anthropic 或 /v1，fullUrl 时原样），替换鉴权头，线程安全的逐工具开关运行中即时生效（禁用返回 403，不访问上游/统计），可选故障转移（429/5xx/连接失败按组内顺序试下一个）；RequestLog/StatsSnapshot 统计，每请求追加 JSONL（dataDir()/router/requests.jsonl），启动回填内存环形缓冲（最多 1000 条） |
 | `llmswitch.mcp` | `src/mcp.cppm` + `src/mcp.cpp` | MCP 服务器统一清单（SSOT = dataDir()/mcp.json）；启停 = 写/删工具 live 配置条目：claude-code → ~/.claude.json 顶层 mcpServers 深合并、codex → config.toml 行级 [mcp_servers.*] section 重写、opencode → opencode.json 顶层 mcp；claude/pi 不支持（抛中文错） |
 | `llmswitch.skills` | `src/skills.cppm` + `src/skills.cpp` | Skills 中央库（dataDir()/skills-store/<name>/：SKILL.md + 附带文件）+ create_symlink 同步到 ~/.claude/skills 与 ~/.codex/skills；合并视图（中央库/已链接/仅工具侧） |
@@ -278,19 +276,15 @@ I/O、解析和 JSON 函数默认保留在 `.cpp` 中。
 - `.github/workflows/build.yml`（蓝本 Clash-Flux 同名文件，按其已跑通配方
   适配）：三个桌面 job + release。build-linux（ubuntu:26.04 容器 + clang-21/
   libc++-21 + pip cmake==4.4.2 + libc++.modules.json 路径改写 + gtk4/epoxy/
-  libsoup3 开发包 + libssl-dev，正式）；build-windows（MSVC + choco ninja +
-  choco openssl）与 build-macos
+  libsoup3 开发包，正式）；build-windows（MSVC + choco ninja）与 build-macos
   （brew llvm + 手写 libc++.modules.json + 内联 P0960 补丁）；三个平台均为
   发布门禁，必须完成编译、测试和打包。
 - 三个 job 都把 HuxerUI 上游钉在 commit `445488a`（含 ApplicationHandle
   Clipboard/Directories / TreeView、Windows GUI 子系统启动修复）
-  clone 到 third_party/huxerui 走源码通道；OpenSSL 三平台各自提供
-  （linux apt libssl-dev / windows choco openssl + `-DOPENSSL_ROOT_DIR` /
-  macos brew openssl@3 + `-DOPENSSL_ROOT_DIR`）；无 mihomo/Android
-  （蓝本相关步骤已删）。
+  clone 到 third_party/huxerui 走源码通道；TLS 由平台栈提供，CI 不再安装
+  OpenSSL；无 mihomo/Android（蓝本相关步骤已删）。
 - 打包：Linux tar.gz（二进制 + llm-switch.resources + lib/libhuxerui.so +
-  libc++ 三件套 + patchelf `$ORIGIN/lib`；RPM/DEB 使用发行版 OpenSSL，不把
-  `libssl.so.3` / `libcrypto.so.3` 装进 `/usr/lib`）、Windows zip（exe + 旁挂 dll +
+  libc++ 三件套 + patchelf `$ORIGIN/lib`）、Windows zip（exe + 旁挂 dll +
   resources）、macOS tar.gz（.app bundle）；push tag `v*` 时 release job
   （job 级 `contents: write`）下载三个平台产物，经
   softprops/action-gh-release 挂到 release；只有三个平台 job 全部成功且产物存在
@@ -429,5 +423,15 @@ I/O、解析和 JSON 函数默认保留在 `.cpp` 中。
   Stack 底层以 Cover 覆盖窗口边缘，中央留白，轻岛屿允许环境景物隐约透出）。
   书法标题字未做：系统无 CJK 衬线字体，
   不为标题打包字体文件。
+- ✅ 退役 curl/OpenSSL（2026-09-13）：网络统一 HuxerUI 平台 HttpClient
+  （Linux libsoup / Windows WinHTTP / macOS NSURLSession，TLS 由平台栈负责）。
+  net 同步 curl 接口（fetchModels/fetchUsage/pingLatencyMs）删除，只留纯
+  函数；router 出站新增 `UpstreamSession` 抽象（Send + AbortInFlight），
+  生产实现是 UI 层 PlatformUpstreamSession（httplib 工作线程经
+  TaskScope::Post + Launch 桥到 UI 线程 SendAsync，条件变量 + 截止时间
+  等待），app.cpp 根组合 `BindRouterUpstreamSession()` 绑定，测试注入
+  httplib::Client 版会话。vendor 只剩 json/httplib（curl/openssl tarball
+  与 huxerui-linux-openssl-system.patch 删除），CI 三平台不再安装 OpenSSL，
+  Windows 打包不再带 libssl/libcrypto。
 - ⬜ 待做：codex 内置预设仅
   OpenRouter/DeepSeek 两家可扩充；无 CLI 分流、无单实例/开机自启。

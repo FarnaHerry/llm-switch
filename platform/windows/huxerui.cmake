@@ -36,7 +36,7 @@ function(huxerui_configure_windows_project_package target_name install_component
 
     # cmake --install 是 Windows Setup.exe 的 payload 来源。POST_BUILD 只把
     # DLL 放到开发构建目录，不能让 MSI/Burn 自动携带它们；复用 HuxerUI
-    # 官方 runtime scanner，把 HuxerUI、OpenSSL 和 MSVC CRT 依赖部署到安装目录，
+    # 官方 runtime scanner，把 HuxerUI 和 MSVC CRT 依赖部署到安装目录，
     # 并在安装阶段验证依赖闭包完整。
     _huxerui_install_runtime_dependencies(${target_name} "${install_component}"
             . "$<TARGET_FILE_NAME:${target_name}>"

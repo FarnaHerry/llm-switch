@@ -1,8 +1,8 @@
-// net.cppm — llmswitch.net：按供应商 URL+key 拉取模型列表（接口模块）。
+// net.cppm — llmswitch.net：模型列表地址推导与响应解析（接口模块）。
 //
-// 同步阻塞接口（每次调用独立 curl easy handle，线程安全）仍保留给领域/测试
-// 调用方；供应商页面的网络请求使用 HuxerUI HttpClient 的平台原生异步路径。
-// curl 头只进实现单元。
+// 全部为纯函数（便于测试）。实际网络请求统一走 HuxerUI HttpClient 的平台
+// 原生异步路径（供应商页见 provider_network.cpp；本地路由上游见
+// router_transport.cpp），本模块不依赖任何 HTTP 栈。
 export module llmswitch.net;
 
 import std;
@@ -20,40 +20,14 @@ export std::string modelListUrl(std::string_view baseUrl,
 export std::vector<std::string> modelListUrlCandidates(
     std::string_view baseUrl, std::string_view upstreamFormat);
 
-// 拉取模型列表。成功返回模型 id 列表（去重保序）；失败抛 std::runtime_error
-// （中文消息）。upstreamFormat 取值为 “anthropic” 或 “openai”：Anthropic
-// → GET {base}/v1/models；OpenAI → GET {base}/models。
-export std::vector<std::string> fetchModels(std::string_view baseUrl,
-                                            std::string_view apiKey,
-                                            std::string_view upstreamFormat);
-
-// 使用完整的模型列表 URL 拉取模型。自定义 URL 不再追加 /models 或
-// /v1/models；调用方仍通过 upstreamFormat 决定鉴权请求头。
-export std::vector<std::string> fetchModelsFromUrl(
-    std::string_view url, std::string_view apiKey,
-    std::string_view upstreamFormat);
-
 // 响应体解析（纯函数，便于测试）：兼容 {"data":[{"id":...}]} 与
 // {"models":[{"id":...}]} 两种形状（数组元素也可以是纯字符串）；坏 JSON 或
 // 缺少列表键抛 std::runtime_error。id 去重保序。
 export std::vector<std::string> parseModelIds(std::string_view body);
 
-// 查询供应商用量：GET usageUrl + Bearer，用 jsonPath（点分取值路径，支持数组
-// 下标，如 balance_infos.0.total_balance）从响应取值。成功返回文本（数字/
-// 字符串/布尔都转成文本）；传输失败、非 2xx、路径取不到都抛
-// std::runtime_error（中文消息）。同步阻塞，调用方负责线程（同 fetchModels）。
-export std::string fetchUsage(std::string_view url, std::string_view apiKey,
-                              std::string_view jsonPath);
-
 // 点分路径取值（纯函数，便于测试）：段在对象上按键取、在数组上必须是十进制
 // 下标；终值 string 原样、number 转十进制文本（整数不带小数点）、bool 转
 // "true"/"false"。坏 JSON / 路径不存在 / 终值非标量抛 std::runtime_error。
 export std::string extractByPath(std::string_view body, std::string_view dottedPath);
-
-// 连通性检测：GET baseUrl（不带鉴权、丢弃响应体），收到任何 HTTP 响应
-// （含 4xx/5xx）都算连通，返回全程耗时毫秒（CURLINFO_TOTAL_TIME）；传输层
-// 失败（DNS / 连接拒绝 / 超时）抛 std::runtime_error（中文消息）。同步阻塞
-// （连接 5s / 全程 10s），调用方负责线程（同 fetchModels）。
-export double pingLatencyMs(std::string_view baseUrl);
 
 } // namespace net

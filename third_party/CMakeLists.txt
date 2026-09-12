@@ -1,23 +1,15 @@
 # third_party/CMakeLists.txt — vendor 依赖。
 #
 # nlohmann::json 以 single header 直接提交在 json/（配 cmake/nlohmann.json.cppm
-# 提供 `import nlohmann.json` 模块）；curl 8.22.0 以 tarball 提交在 tarballs/，
-# configure 期校验 SHA256 后解包到 ${CMAKE_BINARY_DIR}/vendor/ 再
-# add_subdirectory（OpenSSL 后端，静态库）；HuxerUI 由顶层 CMakeLists 在源码/
-# 已安装 SDK/离线 tarball 通道间选择，不在此构建。
+# 提供 `import nlohmann.json`）；cpp-httplib 以 single header 提交在 httplib/。
+# HuxerUI 由顶层 CMakeLists 在源码/已安装 SDK/离线 tarball 通道间选择，不在
+# 此构建。网络请求统一走 HuxerUI 平台 HttpClient（Linux libsoup / Windows
+# WinHTTP / macOS NSURLSession），不 vendor curl/OpenSSL。
 #
 # 产物 target：
-#   HuxerUI::huxerui  HuxerUI SDK（shared；由顶层 find_package 引入）
-#   CURL::libcurl     curl 8.22.0（OpenSSL 后端，静态库，不编 curl.exe）
 #   llmswitch_json    nlohmann::json 3.12.0（single header）+ `import nlohmann.json`
-#
-# OpenSSL 在顶层 CMakeLists 解析（imported target 需要全局可见），
-# 本文件假定 find_package(OpenSSL) 已成功。
+#   llmswitch_httplib cpp-httplib 0.56.0（single header，MIT；路由本地监听用）
 include("${CMAKE_CURRENT_SOURCE_DIR}/../cmake/llmswitch_vendor.cmake")
-
-if(NOT OpenSSL_FOUND)
-    message(FATAL_ERROR "third_party：顶层应已完成 OpenSSL 解析")
-endif()
 
 # ---- nlohmann::json 3.12.0（single header + `import nlohmann.json` 模块）------
 add_library(llmswitch_json STATIC)
@@ -29,28 +21,8 @@ target_include_directories(llmswitch_json PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/js
 
 # ---- cpp-httplib 0.56.0（single header，MIT）---------------------------------
 # 用途：llmswitch.router 的本地 HTTP 代理服务器（仅监听 127.0.0.1，无 TLS 服务端
-# 需求；出站转发走 curl）。头文件直接提交在 httplib/，INTERFACE 目标导出包含目录。
+# 需求；出站转发走 HuxerUI 平台 HttpClient）。头文件直接提交在 httplib/，
+# INTERFACE 目标导出包含目录。
 add_library(llmswitch_httplib INTERFACE)
 target_include_directories(llmswitch_httplib INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/httplib")
 target_compile_features(llmswitch_httplib INTERFACE cxx_std_17)
-
-# ---- curl 8.22.0（静态库，OpenSSL 后端，仅 lib）------------------------------
-# 用途：llmswitch.net 按供应商 baseUrl+key 拉取模型列表（GET /models）。
-llmswitch_extract(curl
-    "${CMAKE_CURRENT_SOURCE_DIR}/tarballs/curl-8.22.0.tar.gz"
-    "d54dd598bf05927a726deb38df31c6a255ba83ff1de57c5d1464dac3ed8f44a1"
-    "curl-8.22.0")
-set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
-set(BUILD_CURL_EXE OFF CACHE BOOL "" FORCE)
-set(BUILD_LIBCURL_DOCS OFF CACHE BOOL "" FORCE)
-set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
-set(CURL_DISABLE_INSTALL ON CACHE BOOL "" FORCE)
-set(CURL_USE_OPENSSL ON CACHE BOOL "" FORCE)
-set(CURL_USE_LIBPSL OFF CACHE BOOL "" FORCE)
-set(CURL_USE_LIBSSH2 OFF CACHE BOOL "" FORCE)
-set(CURL_BROTLI OFF CACHE BOOL "" FORCE)
-set(CURL_ZSTD OFF CACHE BOOL "" FORCE)
-set(CURL_DISABLE_LDAP ON CACHE BOOL "" FORCE)
-set(CURL_DISABLE_LDAPS ON CACHE BOOL "" FORCE)
-add_subdirectory("${curl_SOURCE_DIR}" "curl-build")

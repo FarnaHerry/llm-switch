@@ -1,17 +1,16 @@
-// router.cpp — llmswitch.router 实现单元（httplib 服务端 + curl 出站）。
+// router.cpp — llmswitch.router 实现单元（httplib 服务端 + UpstreamSession 出站）。
 //
 // 结构：LocalRouter::Impl 持有全部状态（httplib::Server / 后台线程 / 统计），
 // LocalRouter 方法只做转发。服务端监听走 bind_to_port/bind_to_any_port +
 // listen_after_bind（bind 阶段已完成 listen()，客户端连接进 backlog，无 accept
-// 竞态）。curl 每次请求新建 easy handle（对齐 net.cpp 的线程安全取舍），
-// 超时 connect 5s / total 120s（转发 LLM 请求可能很慢），全程 NOSIGNAL。
+// 竞态）。出站转发交给注入的 UpstreamSession（生产=UI 层 HttpClient 平台桥接，
+// 测试=httplib::Client），转发侧只负责 URL 拼接、鉴权注入与响应整形。
 // 统计：内存环形缓冲（cap 1000，mutex 保护）+ JSONL 追加落盘
 // （cfg::statsFile()；超过 5000 行重写截断保留最近 2500 行，防无限膨胀），
 // 构造时从 JSONL 回填最近 1000 条。
 // nlohmann::json 模块下禁用 .items() 结构化绑定，遍历用 it.key()/it.value()。
 module;
 
-#include <curl/curl.h>
 #include <httplib.h>
 #include <ctime>  // localtime_r / localtime_s（当天 0 点划分）
 
@@ -81,126 +80,50 @@ std::string trimTrailingSlash(std::string_view base) {
     return s;
 }
 
-// 上游响应快照（curl 抓取结果）。
-struct UpstreamResponse {
-    long status = 0;  // 0 = curl 失败（error 非空）
-    std::vector<std::pair<std::string, std::string>> headers;
-    std::string body;
-    std::string contentType;
-    std::string error;
-};
-
-size_t onBodyWrite(char* ptr, size_t size, size_t nmemb, void* userdata) noexcept {
-    try {
-        const size_t n = size * nmemb;
-        static_cast<std::string*>(userdata)->append(ptr, n);
-        return n;
-    } catch (...) {
-        return CURL_WRITEFUNC_ERROR;
-    }
-}
-
-size_t onHeaderWrite(char* ptr, size_t size, size_t nmemb, void* userdata) noexcept {
-    const size_t n = size * nmemb;
-    try {
-        auto* headers =
-            static_cast<std::vector<std::pair<std::string, std::string>>*>(userdata);
-        std::string_view line(ptr, n);
-        while (line.ends_with("\r") || line.ends_with("\n")) line.remove_suffix(1);
-        // 状态行（HTTP/1.1 200 ...）与空行无冒号，跳过。
-        if (const auto colon = line.find(':'); colon != std::string_view::npos) {
-            std::string_view value = line.substr(colon + 1);
-            while (value.starts_with(' ')) value.remove_prefix(1);
-            headers->emplace_back(std::string(line.substr(0, colon)),
-                                  std::string(value));
+// 上游结果整形：从会话返回的头里摘出 content-type（usage 提取需要）。
+UpstreamResponse ShapeUpstreamResponse(UpstreamResponse response) {
+    std::vector<std::pair<std::string, std::string>> kept;
+    kept.reserve(response.headers.size());
+    for (auto& [name, value] : response.headers) {
+        if (toLower(name) == "content-type") {
+            response.contentType = std::move(value);
+        } else {
+            kept.emplace_back(std::move(name), std::move(value));
         }
-        return n;
-    } catch (...) {
-        return CURL_WRITEFUNC_ERROR;
     }
+    response.headers = std::move(kept);
+    return response;
 }
 
 // 出站转发：鉴权替换 + 其余头透传。anthropic 协议（apiFormat=="anthropic"
 // 或 claude-code/claude 工具）注入 x-api-key + Authorization 双头，
 // 其余只注入 Authorization: Bearer。
-UpstreamResponse forwardToProvider(const models::Provider& provider,
+UpstreamResponse forwardToProvider(UpstreamSession& session,
+                                   const models::Provider& provider,
                                    bool anthropic,
                                    const httplib::Request& req,
                                    const std::string& url) {
-    UpstreamResponse result;
-
-    CURL* easy = curl_easy_init();
-    if (easy == nullptr) {
-        result.error = "curl 初始化失败";
-        return result;
-    }
-    struct Guard {
-        CURL* h;
-        ~Guard() { curl_easy_cleanup(h); }
-    } guard{easy};
-
-    struct curl_slist* headers = nullptr;
-    struct HeaderGuard {
-        curl_slist* l;
-        ~HeaderGuard() { curl_slist_free_all(l); }
-    } headerGuard{nullptr};
-
+    UpstreamRequest request;
+    request.method = req.method;
+    request.url = url;
     // 透传非剥离头。
     for (const auto& [name, value] : req.headers) {
         if (kStripRequestHeaders.contains(toLower(name))) continue;
-        headers = curl_slist_append(
-            headers, std::format("{}: {}", name, value).c_str());
+        request.headers.emplace_back(name, value);
     }
     // 按供应商协议注入鉴权。
     if (!provider.apiKey.empty()) {
-        headers = curl_slist_append(
-            headers, std::format("Authorization: Bearer {}", provider.apiKey).c_str());
+        request.headers.emplace_back("Authorization",
+                                     std::format("Bearer {}", provider.apiKey));
         if (anthropic) {
             // 网关两种鉴权都常见，x-api-key 与 Bearer 都给。
-            headers = curl_slist_append(
-                headers, std::format("x-api-key: {}", provider.apiKey).c_str());
+            request.headers.emplace_back("x-api-key", provider.apiKey);
         }
     }
-    headerGuard.l = headers;
-
-    std::string body = req.body;  // perform 期间必须存活
-    const bool withBody = req.method == "POST" || req.method == "PUT" ||
-                          req.method == "PATCH";
-    std::vector<std::pair<std::string, std::string>> respHeaders;
-
-    curl_easy_setopt(easy, CURLOPT_URL, url.c_str());
-    curl_easy_setopt(easy, CURLOPT_PROTOCOLS_STR, "https,http");
-    curl_easy_setopt(easy, CURLOPT_CUSTOMREQUEST, req.method.c_str());
-    curl_easy_setopt(easy, CURLOPT_HTTPHEADER, headers);
-    if (withBody) {
-        curl_easy_setopt(easy, CURLOPT_POSTFIELDS, body.data());
-        curl_easy_setopt(easy, CURLOPT_POSTFIELDSIZE_LARGE,
-                         static_cast<curl_off_t>(body.size()));
+    if (req.method == "POST" || req.method == "PUT" || req.method == "PATCH") {
+        request.body = req.body;
     }
-    curl_easy_setopt(easy, CURLOPT_WRITEFUNCTION, &onBodyWrite);
-    curl_easy_setopt(easy, CURLOPT_WRITEDATA, &result.body);
-    curl_easy_setopt(easy, CURLOPT_HEADERFUNCTION, &onHeaderWrite);
-    curl_easy_setopt(easy, CURLOPT_HEADERDATA, &respHeaders);
-    curl_easy_setopt(easy, CURLOPT_FOLLOWLOCATION, 0L);  // 3xx 原样透传给客户端
-    curl_easy_setopt(easy, CURLOPT_CONNECTTIMEOUT, 5L);
-    curl_easy_setopt(easy, CURLOPT_TIMEOUT, 120L);
-    curl_easy_setopt(easy, CURLOPT_NOSIGNAL, 1L);
-
-    const CURLcode rc = curl_easy_perform(easy);
-    if (rc != CURLE_OK) {
-        result.error = curl_easy_strerror(rc);
-        result.status = 0;
-        return result;
-    }
-    curl_easy_getinfo(easy, CURLINFO_RESPONSE_CODE, &result.status);
-    for (auto& [name, value] : respHeaders) {
-        if (toLower(name) == "content-type") {
-            result.contentType = value;
-        } else {
-            result.headers.emplace_back(std::move(name), std::move(value));
-        }
-    }
-    return result;
+    return ShapeUpstreamResponse(session.Send(request));
 }
 
 // 从 JSON 响应体提取 token 用量（SSE 流式与非 JSON 不解析，保持 -1）。
@@ -262,6 +185,8 @@ RequestLog logFromJson(const nlohmann::json& j) {
 
 struct LocalRouter::Impl {
     GroupProvider groupProvider;
+    std::shared_ptr<UpstreamSession> session;
+    mutable std::mutex sessionMu;  // 保护 session 的换绑与读取
     httplib::Server server;
     std::thread thread;
     std::atomic<bool> isRunning{false};
@@ -274,7 +199,8 @@ struct LocalRouter::Impl {
     std::deque<RequestLog> logs;      // 环形缓冲（旧 → 新）
     std::int64_t jsonlLines = 0;      // statsFile 当前行数（回填时初始化）
 
-    explicit Impl(GroupProvider gp) : groupProvider(std::move(gp)) {
+    Impl(GroupProvider gp, std::shared_ptr<UpstreamSession> upstream)
+        : groupProvider(std::move(gp)), session(std::move(upstream)) {
         for (const auto& spec : models::toolRegistry()) {
             enabledTools.emplace(spec.id);
         }
@@ -318,6 +244,13 @@ struct LocalRouter::Impl {
     }
 
     void stop() {
+        // 先中止在途上游请求（防止 httplib 停止时 join 卡在长转发上），再停服务。
+        std::shared_ptr<UpstreamSession> upstream;
+        {
+            std::lock_guard lk(sessionMu);
+            upstream = session;
+        }
+        if (upstream) upstream->AbortInFlight();
         server.stop();
         if (thread.joinable()) thread.join();
         isRunning = false;
@@ -365,6 +298,16 @@ struct LocalRouter::Impl {
                 return;
             }
         }
+        std::shared_ptr<UpstreamSession> upstream;
+        {
+            std::lock_guard lk(sessionMu);
+            upstream = session;
+        }
+        if (!upstream) {
+            // 未绑定会话（尚未进入组合期）：直接拒绝，不访问 resolver / 上游。
+            jsonError(res, 502, "路由服务的上游传输尚未就绪");
+            return;
+        }
         const auto group = groupProvider(tool);
         if (!group.has_value()) {
             jsonError(res, 404, std::format("工具 {} 没有配置供应商", tool));
@@ -403,7 +346,7 @@ struct LocalRouter::Impl {
             const bool anthropic =
                 tool == "claude-code" || tool == "claude" ||
                 models::normalizeApiFormat(provider.apiFormat) == "anthropic";
-            last = forwardToProvider(provider, anthropic, req, url);
+            last = forwardToProvider(*upstream, provider, anthropic, req, url);
             const auto latency =
                 std::chrono::duration_cast<std::chrono::milliseconds>(
                     std::chrono::steady_clock::now() - t0)
@@ -556,10 +499,15 @@ struct LocalRouter::Impl {
 
 // ---- LocalRouter 转发 ---------------------------------------------------------
 
-LocalRouter::LocalRouter(GroupProvider gp)
-    : impl_(std::make_unique<Impl>(std::move(gp))) {}
+LocalRouter::LocalRouter(GroupProvider gp, std::shared_ptr<UpstreamSession> session)
+    : impl_(std::make_unique<Impl>(std::move(gp), std::move(session))) {}
 
 LocalRouter::~LocalRouter() = default;
+
+void LocalRouter::setUpstreamSession(std::shared_ptr<UpstreamSession> session) {
+    std::lock_guard lk(impl_->sessionMu);
+    impl_->session = std::move(session);
+}
 
 void LocalRouter::start(int port) { impl_->start(port); }
 void LocalRouter::stop() { impl_->stop(); }
