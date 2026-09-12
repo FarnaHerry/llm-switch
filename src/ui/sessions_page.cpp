@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -256,14 +257,17 @@ std::string FormatSize(std::uintmax_t bytes) {
     const bool active = selectedAgent.Get() == agentIndex;
     auto tasks = huxerui::UseTaskScope();
     auto toast = huxerui::UseToast();
-    auto sessionsList = huxerui::UseStateList<sessions::SessionInfo>();
+    // 列表扫描是整批替换，不需要逐项可变语义。使用不可变共享快照可让 worker
+    // 结果在 UI 线程以一次 O(1) 状态写入完成，避免数百次 StateList 通知和重组。
+    auto sessionsSnapshot = huxerui::UseState(
+        std::make_shared<const std::vector<sessions::SessionInfo>>());
     auto loading = huxerui::UseState(supported);
     auto loadError = huxerui::UseState(std::string{});
     auto requestGeneration = huxerui::UseState<std::uint64_t>(0);
     auto hasLoaded = huxerui::UseState(false);
     auto loadedAtMillis = huxerui::UseState<std::int64_t>(0);
 
-    auto reload = [tasks, toast, sessionsList, loading, loadError,
+    auto reload = [tasks, toast, sessionsSnapshot, loading, loadError,
                    requestGeneration, hasLoaded, loadedAtMillis,
                    selectedAgent, agentIndex, tool] {
         const std::uint64_t request = requestGeneration.Get() + 1;
@@ -272,7 +276,7 @@ std::string FormatSize(std::uintmax_t bytes) {
         loadError = std::string{};
         hasLoaded = false;
         loadedAtMillis = 0;
-        tasks.Launch([toast, sessionsList, loading, loadError,
+        tasks.Launch([toast, sessionsSnapshot, loading, loadError,
                       requestGeneration, hasLoaded, loadedAtMillis,
                       selectedAgent, agentIndex, tool,
                       request]() -> huxerui::Task<void> {
@@ -286,12 +290,9 @@ std::string FormatSize(std::uintmax_t bytes) {
                     selectedAgent.Get() != agentIndex) {
                     co_return;
                 }
-                co_await ReplaceStateListInBatches(sessionsList,
-                                                   std::move(result));
-                if (requestGeneration.Get() != request ||
-                    selectedAgent.Get() != agentIndex) {
-                    co_return;
-                }
+                sessionsSnapshot =
+                    std::make_shared<const std::vector<sessions::SessionInfo>>(
+                        std::move(result));
                 hasLoaded = true;
                 loadedAtMillis = CurrentTimeMillis();
                 loading = false;
@@ -322,14 +323,15 @@ std::string FormatSize(std::uintmax_t bytes) {
         },
         std::format("{}:{}", tool, active));
 
-    const std::size_t sessionCount = sessionsList.Size();
+    const auto sessionItems = sessionsSnapshot.Get();
+    const std::size_t sessionCount = sessionItems->size();
     const huxerui::Color projectTextColor = theme.colors.on_surface_variant;
-    const auto buildSessionRow = [sessionsList, toast, reload, selectedSession,
+    const auto buildSessionRow = [sessionItems, toast, reload, selectedSession,
                                   projectTextColor](
                                      std::size_t index) {
-        const auto& session = sessionsList.At(index);
+        const auto& session = sessionItems->at(index);
         const bool firstInProject =
-            index == 0 || sessionsList.At(index - 1).project != session.project;
+            index == 0 || sessionItems->at(index - 1).project != session.project;
         const huxerui::View projectHeader =
             firstInProject
                 ? huxerui::View{huxerui::Text(session.project).Style(
