@@ -470,6 +470,12 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(huxerui::WindowHandle window,
             .Fit(huxerui::ImageFit::Fill)
             .Align(huxerui::HorizontalAlignment::Center,
                    huxerui::VerticalAlignment::Center),
+        // Canvas+Path 程序化泼墨伪元素：环境层，叠在水墨画卷与内容之间，
+        // 右上为主、左下淡些呼应；seed 固定，形态恒定不随重组抖动。
+        // 不要包 Align/Frame：Align 节点会把画布按父约束撑满（画布本就是
+        // 全幅），落点由 anchor 在画布内定位。
+        InkSplash(0x51B7U, 1.0F, InkSplashAnchor::TopEnd),
+        InkSplash(0x2F3DU, 0.65F, InkSplashAnchor::BottomStart),
         huxerui::Column {
             // 自定义标题栏：太极标 + 应用名 + 拖拽区（框架在其右侧渲染窗口
             // 按钮）。收窄 + 去背景：直接融入窗口海面底色；垂直零内边距，

@@ -98,6 +98,19 @@ huxerui::View Card(huxerui::View content);
 // overlay 表面 + 阴影 + 描边 + 16pt 圆角 + 内边距。
 huxerui::View DialogCard(huxerui::View content);
 
+// 程序化泼墨伪元素（ink_splash.cpp）：Canvas+Path 画的主墨团/洇边/飞白/
+// 飞溅墨点，纯环境装饰不承载内容。画布铺满宿主（放入 Stack 即可，不要包
+// Align/Frame——Align 会把内容撑满父约束，画布本身就是全幅），按 anchor
+// 落在窗口角落，尺度限幅不随窗口放大。seed 决定形态（同 seed 恒定，重组
+// 不抖），alpha_scale 控制整体浓淡；墨色取主题 on_surface，深浅自适应。
+enum class InkSplashAnchor {
+    TopEnd,       // 右上角（主落点）
+    BottomStart,  // 左下角（呼应落点）
+};
+[[huxerui::composable]] huxerui::View InkSplash(std::uint32_t seed,
+                                                float alpha_scale,
+                                                InkSplashAnchor anchor);
+
 // ---- 路由/统计页面（router_page.cpp / stats_page.cpp）----
 // 本地路由页：运行状态/启用开关/端口/故障转移控制、各工具接入地址、最近请求日志。
 huxerui::View RouterPage();

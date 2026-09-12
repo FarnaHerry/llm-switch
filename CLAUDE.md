@@ -439,5 +439,12 @@ I/O、解析和 JSON 函数默认保留在 `.cpp` 中。
   88code / DuckCoding / Kimi For Coding（端点核实自 cc-switch 官方预设与各家
   官方客户端源码；Kimi For Coding 主模型与三档映射都填端点别名
   kimi-for-coding）；codex 订阅组新增 PackyCode（Responses 协议中转）。
+- ✅ Canvas 泼墨伪元素（2026-09-13）：src/ui/ink_splash.cpp 用 Canvas+Path
+  程序化泼墨（副墨团/主墨团 Catmull-Rom Blob + DrawPathShadow 洇边 + 浓墨
+  内斑 + 飞白细枝 + 圆点/旋转椭圆飞墨），固定种子 splitmix32 保证同 seed
+  形态恒定；墨色取主题 on_surface 深浅自适应。app.cpp 根 Stack 在画卷与
+  内容之间叠两处（右上 TopEnd 为主、左下 BottomStart 呼应）。坑：Canvas
+  外再包 Align 修饰符会被撑满父约束——画布本身铺满宿主，落点用 anchor
+  参数在画布内定位，尺度与窗口高度解耦限幅。
 - ⬜ 待做：订阅站端点可能随各家调整，升级版本时需复核；无 CLI 分流、
   无单实例/开机自启。
