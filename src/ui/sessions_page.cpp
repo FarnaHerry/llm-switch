@@ -37,6 +37,8 @@ std::int64_t CurrentTimeMillis() {
 }
 
 constexpr std::size_t kStateListCommitBatchSize = 64;
+constexpr std::size_t kMessageCollapseThresholdBytes = 3'000;
+constexpr std::size_t kMessageCollapsedBytes = 1'500;
 
 // StateList 的每次写入都会使观察它的组合失效。大列表若在一个 UI 回调里一次性
 // 逐项提交，会把 worker 中省下来的时间又变成主线程长任务。分批提交并在批次间
@@ -63,6 +65,16 @@ huxerui::Task<void> ReplaceStateListInBatches(
         destination.PushBack(std::move(values[i]));
         co_await yieldIfNeeded();
     }
+}
+
+std::string CollapseMessageText(std::string_view text) {
+    if (text.size() <= kMessageCollapsedBytes) return std::string(text);
+    std::size_t end = kMessageCollapsedBytes;
+    while (end > 0 &&
+           (static_cast<unsigned char>(text[end]) & 0xC0U) == 0x80U) {
+        --end;
+    }
+    return std::string(text.substr(0, end)) + "…";
 }
 
 // 简单相对时间：刚刚 / N 分钟前 / N 小时前 / N 天前 / N 个月前 / N 年前。
@@ -183,6 +195,57 @@ std::string FormatSize(std::uintmax_t bytes) {
         .OnClick(open)
         .Key(rowKey);
     return content;
+}
+
+[[huxerui::composable]] huxerui::View SessionMessageRow(
+    const sessions::SessionMessage& message, std::size_t index) {
+    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    auto expanded = huxerui::UseState(false);
+    const bool isUser = message.role == "user";
+    const bool isLong = message.text.size() > kMessageCollapseThresholdBytes;
+    const std::string role = isUser ? "用户" : "助手";
+    const std::string displayText = isLong && !expanded.Get()
+                                        ? CollapseMessageText(message.text)
+                                        : message.text;
+
+    std::vector<huxerui::View> cardChildren;
+    cardChildren.reserve(isLong ? 3U : 2U);
+    cardChildren.push_back(
+        huxerui::Text(role)
+            .Align(isUser ? huxerui::TextAlign::Trailing
+                          : huxerui::TextAlign::Leading)
+            .Style(huxerui::TextStyle{
+                huxerui::Font::System(font_size::kChip)
+                    .WithWeight(huxerui::FontWeight::SemiBold),
+                theme.colors.on_surface_variant}));
+    cardChildren.push_back(
+        huxerui::Text(displayText)
+            .Align(huxerui::TextAlign::Leading)
+            .Style(huxerui::TextStyle{huxerui::Font::System(font_size::kBody),
+                                      theme.colors.on_surface}));
+    if (isLong) {
+        cardChildren.push_back(
+            huxerui::Button(expanded.Get() ? "收起" : "展开完整内容")
+                .OnClick([expanded] { expanded = !expanded.Get(); }));
+    }
+
+    const huxerui::View messageCard =
+        Card(huxerui::Column(std::move(cardChildren))
+                 .With(huxerui::Spacing(6.0F),
+                       huxerui::Padding(
+                           huxerui::EdgeInsets::Symmetric(10.0F, 8.0F)),
+                       huxerui::CrossAlign(
+                           huxerui::CrossAxisAlignment::Stretch)))
+            .Key(std::format("message-{}", index));
+    huxerui::View messageSlot =
+        huxerui::Column {messageCard}.With(
+            huxerui::Grow(4.0F),
+            huxerui::CrossAlign(isUser ? huxerui::CrossAxisAlignment::End
+                                       : huxerui::CrossAxisAlignment::Start));
+    huxerui::View row =
+        isUser ? huxerui::View{huxerui::Row{huxerui::Spacer(), messageSlot}}
+               : huxerui::View{huxerui::Row{messageSlot, huxerui::Spacer()}};
+    return std::move(row).Key(std::format("message-row-{}", index));
 }
 
 [[huxerui::composable]] huxerui::View AgentSessionsPanel(
@@ -436,43 +499,9 @@ std::string FormatSize(std::uintmax_t bytes) {
         if (!path.empty()) load(tool, path);
     };
 
-    const auto buildMessageRow = [messages, theme](std::size_t index) {
+    const auto buildMessageRow = [messages](std::size_t index) {
         const auto& message = messages.At(index);
-        const bool isUser = message.role == "user";
-        const std::string role = isUser ? "用户" : "助手";
-        const huxerui::View messageCard =
-            Card(huxerui::Column {
-                     huxerui::Text(role)
-                         .Align(isUser ? huxerui::TextAlign::Trailing
-                                       : huxerui::TextAlign::Leading)
-                         .Style(huxerui::TextStyle{
-                             huxerui::Font::System(font_size::kChip)
-                                 .WithWeight(huxerui::FontWeight::SemiBold),
-                             theme.colors.on_surface_variant}),
-                     huxerui::Text(message.text)
-                         .Align(huxerui::TextAlign::Leading)
-                         .Style(huxerui::TextStyle{
-                             huxerui::Font::System(font_size::kBody),
-                             theme.colors.on_surface}),
-                 }.With(huxerui::Spacing(6.0F),
-                        huxerui::Padding(huxerui::EdgeInsets::Symmetric(10.0F, 8.0F)),
-                        huxerui::CrossAlign(
-                            huxerui::CrossAxisAlignment::Stretch)))
-                .Key(std::format("message-{}", index));
-        // 消息槽与留白按 4:1 分配，消息卡实际内容仍按自然宽度布局，
-        // 长文本最多占对话框 80%，用户消息贴右、助手消息贴左。
-        huxerui::View messageSlot =
-            huxerui::Column {messageCard}
-                .With(huxerui::Grow(4.0F),
-                      huxerui::CrossAlign(isUser
-                                              ? huxerui::CrossAxisAlignment::End
-                                              : huxerui::CrossAxisAlignment::Start));
-        huxerui::View row = isUser
-                                ? huxerui::View{huxerui::Row{
-                                      huxerui::Spacer(), messageSlot}}
-                                : huxerui::View{huxerui::Row{
-                                      messageSlot, huxerui::Spacer()}};
-        return std::move(row).Key(std::format("message-row-{}", index));
+        return SessionMessageRow(message, index);
     };
 
     huxerui::View content;
