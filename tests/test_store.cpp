@@ -768,11 +768,22 @@ int main() {
         CHECK(models::officialVendorName("codex") == "OpenAI 官方");
         CHECK(models::officialVendorName("opencode").empty());
         CHECK(models::officialVendorName("pi").empty());
+        // 订阅组：claude-code 首位 PackyCode，端点为直连地址（fullUrl）；
+        // 按量组：claude-code 首位 DeepSeek，codex 首位 OpenRouter；claude 无预设。
         const auto cc = models::builtinPresets("claude-code");
-        CHECK(!cc.empty() && cc.front().name == "DeepSeek");
+        CHECK(!cc.subscription.empty() && cc.subscription.front().name == "PackyCode");
+        CHECK(cc.subscription.front().fullUrl);
+        CHECK(!cc.metered.empty() && cc.metered.front().name == "DeepSeek");
         const auto cx = models::builtinPresets("codex");
-        CHECK(!cx.empty() && cx.front().name == "OpenRouter");
-        CHECK(models::builtinPresets("claude").empty());
+        CHECK(!cx.subscription.empty() && cx.subscription.front().name == "PackyCode");
+        CHECK(!cx.metered.empty() && cx.metered.front().name == "OpenRouter");
+        const auto cd = models::builtinPresets("claude");
+        CHECK(cd.subscription.empty() && cd.metered.empty());
+        // Kimi For Coding：主模型与三档映射都填端点别名 kimi-for-coding。
+        const auto kfc = std::ranges::find_if(cc.subscription,
+            [](const models::Provider& p) { return p.name == "Kimi For Coding"; });
+        CHECK(kfc != cc.subscription.end() && kfc->model == "kimi-for-coding" &&
+              kfc->haikuModel == "kimi-for-coding" && kfc->opusModel == "kimi-for-coding");
     }
 
     // 15. 三档模型映射：claude-code env 写入/收回/擦除 + desktop

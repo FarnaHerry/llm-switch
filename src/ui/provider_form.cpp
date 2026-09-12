@@ -296,15 +296,35 @@ void ReplaceModelList(const huxerui::StateList<std::string>& destination,
 
     std::vector<huxerui::View> fields;
     // 预设模板区（仅新增）：点选预填表单；清掉可能已拉取的旧模型列表。
+    // 订阅站与按量 API 分两行展示——Row 不换行，分组避免窄窗口横向溢出。
     if (isNew) {
-        const auto presets = models::builtinPresets(tool);
-        if (!presets.empty()) {
-            fields.push_back(huxerui::Text("预设模板（点选预填，API Key 需自行填写）")
-                .Style(huxerui::TextStyle{
-                    huxerui::Font::System(font_size::kCaption),
-                    theme.colors.on_surface_variant}));
+        const auto groups = models::builtinPresets(tool);
+        if (!groups.subscription.empty()) {
+            fields.push_back(
+                huxerui::Text("订阅供应商（点选预填，订阅密钥作为 API Key 填写）")
+                    .Style(huxerui::TextStyle{
+                        huxerui::Font::System(font_size::kCaption),
+                        theme.colors.on_surface_variant}));
             std::vector<huxerui::View> chips;
-            for (const auto& preset : presets) {
+            for (const auto& preset : groups.subscription) {
+                chips.push_back(
+                    huxerui::Button(preset.name)
+                        .OnClick([fs, fetchedModels, preset] {
+                            fetchedModels.Clear();
+                            FillForm(fs, preset);
+                        }));
+            }
+            fields.push_back(huxerui::Row(std::move(chips))
+                                 .With(huxerui::Spacing(8.0F)));
+        }
+        if (!groups.metered.empty()) {
+            fields.push_back(
+                huxerui::Text("按量 API（点选预填，API Key 需自行填写）")
+                    .Style(huxerui::TextStyle{
+                        huxerui::Font::System(font_size::kCaption),
+                        theme.colors.on_surface_variant}));
+            std::vector<huxerui::View> chips;
+            for (const auto& preset : groups.metered) {
                 chips.push_back(
                     huxerui::Button(preset.name)
                         .OnClick([fs, fetchedModels, preset] {

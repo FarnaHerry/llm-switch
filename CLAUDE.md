@@ -433,5 +433,11 @@ I/O、解析和 JSON 函数默认保留在 `.cpp` 中。
   httplib::Client 版会话。vendor 只剩 json/httplib（curl/openssl tarball
   与 huxerui-linux-openssl-system.patch 删除），CI 三平台不再安装 OpenSSL，
   Windows 打包不再带 libssl/libcrypto。
-- ⬜ 待做：codex 内置预设仅
-  OpenRouter/DeepSeek 两家可扩充；无 CLI 分流、无单实例/开机自启。
+- ✅ 订阅供应商预设（2026-09-13）：builtinPresets 改为 PresetGroups 两分组
+  （subscription 订阅制中转 / metered 按量官方 API），供应商新增页预设区
+  分两行展示（Row 不换行）。claude-code 订阅组新增 PackyCode / AICodeMirror /
+  88code / DuckCoding / Kimi For Coding（端点核实自 cc-switch 官方预设与各家
+  官方客户端源码；Kimi For Coding 主模型与三档映射都填端点别名
+  kimi-for-coding）；codex 订阅组新增 PackyCode（Responses 协议中转）。
+- ⬜ 待做：订阅站端点可能随各家调整，升级版本时需复核；无 CLI 分流、
+  无单实例/开机自启。

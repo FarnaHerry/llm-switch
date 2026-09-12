@@ -372,11 +372,53 @@ export AppConfig fromJson(const nlohmann::json& j) {
 // 新建供应商时的模板：name/baseUrl/website 填好，apiKey 一律留空由用户填。
 // 字段不确定时宁可留空也不编造；id/createdAt 由 store 在添加时生成。
 // 参数为注册表工具 id。
-export std::vector<Provider> builtinPresets(std::string_view tool) {
+// subscription = 订阅制中转站（包月/订阅码；baseUrl 为各家文档给出的直连
+// 端点，不再追加格式后缀，因此 fullUrl=true）；metered = 按量计费官方 API。
+export struct PresetGroups {
+    std::vector<Provider> subscription;
+    std::vector<Provider> metered;
+};
+
+export PresetGroups builtinPresets(std::string_view tool) {
+    PresetGroups groups;
     if (tool == "claude-code") {
         // Anthropic 兼容端点（Claude Code 走 ANTHROPIC_BASE_URL）；官方端点
         // 由列表常驻「官方」卡承担（officialVendorName），不在预设里重复。
-        return {
+        // 订阅站端点来源：cc-switch 官方预设与各家官方客户端源码（2026-09 核实）。
+        groups.subscription = {
+            Provider{.name = "PackyCode",
+                     .baseUrl = "https://www.packyapi.ai",
+                     .website = "https://www.packyapi.ai",
+                     .upstreamFormat = "anthropic",
+                     .fullUrl = true},
+            Provider{.name = "AICodeMirror",
+                     .baseUrl = "https://api.aicodemirror.ai/api/claudecode",
+                     .website = "https://www.aicodemirror.ai",
+                     .upstreamFormat = "anthropic",
+                     .fullUrl = true},
+            Provider{.name = "88code",
+                     .baseUrl = "https://www.88code.org/api",
+                     .website = "https://www.88code.org",
+                     .upstreamFormat = "anthropic",
+                     .fullUrl = true},
+            Provider{.name = "DuckCoding",
+                     .baseUrl = "https://jp.duckcoding.com",
+                     .website = "https://www.duckcoding.com",
+                     .upstreamFormat = "anthropic",
+                     .fullUrl = true},
+            // Moonshot 官方订阅计划：需显式路由端点别名 kimi-for-coding
+            // （主模型与三档映射都指向它，Claude Code 才不会用 claude-* 模型名）。
+            Provider{.name = "Kimi For Coding",
+                     .baseUrl = "https://api.kimi.com/coding/",
+                     .model = "kimi-for-coding",
+                     .haikuModel = "kimi-for-coding",
+                     .sonnetModel = "kimi-for-coding",
+                     .opusModel = "kimi-for-coding",
+                     .website = "https://www.kimi.com/code/",
+                     .upstreamFormat = "anthropic",
+                     .fullUrl = true},
+        };
+        groups.metered = {
             Provider{.name = "DeepSeek",
                      .baseUrl = "https://api.deepseek.com",
                      .website = "https://platform.deepseek.com",
@@ -393,13 +435,31 @@ export std::vector<Provider> builtinPresets(std::string_view tool) {
                      .upstreamFormat = "anthropic",
                      .fullUrl = false},
         };
+        return groups;
     }
     if (tool == "codex") {
         // OpenAI 兼容端点（Codex 走 auth.json 的 OPENAI_API_KEY + config.toml 的
         // model_providers 段；wire_api 两种取值："chat"（OpenAI Chat
         // Completions，各家都支持）或 "responses"（OpenAI Responses）——模板
         // 默认 chat；model 以注释提示，避免写死一个用户没有的模型）。
-        return {
+        groups.subscription = {
+            // PackyCode 的 Codex 中转走 Responses 协议（cc-switch 预设同源）。
+            Provider{.name = "PackyCode",
+                     .baseUrl = "https://www.packyapi.ai/v1",
+                     .website = "https://www.packyapi.ai",
+                     .codexConfigToml =
+                         R"toml(model_provider = "packycode"
+# model = "gpt-5.6-sol"   # 按需填写要使用的模型
+
+[model_providers.packycode]
+name = "PackyCode"
+base_url = "https://www.packyapi.ai/v1"
+wire_api = "responses"
+)toml",
+                     .upstreamFormat = "openai",
+                     .fullUrl = true},
+        };
+        groups.metered = {
             Provider{.name = "OpenRouter",
                      .baseUrl = "https://openrouter.ai/api",
                      .website = "https://openrouter.ai",
@@ -429,11 +489,13 @@ wire_api = "chat"
                      .upstreamFormat = "openai",
                      .fullUrl = false},
         };
+        return groups;
     }
     if (tool == "opencode" || tool == "pi") {
         // OpenAI 兼容端点（opencode 走 @ai-sdk/openai-compatible；pi 走
-        // openai-completions），model 填各家的主力模型。
-        return {
+        // openai-completions），model 填各家的主力模型。订阅站无已核实端点，
+        // 暂不预设。
+        groups.metered = {
             Provider{.name = "DeepSeek",
                      .baseUrl = "https://api.deepseek.com",
                      .model = "deepseek-chat",
@@ -447,9 +509,10 @@ wire_api = "chat"
                      .upstreamFormat = "openai",
                      .fullUrl = false},
         };
+        return groups;
     }
     // claude（Claude Desktop 3p 直连）：暂无第三方预设（官方走常驻卡）。
-    return {};
+    return groups;
 }
 
 // ---- 官方厂商 -----------------------------------------------------------------
