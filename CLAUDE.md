@@ -143,8 +143,8 @@ commit，不回滚已经验证的修改，并在最终回复中报告失败原�
   `/v1`；`fullUrl` 打开时保留输入地址原样。缺少新字段的旧配置按完整 URL
   兼容，避免历史地址重复追加。
 - **用量查询**：Provider.usageUrl/usagePath/usageLabel（usageUrl 空 = 不查）+
-  全局 AppConfig.usageEnabled/usageRefreshMinutes（0=仅手动，旧配置缺字段
-  自动取默认 true/10）；HuxerUI HttpClient 异步 GET 后由 `extractByPath` 按点分
+  全局 AppConfig.usageRefreshMinutes（0=仅手动，旧配置缺字段自动取默认 10；
+  用量查询始终启用）；HuxerUI HttpClient 异步 GET 后由 `extractByPath` 按点分
   路径（支持数组下标）取标量；`suggestUsageQuery` 只内置有官方文档的
   DeepSeek（/user/balance）。UI 侧：用量三字段在独立的 UsageFormPage
   （卡片 gauge 图标进入，formTarget = "usage:" + id；编辑表单只保留其余
@@ -343,7 +343,7 @@ I/O、解析和 JSON 函数默认保留在 `.cpp` 中。
     models::normalizeApiFormat + apiFormatLabel；opencode npm 与 pi api
     映射同步三档）。
   - 用量查询：Provider.usageUrl/usagePath/usageLabel + net::fetchUsage /
-    extractByPath + 全局 usageEnabled/usageRefreshMinutes + DeepSeek 内置
+    extractByPath + 全局 usageRefreshMinutes（始终启用）+ DeepSeek 内置
     模板 suggestUsageQuery + 卡片用量显示与页面轮询（RunWorker）。
   - AppConfig 新增 routerEnabled / routerPort（15731）/ routerFailover +
     store setter；路由自启在 AppRoot 首组合 Lifecycle。

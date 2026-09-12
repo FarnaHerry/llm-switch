@@ -574,11 +574,6 @@ void ProviderStore::setThemeMode(std::string mode) {
     save();
 }
 
-void ProviderStore::setUsageEnabled(bool enabled) {
-    config_.usageEnabled = enabled;
-    save();
-}
-
 void ProviderStore::setUsageRefreshMinutes(int minutes) {
     config_.usageRefreshMinutes = minutes;
     save();

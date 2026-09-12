@@ -37,8 +37,6 @@ public:
     // 主题模式（system / dark / light；其余值原样保存由 UI 兜底），立即落盘。
     void setThemeMode(std::string mode);
 
-    // 用量查询全局设置（Provider.usageUrl 非空的供应商才参与轮询），立即落盘。
-    void setUsageEnabled(bool enabled);
     // minutes = 0 表示仅手动刷新。
     void setUsageRefreshMinutes(int minutes);
 

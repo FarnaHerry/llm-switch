@@ -564,16 +564,12 @@ int main() {
             }
         }
         CHECK(found);
-        // 全局 usage 设置：默认值 + setter 落盘
-        CHECK(reloaded.config().usageEnabled);
+        // 用量查询始终启用，只保留刷新间隔设置。
         CHECK(reloaded.config().usageRefreshMinutes == 10);
-        reloaded.setUsageEnabled(false);
         reloaded.setUsageRefreshMinutes(0);
         auto again = store::ProviderStore::load();
-        CHECK(!again.config().usageEnabled);
         CHECK(again.config().usageRefreshMinutes == 0);
         // 恢复默认，不干扰后续用例
-        again.setUsageEnabled(true);
         again.setUsageRefreshMinutes(10);
     }
 
@@ -885,8 +881,7 @@ int main() {
         CHECK(migrated.group("codex").providers.size() == 1);
         CHECK(migrated.group("codex").providers[0].id == "old-2");
         CHECK(migrated.config().themeMode == "dark");
-        // 旧文件无 usage 字段 → 默认值
-        CHECK(migrated.config().usageEnabled);
+        // 旧文件无 usage 字段 → 默认刷新间隔
         CHECK(migrated.config().usageRefreshMinutes == 10);
     }
 

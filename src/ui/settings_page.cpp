@@ -1,7 +1,7 @@
 // settings_page.cpp — 设置页：外观主题用单个太极选择器循环切换
 // 跟随系统/玄墨/宣纸（平衡/玄墨突出/宣纸突出，悬停旋转且移出冻结角度），
-// 存 AppConfig.themeMode 的 system/dark/light 并即时生效；用量查询（总开关 + 刷新间隔
-// usageRefreshMinutes，变更即落盘）、Claude Code 安装检查、live 配置文件路径展示、
+// 存 AppConfig.themeMode 的 system/dark/light 并即时生效；用量查询刷新间隔
+// usageRefreshMinutes（变更即落盘）、Claude Code 安装检查、live 配置文件路径展示、
 // 导入/导出、关于。
 //
 // 导入/导出优先走 FilePicker 系统文件对话框（SaveFileAsync/OpenFileAsync）；
@@ -169,10 +169,6 @@ const std::string kAboutText =
     const auto picker = huxerui::UseService<huxerui::FilePicker>();
     auto lastExport = huxerui::UseState<std::string>({});
     auto importPath = huxerui::UseState(huxerui::TextEditingValue{""});
-    // 用量查询设置（Switch/SegmentedButton 是受控组件，本地 State 为权威值，
-    // 变更即落盘）。
-    auto usageEnabled =
-        huxerui::UseState(providerStore().config().usageEnabled);
     auto usageInterval = huxerui::UseState(
         UsageIntervalIndex(providerStore().config().usageRefreshMinutes));
     auto claudeCodeSkipInstallationChecks =
@@ -271,14 +267,6 @@ const std::string kAboutText =
 
                 Card(huxerui::Column {
                     SectionTitle("用量查询"),
-                    SettingRow(
-                        "启用用量查询",
-                        "为配置了用量 URL 的供应商在卡片上显示余额/用量",
-                        huxerui::Switch(usageEnabled.Get())
-                            .OnChanged([usageEnabled](bool on) {
-                                usageEnabled = on;
-                                providerStore().setUsageEnabled(on);
-                            })),
                     SettingRow(
                         "自动刷新间隔",
                         "「仅手动」时只在供应商卡片上点「刷新」才查询",

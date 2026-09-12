@@ -150,9 +150,9 @@ export struct AppConfig {
     // 用 map 而非固定字段，新增工具不改序列化结构。
     std::map<std::string, ProviderGroup> groups;
     std::string themeMode = "system";  // system / dark / light
-    // 用量查询全局设置（Provider.usageUrl 非空的供应商才参与）：
-    bool usageEnabled = true;      // 总开关
-    int usageRefreshMinutes = 10;  // 轮询间隔；0 = 仅手动刷新
+    // 用量查询刷新设置（Provider.usageUrl 非空的供应商才参与）；
+    // 用量查询始终启用，0 = 仅手动刷新。
+    int usageRefreshMinutes = 10;
     // 本地路由（llmswitch.router）设置：
     bool routerEnabled = false;    // 启动应用时自动开启本地路由
     int routerPort = 15731;        // 监听 127.0.0.1:<port>
@@ -299,7 +299,6 @@ export nlohmann::json toJson(const AppConfig& c) {
         j["groups"][id] = toJson(g);
     }
     j["themeMode"] = c.themeMode;
-    j["usageEnabled"] = c.usageEnabled;
     j["usageRefreshMinutes"] = c.usageRefreshMinutes;
     j["routerEnabled"] = c.routerEnabled;
     j["routerPort"] = c.routerPort;
@@ -327,7 +326,6 @@ export AppConfig fromJson(const nlohmann::json& j) {
     }
     c.themeMode = j.value("themeMode", "system");
     // 旧配置缺字段 → 默认值。
-    c.usageEnabled = j.value("usageEnabled", true);
     c.usageRefreshMinutes = j.value("usageRefreshMinutes", 10);
     c.routerEnabled = j.value("routerEnabled", false);
     c.routerPort = j.value("routerPort", 15731);
