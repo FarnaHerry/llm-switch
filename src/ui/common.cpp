@@ -136,6 +136,18 @@ huxerui::Color IslandColor(const IslandTheme& islands, IslandLevel level) {
                           huxerui::VerticalAlignment::Stretch));
 }
 
+[[huxerui::composable]] huxerui::View ListCard(huxerui::View content) {
+    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    const IslandTheme islands = ResolveIslandTheme(theme);
+    huxerui::View card = content;
+    // 列表项在滚动时持续改变屏幕位置。这里刻意不使用 ink_card_frame 的全尺寸
+    // SVG 叠层，也不做 ClipChildren；静态 Card 继续承担完整水墨视觉。
+    return std::move(card).With(
+        huxerui::Background(islands.raised),
+        huxerui::CornerRadius(islands.nested_radius),
+        huxerui::Padding(islands.island_padding));
+}
+
 [[huxerui::composable]] huxerui::View DialogCard(huxerui::View content) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     const IslandTheme islands = ResolveIslandTheme(theme);

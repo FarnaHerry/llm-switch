@@ -26,7 +26,7 @@ using provider_detail::WriteUsageCache;
                                                    huxerui::State<int> revision) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     const IslandTheme islands = ResolveIslandTheme(theme);
-    return Card(huxerui::Row {
+    return ListCard(huxerui::Row {
         huxerui::Column {
             huxerui::Row {
                 huxerui::Text(std::string(models::officialVendorName(tool)))
@@ -145,7 +145,7 @@ using provider_detail::WriteUsageCache;
 
     // 三段式：左信息列（Grow 吃满剩余宽度）｜ 中间状态列（延迟 + 用量，
     // 垂直居中落在内容与操作组之间）｜ 右侧操作图标组（自绘图标 + Tooltip）。
-    return Card(huxerui::Row {
+    return ListCard(huxerui::Row {
         huxerui::Column {
             huxerui::Row {
                 huxerui::Text(name).Style(huxerui::TextStyle{
