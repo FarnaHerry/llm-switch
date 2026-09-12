@@ -23,8 +23,8 @@
 // 高级选项中覆盖完整模型列表 URL；平台异步请求完成后结果回 UI 线程写 State；拉取成功后模型行在按钮前出现 Select
 // 下拉，点选回填该行的模型字段（不弹窗）。
 // 用量查询：启用开关打开且 usageUrl 非空的卡片显示用量文本 + 手动刷新按钮；AgentPage
-// 共享缓存，且只允许一个保留页启动按 config 的 usageRefreshMinutes
-// 轮询，避免 Pager 保留多页后重复请求。
+// 共享缓存，且只允许一个保留页启动轮询；刷新间隔按供应商独立配置，避免 Pager
+// 保留多页后重复请求。
 //
 // 数据流：所有 store 读写都在 UI 线程（store 无内部锁，UI 线程独占是契约；
 // live 文件读写为微秒级本地 IO，不经任务线程）。写操作后 revision+1，
@@ -37,6 +37,7 @@
 #include <array>
 #include <chrono>
 #include <map>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -123,36 +124,73 @@ using provider_detail::WriteUsageCache;
         target);
 
     // 用量缓存由 AgentPage 共享；自动轮询只由第一个保留页启动（TaskScope
-    // 随 Agent 页卸载取消）。每个周期在 UI 线程重读 config：
-    // usageRefreshMinutes>0 时立即拉一轮所有启用且配置了 usageUrl 的供应商（全部分组，
-    // 不只当前工具）再睡一个间隔；仅手动时按 30s 轻量再检查（设置页改动至多
-    // 30s 生效，避免睡死在一个长间隔里）。State 只在 UI 线程写。
+    // 随 Agent 页卸载取消）。每次在 UI 线程重读全部 Provider：仅启用且配置了
+    // usageUrl、usageRefreshMinutes>0 的供应商进入调度，各自到期后顺序拉取；
+    // 最多 30s 重读一次配置，使配置页修改及时生效。State 只在 UI 线程写。
     huxerui::Lifecycle(
         [tasks, usageCache, http, enableUsagePolling] {
             if (enableUsagePolling) {
                 tasks.Launch([usageCache, http]() -> huxerui::Task<void> {
+                    struct UsageSchedule {
+                        int intervalMinutes = 0;
+                        std::chrono::steady_clock::time_point nextRun;
+                    };
+                    std::map<std::string, UsageSchedule> schedules;
                     while (true) {
+                        const auto now = std::chrono::steady_clock::now();
+                        const auto configurationCheck =
+                            now + std::chrono::seconds{30};
+                        auto nextWake = configurationCheck;
+                        std::set<std::string> activeIds;
+                        std::vector<models::Provider> due;
                         const auto& config = providerStore().config();
-                        if (config.usageRefreshMinutes <= 0) {
-                            co_await huxerui::Delay(
-                                std::chrono::duration<double>{30});
-                            continue;
-                        }
-                        std::vector<models::Provider> targets;
                         for (const auto& [toolId, grp] : config.groups) {
                             for (const auto& p : grp.providers) {
-                                if (p.usageEnabled && !p.usageUrl.empty()) {
-                                    targets.push_back(p);
+                                if (!p.usageEnabled || p.usageUrl.empty() ||
+                                    p.usageRefreshMinutes <= 0) {
+                                    continue;
                                 }
+                                activeIds.insert(p.id);
+                                auto [it, inserted] = schedules.try_emplace(
+                                    p.id,
+                                    UsageSchedule{p.usageRefreshMinutes, now});
+                                if (!inserted && it->second.intervalMinutes !=
+                                                        p.usageRefreshMinutes) {
+                                    it->second.intervalMinutes =
+                                        p.usageRefreshMinutes;
+                                    it->second.nextRun = now;
+                                }
+                                if (it->second.nextRun <= now) {
+                                    due.push_back(p);
+                                    it->second.nextRun =
+                                        now + std::chrono::minutes{
+                                            it->second.intervalMinutes};
+                                }
+                                nextWake = std::min(nextWake, it->second.nextRun);
+                            }
+                        }
+                        for (auto it = schedules.begin(); it != schedules.end();) {
+                            if (!activeIds.contains(it->first)) {
+                                it = schedules.erase(it);
+                            } else {
+                                ++it;
                             }
                         }
                         // 顺序拉取（每次最长 10s），每个完成即回写缓存。
-                        for (const auto& p : targets) {
+                        for (const auto& p : due) {
                             WriteUsageCache(usageCache, p.id,
                                             co_await FetchUsageText(http, p));
                         }
-                        co_await huxerui::Delay(std::chrono::duration<double>{
-                            config.usageRefreshMinutes * 60.0});
+                        const auto afterRequests =
+                            std::chrono::steady_clock::now();
+                        if (nextWake <= afterRequests) {
+                            co_await huxerui::Delay(
+                                std::chrono::duration<double>{1.0});
+                        } else {
+                            co_await huxerui::Delay(
+                                std::chrono::duration<double>{nextWake -
+                                                              afterRequests});
+                        }
                     }
                 });
             }

@@ -556,6 +556,7 @@ int main() {
                             .baseUrl = "https://api.deepseek.com/v1",
                             .apiKey = "sk-usage",
                             .usageEnabled = true,
+                            .usageRefreshMinutes = 5,
                             .usageUrl = "https://api.deepseek.com/user/balance",
                             .usagePath = "balance_infos.0.total_balance",
                             .usageLabel = "CNY"};
@@ -567,19 +568,31 @@ int main() {
             if (p.id == idU) {
                 found = true;
                 CHECK(p.usageEnabled);
+                CHECK(p.usageRefreshMinutes == 5);
                 CHECK(p.usageUrl == "https://api.deepseek.com/user/balance");
                 CHECK(p.usagePath == "balance_infos.0.total_balance");
                 CHECK(p.usageLabel == "CNY");
             }
         }
         CHECK(found);
-        // 全局只保留刷新间隔；是否查询由每个 Provider.usageEnabled 控制。
-        CHECK(reloaded.config().usageRefreshMinutes == 10);
-        reloaded.setUsageRefreshMinutes(0);
-        auto again = store::ProviderStore::load();
-        CHECK(again.config().usageRefreshMinutes == 0);
-        // 恢复默认，不干扰后续用例
-        again.setUsageRefreshMinutes(10);
+        // 是否查询与刷新间隔均由每个 Provider 独立保存。
+        auto updated = std::ranges::find(reloaded.group("claude-code").providers,
+                                         idU, &models::Provider::id);
+        CHECK(updated != reloaded.group("claude-code").providers.end());
+        if (updated != reloaded.group("claude-code").providers.end()) {
+            auto updatedProvider = *updated;
+            updatedProvider.usageRefreshMinutes = 0;
+            reloaded.updateProvider("claude-code", updatedProvider);
+            const auto again = store::ProviderStore::load();
+            const auto updatedAgain =
+                std::ranges::find(again.group("claude-code").providers, idU,
+                                  &models::Provider::id);
+            CHECK(updatedAgain != again.group("claude-code").providers.end());
+            if (updatedAgain != again.group("claude-code").providers.end()) {
+                CHECK(updatedAgain->usageRefreshMinutes == 0);
+            }
+            CHECK(!models::toJson(again.config()).contains("usageRefreshMinutes"));
+        }
     }
 
     // 路由工具开关：旧配置默认全开，显式空数组保持全关；setter 立即持久化。
@@ -879,7 +892,8 @@ int main() {
     writeFile(cfg::configFile(), R"json({
   "claude": {"providers": [{"id": "old-1", "name": "旧Claude", "baseUrl": "https://old.example.com", "apiKey": "sk-old"}], "current": "old-1"},
   "codex": {"providers": [{"id": "old-2", "name": "旧Codex", "apiKey": "sk-old-codex"}], "current": ""},
-  "themeMode": "dark"
+  "themeMode": "dark",
+  "usageRefreshMinutes": 5
 }
 )json");
     {
@@ -890,8 +904,10 @@ int main() {
         CHECK(migrated.group("codex").providers.size() == 1);
         CHECK(migrated.group("codex").providers[0].id == "old-2");
         CHECK(migrated.config().themeMode == "dark");
-        // 旧文件无 usage 字段 → 默认刷新间隔
-        CHECK(migrated.config().usageRefreshMinutes == 10);
+        // 旧版本的全局刷新间隔迁移到旧 Provider。
+        CHECK(migrated.group("claude-code").providers[0].usageRefreshMinutes ==
+              5);
+        CHECK(migrated.group("codex").providers[0].usageRefreshMinutes == 5);
     }
 
     // 17. 损坏的 config.json → load 不崩溃，坏文件被挪到 .corrupt-<时间戳>

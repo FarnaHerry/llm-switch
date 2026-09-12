@@ -23,6 +23,18 @@ using provider_detail::FetchModelIdsWithFallback;
 
 namespace {
 
+// 用量查询刷新间隔选项（0 = 仅手动）；刷新周期属于 Provider，不再是全局设置。
+const std::vector<huxerui::StringVariant> kUsageIntervals{
+    "1 分钟", "5 分钟", "10 分钟", "30 分钟", "仅手动"};
+const std::vector<int> kUsageMinutes{1, 5, 10, 30, 0};
+
+int UsageIntervalIndex(int minutes) {
+    for (std::size_t i = 0; i < kUsageMinutes.size(); ++i) {
+        if (kUsageMinutes[i] == minutes) return static_cast<int>(i);
+    }
+    return 2;  // 未知值按默认「10 分钟」显示
+}
+
 // 表单字段集合：新增/编辑共用一组 State 句柄（State 是可拷贝句柄，
 // 归打开表单页的组合作用域所有）。upstreamFormat 为上游 URL 格式下标
 // （0=Anthropic，1=OpenAI）；fullUrl 打开时 URL 原样使用，不追加默认后缀。
@@ -32,7 +44,7 @@ namespace {
 // hasModelMappings 工具展示）每档包含菜单显示名、实际请求模型和
 // supports1m 声明。各模型下拉只保留搜索值：选中后清空控件显示，实际模型
 // 始终由对应的 TextField 状态保存。
-// 用量查询三字段不在此——已拆到独立的 UsageFormPage（卡片 gauge 按钮进入）。
+// 用量查询配置不在此——已拆到独立的 UsageFormPage（卡片 gauge 按钮进入）。
 struct FormStates {
     huxerui::State<huxerui::TextEditingValue> name;
     huxerui::State<huxerui::TextEditingValue> baseUrl;
@@ -534,7 +546,7 @@ void ReplaceModelList(const huxerui::StateList<std::string>& destination,
                     fs.apiFormat = static_cast<int>(index);
                 }));
     }
-    // 用量查询三字段不在这里——卡片 gauge 按钮进 UsageFormPage 独立配置。
+    // 用量查询配置不在这里——卡片 gauge 按钮进 UsageFormPage 独立配置。
     if (isCodex) {
         fields.push_back(
             huxerui::Text("config.toml 原文（可选；切换时整体替换）")
@@ -616,6 +628,7 @@ void ReplaceModelList(const huxerui::StateList<std::string>& destination,
                         p.opusSupports1m = fs.opusSupports1m.Get();
                         // 用量查询配置归 UsageFormPage 管，编辑保留原值。
                         p.usageEnabled = initial.usageEnabled;
+                        p.usageRefreshMinutes = initial.usageRefreshMinutes;
                         p.usageUrl = initial.usageUrl;
                         p.usagePath = initial.usagePath;
                         p.usageLabel = initial.usageLabel;
@@ -662,6 +675,8 @@ void ReplaceModelList(const huxerui::StateList<std::string>& destination,
     auto usageLabel =
         huxerui::UseState(huxerui::TextEditingValue{initial.usageLabel});
     auto usageEnabled = huxerui::UseState(initial.usageEnabled);
+    auto usageInterval =
+        huxerui::UseState(UsageIntervalIndex(initial.usageRefreshMinutes));
 
     // 返回列表（写 formTarget 会卸载点击路径上的节点：推迟出指针事件路径）。
     auto goBack = [tasks, formTarget] {
@@ -680,6 +695,17 @@ void ReplaceModelList(const huxerui::StateList<std::string>& destination,
         huxerui::Switch(usageEnabled.Get())
             .OnChanged([usageEnabled](bool enabled) {
                 usageEnabled = enabled;
+            }),
+    }.With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)));
+    fields.push_back(huxerui::Row {
+        huxerui::Text("自动刷新间隔")
+            .Style(huxerui::TextStyle{huxerui::Font::System(font_size::kBody),
+                                      theme.colors.on_surface}),
+        huxerui::Spacer(),
+        huxerui::SegmentedButton(
+            kUsageIntervals, static_cast<std::size_t>(usageInterval.Get()))
+            .OnChanged([usageInterval](std::size_t index) {
+                usageInterval = static_cast<int>(index);
             }),
     }.With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)));
     fields.push_back(huxerui::Row {
@@ -720,7 +746,7 @@ void ReplaceModelList(const huxerui::StateList<std::string>& destination,
             usageLabel = v;
         }));
     fields.push_back(huxerui::Text(
-        "每个供应商单独控制是否查询；自动轮询间隔在「设置」页配置，查询带供应商 API Key 做 Bearer 鉴权。")
+        "开关、刷新间隔和查询端点均按供应商单独保存；查询带供应商 API Key 做 Bearer 鉴权。")
         .Style(huxerui::TextStyle{
             huxerui::Font::System(font_size::kCaption),
             theme.colors.on_surface_variant}));
@@ -749,6 +775,9 @@ void ReplaceModelList(const huxerui::StateList<std::string>& destination,
                         }
                         models::Provider p = initial;
                         p.usageEnabled = usageEnabled.Get();
+                        p.usageRefreshMinutes =
+                            kUsageMinutes[static_cast<std::size_t>(
+                                usageInterval.Get())];
                         p.usageUrl = url;
                         p.usagePath = path;
                         p.usageLabel = usageLabel.Get().text;

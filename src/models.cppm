@@ -125,6 +125,7 @@ export struct Provider {
                                   // "openai-responses" / "anthropic"
     // 用量查询（可选；usageEnabled 关闭或 usageUrl 为空 = 不查）：
     bool usageEnabled = false;
+    int usageRefreshMinutes = 10;  // 0 = 仅手动刷新
     std::string usageUrl;    // 用量查询端点（GET + Bearer）
     std::string usagePath;   // 响应 JSON 点分取值路径（支持数组下标，如
                              // balance_infos.0.total_balance）
@@ -151,9 +152,6 @@ export struct AppConfig {
     // 用 map 而非固定字段，新增工具不改序列化结构。
     std::map<std::string, ProviderGroup> groups;
     std::string themeMode = "system";  // system / dark / light
-    // 用量查询刷新设置（Provider.usageEnabled 且 usageUrl 非空的供应商才参与）；
-    // 0 = 仅手动刷新。
-    int usageRefreshMinutes = 10;
     // 本地路由（llmswitch.router）设置：
     bool routerEnabled = false;    // 启动应用时自动开启本地路由
     int routerPort = 15731;        // 监听 127.0.0.1:<port>
@@ -190,6 +188,7 @@ export nlohmann::json toJson(const Provider& p) {
     j["codexConfigToml"] = p.codexConfigToml;
     j["apiFormat"] = p.apiFormat;
     j["usageEnabled"] = p.usageEnabled;
+    j["usageRefreshMinutes"] = p.usageRefreshMinutes;
     j["usageUrl"] = p.usageUrl;
     j["usagePath"] = p.usagePath;
     j["usageLabel"] = p.usageLabel;
@@ -225,6 +224,7 @@ export Provider providerFromJson(const nlohmann::json& j) {
     p.usageEnabled = j.contains("usageEnabled")
                           ? j.value("usageEnabled", false)
                           : !j.value("usageUrl", "").empty();
+    p.usageRefreshMinutes = j.value("usageRefreshMinutes", 10);
     p.usageUrl = j.value("usageUrl", "");
     p.usagePath = j.value("usagePath", "");
     p.usageLabel = j.value("usageLabel", "");
@@ -285,16 +285,26 @@ export nlohmann::json toJson(const ProviderGroup& g) {
     return j;
 }
 
-export ProviderGroup groupFromJson(const nlohmann::json& j) {
+ProviderGroup groupFromJsonWithUsageFallback(
+    const nlohmann::json& j, std::optional<int> legacyUsageMinutes) {
     ProviderGroup g;
     if (!j.is_object()) return g;
     if (j.contains("providers") && j["providers"].is_array()) {
         for (const auto& item : j["providers"]) {
-            g.providers.push_back(providerFromJson(item));
+            Provider provider = providerFromJson(item);
+            if (legacyUsageMinutes.has_value() && item.is_object() &&
+                !item.contains("usageRefreshMinutes")) {
+                provider.usageRefreshMinutes = *legacyUsageMinutes;
+            }
+            g.providers.push_back(std::move(provider));
         }
     }
     g.current = j.value("current", "");
     return g;
+}
+
+export ProviderGroup groupFromJson(const nlohmann::json& j) {
+    return groupFromJsonWithUsageFallback(j, std::nullopt);
 }
 
 export nlohmann::json toJson(const AppConfig& c) {
@@ -304,7 +314,6 @@ export nlohmann::json toJson(const AppConfig& c) {
         j["groups"][id] = toJson(g);
     }
     j["themeMode"] = c.themeMode;
-    j["usageRefreshMinutes"] = c.usageRefreshMinutes;
     j["routerEnabled"] = c.routerEnabled;
     j["routerPort"] = c.routerPort;
     j["routerFailover"] = c.routerFailover;
@@ -315,23 +324,30 @@ export nlohmann::json toJson(const AppConfig& c) {
 export AppConfig fromJson(const nlohmann::json& j) {
     AppConfig c;
     if (!j.is_object()) return c;
+    // 旧版本把刷新间隔保存在 AppConfig；首次读取时迁移到没有新字段的
+    // Provider，之后保存的配置不再写回全局字段。
+    const std::optional<int> legacyUsageMinutes =
+        j.contains("usageRefreshMinutes")
+            ? std::optional<int>{j.value("usageRefreshMinutes", 10)}
+            : std::nullopt;
     // 新格式：{"groups": {"<toolId>": {...}}}。
     if (j.contains("groups") && j["groups"].is_object()) {
         for (auto it = j["groups"].begin(); it != j["groups"].end(); ++it) {
-            c.groups[it.key()] = groupFromJson(it.value());
+            c.groups[it.key()] =
+                groupFromJsonWithUsageFallback(it.value(), legacyUsageMinutes);
         }
     }
     // 旧格式迁移（v1：顶层 "claude" / "codex" 两个固定组）；新格式已有的键
     // 优先，旧键只补空缺。
     if (j.contains("claude") && !c.groups.contains("claude-code")) {
-        c.groups["claude-code"] = groupFromJson(j["claude"]);
+        c.groups["claude-code"] =
+            groupFromJsonWithUsageFallback(j["claude"], legacyUsageMinutes);
     }
     if (j.contains("codex") && !c.groups.contains("codex")) {
-        c.groups["codex"] = groupFromJson(j["codex"]);
+        c.groups["codex"] =
+            groupFromJsonWithUsageFallback(j["codex"], legacyUsageMinutes);
     }
     c.themeMode = j.value("themeMode", "system");
-    // 旧配置缺字段 → 默认值。
-    c.usageRefreshMinutes = j.value("usageRefreshMinutes", 10);
     c.routerEnabled = j.value("routerEnabled", false);
     c.routerPort = j.value("routerPort", 15731);
     c.routerFailover = j.value("routerFailover", true);

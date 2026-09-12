@@ -1,8 +1,8 @@
 // settings_page.cpp — 设置页：外观主题用单个太极选择器循环切换
 // 跟随系统/玄墨/宣纸（平衡/玄墨突出/宣纸突出，悬停旋转且移出冻结角度），
-// 存 AppConfig.themeMode 的 system/dark/light 并即时生效；用量查询刷新间隔
-// usageRefreshMinutes（变更即落盘）、Claude Code 安装检查、live 配置文件路径展示、
-// 导入/导出、关于。
+// 存 AppConfig.themeMode 的 system/dark/light 并即时生效；Claude Code 安装检查、
+// live 配置文件路径展示、导入/导出、关于。用量查询开关与刷新间隔在各供应商
+// 的独立用量配置页维护。
 //
 // 导入/导出优先走 FilePicker 系统文件对话框（SaveFileAsync/OpenFileAsync）；
 // 平台不可用（CanSaveFiles/CanOpenFiles 为 false，如无 xdg-desktop-portal）时
@@ -19,7 +19,6 @@
 #include "app_resources.h"
 
 import llmswitch.config;
-import llmswitch.models;
 import llmswitch.store;
 
 namespace llmswitch::ui {
@@ -101,18 +100,6 @@ bool ResolvesToDark(int mode) {
         });
 }
 
-// 用量查询刷新间隔选项（下标 ↔ AppConfig.usageRefreshMinutes 分钟数，0=仅手动）。
-const std::vector<huxerui::StringVariant> kUsageIntervals{
-    "1 分钟", "5 分钟", "10 分钟", "30 分钟", "仅手动"};
-const std::vector<int> kUsageMinutes{1, 5, 10, 30, 0};
-
-int UsageIntervalIndex(int minutes) {
-    for (std::size_t i = 0; i < kUsageMinutes.size(); ++i) {
-        if (kUsageMinutes[i] == minutes) return static_cast<int>(i);
-    }
-    return 4;  // 未知值按「仅手动」显示
-}
-
 // 版本号编译期常量由顶层 CMake 注入（hcg 不支持 composable 内条件编译，
 // 字符串在文件作用域先拼好）。
 const std::string kAboutText =
@@ -169,8 +156,6 @@ const std::string kAboutText =
     const auto picker = huxerui::UseService<huxerui::FilePicker>();
     auto lastExport = huxerui::UseState<std::string>({});
     auto importPath = huxerui::UseState(huxerui::TextEditingValue{""});
-    auto usageInterval = huxerui::UseState(
-        UsageIntervalIndex(providerStore().config().usageRefreshMinutes));
     auto claudeCodeSkipInstallationChecks =
         huxerui::UseState(providerStore().claudeCodeSkipInstallationChecks());
 
@@ -262,22 +247,6 @@ const std::string kAboutText =
                     SettingRow(
                         "主题", "",
                         TaijiThemeSelector(themeMode)),
-                }.With(huxerui::Spacing(10.0F),
-                       huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))),
-
-                Card(huxerui::Column {
-                    SectionTitle("用量查询"),
-                    SettingRow(
-                        "自动刷新间隔",
-                        "「仅手动」时只在供应商卡片上点「刷新」才查询",
-                        huxerui::SegmentedButton(
-                            kUsageIntervals,
-                            static_cast<std::size_t>(usageInterval.Get()))
-                            .OnChanged([usageInterval](std::size_t idx) {
-                                usageInterval = static_cast<int>(idx);
-                                providerStore().setUsageRefreshMinutes(
-                                    kUsageMinutes[idx]);
-                            })),
                 }.With(huxerui::Spacing(10.0F),
                        huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))),
 

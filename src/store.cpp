@@ -574,11 +574,6 @@ void ProviderStore::setThemeMode(std::string mode) {
     save();
 }
 
-void ProviderStore::setUsageRefreshMinutes(int minutes) {
-    config_.usageRefreshMinutes = minutes;
-    save();
-}
-
 bool ProviderStore::claudeCodeSkipInstallationChecks() const {
     const auto settings = readJsonPassive(cfg::claudeSettingsFile());
     const std::string value =

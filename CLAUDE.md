@@ -104,7 +104,7 @@ commit，不回滚已经验证的修改，并在最终回复中报告失败原�
 | `llmswitch.mcp` | `src/mcp.cppm` + `src/mcp.cpp` | MCP 服务器统一清单（SSOT = dataDir()/mcp.json）；启停 = 写/删工具 live 配置条目：claude-code → ~/.claude.json 顶层 mcpServers 深合并、codex → config.toml 行级 [mcp_servers.*] section 重写、opencode → opencode.json 顶层 mcp；claude/pi 不支持（抛中文错） |
 | `llmswitch.skills` | `src/skills.cppm` + `src/skills.cpp` | Skills 中央库（dataDir()/skills-store/<name>/：SKILL.md + 附带文件）+ create_symlink 同步到 ~/.claude/skills 与 ~/.codex/skills；合并视图（中央库/已链接/仅工具侧） |
 | `llmswitch.sessions` | `src/sessions.cppm` + `src/sessions.cpp` | 历史会话扫描：~/.claude/projects/<项目>/*.jsonl 与 ~/.codex/sessions/<年>/<月>/<日>/*.jsonl；列表只枚举 mtime/size 等元数据，VirtualList 可见行按需读取头尾固定大小摘要；删除（限已知 sessions 根之下，越界抛错）/导出/详情全文读取；摘要 best-effort，详情按需解析 |
-| `llmswitch::ui`（普通 C++） | `src/ui/*.cpp` | app（壳：太极水墨主题 InkDark「玄墨」/InkLight「宣纸」+标题栏太极标+顶级 8 区块图标侧栏+IndexedPages+托盘（太极图图标）+关闭最小化到托盘+路由自启）/ agent_page（薄宿主：持 currentTool State + ProvidersPage .Key(tool) 宿主）/ router_page（路由总开关+逐 Agent 代理开关+已启用接入地址+最近请求日志，含 routerInstance() 单例）/ stats_page（统计汇总）/ mcp_page / skills_page / sessions_page（会话管理：过滤用图标组——全部/Claude Code/Codex 与 Agent 页同套图标+选中底块；列表扫描只加载文件元数据，可见行再异步加载固定大小摘要，扫描/导出/删除/详情全文读取全程 RunWorker 入 worker 线程；列表与详情用 IndexedPages 保留挂载状态，完整消息用 StateList + VirtualList 虚拟化，详情按角色左右对齐，加载请求代次阻止旧结果覆盖新筛选或详情）/ about_page（关于，顶部太极 logo 卡）/ common（岛屿原语、页面骨架/卡片/弹窗卡片、providerStore() 全局实例、ToolIcon 图标资源对）/ providers_page（5 工具共用供应商页：工具图标栏在岛屿内部顶部（ToolBar）+ 官方常驻卡首位 + 卡片列表，卡片三段式：左信息列 ｜ 中间状态列（延迟/用量，内容与操作组之间，空则塌缩）｜ 右操作图标组（切换/联通检测/编辑/用量配置/复制/删除为自绘图标 IconButton + Tooltip，swap/activity/edit/gauge/copy/trash.svg，用量刷新 refresh.svg），模型列表/用量/连通检测经 HuxerUI HttpClient；编辑/新增是整页表单 ProviderFormPage（完整 URL switch + 上游格式 Select；关闭 switch 时按格式追加 /anthropic 或 /v1），用量查询配置是独立整页 UsageFormPage（每个供应商独立 usageEnabled switch，统一配置 usageRefreshMinutes 轮询间隔；formTarget 多模式：""/"new"/"usage:"+id/id），新增页内嵌预设区、模型行内 Select 下拉 + 卡片用量显示/轮询）/ settings_page（主题/用量间隔/路径/导入导出/关于）/ ui.h（内部声明） |
+| `llmswitch::ui`（普通 C++） | `src/ui/*.cpp` | app（壳：太极水墨主题 InkDark「玄墨」/InkLight「宣纸」+标题栏太极标+顶级 8 区块图标侧栏+IndexedPages+托盘（太极图图标）+关闭最小化到托盘+路由自启）/ agent_page（薄宿主：持 currentTool State + ProvidersPage .Key(tool) 宿主）/ router_page（路由总开关+逐 Agent 代理开关+已启用接入地址+最近请求日志，含 routerInstance() 单例）/ stats_page（统计汇总）/ mcp_page / skills_page / sessions_page（会话管理：过滤用图标组——全部/Claude Code/Codex 与 Agent 页同套图标+选中底块；列表扫描只加载文件元数据，可见行再异步加载固定大小摘要，扫描/导出/删除/详情全文读取全程 RunWorker 入 worker 线程；列表与详情用 IndexedPages 保留挂载状态，完整消息用 StateList + VirtualList 虚拟化，详情按角色左右对齐，加载请求代次阻止旧结果覆盖新筛选或详情）/ about_page（关于，顶部太极 logo 卡）/ common（岛屿原语、页面骨架/卡片/弹窗卡片、providerStore() 全局实例、ToolIcon 图标资源对）/ providers_page（5 工具共用供应商页：工具图标栏在岛屿内部顶部（ToolBar）+ 官方常驻卡首位 + 卡片列表，卡片三段式：左信息列 ｜ 中间状态列（延迟/用量，内容与操作组之间，空则塌缩）｜ 右操作图标组（切换/联通检测/编辑/用量配置/复制/删除为自绘图标 IconButton + Tooltip，swap/activity/edit/gauge/copy/trash.svg，用量刷新 refresh.svg），模型列表/用量/连通检测经 HuxerUI HttpClient；编辑/新增是整页表单 ProviderFormPage（完整 URL switch + 上游格式 Select；关闭 switch 时按格式追加 /anthropic 或 /v1），用量查询配置是独立整页 UsageFormPage（每个供应商独立 usageEnabled switch 与 usageRefreshMinutes，统一配置字段；formTarget 多模式：""/"new"/"usage:"+id/id），新增页内嵌预设区、模型行内 Select 下拉 + 卡片用量显示/轮询）/ settings_page（主题/路径/导入导出/关于）/ ui.h（内部声明） |
 | `src/app.cpp` | 普通 TU | `Application{AppRoot, AppOptions}`（Custom chrome，标题栏 24pt，1080×720 / min 800×600） |
 | 平台入口 | `platform/{linux,windows,macos}/main.cpp` | 薄入口 `huxerui::RunApplication()`（无 CLI 分流；顶层 CMake 按 WIN32/APPLE/Linux 分支选用） |
 
@@ -142,9 +142,9 @@ commit，不回滚已经验证的修改，并在最终回复中报告失败原�
   `openai`，关闭 `fullUrl` 时 `effectiveBaseUrl` 分别追加 `/anthropic` 或
   `/v1`；`fullUrl` 打开时保留输入地址原样。缺少新字段的旧配置按完整 URL
   兼容，避免历史地址重复追加。
-- **用量查询**：Provider.usageEnabled + usageUrl/usagePath/usageLabel（开关关闭或
-  usageUrl 空 = 不查）+ 全局 AppConfig.usageRefreshMinutes（0=仅手动，旧配置缺字段
-  自动取默认 10）；每个供应商在独立用量配置页控制开关，HuxerUI HttpClient 异步 GET 后由 `extractByPath` 按点分
+- **用量查询**：Provider.usageEnabled + usageRefreshMinutes + usageUrl/usagePath/usageLabel
+  （开关关闭或 usageUrl 空 = 不查，刷新间隔 0 = 仅手动，旧配置缺字段自动取默认
+  10）；每个供应商在独立用量配置页控制开关和刷新间隔，HuxerUI HttpClient 异步 GET 后由 `extractByPath` 按点分
   路径（支持数组下标）取标量；`suggestUsageQuery` 只内置有官方文档的
   DeepSeek（/user/balance）。UI 侧：用量三字段在独立的 UsageFormPage
   （卡片 gauge 图标进入，formTarget = "usage:" + id；启用开关 + 编辑表单只保留其余
@@ -342,8 +342,8 @@ I/O、解析和 JSON 函数默认保留在 `.cpp` 中。
   - apiFormat 三档化（openai-chat / openai-responses / anthropic，
     models::normalizeApiFormat + apiFormatLabel；opencode npm 与 pi api
     映射同步三档）。
-  - 用量查询：Provider.usageEnabled + usageUrl/usagePath/usageLabel + net::fetchUsage /
-    extractByPath + 全局 usageRefreshMinutes + DeepSeek 内置
+  - 用量查询：Provider.usageEnabled + usageRefreshMinutes + usageUrl/usagePath/usageLabel +
+    net::fetchUsage / extractByPath + 各供应商独立轮询 + DeepSeek 内置
     模板 suggestUsageQuery + 卡片用量显示与页面轮询（RunWorker）。
   - AppConfig 新增 routerEnabled / routerPort（15731）/ routerFailover +
     store setter；路由自启在 AppRoot 首组合 Lifecycle。
