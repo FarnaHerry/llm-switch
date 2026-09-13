@@ -53,6 +53,11 @@ public:
     void addProvider(std::string_view tool, models::Provider provider);
     // 按 provider.id 整体替换；不存在抛异常。
     void updateProvider(std::string_view tool, const models::Provider& provider);
+    // ZCode 专用：把 provider 原位同步成 config.json 里的 llmswitch:<id>
+    // 条目（不存在则创建），启用状态保持不变——新增/编辑供应商后无需切换
+    // 即与 ZCode 页面一一对应；启用互斥仍只在 switchTo 时发生。写失败抛
+    // std::runtime_error。
+    void upsertZcodeEntry(const models::Provider& provider);
     // 删除；删掉的是 current 时 current 置空。
     void removeProvider(std::string_view tool, const std::string& id);
     // 复制一份（新 id、名称加「（副本）」），插在原项之后并返回副本。

@@ -616,6 +616,34 @@ int main() {
             }
             CHECK(dupCount == 2);
         }
+
+        // 保存即同步 ZCode 条目：新增建条目（未启用），编辑原位更新并保持
+        // 启用状态（启用互斥只在切换时发生）。
+        {
+            models::Provider pn{.name = "保存同步",
+                                .baseUrl = "https://sync.example.com",
+                                .apiKey = "sk-sync",
+                                .models = {"sm1"},
+                                .apiFormat = "openai-chat"};
+            s.addProvider("zcode", pn);
+            const std::string idN = s.group("zcode").providers.back().id;
+            {
+                const auto doc = readJson(zcodeConfig);
+                const auto& entry = doc["provider"]["llmswitch:" + idN];
+                CHECK(entry["enabled"] == false);
+                CHECK(entry["models"].contains("sm1"));
+            }
+            s.switchTo("zcode", idN);
+            models::Provider edited = s.group("zcode").providers.back();
+            edited.models = {"sm1", "sm2"};
+            s.updateProvider("zcode", edited);
+            {
+                const auto doc = readJson(zcodeConfig);
+                const auto& entry = doc["provider"]["llmswitch:" + idN];
+                CHECK(entry["enabled"] == true);
+                CHECK(entry["models"].contains("sm2"));
+            }
+        }
     }
     // 默认档（apiFormat 留空）→ openai-completions
     {

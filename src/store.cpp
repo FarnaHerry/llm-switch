@@ -621,6 +621,38 @@ std::string importId(const models::ProviderGroup& g, const std::string& preferre
     return generateId();
 }
 
+// ZCode provider 条目（config.json 的 provider map 值）：字段与 ZCode 自建
+// 条目一一对应。enabled 由调用方决定（switchTo 置 true 并互斥；保存同步
+// 保留原值）。
+nlohmann::json buildZcodeEntry(const models::Provider& target,
+                               const std::string& baseUrl) {
+    nlohmann::json entry;
+    entry["name"] = target.name;
+    entry["kind"] = models::normalizeApiFormat(target.apiFormat) == "anthropic"
+                        ? "anthropic"
+                        : "openai";
+    entry["options"]["apiKey"] = target.apiKey;
+    entry["options"]["baseURL"] = baseUrl;
+    entry["source"] = "custom";
+    // models 是不定长清单。ZCode 的存储结构里没有主模型概念（条目只有
+    // 模型清单，选模型是运行时行为），所以只写清单本身——不把主模型强行
+    // 塞进去；清单为空而主模型非空时退化为单模型清单。
+    if (!target.models.empty() || !target.model.empty()) {
+        nlohmann::json modelsMap = nlohmann::json::object();
+        const auto put = [&modelsMap](const std::string& id) {
+            modelsMap[id] = nlohmann::json::object(
+                {{"zcode", nlohmann::json::object({{"priority", 100}})}});
+        };
+        if (!target.models.empty()) {
+            for (const auto& id : target.models) put(id);
+        } else {
+            put(target.model);
+        }
+        entry["models"] = std::move(modelsMap);
+    }
+    return entry;
+}
+
 } // namespace
 
 models::ProviderGroup& ProviderStore::groupRef(std::string_view tool) {
@@ -734,6 +766,7 @@ void ProviderStore::addProvider(std::string_view tool, models::Provider provider
     auto& g = groupRef(tool);
     if (provider.id.empty()) provider.id = generateId();
     if (provider.createdAt == 0) provider.createdAt = nowMillis();
+    if (tool == "zcode") upsertZcodeEntry(provider);
     g.providers.push_back(std::move(provider));
     save();
 }
@@ -745,10 +778,34 @@ void ProviderStore::updateProvider(std::string_view tool,
         if (cur.id == provider.id) {
             cur = provider;
             save();
+            if (tool == "zcode") upsertZcodeEntry(provider);
             return;
         }
     }
     throw std::runtime_error(std::format("供应商不存在：{}", provider.id));
+}
+
+// 保存同步：把 provider 原位写成 config.json 的 llmswitch:<id> 条目（不存
+// 在则创建，enabled 置 false），已存在时保持其 enabled——与 ZCode 页面的
+// 第三方供应商一一对应，无需切换即可改清单；启用互斥仍只在 switchTo 发生。
+void ProviderStore::upsertZcodeEntry(const models::Provider& provider) {
+    const auto file = cfg::zcodeConfigFile();
+    nlohmann::json doc = readJsonOrNull(file);
+    if (!doc.is_object()) doc = nlohmann::json::object();
+    if (!doc.contains("provider") || !doc["provider"].is_object()) {
+        doc["provider"] = nlohmann::json::object();
+    }
+    backupLiveFile("zcode", file);
+    const std::string entryKey = "llmswitch:" + provider.id;
+    nlohmann::json entry =
+        buildZcodeEntry(provider, models::effectiveBaseUrl(provider));
+    entry["enabled"] =
+        doc["provider"].contains(entryKey) &&
+                doc["provider"][entryKey].is_object()
+            ? doc["provider"][entryKey].value("enabled", false)
+            : false;
+    doc["provider"][entryKey] = std::move(entry);
+    atomicWrite(file, doc.dump(2) + "\n");
 }
 
 void ProviderStore::removeProvider(std::string_view tool, const std::string& id) {
@@ -913,8 +970,7 @@ void ProviderStore::switchTo(std::string_view tool, const std::string& id) {
         atomicWrite(settingsFile, settings.dump(2) + "\n");
     } else if (tool == "zcode") {
         // provider map upsert + enabled 互斥：写入 llmswitch:<id> 条目并停用
-        // 其余 provider；models map 写所选模型的最小条目（reasoning/limit 等
-        // 元数据由 ZCode 自行补全）；apiFormat 映射 provider.kind。
+        // 其余 provider；apiFormat 映射 provider.kind。
         const auto file = cfg::zcodeConfigFile();
         nlohmann::json doc = readJsonOrNull(file);
         if (!doc.is_object()) doc = nlohmann::json::object();
@@ -923,32 +979,9 @@ void ProviderStore::switchTo(std::string_view tool, const std::string& id) {
         }
         backupLiveFile(tool, file);
         const std::string entryKey = "llmswitch:" + target->id;
-        nlohmann::json entry;
-        entry["name"] = target->name;
-        entry["kind"] = models::normalizeApiFormat(target->apiFormat) == "anthropic"
-                            ? "anthropic"
-                            : "openai";
-        entry["options"]["apiKey"] = target->apiKey;
-        entry["options"]["baseURL"] = baseUrl;
+        nlohmann::json entry = buildZcodeEntry(*target, baseUrl);
         entry["enabled"] = true;
-        entry["source"] = "custom";
-        // models 是不定长清单。ZCode 的存储结构里没有主模型概念（条目只有
-        // 模型清单，选模型是运行时行为），所以只写清单本身——不把主模型
-        // 强行塞进去；清单为空而主模型非空时退化为单模型清单。
-        if (!target->models.empty() || !target->model.empty()) {
-            nlohmann::json modelsMap = nlohmann::json::object();
-            const auto put = [&modelsMap](const std::string& id) {
-                modelsMap[id] = nlohmann::json::object(
-                    {{"zcode", nlohmann::json::object({{"priority", 100}})}});
-            };
-            if (!target->models.empty()) {
-                for (const auto& id : target->models) put(id);
-            } else {
-                put(target->model);
-            }
-            entry["models"] = std::move(modelsMap);
-        }
-        doc["provider"][entryKey] = entry;
+        doc["provider"][entryKey] = std::move(entry);
         for (auto it = doc["provider"].begin(); it != doc["provider"].end(); ++it) {
             if (it.key() != entryKey && it.value().is_object()) {
                 it.value()["enabled"] = false;

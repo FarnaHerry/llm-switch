@@ -4,6 +4,7 @@
 #include <array>
 #include <chrono>
 #include <format>
+#include <functional>
 #include <string>
 #include <string_view>
 #include <unordered_set>
@@ -194,21 +195,24 @@ void ReplaceModelList(const huxerui::StateList<std::string>& destination,
 
 // 模型选择器：关闭时只有一个搜索图标；点击后由锚定 Popup 展开搜索框和模型
 // 列表，避免每一行都占用一个宽大的下拉输入框。点选回填目标模型字段；映射行
-// 还会同步回填菜单显示名，方便先选模型、再手动修改显示名称。
+// 还会同步回填菜单显示名，方便先选模型、再手动修改显示名称。onPicked 非空时
+// 点选后额外回调（清单添加行用它直接把所选模型加进清单）。
 [[huxerui::composable]] huxerui::View ModelSelect(
     huxerui::StateList<std::string> fetched,
     huxerui::State<huxerui::TextEditingValue> search,
     huxerui::State<huxerui::TextEditingValue> target,
-    huxerui::State<huxerui::TextEditingValue> displayTarget = {}) {
+    huxerui::State<huxerui::TextEditingValue> displayTarget = {},
+    std::function<void(const std::string&)> onPicked = {}) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     const IslandTheme islands = ResolveIslandTheme(theme);
     const auto popup = huxerui::UsePopup();
 
     return huxerui::IconButton(app::images::search, "选择模型")
-        .OnClick([popup, fetched, search, target, displayTarget, islands] {
+        .OnClick([popup, fetched, search, target, displayTarget, islands,
+                  onPicked = std::move(onPicked)] {
             popup.Show(
-                [fetched, search, target, displayTarget, islands](
-                    huxerui::PopupContext context) {
+                [fetched, search, target, displayTarget, islands,
+                 onPicked](huxerui::PopupContext context) {
                     const auto suggestions =
                         FilterModelIds(fetched, search.Get().text);
                     huxerui::View modelList = huxerui::Text("没有匹配的模型");
@@ -216,11 +220,12 @@ void ReplaceModelList(const huxerui::StateList<std::string>& destination,
                         modelList = huxerui::VirtualList(
                                         suggestions,
                                         [context, search, target,
-                                         displayTarget](const std::string& model) {
+                                         displayTarget, onPicked](const std::string& model) {
                                             return huxerui::Button(model)
                                                 .Key(model)
                                                 .OnClick([context, model, search,
-                                                          target, displayTarget] {
+                                                          target, displayTarget,
+                                                          onPicked] {
                                                     context.Dismiss();
                                                     const huxerui::TextEditingValue value{
                                                         model};
@@ -229,6 +234,9 @@ void ReplaceModelList(const huxerui::StateList<std::string>& destination,
                                                         displayTarget = value;
                                                     }
                                                     search = huxerui::TextEditingValue{};
+                                                    if (onPicked) {
+                                                        onPicked(model);
+                                                    }
                                                 });
                                         })
                                         .EstimatedItemExtent(40.0F)
@@ -290,15 +298,17 @@ void ReplaceModelList(const huxerui::StateList<std::string>& destination,
     }
     const FormStates fs LLMSWITCH_FORM_STATES_INIT(formInitial);
     const std::string editingId = isNew ? "" : initial.id;
-    // 「获取模型」拉取状态：fetching 驱动按钮加载态；fetchedModels 缓存本次
-    // 表单会话内最后一次拉取结果；非空时模型行出现下拉选择。初值用已保存的
-    // 完整模型清单（zcode 导入的不定长 models、上次拉取结果），编辑时不必
-    // 重新拉取即可看到并改选全部模型。必须走 UseStateList 初值重载（和
-    // UseState 一样只在首次组合生效）：在组合体里逐项 PushBack 会在每次
-    // 重组合时重复追加，弹出列表的重复 key 直接 abort。
+    // 「获取模型」拉取状态：fetching 驱动按钮加载态。fetchedModels 只是
+    // fetch 结果的选择源（供各选择弹层挑选），不直接变成清单；modelList
+    // 才是供应商的模型清单（zcode：唯一模型输入；其他工具：备选缓存），
+    // 初值 = 已保存清单，由逐条添加/移除维护。两个清单都必须走
+    // UseStateList 初值重载（和 UseState 一样只在首次组合生效）：在组合体
+    // 里逐项 PushBack 会在每次重组合时重复追加，弹出列表的重复 key 直接
+    // abort。
     auto fetching = huxerui::UseState(false);
-    auto fetchedModels = huxerui::UseStateList(DedupeModels(formInitial.models));
-    // 备选清单「添加」行的输入框。
+    auto fetchedModels = huxerui::UseStateList<std::string>();
+    auto modelList = huxerui::UseStateList(DedupeModels(formInitial.models));
+    // 清单「添加」行的输入框。
     auto addModel = huxerui::UseState(huxerui::TextEditingValue{});
     auto showModelFetchOptions =
         huxerui::UseState(!formInitial.modelFetchUrl.empty());
@@ -439,8 +449,10 @@ void ReplaceModelList(const huxerui::StateList<std::string>& destination,
         fields.push_back(std::move(keyView));
     }
     {
-        // needsModel（opencode / pi）：切换生效依赖默认模型，必填；codex 的
-        // 模型选填，切换时行级写入 config.toml 顶层 model 键。
+        // 模型输入：ZCode 条目只有模型清单、没有主模型概念（选模型是
+        // ZCode 运行时行为），zcode 页删除主模型行，模型清单即唯一输入；
+        // 其余工具保留主模型行（claude-code 另有 1M 勾选）。
+        const bool zcodeModels = tool == "zcode";
         const char* modelLabel = needsModel ? "模型（必填）"
             : tool == "claude-code"    ? "主模型（可选，写入 ANTHROPIC_MODEL）"
             : tool == "codex"
@@ -449,8 +461,8 @@ void ReplaceModelList(const huxerui::StateList<std::string>& destination,
         // 「获取模型」：默认使用表单当前的实际 URL/apiKey/上游格式（实际 URL
         // 会按完整 URL 开关与上游格式计算）；高级选项可覆盖模型列表完整地址。
         // HuxerUI HttpClient 使用平台原生异步网络，协程恢复点恒为 UI 线程，
-        // State 写回安全（State 只在 UI 线程写）。
-        // 成功后下拉出现在 TextField 与按钮之间，点选直接回填该行。
+        // State 写回安全（State 只在 UI 线程写）。结果只进选择源 fetchedModels，
+        // 由用户逐条挑选加入清单，不整包覆盖。
         const bool canFetch = !fetching.Get() && !fs.baseUrl.Get().text.empty() &&
                               !fs.apiKey.Get().text.empty();
         auto fetchButton = huxerui::Button(
@@ -488,37 +500,62 @@ void ReplaceModelList(const huxerui::StateList<std::string>& destination,
                   huxerui::Tooltip(canFetch
                                        ? "按模型获取 URL + API Key 拉取模型列表"
                                        : "请先填写 Base URL 与 API Key"));
-        fields.push_back(huxerui::Column {
-            huxerui::Row {
-                huxerui::TextField(fs.model.Get())
-                    .Label(modelLabel)
-                    .Variant(huxerui::TextFieldVariant::Outlined)
-                    .OnChanged([fs](const huxerui::TextEditingValue& v) {
-                        fs.model = v;
-                    })
-                    .With(huxerui::Grow(1.0F)),
-                fetchedModels.Empty()
-                    ? huxerui::View{huxerui::Row{}}
-                    : ModelSelect(fetchedModels, fs.modelSearch, fs.model),
-                huxerui::Checkbox("1M", fs.modelSupports1m.Get())
-                    .OnChanged([fs](bool checked) {
-                        fs.modelSupports1m = checked;
-                    }),
+        if (!zcodeModels) {
+            fields.push_back(huxerui::Column {
+                huxerui::Row {
+                    huxerui::TextField(fs.model.Get())
+                        .Label(modelLabel)
+                        .Variant(huxerui::TextFieldVariant::Outlined)
+                        .OnChanged([fs](const huxerui::TextEditingValue& v) {
+                            fs.model = v;
+                        })
+                        .With(huxerui::Grow(1.0F)),
+                    fetchedModels.Empty()
+                        ? huxerui::View{huxerui::Row{}}
+                        : ModelSelect(fetchedModels, fs.modelSearch, fs.model),
+                    huxerui::Checkbox("1M", fs.modelSupports1m.Get())
+                        .OnChanged([fs](bool checked) {
+                            fs.modelSupports1m = checked;
+                        }),
+                }.With(huxerui::Spacing(8.0F),
+                       huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
             }.With(huxerui::Spacing(8.0F),
-                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
-            huxerui::Row{std::move(fetchButton)}
-                .With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
-        }.With(huxerui::Spacing(8.0F),
-               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)));
-        // 备选模型清单：与下拉共用同一份 StateList（初值 = 已保存清单，
-        // 拉取/导入结果也落在这里），在此可手动增删；zcode 的模型备选就是
-        // 这份清单，保存后随切换全量写回。移除只动清单，不改主模型字段。
-        fields.push_back(huxerui::Text("备选模型（可增删）")
+                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)));
+        }
+        fields.push_back(huxerui::Row{std::move(fetchButton)}
+                             .With(huxerui::CrossAlign(
+                                 huxerui::CrossAxisAlignment::Center)));
+        // 清单添加：输入框手动填，或从选择源弹层点选直接加入一条；重复
+        // 提示，不清空已建清单。主模型字段为空时首个加入的模型顺便回填
+        // （仅非 zcode 工具展示主模型）。
+        const auto addToList = [modelList, addModel, fs, toast](
+                                   std::string id) {
+            const auto first = id.find_first_not_of(" \t");
+            if (first == std::string::npos) {
+                return;
+            }
+            const auto last = id.find_last_not_of(" \t");
+            id = id.substr(first, last - first + 1);
+            for (std::size_t i = 0; i < modelList.Size(); ++i) {
+                if (modelList.At(i) == id) {
+                    toast.Show("该模型已在清单中");
+                    return;
+                }
+            }
+            modelList.PushBack(id);
+            if (fs.model.Get().text.empty()) {
+                fs.model = huxerui::TextEditingValue{id};
+            }
+            addModel = huxerui::TextEditingValue{};
+        };
+        fields.push_back(huxerui::Text(zcodeModels
+                                           ? "模型清单（必填，保存即写入 ZCode）"
+                                           : "备选模型（可增删）")
             .Style(huxerui::TextStyle{
                 huxerui::Font::System(font_size::kCaption),
                 theme.colors.on_surface_variant}));
-        for (std::size_t i = 0; i < fetchedModels.Size(); ++i) {
-            const std::string id = fetchedModels.At(i);
+        for (std::size_t i = 0; i < modelList.Size(); ++i) {
+            const std::string id = modelList.At(i);
             fields.push_back(
                 huxerui::Row {
                     huxerui::Text(id)
@@ -527,39 +564,26 @@ void ReplaceModelList(const huxerui::StateList<std::string>& destination,
                             theme.colors.on_surface})
                         .With(huxerui::Grow(1.0F)),
                     huxerui::IconButton(app::images::trash, "移除")
-                        .OnClick([fetchedModels, i] { fetchedModels.Erase(i); }),
+                        .OnClick([modelList, i] { modelList.Erase(i); }),
                 }.With(huxerui::Spacing(8.0F),
                        huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)));
         }
         fields.push_back(huxerui::Row {
             huxerui::TextField(addModel.Get())
-                .Label("添加备选模型")
+                .Label("添加模型")
                 .Placeholder("输入模型 ID")
                 .Variant(huxerui::TextFieldVariant::Outlined)
                 .OnChanged([addModel](const huxerui::TextEditingValue& v) {
                     addModel = v;
                 })
                 .With(huxerui::Grow(1.0F)),
+            fetchedModels.Empty()
+                ? huxerui::View{huxerui::Row{}}
+                : ModelSelect(fetchedModels, fs.modelSearch, addModel, {},
+                              addToList),
             huxerui::Button("添加")
-                .OnClick([fetchedModels, addModel, fs, toast] {
-                    std::string id = addModel.Get().text;
-                    const auto first = id.find_first_not_of(" \t");
-                    if (first == std::string::npos) {
-                        return;
-                    }
-                    const auto last = id.find_last_not_of(" \t");
-                    id = id.substr(first, last - first + 1);
-                    for (std::size_t i = 0; i < fetchedModels.Size(); ++i) {
-                        if (fetchedModels.At(i) == id) {
-                            toast.Show("该模型已在备选清单中");
-                            return;
-                        }
-                    }
-                    fetchedModels.PushBack(id);
-                    if (fs.model.Get().text.empty()) {
-                        fs.model = huxerui::TextEditingValue{id};
-                    }
-                    addModel = huxerui::TextEditingValue{};
+                .OnClick([addToList, addModel] {
+                    addToList(addModel.Get().text);
                 }),
         }.With(huxerui::Spacing(8.0F),
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)));
@@ -694,8 +718,12 @@ void ReplaceModelList(const huxerui::StateList<std::string>& destination,
                             toast.Show("API Key 不能为空");
                             return;
                         }
-                        if (needsModel && model.empty()) {
+                        if (needsModel && tool != "zcode" && model.empty()) {
                             toast.Show("模型不能为空");
+                            return;
+                        }
+                        if (tool == "zcode" && modelList.Empty()) {
+                            toast.Show("模型清单不能为空");
                             return;
                         }
                         models::Provider p;
@@ -705,12 +733,14 @@ void ReplaceModelList(const huxerui::StateList<std::string>& destination,
                         p.modelFetchUrl = fs.modelFetchUrl.Get().text;
                         p.apiKey = apiKey;
                         p.model = model;
-                        // 备选模型清单 = 表单当前内容（初值来自已保存清单/
-                        // 拉取/导入，手动增删都体现在这里）。主模型不强行
-                        // 入列：ZCode 的条目只有清单没有主模型概念，塞进去
-                        // 会在 ZCode 侧凭空多出一个备选。
-                        for (std::size_t i = 0; i < fetchedModels.Size(); ++i) {
-                            p.models.push_back(fetchedModels.At(i));
+                        // 模型清单 = 表单当前清单（初值来自已保存清单，手动
+                        // 增删都体现在这里）。ZCode 没有主模型概念：主模型
+                        // 仅为本应用展示用默认值，取清单首项。
+                        for (std::size_t i = 0; i < modelList.Size(); ++i) {
+                            p.models.push_back(modelList.At(i));
+                        }
+                        if (tool == "zcode") {
+                            p.model = p.models.empty() ? "" : p.models.front();
                         }
                         p.modelSupports1m = fs.modelSupports1m.Get();
                         p.upstreamFormat =
