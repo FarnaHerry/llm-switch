@@ -11,7 +11,7 @@
 namespace llmswitch::ui {
 namespace {
 
-// 版本号编译期常量由顶层 CMake 注入（与 settings_page.cpp 同一约定）。
+// 版本号编译期常量由顶层 CMake 注入（唯一展示处；设置页不再重复版本信息）。
 const std::string kVersionLine = std::format("llm-switch v{}", LLMSWITCH_VERSION);
 
 [[huxerui::composable]] huxerui::View AboutSectionTitle(const std::string& title) {

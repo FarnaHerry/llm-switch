@@ -1,8 +1,8 @@
 // settings_page.cpp — 设置页：外观主题用单个太极选择器循环切换
 // 跟随系统/玄墨/宣纸（平衡/玄墨突出/宣纸突出，悬停旋转且移出冻结角度），
 // 存 AppConfig.themeMode 的 system/dark/light 并即时生效；Claude Code 安装检查、
-// live 配置文件路径展示、导入/导出、关于。用量查询开关与刷新间隔在各供应商
-// 的独立用量配置页维护。
+// live 配置文件路径展示、导入/导出。版本与项目信息在关于页，用量查询开关与
+// 刷新间隔在各供应商的独立用量配置页维护。
 //
 // 导入/导出优先走 FilePicker 系统文件对话框（SaveFileAsync/OpenFileAsync）；
 // 平台不可用（CanSaveFiles/CanOpenFiles 为 false，如无 xdg-desktop-portal）时
@@ -102,9 +102,6 @@ bool ResolvesToDark(int mode) {
 
 // 版本号编译期常量由顶层 CMake 注入（hcg 不支持 composable 内条件编译，
 // 字符串在文件作用域先拼好）。
-const std::string kAboutText =
-    std::format("llm-switch v{} · Claude Code / Codex 供应商切换", LLMSWITCH_VERSION);
-
 [[huxerui::composable]] huxerui::View SettingRow(const std::string& label,
                                                  const std::string& hint,
                                                  huxerui::View control) {
@@ -324,15 +321,6 @@ const std::string kAboutText =
                                                     font_size::kCaption),
                                                 theme.colors.on_surface_variant})},
                 }.With(huxerui::Spacing(8.0F),
-                       huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))),
-
-                Card(huxerui::Column {
-                    SectionTitle("关于"),
-                    huxerui::Text(kAboutText)
-                        .Style(huxerui::TextStyle{
-                            huxerui::Font::System(font_size::kChip),
-                            theme.colors.on_surface_variant}),
-                }.With(huxerui::Spacing(6.0F),
                        huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))),
             }.With(huxerui::Spacing(12.0F),
                    huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)))
