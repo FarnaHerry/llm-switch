@@ -194,23 +194,6 @@ const AgentFormPolicy& ZcodeFormPolicy();
 [[huxerui::composable]] huxerui::View PrimaryModelRow(
     const AgentFormPolicy& policy, const FormStates& fs,
     huxerui::StateList<std::string> fetchedModels);
-// 模型清单 + 添加行（仅 zcode 使用）。extras.rowTrailing 非空时注入行尾
-// 额外按钮；extras.panel 非空时对每行追加面板视图（返回空 View 表示无
-// 面板）；extras.onRemove 在移除行后回调（如收起展开的参数面板）。
-struct AlternateModelExtras {
-    std::string listTitle = "备选模型（可增删）";
-    std::function<huxerui::View(std::size_t index, const std::string& id)>
-        rowTrailing;
-    std::function<huxerui::View(std::size_t index, const std::string& id)>
-        panel;
-    std::function<void(std::size_t index)> onRemove;
-};
-[[huxerui::composable]] huxerui::View AlternateModelList(
-    const FormStates& fs, huxerui::StateList<std::string> modelList,
-    huxerui::State<huxerui::TextEditingValue> addModel,
-    huxerui::StateList<std::string> fetchedModels, huxerui::ToastHandle toast,
-    const AlternateModelExtras& extras);
-
 // ---- agent 专属区块 ----
 
 // claude-code / claude desktop：三档模型映射（Haiku/Sonnet/Opus）。
