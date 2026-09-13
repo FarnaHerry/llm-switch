@@ -88,6 +88,11 @@ jobs:
           set -euo pipefail
           git clone --filter=blob:none "$HUXERUI_REPO" third_party/huxerui
           git -C third_party/huxerui checkout "$HUXERUI_COMMIT"
+          # 文本布局缓存补丁：VirtualList 每帧对可见行重新组合并全量重排版
+          # （PangoTextLayout 无跨帧缓存），长会话页 UI 线程因此持续满载；
+          # 该补丁为 MeasureText/DrawText 加有界 LRU 布局缓存。
+          git -C third_party/huxerui apply \
+            "$GITHUB_WORKSPACE/cmake/patches/huxerui-linux-text-cache.patch"
 
       - name: Install dependencies
         run: |

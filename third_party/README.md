@@ -12,6 +12,11 @@ header 提交在 `httplib/`；HuxerUI 0.2.0 的 Linux 离线 SDK 包提交在
 项目对 Windows 主窗口图标保留一个独立补丁
 `cmake/patches/huxerui-windows-icon.patch`，由 Windows CI 在检出 HuxerUI
 后应用；不要把这个项目补丁直接提交到第三方仓库。
+Linux 另保留 `cmake/patches/huxerui-linux-text-cache.patch`：VirtualList
+可见期间每帧都对可视行重新组合并全量重排版（`PangoTextLayout` 无跨帧
+缓存），文本重的页面（如会话详情）UI 线程会持续满载；该补丁为
+`MeasureText`/`DrawText` 增加有界 LRU 布局缓存（key = 文本 + 样式 +
+宽度 + 排版选项，8MB/128 条预算），由 Linux CI 在检出后应用。
 
 ## 清单与来源
 

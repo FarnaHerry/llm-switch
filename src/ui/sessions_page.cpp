@@ -623,7 +623,7 @@ std::string FormatSize(std::uintmax_t bytes) {
         // 很小——可视区外的行每次测量同样会重新组合并重新经 Pango 排版，
         // 预 realize 越多每帧开销越大。
         content = huxerui::VirtualList(snapshot->size(), buildMessageRow)
-                      .ItemExtent(300.0F)
+                      .EstimatedItemExtent(300.0F)
                       .CacheExtent(80.0F)
                       .Controller(scroll)
                       .On<huxerui::ViewEvents::ScrollInput>(

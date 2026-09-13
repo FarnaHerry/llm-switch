@@ -452,10 +452,11 @@ I/O、解析和 JSON 函数默认保留在 `.cpp` 中。
   快照（`shared_ptr<const vector>`，与列表页同模式），worker 结果一次 O(1)
   写入；`parseMessageLine` 对进入 UI 的文本设 16KB 上限（UTF-8 安全截断，
   完整内容走导出）。复测：每页 50 条历史在 UI 线程合并 0.0-0.1ms。
-  遗留（SDK 层）：VirtualList 可见期间帧时钟持续调度，每次测量都重新
-  factory + Reconcile 全部可视行，且 PangoTextLayout 无跨帧缓存（每帧全量
-  itemize/shaping，gdb 实证静止态 UI 线程 ~100% 在 glyph extents 查表）；
-  已用应用层手段压低单价（折叠预览 320 字符、估算 300、CacheExtent 80/120、
-  16KB 上限），根治需上游实现文本布局缓存或测量短路。
+  SDK 层遗留问题已由本地补丁修复：`cmake/patches/huxerui-linux-text-cache.patch`
+  为 Linux 渲染器的 `MeasureText`/`DrawText` 增加有界 LRU 文本布局缓存
+  （8MB/128 条，key = 文本+样式+宽度+排版选项）——VirtualList 每帧重新
+  factory 可视行且 PangoTextLayout 无跨帧缓存，补丁前详情页静止即 99%
+  CPU，补丁后 3-4%、滚动 4-6%；已报上游
+  HuxerUI/HuxerUI#136，上游合入后可撤补丁。
 - ⬜ 待做：订阅站端点可能随各家调整，升级版本时需复核；无 CLI 分流、
   无单实例/开机自启。
