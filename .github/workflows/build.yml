@@ -185,7 +185,10 @@ jobs:
 
   # ---------------------------------------------------------------- Windows
   # 工具链沿用 Clash-Flux 实证：MSVC（VS2022，C++23 模块 + import std）+
-  # choco ninja。
+  # choco ninja。zip 与 setup.exe 拆成两个并行 job：huxerui package windows
+  # 会在 .huxerui/build 里从头重新配置并编译整个项目（含 C++23 模块、整个
+  # HuxerUI 框架与安装器 UI），与 zip 的 build/ 构建互不共享产物，串在
+  # 同一个 job 里等于把 Windows 腿的墙钟时间翻倍。
   build-windows:
     name: build-windows-x86_64
     runs-on: windows-latest
@@ -216,14 +219,10 @@ jobs:
       - name: Configure
         shell: pwsh
         run: |
-          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release `
-            -DHUXERUI_BUILD_CLI=ON
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 
       - name: Build release
         run: cmake --build build --config Release --parallel
-
-      - name: Build HuxerUI CLI
-        run: cmake --build build --config Release --target huxerui_cli --parallel
 
       - name: Smoke test
         run: ctest --test-dir build --output-on-failure
@@ -259,6 +258,54 @@ jobs:
           Compress-Archive -Path dist-src\* -DestinationPath dist\llm-switch-windows-x86_64.zip -Force
           Get-Item dist/*
 
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: llm-switch-windows-x86_64
+          path: dist/llm-switch-windows-x86_64.zip
+          if-no-files-found: error
+          retention-days: 14
+
+  # 安装器（setup.exe + 水墨品牌安装页面）单独一个 job 与 zip 并行。
+  # huxerui_cli 只为驱动打包流程存在（configure 需要 MSVC 环境）；真正的
+  # 构建、WiX nuget下载与 MSI/Bundle 组装都发生在 huxerui package windows
+  # 内部的 .huxerui/build 里。
+  build-windows-installer:
+    name: build-windows-installer-x86_64
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Fetch HuxerUI source (pinned)
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none "$HUXERUI_REPO" third_party/huxerui
+          git -C third_party/huxerui checkout "$HUXERUI_COMMIT"
+          git -C third_party/huxerui apply "$GITHUB_WORKSPACE/cmake/patches/huxerui-windows-icon.patch"
+
+      - name: Ensure CMake >= 4.4 and Ninja
+        shell: pwsh
+        run: |
+          # import std 的 experimental UUID 门控要求 CMake ≥ 4.4
+          # （cmake/CxxImportStdGate.cmake）；runner 自带版本不够时 pip 补齐。
+          python -m pip install --quiet "cmake==4.4.2"
+          cmake --version | Select-Object -First 1
+          choco install ninja -y --no-progress
+
+      - name: Set up MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release `
+            -DHUXERUI_BUILD_CLI=ON
+
+      - name: Build HuxerUI CLI
+        run: cmake --build build --config Release --target huxerui_cli --parallel
+
       - name: Package HuxerUI installer
         shell: pwsh
         run: |
@@ -281,10 +328,8 @@ jobs:
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: llm-switch-windows-x86_64
-          path: |
-            dist/llm-switch-windows-x86_64.zip
-            dist/llm-switch-windows-x86_64-setup.exe
+          name: llm-switch-windows-installer-x86_64
+          path: dist/llm-switch-windows-x86_64-setup.exe
           if-no-files-found: error
           retention-days: 14
 
@@ -401,7 +446,7 @@ jobs:
   # 发布前再次检查至少存在一个产物，禁止创建空 Release。
   release:
     name: release
-    needs: [build-linux, build-windows, build-macos]
+    needs: [build-linux, build-windows, build-windows-installer, build-macos]
     runs-on: ubuntu-24.04
     if: >-
       startsWith(github.ref, 'refs/tags/v') &&
