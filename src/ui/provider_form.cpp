@@ -50,7 +50,8 @@ namespace llmswitch::ui {
     const std::string editingId = isNew ? "" : initial.id;
     // 「获取模型」拉取状态：fetching 驱动按钮加载态。fetchedModels 只是
     // fetch 结果的选择源（供各选择弹层挑选），不直接变成清单；modelList
-    // 才是供应商的模型清单（zcode：唯一模型输入；其他工具：备选缓存），
+    // 才是供应商的模型清单（仅 zcode 有清单 UI：唯一模型输入；其他工具
+    // 无清单 UI，仅承装已保存清单，保存时原样回存不丢数据），
     // 初值 = 已保存清单，由逐条添加/移除维护。两个清单都必须走
     // UseStateList 初值重载（和 UseState 一样只在首次组合生效）：在组合体
     // 里逐项 PushBack 会在每次重组合时重复追加，弹出列表的重复 key 直接
@@ -95,7 +96,8 @@ namespace llmswitch::ui {
             CommonFields(policy, fs, showKey, keyHover, showModelFetchOptions),
         }.With(huxerui::Spacing(12.0F),
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
-    // agent 专属区块：zcode 一整块；其余 agent 按策略开关拼装。
+    // agent 专属区块：zcode 一整块（含模型清单）；其余 agent 只有
+    // 主模型行 + 策略开关的区块，没有备选模型清单。
     if (tool == "zcode") {
         fields = huxerui::Column {
             std::move(fields),
@@ -111,8 +113,6 @@ namespace llmswitch::ui {
                 ? huxerui::View{huxerui::Row{}}
                 : PrimaryModelRow(policy, fs, fetchedModels),
             ModelFetchButton(fs, fetching, fetchedModels, tasks, http, toast),
-            AlternateModelList(fs, modelList, addModel, fetchedModels, toast,
-                               AlternateModelExtras{}),
             policy.showMappings ? MappingFields(fs, fetchedModels)
                                 : huxerui::View{huxerui::Row{}},
             policy.showApiFormat ? ApiFormatFields(fs)

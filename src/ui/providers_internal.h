@@ -194,9 +194,9 @@ const AgentFormPolicy& ZcodeFormPolicy();
 [[huxerui::composable]] huxerui::View PrimaryModelRow(
     const AgentFormPolicy& policy, const FormStates& fs,
     huxerui::StateList<std::string> fetchedModels);
-// 备选模型清单 + 添加行。extras.rowTrailing 非空时注入行尾额外按钮；
-// extras.panel 非空时对每行追加面板视图（返回空 View 表示无面板）；
-// extras.onRemove 在移除行后回调（如 zcode 收起展开的参数面板）。
+// 模型清单 + 添加行（仅 zcode 使用）。extras.rowTrailing 非空时注入行尾
+// 额外按钮；extras.panel 非空时对每行追加面板视图（返回空 View 表示无
+// 面板）；extras.onRemove 在移除行后回调（如收起展开的参数面板）。
 struct AlternateModelExtras {
     std::string listTitle = "备选模型（可增删）";
     std::function<huxerui::View(std::size_t index, const std::string& id)>
