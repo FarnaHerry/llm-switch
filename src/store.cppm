@@ -1,15 +1,18 @@
-// store.cppm — llmswitch.store：供应商配置 store（接口；实现在 store.cpp）。
+// store.cppm — llmswitch.store：供应商配置 store（接口）。
 //
 // 职责：config.json 的读写与 CRUD、把选中供应商写进各工具的 live 配置文件
 // （claude-code 的 settings.json / codex 的 auth.json + config.toml /
 // opencode 的 opencode.json / pi 的 models.json + settings.json /
 // claude desktop 的 3p profile 组）、live 文件备份与收编、配置导出导入。
+// 实现单元：store.cpp（核心）/ store_live.cpp（切换与还原）/
+// store_import.cpp（收编、探测与导入）/ store_zcode.cpp（ZCode 条目同步）。
 // 工具 id 以 models::toolRegistry() 注册表为准。不强制单例 —— 测试可直接
 // 实例化多个对象隔离验证。所有失败路径抛 std::runtime_error（中文消息），
 // 由调用方（UI）兜底展示。
 export module llmswitch.store;
 
 import std;
+import nlohmann.json;
 import llmswitch.models;
 
 namespace store {
@@ -123,5 +126,47 @@ private:
     models::ProviderGroup& groupRef(std::string_view tool);
     models::AppConfig config_;
 };
+
+// ---- 模块内共享工具（模块链接，不导出）----
+// 实现单元之间复用的文件工具、live 格式解析与 ZCode 条目助手；对模块外
+// 不可见。定义位置：文件工具在 store.cpp；live 格式工具在 store_live.cpp；
+// ZCode 助手在 store_zcode.cpp。
+std::int64_t nowMillis();
+std::string generateId();
+void atomicWrite(const std::filesystem::path& dest, std::string_view content);
+std::string readTextFile(const std::filesystem::path& file);
+nlohmann::json readJsonOrNull(const std::filesystem::path& file);
+nlohmann::json readJsonPassive(const std::filesystem::path& file);
+void backupLiveFile(std::string_view tool, const std::filesystem::path& file);
+std::string claudeEnvValue(const nlohmann::json& settings, std::string_view key);
+void pruneBackups(const std::filesystem::path& dir, const std::string& prefix);
+
+std::string jsonStr(const nlohmann::json& j, std::string_view key);
+nlohmann::json readJsonStrict(const std::filesystem::path& file);
+std::string envLineKey(std::string_view line);
+std::string trimEnvValue(std::string_view value);
+std::string readEnvValue(const std::filesystem::path& file,
+                         std::string_view key);
+void writeEnvValues(const std::filesystem::path& file,
+                    const std::vector<std::pair<std::string, std::string>>& targets);
+std::string_view trimLeft(std::string_view s);
+std::string codexModelLineValue(std::string_view line, bool& commentedOut);
+std::filesystem::path claudeDesktopProfileFile();
+
+// Claude Desktop 3p profile 的固定 id（对齐 cc-switch，configLibrary 按 id
+// 索引，entries 里注册同名条目）。
+inline constexpr std::string_view kClaudeDesktopProfileId =
+    "00000000-0000-4000-8000-000000157210";
+inline constexpr std::string_view kClaudeDesktopProfileName = "llm-switch";
+
+// ZCode config.json 条目助手：键解析（llmswitch:<id> 优先，原生裸 id 条目
+// 复用）、enabled 缺省语义（省略 = 启用）、原位合并。
+nlohmann::json buildZcodeEntry(const models::Provider& target,
+                               const std::string& baseUrl);
+std::string zcodeEntryKeyFor(const nlohmann::json& providers,
+                             const std::string& id);
+bool zcodeEntryOn(const nlohmann::json& entry);
+nlohmann::json mergeZcodeEntry(const nlohmann::json& existing,
+                               const nlohmann::json& built);
 
 } // namespace store
