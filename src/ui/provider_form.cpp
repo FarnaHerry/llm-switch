@@ -194,24 +194,6 @@ void ReplaceModelList(const huxerui::StateList<std::string>& destination,
 
 // ---- 每模型参数（zcode 条目 models map 的原值，modelsMeta）--------------------
 
-// 是否声明了图像输入（识图）。
-bool ModelSeesImages(const nlohmann::json& meta, const std::string& id) {
-    if (!meta.contains(id) || !meta[id].is_object()) return false;
-    const auto& m = meta[id];
-    if (!m.contains("modalities") || !m["modalities"].is_object()) return false;
-    const auto& input = m["modalities"]["input"];
-    return input.is_array() && std::find(input.begin(), input.end(),
-                                         nlohmann::json("image")) != input.end();
-}
-
-// 是否开启了思维链（reasoning.enabled）。
-bool ModelHasReasoning(const nlohmann::json& meta, const std::string& id) {
-    if (!meta.contains(id) || !meta[id].is_object()) return false;
-    const auto& m = meta[id];
-    return m.contains("reasoning") && m["reasoning"].is_object() &&
-           m["reasoning"].value("enabled", false);
-}
-
 // 复制 id 对应的模型参数（无则给空对象），交给 mutate 修改后写回副本。
 nlohmann::json WithModelMeta(
     nlohmann::json meta, const std::string& id,
@@ -222,6 +204,48 @@ nlohmann::json WithModelMeta(
     mutate(m);
     meta[id] = std::move(m);
     return meta;
+}
+
+// modalities 数组里是否含某模态（input: text/image/video/pdf，output: text）。
+bool ModelHasModality(const nlohmann::json& meta, const std::string& id,
+                      const char* kind, const char* value) {
+    if (!meta.contains(id) || !meta[id].is_object()) return false;
+    const auto& m = meta[id];
+    if (!m.contains("modalities") || !m["modalities"].is_object()) return false;
+    const auto& arr = m["modalities"][kind];
+    return arr.is_array() && std::find(arr.begin(), arr.end(),
+                                       nlohmann::json(value)) != arr.end();
+}
+
+// 勾选/取消一个模态复选框（数组不存在时创建）。
+nlohmann::json WithModelModality(nlohmann::json meta, const std::string& id,
+                                 const char* kind, const char* value, bool on) {
+    return WithModelMeta(std::move(meta), id,
+                         [kind, value, on](nlohmann::json& m) {
+                             if (!m.contains("modalities") ||
+                                 !m["modalities"].is_object()) {
+                                 m["modalities"] = nlohmann::json::object();
+                             }
+                             auto& arr = m["modalities"][kind];
+                             if (!arr.is_array()) {
+                                 arr = nlohmann::json::array();
+                             }
+                             auto it = std::find(arr.begin(), arr.end(),
+                                                 nlohmann::json(value));
+                             if (on && it == arr.end()) {
+                                 arr.push_back(value);
+                             } else if (!on && it != arr.end()) {
+                                 arr.erase(it);
+                             }
+                         });
+}
+
+// 是否开启了思维链（reasoning.enabled）。
+bool ModelHasReasoning(const nlohmann::json& meta, const std::string& id) {
+    if (!meta.contains(id) || !meta[id].is_object()) return false;
+    const auto& m = meta[id];
+    return m.contains("reasoning") && m["reasoning"].is_object() &&
+           m["reasoning"].value("enabled", false);
 }
 
 
@@ -633,36 +657,62 @@ nlohmann::json WithModelMeta(
                        huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)));
             if (zcodeModels && expandedMeta.Get() == static_cast<int>(i)) {
                 // 每模型参数编辑面板：直接改 modelsMeta 原值（收编自 ZCode
-                // 的 reasoning/limit/modalities/zcode 元数据），未提供开关的
-                // 字段保存时按原值回放。
+                // 的 reasoning/limit/modalities/zcode 元数据），未提供控件的
+                // 字段保存时按原值回放。输入/输出模态复选框与 ZCode 页面
+                // 一一对应（数组值 text/image/video/pdf）。
+                const auto& meta = modelMeta.Get();
                 fields.push_back(
                     huxerui::Column {
-                        huxerui::Switch("视觉输入（识图）",
-                                        ModelSeesImages(modelMeta.Get(), id))
-                            .OnChanged([modelMeta, id](bool on) {
-                                modelMeta = WithModelMeta(
-                                    modelMeta.Get(), id,
-                                    [on](nlohmann::json& m) {
-                                        if (!m.contains("modalities") ||
-                                            !m["modalities"].is_object()) {
-                                            m["modalities"] =
-                                                nlohmann::json::object();
-                                        }
-                                        auto& input = m["modalities"]["input"];
-                                        if (!input.is_array()) {
-                                            input = nlohmann::json::array(
-                                                {"text"});
-                                        }
-                                        auto it = std::find(
-                                            input.begin(), input.end(),
-                                            nlohmann::json("image"));
-                                        if (on && it == input.end()) {
-                                            input.push_back("image");
-                                        } else if (!on && it != input.end()) {
-                                            input.erase(it);
-                                        }
-                                    });
-                            }),
+                        huxerui::Row {
+                            huxerui::Text("输入类型")
+                                .Style(huxerui::TextStyle{
+                                    huxerui::Font::System(font_size::kBody),
+                                    theme.colors.on_surface_variant}),
+                            huxerui::Checkbox("文本",
+                                              ModelHasModality(meta, id, "input", "text"))
+                                .OnChanged([modelMeta, id](bool on) {
+                                    modelMeta = WithModelModality(
+                                        modelMeta.Get(), id, "input", "text",
+                                        on);
+                                }),
+                            huxerui::Checkbox("图片",
+                                              ModelHasModality(meta, id, "input", "image"))
+                                .OnChanged([modelMeta, id](bool on) {
+                                    modelMeta = WithModelModality(
+                                        modelMeta.Get(), id, "input", "image",
+                                        on);
+                                }),
+                            huxerui::Checkbox("视频",
+                                              ModelHasModality(meta, id, "input", "video"))
+                                .OnChanged([modelMeta, id](bool on) {
+                                    modelMeta = WithModelModality(
+                                        modelMeta.Get(), id, "input", "video",
+                                        on);
+                                }),
+                            huxerui::Checkbox("PDF",
+                                              ModelHasModality(meta, id, "input", "pdf"))
+                                .OnChanged([modelMeta, id](bool on) {
+                                    modelMeta = WithModelModality(
+                                        modelMeta.Get(), id, "input", "pdf", on);
+                                }),
+                        }.With(huxerui::Spacing(10.0F),
+                               huxerui::CrossAlign(
+                                   huxerui::CrossAxisAlignment::Center)),
+                        huxerui::Row {
+                            huxerui::Text("输出类型")
+                                .Style(huxerui::TextStyle{
+                                    huxerui::Font::System(font_size::kBody),
+                                    theme.colors.on_surface_variant}),
+                            huxerui::Checkbox("文本",
+                                              ModelHasModality(meta, id, "output", "text"))
+                                .OnChanged([modelMeta, id](bool on) {
+                                    modelMeta = WithModelModality(
+                                        modelMeta.Get(), id, "output", "text",
+                                        on);
+                                }),
+                        }.With(huxerui::Spacing(10.0F),
+                               huxerui::CrossAlign(
+                                   huxerui::CrossAxisAlignment::Center)),
                         huxerui::Switch("思维链（reasoning）",
                                         ModelHasReasoning(modelMeta.Get(), id))
                             .OnChanged([modelMeta, id](bool on) {
