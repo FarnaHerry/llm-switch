@@ -33,9 +33,10 @@ UI 工作先读 skill：`.claude/skills/huxerui-app-development/SKILL.md`（refe
   `third_party/tarballs` 的 Linux 0.2.0 离线包。源码通道缺 GTK ≥4.14 /
   libepoxy ≥1.5 / libsoup ≥3.0 开发包时自动回落 SDK。强制 SDK：
   `-DLLMSWITCH_HUXERUI_FORCE_SDK=ON`。本机走 **third_party/huxerui 源码**通道
-  （git clone 上游，跟主干拉取；当前钉在 `445488a`，在 `d1d2daa` 的
-  ApplicationHandle Clipboard/服务、TreeView、TextField 可交互 TrailingIcon
-  （密码框内置眼睛按钮）之上新增 Windows GUI 子系统启动修复）。
+  （git clone 上游，跟主干拉取；当前钉在 `64264cb`，在 d1d2daa/445488a
+  （ApplicationHandle Clipboard/服务、TreeView、TextField 可交互 TrailingIcon、
+  Windows GUI 子系统启动修复）之上新增 Linux 有界 LRU 文本布局缓存，
+  源自本项目的上游 PR HuxerUI/HuxerUI#137）。
 - 剪贴板通过 composable 内的 `UseApplication().Clipboard()` 获取；事件处理器可捕获
   service 并同步调用 `IsAvailable()` / `ReadText()` / `WriteText()`，不要从 worker
   线程调用。TreeView 使用 `TreeView<Node>(roots, factory, item_info)`，必须放在有界
@@ -273,15 +274,16 @@ I/O、解析和 JSON 函数默认保留在 `.cpp` 中。
   （package/src/，品牌面板 + 简中/繁中/英文 strings）接进构建；日常构建
   零开销（函数内 `if (NOT HUXERUI_PACKAGE) return()`）。需要含
   `huxerui_add_windows_installer` 的 HuxerUI 源码/SDK（0.2.0 之后；当前 CI
-  固定的 `445488a` 已满足）。
+  固定的 `64264cb` 已满足）。
 - `.github/workflows/build.yml`（蓝本 Clash-Flux 同名文件，按其已跑通配方
   适配）：三个桌面 job + release。build-linux（ubuntu:26.04 容器 + clang-21/
   libc++-21 + pip cmake==4.4.2 + libc++.modules.json 路径改写 + gtk4/epoxy/
   libsoup3 开发包，正式）；build-windows（MSVC + choco ninja）与 build-macos
   （brew llvm + 手写 libc++.modules.json + 内联 P0960 补丁）；三个平台均为
   发布门禁，必须完成编译、测试和打包。
-- 三个 job 都把 HuxerUI 上游钉在 commit `445488a`（含 ApplicationHandle
-  Clipboard/Directories / TreeView、Windows GUI 子系统启动修复）
+- 三个 job 都把 HuxerUI 上游钉在 commit `64264cb`（含 ApplicationHandle
+  Clipboard/Directories / TreeView、Windows GUI 子系统启动修复、Linux 有界
+  LRU 文本布局缓存）
   clone 到 third_party/huxerui 走源码通道；TLS 由平台栈提供，CI 不再安装
   OpenSSL；无 mihomo/Android（蓝本相关步骤已删）。
 - 打包：Linux tar.gz（二进制 + llm-switch.resources + lib/libhuxerui.so +
@@ -453,12 +455,10 @@ I/O、解析和 JSON 函数默认保留在 `.cpp` 中。
   快照（`shared_ptr<const vector>`，与列表页同模式），worker 结果一次 O(1)
   写入；`parseMessageLine` 对进入 UI 的文本设 16KB 上限（UTF-8 安全截断，
   完整内容走导出）。复测：每页 50 条历史在 UI 线程合并 0.0-0.1ms。
-  SDK 层遗留问题已由本地补丁修复：`cmake/patches/huxerui-linux-text-cache.patch`
-  为 Linux 渲染器的 `MeasureText`/`DrawText` 增加有界 LRU 文本布局缓存
-  （8MB/128 条，key = 文本+样式+宽度+排版选项）——VirtualList 每帧重新
-  factory 可视行且 PangoTextLayout 无跨帧缓存，补丁前详情页静止即 99%
-  CPU，补丁后 3-4%、滚动 4-6%；已报上游
-  HuxerUI/HuxerUI#136，上游合入后可撤补丁。
+  SDK 层遗留问题（VirtualList 每帧重新 factory 可视行且 PangoTextLayout
+  无跨帧缓存，详情页静止即 99% CPU）已报上游 HuxerUI/HuxerUI#136 并经
+  PR HuxerUI/HuxerUI#137 合入（有界 LRU 文本布局缓存 + ScopedTextLayout
+  跟进修复），本地补丁已撤、基线升至 64264cb。
 - ✅ 新增 Gemini CLI / Qwen Code / ZCode 三个 agent（2026-09-13）：注册表
   扩到 8 工具（routerTools 默认清单同步）。gemini/qwen（gemini-cli 系）：
   认证与端点写 `~/.{gemini,qwen}/.env` 行级 upsert（GEMINI_API_KEY/

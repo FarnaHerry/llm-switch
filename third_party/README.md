@@ -3,7 +3,7 @@
 nlohmann::json 以 single header 直接提交在 `json/`；cpp-httplib 以 single
 header 提交在 `httplib/`；HuxerUI 0.2.0 的 Linux 离线 SDK 包提交在
 `tarballs/` 兜底。日常源码构建跟随 HuxerUI v0.3.0 发布线之后的主干，CI 固定到
-已验证的 commit `445488a6672f225d73b6bf093fe7e004f354a3c0`。构建
+已验证的 commit `64264cba79d78ee0aed3d46b71550e66bffe7710`。构建
 离线、可复现；清单与姊妹项目 Clash-Flux 对齐（无 IXWebSocket / SQLiteCpp）。
 网络（模型列表/用量/连通检测/本地路由出站）统一走 HuxerUI 平台 HttpClient
 （Linux libsoup / Windows WinHTTP / macOS NSURLSession，TLS 由平台栈负责），
@@ -11,12 +11,9 @@ header 提交在 `httplib/`；HuxerUI 0.2.0 的 Linux 离线 SDK 包提交在
 
 项目对 Windows 主窗口图标保留一个独立补丁
 `cmake/patches/huxerui-windows-icon.patch`，由 Windows CI 在检出 HuxerUI
-后应用；不要把这个项目补丁直接提交到第三方仓库。
-Linux 另保留 `cmake/patches/huxerui-linux-text-cache.patch`：VirtualList
-可见期间每帧都对可视行重新组合并全量重排版（`PangoTextLayout` 无跨帧
-缓存），文本重的页面（如会话详情）UI 线程会持续满载；该补丁为
-`MeasureText`/`DrawText` 增加有界 LRU 布局缓存（key = 文本 + 样式 +
-宽度 + 排版选项，8MB/128 条预算），由 Linux CI 在检出后应用。
+后应用；不要把这个项目补丁直接提交到第三方仓库。Linux 文本布局缓存
+（有界 LRU，修 VirtualList 每帧全量重排版）已由上游合入
+（HuxerUI/HuxerUI#137），不再需要本地补丁。
 
 ## 清单与来源
 
