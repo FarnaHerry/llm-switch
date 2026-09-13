@@ -1,6 +1,7 @@
 // provider_form.cpp — 供应商新增/编辑与用量配置表单.
 #include <huxerui/huxerui.h>
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <format>
@@ -298,6 +299,8 @@ void ReplaceModelList(const huxerui::StateList<std::string>& destination,
     // 重组合时重复追加，弹出列表的重复 key 直接 abort。
     auto fetching = huxerui::UseState(false);
     auto fetchedModels = huxerui::UseStateList(DedupeModels(formInitial.models));
+    // 备选清单「添加」行的输入框。
+    auto addModel = huxerui::UseState(huxerui::TextEditingValue{});
     auto showModelFetchOptions =
         huxerui::UseState(!formInitial.modelFetchUrl.empty());
     // API Key 明文开关：Secure(bool) 切换掩码，眼睛按钮用 SDK 内置的可交互
@@ -508,6 +511,59 @@ void ReplaceModelList(const huxerui::StateList<std::string>& destination,
                 .With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
         }.With(huxerui::Spacing(8.0F),
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)));
+        // 备选模型清单：与下拉共用同一份 StateList（初值 = 已保存清单，
+        // 拉取/导入结果也落在这里），在此可手动增删；zcode 的模型备选就是
+        // 这份清单，保存后随切换全量写回。移除只动清单，不改主模型字段。
+        fields.push_back(huxerui::Text("备选模型（可增删）")
+            .Style(huxerui::TextStyle{
+                huxerui::Font::System(font_size::kCaption),
+                theme.colors.on_surface_variant}));
+        for (std::size_t i = 0; i < fetchedModels.Size(); ++i) {
+            const std::string id = fetchedModels.At(i);
+            fields.push_back(
+                huxerui::Row {
+                    huxerui::Text(id)
+                        .Style(huxerui::TextStyle{
+                            huxerui::Font::System(font_size::kBody),
+                            theme.colors.on_surface})
+                        .With(huxerui::Grow(1.0F)),
+                    huxerui::IconButton(app::images::trash, "移除")
+                        .OnClick([fetchedModels, i] { fetchedModels.Erase(i); }),
+                }.With(huxerui::Spacing(8.0F),
+                       huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)));
+        }
+        fields.push_back(huxerui::Row {
+            huxerui::TextField(addModel.Get())
+                .Label("添加备选模型")
+                .Placeholder("输入模型 ID")
+                .Variant(huxerui::TextFieldVariant::Outlined)
+                .OnChanged([addModel](const huxerui::TextEditingValue& v) {
+                    addModel = v;
+                })
+                .With(huxerui::Grow(1.0F)),
+            huxerui::Button("添加")
+                .OnClick([fetchedModels, addModel, fs, toast] {
+                    std::string id = addModel.Get().text;
+                    const auto first = id.find_first_not_of(" \t");
+                    if (first == std::string::npos) {
+                        return;
+                    }
+                    const auto last = id.find_last_not_of(" \t");
+                    id = id.substr(first, last - first + 1);
+                    for (std::size_t i = 0; i < fetchedModels.Size(); ++i) {
+                        if (fetchedModels.At(i) == id) {
+                            toast.Show("该模型已在备选清单中");
+                            return;
+                        }
+                    }
+                    fetchedModels.PushBack(id);
+                    if (fs.model.Get().text.empty()) {
+                        fs.model = huxerui::TextEditingValue{id};
+                    }
+                    addModel = huxerui::TextEditingValue{};
+                }),
+        }.With(huxerui::Spacing(8.0F),
+               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)));
     }
     if (hasMappings) {
         // 三档模型映射（claude-code 写 ANTHROPIC_DEFAULT_*_MODEL env；
@@ -650,14 +706,15 @@ void ReplaceModelList(const huxerui::StateList<std::string>& destination,
                         p.modelFetchUrl = fs.modelFetchUrl.Get().text;
                         p.apiKey = apiKey;
                         p.model = model;
-                        // 不定长模型清单（zcode 消费）：本次拉取过 = 全量写入
-                        //（默认模型由 model 字段表达）；没拉取 = 保留原清单。
-                        if (!fetchedModels.Empty()) {
-                            for (std::size_t i = 0; i < fetchedModels.Size(); ++i) {
-                                p.models.push_back(fetchedModels.At(i));
-                            }
-                        } else {
-                            p.models = initial.models;
+                        // 备选模型清单 = 表单当前内容（初值来自已保存清单/
+                        // 拉取/导入，手动增删都体现在这里）；主模型保证在列
+                        //（zcode 的备选清单就是这份 models）。
+                        for (std::size_t i = 0; i < fetchedModels.Size(); ++i) {
+                            p.models.push_back(fetchedModels.At(i));
+                        }
+                        if (!model.empty() && std::ranges::find(p.models, model) ==
+                                                  p.models.end()) {
+                            p.models.push_back(model);
                         }
                         p.modelSupports1m = fs.modelSupports1m.Get();
                         p.upstreamFormat =
