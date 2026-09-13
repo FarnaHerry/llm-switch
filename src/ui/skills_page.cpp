@@ -19,6 +19,7 @@
 
 #include "ui.h"
 
+import llmswitch.models;
 import llmswitch.skills;
 
 namespace llmswitch::ui {
@@ -387,12 +388,15 @@ bool InvolvesTool(const skills::SkillInfo& skill, std::string_view toolId) {
         });
     };
 
-    // Agent 过滤：0 = 全部，其余按 kSkillTools 顺序对应各同步目标。
+    // Agent 过滤：0 = 全部（通用图标），其余按 kSkillTools 顺序对应各同步
+    // 目标，图标与 Agent 管理页同一注册表。
     auto agentFilter = huxerui::UseState<std::size_t>(0);
-    std::vector<huxerui::StringVariant> filterLabels;
-    filterLabels.emplace_back("全部");
+    std::vector<huxerui::SegmentedButtonItem> filterItems;
+    filterItems.emplace_back(ToolIcon("agents"), "全部");
     for (const std::string_view toolId : kSkillTools) {
-        filterLabels.emplace_back(std::string(ToolName(toolId)));
+        const auto* spec = models::findTool(toolId);
+        filterItems.emplace_back(ToolIcon(spec != nullptr ? spec->iconName : ""),
+                                 std::string(ToolName(toolId)));
     }
 
     const auto& skillItems = store.Get().skills();
@@ -413,7 +417,7 @@ bool InvolvesTool(const skills::SkillInfo& skill, std::string_view toolId) {
         huxerui::Text("Agent").Style(huxerui::TextStyle{
             huxerui::Font::System(font_size::kCaption),
             theme.colors.on_surface_variant}),
-        huxerui::SegmentedButton(std::move(filterLabels), agentFilter)
+        huxerui::SegmentedButton(std::move(filterItems), agentFilter)
             .OnChanged([agentFilter](std::size_t index) { agentFilter = index; }),
         huxerui::Spacer(),
     }.With(huxerui::Spacing(10.0F),

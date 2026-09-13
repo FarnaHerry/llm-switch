@@ -631,7 +631,7 @@ std::string FormatSize(std::uintmax_t bytes) {
                               loadOlder();
                               return false;
                           })
-                      .With(huxerui::Grow(1.0F));
+                      .With(huxerui::Spacing(6.0F), huxerui::Grow(1.0F));
     }
 
     return PageScaffold(
