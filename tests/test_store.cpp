@@ -632,7 +632,10 @@ int main() {
                       {{"modalities",
                         nlohmann::json::object({{"input",
                                                  nlohmann::json::array(
-                                                     {"text", "image"})}})}})}});
+                                                     {"text", "image"})}})},
+                       {"limit",
+                        nlohmann::json::object({{"context", 1000000},
+                                                {"output", 128000}})}})}});
             const std::string idN = s.addProvider("zcode", pn);
             {
                 const auto doc = readJson(zcodeConfig);
@@ -654,6 +657,8 @@ int main() {
                 CHECK(entry["models"]["sm2"]["zcode"]["priority"] == 100);
                 CHECK(entry["models"]["sm1"]["modalities"]["input"][1] ==
                       "image");
+                CHECK(entry["models"]["sm1"]["limit"]["context"] == 1000000);
+                CHECK(entry["models"]["sm1"]["limit"]["output"] == 128000);
             }
             // 启用/停用开关只翻该条目。
             s.setZcodeEntryEnabled(idN, false);

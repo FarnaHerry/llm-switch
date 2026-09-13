@@ -240,6 +240,47 @@ nlohmann::json WithModelModality(nlohmann::json meta, const std::string& id,
                          });
 }
 
+// 把十进制数字写进 limit.<field>（context / output）；空串或非法输入保留
+// 原值不动，避免打字中间态污染元数据。
+void ApplyModelLimit(huxerui::State<nlohmann::json> meta, const std::string& id,
+                     const char* field, const std::string& text) {
+    const auto first = text.find_first_not_of(" \t");
+    if (first == std::string::npos) return;
+    const auto last = text.find_last_not_of(" \t");
+    const std::string digits = text.substr(first, last - first + 1);
+    if (digits.empty() || digits.find_first_not_of("0123456789") !=
+                              std::string::npos) {
+        return;
+    }
+    long long value = 0;
+    try {
+        value = std::stoll(digits);
+    } catch (const std::exception&) {
+        return;
+    }
+    meta = WithModelMeta(meta.Get(), id, [field, value](nlohmann::json& m) {
+        if (!m.contains("limit") || !m["limit"].is_object()) {
+            m["limit"] = nlohmann::json::object();
+        }
+        m["limit"][field] = value;
+    });
+}
+
+// 读 limit.<field> 的十进制展示文本；缺失或异常返回空串。
+std::string ModelLimitText(const nlohmann::json& meta, const std::string& id,
+                           const char* field) {
+    if (!meta.contains(id) || !meta[id].is_object()) return {};
+    const auto& m = meta[id];
+    if (!m.contains("limit") || !m["limit"].is_object()) return {};
+    const auto& v = m["limit"][field];
+    if (!v.is_number()) return {};
+    try {
+        return std::to_string(v.get<long long>());
+    } catch (const std::exception&) {
+        return {};
+    }
+}
+
 // 是否开启了思维链（reasoning.enabled）。
 bool ModelHasReasoning(const nlohmann::json& meta, const std::string& id) {
     if (!meta.contains(id) || !meta[id].is_object()) return false;
@@ -370,6 +411,9 @@ bool ModelHasReasoning(const nlohmann::json& meta, const std::string& id) {
     auto modelMeta = huxerui::UseState(formInitial.modelsMeta);
     // 展开的模型参数行下标（-1 = 全部收起）。
     auto expandedMeta = huxerui::UseState(-1);
+    // 展开行的 limit 文本输入（context / output），展开时从元数据装载。
+    auto contextInput = huxerui::UseState(huxerui::TextEditingValue{});
+    auto outputInput = huxerui::UseState(huxerui::TextEditingValue{});
     // ZCode 条目的启用开关：状态以 live 条目的 enabled 为初值，保存时写回。
     auto zcodeEnabled = huxerui::UseState(
         tool == "zcode" && providerStore().zcodeEntryEnabled(initial.id));
@@ -640,12 +684,25 @@ bool ModelHasReasoning(const nlohmann::json& meta, const std::string& id) {
                     zcodeModels
                         ? huxerui::View{huxerui::IconButton(
                                             app::images::edit, "模型参数")
-                                            .OnClick([expandedMeta, i] {
+                                            .OnClick([expandedMeta, modelMeta,
+                                                      contextInput, outputInput,
+                                                      i, id] {
+                                                if (expandedMeta.Get() ==
+                                                    static_cast<int>(i)) {
+                                                    expandedMeta = -1;
+                                                    return;
+                                                }
                                                 expandedMeta =
-                                                    expandedMeta.Get() ==
-                                                            static_cast<int>(i)
-                                                        ? -1
-                                                        : static_cast<int>(i);
+                                                    static_cast<int>(i);
+                                                const auto& m = modelMeta.Get();
+                                                contextInput =
+                                                    huxerui::TextEditingValue{
+                                                        ModelLimitText(
+                                                            m, id, "context")};
+                                                outputInput =
+                                                    huxerui::TextEditingValue{
+                                                        ModelLimitText(
+                                                            m, id, "output")};
                                             })}
                         : huxerui::View{huxerui::Row{}},
                     huxerui::IconButton(app::images::trash, "移除")
@@ -713,6 +770,34 @@ bool ModelHasReasoning(const nlohmann::json& meta, const std::string& id) {
                         }.With(huxerui::Spacing(10.0F),
                                huxerui::CrossAlign(
                                    huxerui::CrossAxisAlignment::Center)),
+                        huxerui::Row {
+                            huxerui::TextField(contextInput.Get())
+                                .Label("上下文窗口（tokens）")
+                                .Placeholder("例如 1000000")
+                                .Variant(huxerui::TextFieldVariant::Outlined)
+                                .OnChanged([modelMeta, id,
+                                            contextInput](
+                                               const huxerui::TextEditingValue& v) {
+                                    contextInput = v;
+                                    ApplyModelLimit(modelMeta, id, "context",
+                                                    v.text);
+                                })
+                                .With(huxerui::Grow(1.0F)),
+                            huxerui::TextField(outputInput.Get())
+                                .Label("最大输出（tokens）")
+                                .Placeholder("例如 128000")
+                                .Variant(huxerui::TextFieldVariant::Outlined)
+                                .OnChanged([modelMeta, id,
+                                            outputInput](
+                                               const huxerui::TextEditingValue& v) {
+                                    outputInput = v;
+                                    ApplyModelLimit(modelMeta, id, "output",
+                                                    v.text);
+                                })
+                                .With(huxerui::Grow(1.0F)),
+                        }.With(huxerui::Spacing(10.0F),
+                               huxerui::CrossAlign(
+                                   huxerui::CrossAxisAlignment::Center)),
                         huxerui::Switch("思维链（reasoning）",
                                         ModelHasReasoning(modelMeta.Get(), id))
                             .OnChanged([modelMeta, id](bool on) {
@@ -727,7 +812,7 @@ bool ModelHasReasoning(const nlohmann::json& meta, const std::string& id) {
                                         m["reasoning"]["enabled"] = on;
                                     });
                             }),
-                        huxerui::Text("其余参数（思考档位/上下文上限等）按 ZCode 原值保留，可在 ZCode 内修改")
+                        huxerui::Text("思考档位等其余参数按 ZCode 原值保留，可在 ZCode 内修改")
                             .Style(huxerui::TextStyle{
                                 huxerui::Font::System(font_size::kCaption),
                                 theme.colors.on_surface_variant}),
