@@ -545,6 +545,22 @@ int main() {
             CHECK(foundManual);
             CHECK(foundCustom);
         }
+
+        // 组非空也同步：ZCode 侧模型清单变化（新增 m3）→ 启动即刷新。
+        writeFile(zcodeConfig, R"json({"provider": {
+            "builtin:anthropic": {"name": "Anthropic", "kind": "anthropic", "options": {"apiKey": "builtin-key"}, "enabled": true, "source": "builtin"},
+            "custom:manual": {"name": "手填", "kind": "openai", "options": {"apiKey": "k2", "baseURL": "https://m.example.com"}, "enabled": false, "models": {"m1": {}, "m2": {}, "m3": {}}}
+        }})json");
+        {
+            auto s3 = store::ProviderStore::load();
+            bool sawM3 = false;
+            for (const auto& p : s3.group("zcode").providers) {
+                if (p.id == "custom:manual") {
+                    for (const auto& m : p.models) sawM3 = sawM3 || m == "m3";
+                }
+            }
+            CHECK(sawM3);
+        }
     }
     // 默认档（apiFormat 留空）→ openai-completions
     {

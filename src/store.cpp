@@ -639,13 +639,17 @@ ProviderStore ProviderStore::load() {
     const auto j = readJsonOrNull(cfg::configFile());  // 损坏文件已在内部挪走
     if (!j.is_null()) store.config_ = models::fromJson(j);
     // 首次导入：组为空且 live 文件存在 → 把当前生效配置收编进来。
+    // 例外：zcode 每次启动都全量同步——它的 config.json 是自己 provider/
+    // 模型清单的事实源（不定长 models、外部可自行增删），收编按端点+密钥
+    // 原位更新，llm-switch 侧的用量设置等字段不受影响。
     // importLive 失败（如 opencode 的 JSON5 注释文件）静默跳过——不能因为
     // 一个工具的 live 文件让 load 整个垮掉，用户可在 UI 里看到组为空再处理。
     for (const auto& t : models::toolRegistry()) {
         const auto it = store.config_.groups.find(std::string(t.id));
         const bool empty = it == store.config_.groups.end() ||
                            it->second.providers.empty();
-        if (empty && liveFileExists(t.id)) {
+        const bool resync = t.id == "zcode";
+        if ((empty || resync) && liveFileExists(t.id)) {
             try {
                 store.importLive(t.id);
             } catch (...) {
