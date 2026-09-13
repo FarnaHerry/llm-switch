@@ -283,21 +283,19 @@ void sortByMtimeDesc(std::vector<SessionInfo>& v) {
     });
 }
 
-// p 是否严格位于 root 之下（lexically_normal 后的分量级前缀比较）。
-// 不跨 path 对象比较迭代器——libc++ 21 起对来自不同 path 的迭代器
-// 没有可见的 operator==（GCC/libstdc++ 放行，CI 上炸过）；改比分量值。
+// p 是否严格位于 root 之下。
+// 完全不做 path::iterator 比较：libc++ 21 把 path::iterator 的相等比较写成
+// 类内声明、类外定义的 friend，import std 命名模块不导出这种 friend（GCC
+// 与 libstdc++ 均放行，CI 上炸过，连 std::mismatch 内部的同对象比较都不行）。
+// 因此改在 lexically_normal + generic_string 之后做带分隔符的字符串前缀
+// 比较，与分量级前缀比较语义一致。
 bool isUnder(const std::filesystem::path& p, const std::filesystem::path& root) {
     if (root.empty()) return false;
-    const auto np = p.lexically_normal();
-    const auto nr = root.lexically_normal();
-    auto itP = np.begin();
-    auto itR = nr.begin();
-    while (itR != nr.end()) {
-        if (itP == np.end() || *itP != *itR) return false;
-        ++itP;
-        ++itR;
-    }
-    return itP != np.end();
+    const std::string np = p.lexically_normal().generic_string();
+    std::string nr = root.lexically_normal().generic_string();
+    if (np.size() <= nr.size()) return false; // 严格位于之下，p 不可能更短或相等
+    if (nr.back() != '/') nr.push_back('/');
+    return np.starts_with(nr);
 }
 
 void ensureKnownSessionPath(const std::filesystem::path& p) {

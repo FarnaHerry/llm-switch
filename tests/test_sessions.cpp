@@ -235,6 +235,19 @@ int main() {
             [&] { sessions::deleteSession(claude2); }));  // 已删的文件再删报错
     }
 
+    // 6b. 回归：会话目录配置带尾分隔符（env 变量末尾多了 '/'）时路径包含判定
+    // 仍须成立——旧的分量级前缀比较遇到尾随空分量会拒绝一切路径。
+    {
+        const fs::path codexFile =
+            codexSessions / "2026" / "09" / "06" / "trailing.jsonl";
+        writeFile(codexFile, "{}\n");
+        testenv::setenv("LLMSWITCH_CODEX_SESSIONS",
+                        codexSessions.generic_string() + "/");
+        sessions::deleteSession(codexFile);
+        CHECK(!fs::exists(codexFile));
+        testenv::setenv("LLMSWITCH_CODEX_SESSIONS", codexSessions);
+    }
+
     // 7. exportSession：复制成功返回目标路径
     {
         const fs::path destDir = root / "export";
