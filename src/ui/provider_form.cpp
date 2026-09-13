@@ -6,6 +6,7 @@
 #include <format>
 #include <string>
 #include <string_view>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -166,10 +167,26 @@ std::vector<std::string> FilterModelIds(
     return filtered;
 }
 
+// 模型清单去重（保持顺序）：上游 /models 偶有重复 id，下拉弹层的
+// VirtualList 以模型 id 为 key，重复 key 会直接 abort，进下拉前统一去重。
+std::vector<std::string> DedupeModels(std::vector<std::string> values) {
+    std::vector<std::string> unique;
+    unique.reserve(values.size());
+    std::unordered_set<std::string> seen;
+    for (auto& value : values) {
+        if (seen.insert(value).second) {
+            unique.push_back(std::move(value));
+        }
+    }
+    return unique;
+}
+
 void ReplaceModelList(const huxerui::StateList<std::string>& destination,
                       std::vector<std::string> values) {
     destination.Clear();
-    for (auto& value : values) destination.PushBack(std::move(value));
+    for (auto& value : DedupeModels(std::move(values))) {
+        destination.PushBack(std::move(value));
+    }
 }
 
 
@@ -274,14 +291,13 @@ void ReplaceModelList(const huxerui::StateList<std::string>& destination,
     const FormStates fs LLMSWITCH_FORM_STATES_INIT(formInitial);
     const std::string editingId = isNew ? "" : initial.id;
     // 「获取模型」拉取状态：fetching 驱动按钮加载态；fetchedModels 缓存本次
-    // 表单会话内最后一次拉取结果；非空时模型行出现下拉选择。已保存的完整
-    // 模型清单（zcode 导入的不定长 models、上次拉取结果）直接进下拉，编辑
-    // 时不必重新拉取即可看到并改选全部模型。
+    // 表单会话内最后一次拉取结果；非空时模型行出现下拉选择。初值用已保存的
+    // 完整模型清单（zcode 导入的不定长 models、上次拉取结果），编辑时不必
+    // 重新拉取即可看到并改选全部模型。必须走 UseStateList 初值重载（和
+    // UseState 一样只在首次组合生效）：在组合体里逐项 PushBack 会在每次
+    // 重组合时重复追加，弹出列表的重复 key 直接 abort。
     auto fetching = huxerui::UseState(false);
-    auto fetchedModels = huxerui::UseStateList<std::string>();
-    for (const auto& id : formInitial.models) {
-        fetchedModels.PushBack(id);
-    }
+    auto fetchedModels = huxerui::UseStateList(DedupeModels(formInitial.models));
     auto showModelFetchOptions =
         huxerui::UseState(!formInitial.modelFetchUrl.empty());
     // API Key 明文开关：Secure(bool) 切换掩码，眼睛按钮用 SDK 内置的可交互
