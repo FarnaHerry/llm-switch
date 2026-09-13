@@ -3,12 +3,14 @@
 // （中央库 / 已同步 claude-code / 已同步 codex / 仅某工具安装）+ 同步开关
 // （claude-code / codex 两个 Switch → setLinked，建链失败的中文错直接 toast，
 // Windows 上会带开发者模式/管理员提示）+ 编辑（描述 + 正文多行 → updateBody）
-// + 删除（确认框）。顶部：新建 Skill + 收编工具已有 Skill。
+// + 删除（确认框）。顶部：新建 Skill + 收编工具已有 Skill；列表上方按 Agent
+// 过滤（SegmentedButton：全部 + 各同步目标，命中 = 已同步或仅安装在该工具）。
 //
 // 数据流：SkillsStore 无长期持有价值（扫描即视图），页面用 UseState 持有一份，
 // 每次操作后重新 load() 刷新（微秒级本地 IO，UI 线程直接跑）。
 #include <huxerui/huxerui.h>
 
+#include <algorithm>
 #include <chrono>
 #include <string>
 #include <string_view>
@@ -26,6 +28,15 @@ constexpr std::string_view kSkillTools[] = {"claude-code", "codex"};
 
 bool IsLinked(const skills::SkillInfo& skill, std::string_view toolId) {
     for (const auto& t : skill.linkedTools) {
+        if (t == toolId) return true;
+    }
+    return false;
+}
+
+// Skill 是否与某 Agent 相关：已同步到该工具，或仅安装在该工具目录。
+bool InvolvesTool(const skills::SkillInfo& skill, std::string_view toolId) {
+    if (IsLinked(skill, toolId)) return true;
+    for (const auto& t : skill.installedOnlyTools) {
         if (t == toolId) return true;
     }
     return false;
@@ -376,17 +387,58 @@ bool IsLinked(const skills::SkillInfo& skill, std::string_view toolId) {
         });
     };
 
+    // Agent 过滤：0 = 全部，其余按 kSkillTools 顺序对应各同步目标。
+    auto agentFilter = huxerui::UseState<std::size_t>(0);
+    std::vector<huxerui::StringVariant> filterLabels;
+    filterLabels.emplace_back("全部");
+    for (const std::string_view toolId : kSkillTools) {
+        filterLabels.emplace_back(std::string(ToolName(toolId)));
+    }
+
     const auto& skillItems = store.Get().skills();
     const std::size_t skillCount = skillItems.size();
+    const std::size_t filterIndex =
+        std::min(agentFilter.Get(), std::size(kSkillTools));
+    std::vector<skills::SkillInfo> filteredItems;
+    if (filterIndex == 0) {
+        filteredItems = skillItems;
+    } else {
+        const std::string_view toolId = kSkillTools[filterIndex - 1];
+        for (const auto& skill : skillItems) {
+            if (InvolvesTool(skill, toolId)) filteredItems.push_back(skill);
+        }
+    }
+
+    const huxerui::View filterRow = huxerui::Row {
+        huxerui::Text("Agent").Style(huxerui::TextStyle{
+            huxerui::Font::System(font_size::kCaption),
+            theme.colors.on_surface_variant}),
+        huxerui::SegmentedButton(std::move(filterLabels), agentFilter)
+            .OnChanged([agentFilter](std::size_t index) { agentFilter = index; }),
+        huxerui::Spacer(),
+    }.With(huxerui::Spacing(10.0F),
+           huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
+
     const huxerui::View skillList =
         huxerui::VirtualList(
-            skillItems,
+            filteredItems,
             [tasks, toast, store](const skills::SkillInfo& skill) {
                 return SkillCard(skill, tasks, toast, store);
             })
             .EstimatedItemExtent(180.0F)
             .CacheExtent(480.0F)
             .With(huxerui::Spacing(10.0F), huxerui::Grow(1.0F));
+
+    const huxerui::View filteredEmpty =
+        huxerui::View{huxerui::Column {
+            huxerui::Text("该 Agent 下还没有 Skill。同步开关打开或收编后会出现在这里。")
+                .Style(huxerui::TextStyle{
+                    huxerui::Font::System(font_size::kBody),
+                    theme.colors.on_surface_variant}),
+        }.With(huxerui::Padding(32.0F),
+               huxerui::Grow(1.0F),
+               huxerui::MainAlign(huxerui::MainAxisAlignment::Center),
+               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center))};
 
     return PageScaffold(
         "Skills",
@@ -398,20 +450,25 @@ bool IsLinked(const skills::SkillInfo& skill, std::string_view toolId) {
                 showCreateDialog();
             }),
         }.With(huxerui::Spacing(8.0F)),
-        skillCount == 0
-            ? huxerui::View{
-                  huxerui::Column {
-                      huxerui::Text("还没有 Skill。点击右上角「新建 Skill」创建，"
-                                    "或「收编工具已有 Skill」把工具里已装的收进中央库。")
-                          .Style(huxerui::TextStyle{
-                              huxerui::Font::System(font_size::kBody),
-                              theme.colors.on_surface_variant}),
-                  }.With(huxerui::Padding(32.0F),
-                         huxerui::Grow(1.0F),
-                         huxerui::MainAlign(huxerui::MainAxisAlignment::Center),
-                         huxerui::CrossAlign(
-                             huxerui::CrossAxisAlignment::Center))}
-            : skillList);
+        huxerui::Column {
+            filterRow,
+            skillCount == 0
+                ? huxerui::View{
+                      huxerui::Column {
+                          huxerui::Text("还没有 Skill。点击右上角「新建 Skill」创建，"
+                                        "或「收编工具已有 Skill」把工具里已装的收进中央库。")
+                              .Style(huxerui::TextStyle{
+                                  huxerui::Font::System(font_size::kBody),
+                                  theme.colors.on_surface_variant}),
+                      }.With(huxerui::Padding(32.0F),
+                             huxerui::Grow(1.0F),
+                             huxerui::MainAlign(huxerui::MainAxisAlignment::Center),
+                             huxerui::CrossAlign(
+                                 huxerui::CrossAxisAlignment::Center))}
+                : (filteredItems.empty() ? filteredEmpty : skillList),
+        }.With(huxerui::Spacing(10.0F),
+               huxerui::Grow(1.0F),
+               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)));
 }
 
 } // namespace llmswitch::ui
