@@ -1,5 +1,5 @@
 diff --git a/platform/linux/linux_renderer.cpp b/platform/linux/linux_renderer.cpp
-index acc3d5c..f7fd7e3 100644
+index acc3d5c..0cf30d7 100644
 --- a/platform/linux/linux_renderer.cpp
 +++ b/platform/linux/linux_renderer.cpp
 @@ -609,6 +609,26 @@ struct LinuxRenderer::State {
@@ -41,7 +41,7 @@ index acc3d5c..f7fd7e3 100644
      g_object_unref(context);
    }
  
-@@ -745,21 +770,70 @@ struct LinuxRenderer::State {
+@@ -745,21 +770,71 @@ struct LinuxRenderer::State {
      return {entry->gdk_texture != nullptr ? GDK_TEXTURE(g_object_ref(entry->gdk_texture)) : nullptr, false};
    }
  
@@ -73,6 +73,7 @@ index acc3d5c..f7fd7e3 100644
 +
 +    TextLayoutCacheEntry entry;
 +    entry.key = {text, style, max_width, options};
++    entry.layout = layout;
 +    entry.metrics = LayoutMetrics(layout);
 +    entry.bytes = std::max<std::uint64_t>(1, text.PlainText().size());
 +    while (!text_layouts.empty() &&
@@ -112,7 +113,7 @@ index acc3d5c..f7fd7e3 100644
  };
  
  namespace {
-@@ -858,8 +932,7 @@ private:
+@@ -858,8 +933,7 @@ private:
      if (command.text.PlainText().empty() || command.rect.IsEmpty()) {
        return;
      }
@@ -122,7 +123,7 @@ index acc3d5c..f7fd7e3 100644
      PangoRectangle logical{};
      pango_layout_get_extents(layout, nullptr, &logical);
      if (command.options.wrap == TextWrap::NoWrap && PangoUnits(logical.width) < command.rect.width) {
-@@ -884,7 +957,7 @@ private:
+@@ -884,7 +958,7 @@ private:
      );
      pango_cairo_show_layout(context_, layout);
      cairo_restore(context_);
@@ -131,7 +132,7 @@ index acc3d5c..f7fd7e3 100644
    }
  
    void DrawCommand(const DrawTextRunsCommand& command) {
-@@ -1706,8 +1779,7 @@ TextLayoutMetrics LinuxRenderer::MeasureText(const AttributedText& text, const T
+@@ -1706,8 +1780,7 @@ TextLayoutMetrics LinuxRenderer::MeasureText(const AttributedText& text, const T
    if (std::isfinite(max_width) && max_width <= 0.0F) {
      return {};
    }
