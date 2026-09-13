@@ -283,13 +283,21 @@ void sortByMtimeDesc(std::vector<SessionInfo>& v) {
     });
 }
 
-// p 是否严格位于 root 之下（lexically_normal 后的前缀比较）。
+// p 是否严格位于 root 之下（lexically_normal 后的分量级前缀比较）。
+// 不跨 path 对象比较迭代器——libc++ 21 起对来自不同 path 的迭代器
+// 没有可见的 operator==（GCC/libstdc++ 放行，CI 上炸过）；改比分量值。
 bool isUnder(const std::filesystem::path& p, const std::filesystem::path& root) {
     if (root.empty()) return false;
     const auto np = p.lexically_normal();
     const auto nr = root.lexically_normal();
-    auto [itP, itR] = std::mismatch(np.begin(), np.end(), nr.begin(), nr.end());
-    return itR == nr.end() && itP != np.end();
+    auto itP = np.begin();
+    auto itR = nr.begin();
+    while (itR != nr.end()) {
+        if (itP == np.end() || *itP != *itR) return false;
+        ++itP;
+        ++itR;
+    }
+    return itP != np.end();
 }
 
 void ensureKnownSessionPath(const std::filesystem::path& p) {
