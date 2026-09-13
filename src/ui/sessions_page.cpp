@@ -39,7 +39,10 @@ std::int64_t CurrentTimeMillis() {
 
 constexpr std::size_t kStateListCommitBatchSize = 64;
 constexpr std::size_t kMessageCollapseThresholdBytes = 3'000;
-constexpr std::size_t kMessageCollapsedBytes = 1'500;
+// 折叠预览长度：VirtualList 的行每次测量都会重新经 Pango 全量排版（SDK 无
+// 跨帧布局缓存），预览越长每帧排版开销越大。320 字符（约 5 行）足够预览
+// 判断内容，展开仍可看全量（≤16KB，见 sessions.cpp 的存储上限）。
+constexpr std::size_t kMessageCollapsedBytes = 100;
 
 
 // StateList 的每次写入都会使观察它的组合失效。大列表若在一个 UI 回调里一次性
@@ -391,7 +394,8 @@ std::string FormatSize(std::uintmax_t bytes) {
     } else {
         listContent = huxerui::VirtualList(sessionCount, buildSessionRow)
                           .EstimatedItemExtent(148.0F)
-                          .CacheExtent(320.0F)
+                          // 行每次测量都重新组合并排版，缓存范围只留小缓冲。
+                          .CacheExtent(120.0F)
                           .With(huxerui::Grow(1.0F));
     }
 
@@ -566,7 +570,6 @@ std::string FormatSize(std::uintmax_t bytes) {
             return [requestGeneration] { ++requestGeneration; };
         },
         targetKey);
-
     auto goBack = [tasks, selectedSession] {
         tasks.Launch([selectedSession]() -> huxerui::Task<void> {
             co_await huxerui::Delay(std::chrono::duration<double>{0});
@@ -615,9 +618,13 @@ std::string FormatSize(std::uintmax_t bytes) {
                huxerui::MainAlign(huxerui::MainAxisAlignment::Center),
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
     } else {
+        // 行高估算与缓存范围按聊天消息的实际形态调过：行高方差大（折叠后
+        // 5~15 行），估算贴近实际可减少测量的 refine 轮次；缓存范围刻意
+        // 很小——可视区外的行每次测量同样会重新组合并重新经 Pango 排版，
+        // 预 realize 越多每帧开销越大。
         content = huxerui::VirtualList(snapshot->size(), buildMessageRow)
-                      .EstimatedItemExtent(140.0F)
-                      .CacheExtent(280.0F)
+                      .ItemExtent(300.0F)
+                      .CacheExtent(80.0F)
                       .Controller(scroll)
                       .On<huxerui::ViewEvents::ScrollInput>(
                           [loadOlder](const huxerui::ScrollInputEvent&) {
