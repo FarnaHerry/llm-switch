@@ -556,6 +556,8 @@ wire_api = "chat"
 export std::string_view officialVendorName(std::string_view tool) {
     if (tool == "claude-code" || tool == "claude") return "Anthropic 官方";
     if (tool == "codex") return "OpenAI 官方";
+    // ZCode 官方 = 内置（builtin:*）provider 原生启用、无本应用托管条目生效。
+    if (tool == "zcode") return "ZCode 官方";
     return "";
 }
 

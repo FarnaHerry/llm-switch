@@ -274,9 +274,14 @@ void ReplaceModelList(const huxerui::StateList<std::string>& destination,
     const FormStates fs LLMSWITCH_FORM_STATES_INIT(formInitial);
     const std::string editingId = isNew ? "" : initial.id;
     // 「获取模型」拉取状态：fetching 驱动按钮加载态；fetchedModels 缓存本次
-    // 表单会话内最后一次拉取结果；非空时模型行出现下拉选择。
+    // 表单会话内最后一次拉取结果；非空时模型行出现下拉选择。已保存的完整
+    // 模型清单（zcode 导入的不定长 models、上次拉取结果）直接进下拉，编辑
+    // 时不必重新拉取即可看到并改选全部模型。
     auto fetching = huxerui::UseState(false);
     auto fetchedModels = huxerui::UseStateList<std::string>();
+    for (const auto& id : formInitial.models) {
+        fetchedModels.PushBack(id);
+    }
     auto showModelFetchOptions =
         huxerui::UseState(!formInitial.modelFetchUrl.empty());
     // API Key 明文开关：Secure(bool) 切换掩码，眼睛按钮用 SDK 内置的可交互

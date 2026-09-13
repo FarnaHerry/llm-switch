@@ -527,7 +527,8 @@ int main() {
         }
 
         // 启动自动收编：持久组清空 + live 文件存在 → load() 即读出全部
-        // 条目（含未启用的），enabled 条目成为 current。
+        // 条目（含未启用的）。仅 builtin 原生启用 = 官方原生状态，current
+        // 保持为空（「ZCode 官方」卡亮起），不再指向收编的内置条目。
         {
             auto persisted = readJson(cfg::configFile());
             persisted["groups"].erase("zcode");
@@ -535,7 +536,7 @@ int main() {
             auto s2 = store::ProviderStore::load();
             const auto& zg = s2.group("zcode");
             CHECK(zg.providers.size() == 4);  // builtin + 手填 + 两条 llmswitch
-            CHECK(zg.current == "builtin:anthropic");
+            CHECK(zg.current.empty());
             bool foundManual = false;
             bool foundCustom = false;
             for (const auto& p : zg.providers) {
@@ -560,6 +561,28 @@ int main() {
                 }
             }
             CHECK(sawM3);
+        }
+
+        // 托管条目（llmswitch:*）生效时启动同步：current 跟到该条目，
+        // 官方卡熄灭；builtin 全部停用不影响 current 指向。
+        {
+            nlohmann::json doc;
+            auto& builtin = doc["provider"]["builtin:anthropic"];
+            builtin = {{"name", "Anthropic"},
+                       {"kind", "anthropic"},
+                       {"options", {{"apiKey", "builtin-key"}}},
+                       {"enabled", false},
+                       {"source", "builtin"}};
+            auto& managed = doc["provider"]["llmswitch:" + idZ2];
+            managed = {{"name", "ZCode 二"},
+                       {"kind", "openai"},
+                       {"options",
+                        {{"apiKey", "sk-z2"},
+                         {"baseURL", "https://z2.example.com"}}},
+                       {"enabled", true}};
+            writeFile(zcodeConfig, doc.dump(2) + "\n");
+            auto s4 = store::ProviderStore::load();
+            CHECK(s4.group("zcode").current == idZ2);
         }
     }
     // 默认档（apiFormat 留空）→ openai-completions
@@ -961,6 +984,7 @@ int main() {
         CHECK(models::officialVendorName("claude-code") == "Anthropic 官方");
         CHECK(models::officialVendorName("claude") == "Anthropic 官方");
         CHECK(models::officialVendorName("codex") == "OpenAI 官方");
+        CHECK(models::officialVendorName("zcode") == "ZCode 官方");
         CHECK(models::officialVendorName("opencode").empty());
         CHECK(models::officialVendorName("pi").empty());
         // 订阅组：claude-code 首位 PackyCode，端点为直连地址（fullUrl）；

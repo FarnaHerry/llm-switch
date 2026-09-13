@@ -1429,8 +1429,9 @@ models::Provider ProviderStore::importLive(std::string_view tool) {
     }
     if (tool == "zcode") {
         // 全量收编：config.json 里每个带凭据的 provider 条目都进列表
-        // （含未启用的；OAuth 等无凭据条目跳过），enabled 条目设为 current。
-        // 组内已有同端点+密钥的条目原位更新（保留 id），不产生重复。
+        // （含未启用的；OAuth 等无凭据条目跳过）。current 只跟踪本应用
+        // 托管（llmswitch:*）条目的启用：仅 builtin:* 原生启用时保持
+        // current 为空，供应商列表据此亮起「ZCode 官方」卡。
         const auto file = cfg::zcodeConfigFile();
         if (!std::filesystem::exists(file, ec)) return {};
         const auto j = readJsonOrNull(file);
@@ -1439,7 +1440,8 @@ models::Provider ProviderStore::importLive(std::string_view tool) {
         }
         std::string currentKey;
         for (auto it = j["provider"].begin(); it != j["provider"].end(); ++it) {
-            if (it.value().is_object() && it.value().value("enabled", false)) {
+            if (it.value().is_object() && it.value().value("enabled", false) &&
+                it.key().starts_with("llmswitch:")) {
                 currentKey = it.key();
             }
         }
@@ -1475,7 +1477,12 @@ models::Provider ProviderStore::importLive(std::string_view tool) {
                 }
             }
             if (slot == nullptr) {
-                p.id = importId(g, it.key());
+                // llmswitch: 前缀键还原为原始 provider id：持久组被清空后
+                // 重收编仍能拿回同一身份，而不是 llmswitch:<id> 套娃。
+                const std::string preferred =
+                    it.key().starts_with("llmswitch:") ? it.key().substr(10)
+                                                       : it.key();
+                p.id = importId(g, preferred);
                 p.createdAt = nowMillis();
                 g.providers.push_back(p);
             } else {
@@ -1488,16 +1495,18 @@ models::Provider ProviderStore::importLive(std::string_view tool) {
                 currentId = slot != nullptr ? slot->id : p.id;
             }
         }
-        if (currentId.empty() && !g.providers.empty()) {
-            currentId = g.providers.front().id;
+        if (currentId.empty()) {
+            // 没有 llmswitch 托管条目生效（builtin 原生启用或全部停用）
+            // = 官方原生状态，current 置空让「ZCode 官方」卡亮起。
+            g.current.clear();
+            save();
+            return {};
         }
-        if (!currentId.empty()) {
-            g.current = currentId;
-            for (const auto& p : g.providers) {
-                if (p.id == currentId) {
-                    save();
-                    return p;
-                }
+        g.current = currentId;
+        for (const auto& p : g.providers) {
+            if (p.id == currentId) {
+                save();
+                return p;
             }
         }
         return {};
