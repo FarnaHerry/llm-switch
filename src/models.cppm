@@ -129,6 +129,10 @@ export struct Provider {
     // 完整模型清单（不定长；zcode 等工具的 models 是列表语义）。空 = 只有
     // model 一个；「获取模型」拉取成功后整体写入，切换时全量写回。
     std::vector<std::string> models;
+    // 每个模型的完整参数（zcode 条目 models map 的原值：reasoning / limit /
+    // modalities / zcode 元数据）。收编时原样捕获、写入时原样回放，键不在
+    // models 清单里的条目被忽略；其他工具不用。
+    nlohmann::json modelsMeta = nlohmann::json::object();
     bool modelSupports1m = false;  // 主模型在 Claude Desktop 菜单中的 1M 能力声明
     // 三档模型映射（仅 hasModelMappings 工具：claude-code / claude，均选填）：
     // * *Model 是发送给上游的实际模型 ID；*DisplayName 是 Claude Desktop
@@ -225,6 +229,9 @@ export nlohmann::json toJson(const Provider& p) {
     if (!p.models.empty()) {
         j["models"] = p.models;  // 完整模型清单（仅 zcode 写入器消费）
     }
+    if (!p.modelsMeta.empty()) {
+        j["modelsMeta"] = p.modelsMeta;  // 每模型参数原值（zcode 往返）
+    }
     return j;
 }
 
@@ -264,6 +271,9 @@ export Provider providerFromJson(const nlohmann::json& j) {
         for (const auto& m : j["models"]) {
             if (m.is_string()) p.models.push_back(m.get<std::string>());
         }
+    }
+    if (j.contains("modelsMeta") && j["modelsMeta"].is_object()) {
+        p.modelsMeta = j["modelsMeta"];
     }
     // 缺少新字段的旧配置保存的是已经可直接访问的 URL，不能按默认
     // 后缀再次拼接，否则会把 /v1 或 /anthropic 复制一遍。

@@ -618,20 +618,29 @@ int main() {
         }
 
         // 保存即同步 ZCode 条目：新增建条目（未启用），编辑原位更新并保持
-        // 启用状态（启用互斥只在切换时发生）。
+        // 启用状态（启用互斥只在切换时发生）；每模型参数原值随写回回放，
+        // 无原值的模型落 ZCode 兼容最小条目。
         {
             models::Provider pn{.name = "保存同步",
                                 .baseUrl = "https://sync.example.com",
                                 .apiKey = "sk-sync",
                                 .models = {"sm1"},
                                 .apiFormat = "openai-chat"};
-            s.addProvider("zcode", pn);
-            const std::string idN = s.group("zcode").providers.back().id;
+            pn.modelsMeta = nlohmann::json::object(
+                {{"sm1",
+                  nlohmann::json::object(
+                      {{"modalities",
+                        nlohmann::json::object({{"input",
+                                                 nlohmann::json::array(
+                                                     {"text", "image"})}})}})}});
+            const std::string idN = s.addProvider("zcode", pn);
             {
                 const auto doc = readJson(zcodeConfig);
                 const auto& entry = doc["provider"]["llmswitch:" + idN];
                 CHECK(entry["enabled"] == false);
                 CHECK(entry["models"].contains("sm1"));
+                CHECK(entry["models"]["sm1"]["modalities"]["input"][1] ==
+                      "image");
             }
             s.switchTo("zcode", idN);
             models::Provider edited = s.group("zcode").providers.back();
@@ -642,6 +651,15 @@ int main() {
                 const auto& entry = doc["provider"]["llmswitch:" + idN];
                 CHECK(entry["enabled"] == true);
                 CHECK(entry["models"].contains("sm2"));
+                CHECK(entry["models"]["sm2"]["zcode"]["priority"] == 100);
+                CHECK(entry["models"]["sm1"]["modalities"]["input"][1] ==
+                      "image");
+            }
+            // 启用/停用开关只翻该条目。
+            s.setZcodeEntryEnabled(idN, false);
+            {
+                const auto doc = readJson(zcodeConfig);
+                CHECK(doc["provider"]["llmswitch:" + idN]["enabled"] == false);
             }
         }
     }

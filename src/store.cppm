@@ -49,8 +49,9 @@ public:
     void setRouterToolEnabled(std::string_view tool, bool enabled);
 
     // ---- CRUD（均立即落盘）----
-    // id/createdAt 为空/0 时自动生成。
-    void addProvider(std::string_view tool, models::Provider provider);
+    // id/createdAt 为空/0 时自动生成；返回实际使用的 id（zcode 保存流程
+    // 需要它定位生成的条目）。
+    std::string addProvider(std::string_view tool, models::Provider provider);
     // 按 provider.id 整体替换；不存在抛异常。
     void updateProvider(std::string_view tool, const models::Provider& provider);
     // ZCode 专用：把 provider 原位同步成 config.json 里的 llmswitch:<id>
@@ -58,6 +59,11 @@ public:
     // 即与 ZCode 页面一一对应；启用互斥仍只在 switchTo 时发生。写失败抛
     // std::runtime_error。
     void upsertZcodeEntry(const models::Provider& provider);
+    // ZCode 专用：查询/设置 llmswitch:<id> 条目的 enabled 开关（对应 ZCode
+    // 页面里每个供应商的启用/停用）。查询对不存在的条目返回 false；设置
+    // 对不存在的条目抛 std::runtime_error。
+    [[nodiscard]] bool zcodeEntryEnabled(const std::string& id) const;
+    void setZcodeEntryEnabled(const std::string& id, bool enabled);
     // 删除；删掉的是 current 时 current 置空。
     void removeProvider(std::string_view tool, const std::string& id);
     // 复制一份（新 id、名称加「（副本）」），插在原项之后并返回副本。

@@ -636,12 +636,19 @@ nlohmann::json buildZcodeEntry(const models::Provider& target,
     entry["source"] = "custom";
     // models 是不定长清单。ZCode 的存储结构里没有主模型概念（条目只有
     // 模型清单，选模型是运行时行为），所以只写清单本身——不把主模型强行
-    // 塞进去；清单为空而主模型非空时退化为单模型清单。
+    // 塞进去；清单为空而主模型非空时退化为单模型清单。每个模型的参数
+    // （reasoning/limit/modalities 等）按收编时的原值回放，没有原值的写
+    // ZCode 兼容的最小条目。
     if (!target.models.empty() || !target.model.empty()) {
         nlohmann::json modelsMap = nlohmann::json::object();
-        const auto put = [&modelsMap](const std::string& id) {
-            modelsMap[id] = nlohmann::json::object(
-                {{"zcode", nlohmann::json::object({{"priority", 100}})}});
+        const auto put = [&target, &modelsMap](const std::string& id) {
+            if (target.modelsMeta.contains(id) &&
+                target.modelsMeta[id].is_object()) {
+                modelsMap[id] = target.modelsMeta[id];
+            } else {
+                modelsMap[id] = nlohmann::json::object(
+                    {{"zcode", nlohmann::json::object({{"priority", 100}})}});
+            }
         };
         if (!target.models.empty()) {
             for (const auto& id : target.models) put(id);
@@ -762,13 +769,16 @@ void ProviderStore::setRouterToolEnabled(std::string_view tool, bool enabled) {
     save();
 }
 
-void ProviderStore::addProvider(std::string_view tool, models::Provider provider) {
+std::string ProviderStore::addProvider(std::string_view tool,
+                                       models::Provider provider) {
     auto& g = groupRef(tool);
     if (provider.id.empty()) provider.id = generateId();
     if (provider.createdAt == 0) provider.createdAt = nowMillis();
     if (tool == "zcode") upsertZcodeEntry(provider);
+    std::string id = provider.id;
     g.providers.push_back(std::move(provider));
     save();
+    return id;
 }
 
 void ProviderStore::updateProvider(std::string_view tool,
@@ -805,6 +815,37 @@ void ProviderStore::upsertZcodeEntry(const models::Provider& provider) {
             ? doc["provider"][entryKey].value("enabled", false)
             : false;
     doc["provider"][entryKey] = std::move(entry);
+    atomicWrite(file, doc.dump(2) + "\n");
+}
+
+// 查询 ZCode 里 llmswitch:<id> 条目的启用状态；条目不存在返回 false。
+bool ProviderStore::zcodeEntryEnabled(const std::string& id) const {
+    const auto j = readJsonOrNull(cfg::zcodeConfigFile());
+    if (!j.is_object() || !j.contains("provider") ||
+        !j["provider"].is_object()) {
+        return false;
+    }
+    const std::string key = "llmswitch:" + id;
+    if (!j["provider"].contains(key) || !j["provider"][key].is_object()) {
+        return false;
+    }
+    return j["provider"][key].value("enabled", false);
+}
+
+// 启用/停用 ZCode 里的 llmswitch:<id> 条目（仅翻该条目的 enabled，不动
+// 其他条目，也不改组内 current——启用互斥仍只在 switchTo 发生）；条目
+// 不存在抛 std::runtime_error。
+void ProviderStore::setZcodeEntryEnabled(const std::string& id, bool enabled) {
+    const auto file = cfg::zcodeConfigFile();
+    nlohmann::json doc = readJsonOrNull(file);
+    const std::string key = "llmswitch:" + id;
+    if (!doc.is_object() || !doc.contains("provider") ||
+        !doc["provider"].is_object() || !doc["provider"].contains(key) ||
+        !doc["provider"][key].is_object()) {
+        throw std::runtime_error(std::format("ZCode 条目不存在：{}", id));
+    }
+    backupLiveFile("zcode", file);
+    doc["provider"][key]["enabled"] = enabled;
     atomicWrite(file, doc.dump(2) + "\n");
 }
 
@@ -1516,6 +1557,9 @@ models::Provider ProviderStore::importLive(std::string_view tool) {
                 for (auto mit = entry["models"].begin();
                      mit != entry["models"].end(); ++mit) {
                     p.models.push_back(mit.key());
+                    if (mit.value().is_object()) {
+                        p.modelsMeta[mit.key()] = mit.value();
+                    }
                 }
                 if (!p.models.empty()) p.model = p.models.front();
             }
@@ -1541,6 +1585,7 @@ models::Provider ProviderStore::importLive(std::string_view tool) {
                 slot->apiFormat = p.apiFormat;
                 slot->model = p.model;
                 slot->models = p.models;
+                slot->modelsMeta = p.modelsMeta;
             }
             if (it.key() == currentKey) {
                 currentId = slot != nullptr ? slot->id : p.id;

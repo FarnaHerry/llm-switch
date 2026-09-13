@@ -1,6 +1,7 @@
 // provider_form.cpp — 供应商新增/编辑与用量配置表单.
 #include <huxerui/huxerui.h>
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <format>
@@ -18,6 +19,7 @@ import llmswitch.config;
 import llmswitch.models;
 import llmswitch.net;
 import llmswitch.store;
+import nlohmann.json;
 
 namespace llmswitch::ui {
 
@@ -190,6 +192,38 @@ void ReplaceModelList(const huxerui::StateList<std::string>& destination,
     }
 }
 
+// ---- 每模型参数（zcode 条目 models map 的原值，modelsMeta）--------------------
+
+// 是否声明了图像输入（识图）。
+bool ModelSeesImages(const nlohmann::json& meta, const std::string& id) {
+    if (!meta.contains(id) || !meta[id].is_object()) return false;
+    const auto& m = meta[id];
+    if (!m.contains("modalities") || !m["modalities"].is_object()) return false;
+    const auto& input = m["modalities"]["input"];
+    return input.is_array() && std::find(input.begin(), input.end(),
+                                         nlohmann::json("image")) != input.end();
+}
+
+// 是否开启了思维链（reasoning.enabled）。
+bool ModelHasReasoning(const nlohmann::json& meta, const std::string& id) {
+    if (!meta.contains(id) || !meta[id].is_object()) return false;
+    const auto& m = meta[id];
+    return m.contains("reasoning") && m["reasoning"].is_object() &&
+           m["reasoning"].value("enabled", false);
+}
+
+// 复制 id 对应的模型参数（无则给空对象），交给 mutate 修改后写回副本。
+nlohmann::json WithModelMeta(
+    nlohmann::json meta, const std::string& id,
+    const std::function<void(nlohmann::json&)>& mutate) {
+    nlohmann::json m = meta.contains(id) && meta[id].is_object()
+                           ? meta[id]
+                           : nlohmann::json::object();
+    mutate(m);
+    meta[id] = std::move(m);
+    return meta;
+}
+
 
 } // namespace
 
@@ -308,6 +342,13 @@ void ReplaceModelList(const huxerui::StateList<std::string>& destination,
     auto fetching = huxerui::UseState(false);
     auto fetchedModels = huxerui::UseStateList<std::string>();
     auto modelList = huxerui::UseStateList(DedupeModels(formInitial.models));
+    // 每模型参数原值（zcode：reasoning/识图等；编辑面板直接改这份）。
+    auto modelMeta = huxerui::UseState(formInitial.modelsMeta);
+    // 展开的模型参数行下标（-1 = 全部收起）。
+    auto expandedMeta = huxerui::UseState(-1);
+    // ZCode 条目的启用开关：状态以 live 条目的 enabled 为初值，保存时写回。
+    auto zcodeEnabled = huxerui::UseState(
+        tool == "zcode" && providerStore().zcodeEntryEnabled(initial.id));
     // 清单「添加」行的输入框。
     auto addModel = huxerui::UseState(huxerui::TextEditingValue{});
     auto showModelFetchOptions =
@@ -522,6 +563,15 @@ void ReplaceModelList(const huxerui::StateList<std::string>& destination,
             }.With(huxerui::Spacing(8.0F),
                    huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)));
         }
+        if (zcodeModels) {
+            // 对应 ZCode 条目的 enabled 字段（ZCode 页面里每个供应商都有
+            // 启用/停用开关）；保存时随条目写回，不影响切换的互斥语义。
+            fields.push_back(
+                huxerui::Switch("在 ZCode 中启用此供应商", zcodeEnabled.Get())
+                    .OnChanged([zcodeEnabled](bool checked) {
+                        zcodeEnabled = checked;
+                    }));
+        }
         fields.push_back(huxerui::Row{std::move(fetchButton)}
                              .With(huxerui::CrossAlign(
                                  huxerui::CrossAxisAlignment::Center)));
@@ -563,10 +613,78 @@ void ReplaceModelList(const huxerui::StateList<std::string>& destination,
                             huxerui::Font::System(font_size::kBody),
                             theme.colors.on_surface})
                         .With(huxerui::Grow(1.0F)),
+                    zcodeModels
+                        ? huxerui::View{huxerui::IconButton(
+                                            app::images::edit, "模型参数")
+                                            .OnClick([expandedMeta, i] {
+                                                expandedMeta =
+                                                    expandedMeta.Get() ==
+                                                            static_cast<int>(i)
+                                                        ? -1
+                                                        : static_cast<int>(i);
+                                            })}
+                        : huxerui::View{huxerui::Row{}},
                     huxerui::IconButton(app::images::trash, "移除")
-                        .OnClick([modelList, i] { modelList.Erase(i); }),
+                        .OnClick([modelList, expandedMeta, i] {
+                            modelList.Erase(i);
+                            expandedMeta = -1;
+                        }),
                 }.With(huxerui::Spacing(8.0F),
                        huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)));
+            if (zcodeModels && expandedMeta.Get() == static_cast<int>(i)) {
+                // 每模型参数编辑面板：直接改 modelsMeta 原值（收编自 ZCode
+                // 的 reasoning/limit/modalities/zcode 元数据），未提供开关的
+                // 字段保存时按原值回放。
+                fields.push_back(
+                    huxerui::Column {
+                        huxerui::Switch("视觉输入（识图）",
+                                        ModelSeesImages(modelMeta.Get(), id))
+                            .OnChanged([modelMeta, id](bool on) {
+                                modelMeta = WithModelMeta(
+                                    modelMeta.Get(), id,
+                                    [on](nlohmann::json& m) {
+                                        if (!m.contains("modalities") ||
+                                            !m["modalities"].is_object()) {
+                                            m["modalities"] =
+                                                nlohmann::json::object();
+                                        }
+                                        auto& input = m["modalities"]["input"];
+                                        if (!input.is_array()) {
+                                            input = nlohmann::json::array(
+                                                {"text"});
+                                        }
+                                        auto it = std::find(
+                                            input.begin(), input.end(),
+                                            nlohmann::json("image"));
+                                        if (on && it == input.end()) {
+                                            input.push_back("image");
+                                        } else if (!on && it != input.end()) {
+                                            input.erase(it);
+                                        }
+                                    });
+                            }),
+                        huxerui::Switch("思维链（reasoning）",
+                                        ModelHasReasoning(modelMeta.Get(), id))
+                            .OnChanged([modelMeta, id](bool on) {
+                                modelMeta = WithModelMeta(
+                                    modelMeta.Get(), id,
+                                    [on](nlohmann::json& m) {
+                                        if (!m.contains("reasoning") ||
+                                            !m["reasoning"].is_object()) {
+                                            m["reasoning"] =
+                                                nlohmann::json::object();
+                                        }
+                                        m["reasoning"]["enabled"] = on;
+                                    });
+                            }),
+                        huxerui::Text("其余参数（思考档位/上下文上限等）按 ZCode 原值保留，可在 ZCode 内修改")
+                            .Style(huxerui::TextStyle{
+                                huxerui::Font::System(font_size::kCaption),
+                                theme.colors.on_surface_variant}),
+                    }.With(huxerui::Spacing(6.0F),
+                           huxerui::Padding(
+                               huxerui::EdgeInsets::Symmetric(16.0F, 0.0F))));
+            }
         }
         fields.push_back(huxerui::Row {
             huxerui::TextField(addModel.Get())
@@ -741,6 +859,7 @@ void ReplaceModelList(const huxerui::StateList<std::string>& destination,
                         }
                         if (tool == "zcode") {
                             p.model = p.models.empty() ? "" : p.models.front();
+                            p.modelsMeta = modelMeta.Get();
                         }
                         p.modelSupports1m = fs.modelSupports1m.Get();
                         p.upstreamFormat =
@@ -765,9 +884,12 @@ void ReplaceModelList(const huxerui::StateList<std::string>& destination,
                         p.usageUrl = initial.usageUrl;
                         p.usagePath = initial.usagePath;
                         p.usageLabel = initial.usageLabel;
+                        std::string savedId = editingId;
                         try {
                             if (editingId.empty()) {
-                                providerStore().addProvider(tool, std::move(p));
+                                savedId =
+                                    providerStore().addProvider(tool,
+                                                                std::move(p));
                             } else {
                                 // 编辑保留原创建时间。
                                 for (const auto& cur :
@@ -778,6 +900,10 @@ void ReplaceModelList(const huxerui::StateList<std::string>& destination,
                                     }
                                 }
                                 providerStore().updateProvider(tool, p);
+                            }
+                            if (tool == "zcode") {
+                                providerStore().setZcodeEntryEnabled(
+                                    savedId, zcodeEnabled.Get());
                             }
                         } catch (const std::exception& e) {
                             toast.Show(e.what());
