@@ -51,8 +51,8 @@ int UsageIntervalIndex(int minutes) {
     // 事件路径；任务挂父级 closeTasks——本页 scope 随写入一起销毁）。
     auto goBack = [closeTasks, formTarget] {
         closeTasks.Launch([formTarget]() -> huxerui::Task<void> {
-            co_await huxerui::Delay(std::chrono::duration<double>{0});
-            formTarget = "";
+            formTarget = "";  // 不经 Delay(0)（帧调度），事件队列立即执行
+            co_return;
         });
     };
 

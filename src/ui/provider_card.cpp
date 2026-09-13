@@ -112,16 +112,16 @@ using provider_detail::WriteUsageCache;
     // 编辑：进入整页表单（写 formTarget 会卸载点击路径上的节点：推迟）。
     auto showEdit = [tasks, formTarget, id] {
         tasks.Launch([=]() -> huxerui::Task<void> {
-            co_await huxerui::Delay(std::chrono::duration<double>{0});
-            formTarget = id;
+            formTarget = id;  // 不经 Delay(0)（帧调度），事件队列立即执行
+            co_return;
         });
     };
 
     // 用量查询配置：进入独立配置页（同样推迟）。
     auto showUsage = [tasks, formTarget, id] {
         tasks.Launch([=]() -> huxerui::Task<void> {
-            co_await huxerui::Delay(std::chrono::duration<double>{0});
-            formTarget = "usage:" + id;
+            formTarget = "usage:" + id;  // 不经 Delay(0)（帧调度）
+            co_return;
         });
     };
 
@@ -272,8 +272,8 @@ using provider_detail::WriteUsageCache;
                 .OnClick([tasks, showDeleteConfirm] {
                     // 弹窗会卸载点击路径上的节点：推迟出指针事件路径。
                     tasks.Launch([=]() -> huxerui::Task<void> {
-                        co_await huxerui::Delay(std::chrono::duration<double>{0});
-                        showDeleteConfirm();
+                        showDeleteConfirm();  // 不经 Delay(0)（帧调度）
+                        co_return;
                     });
                 })
                 .With(huxerui::Tooltip("删除")),

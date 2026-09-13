@@ -104,7 +104,8 @@ using provider_detail::WriteUsageCache;
             }
             tasks.Launch([tool, target, formTarget, formInitial, formDataTarget,
                           formLoading]() -> huxerui::Task<void> {
-                co_await huxerui::Delay(std::chrono::duration<double>{0});
+                // 不经 Delay(0)（帧调度）：任务体在工厂返回后经事件队列
+                // 立即执行，此时组合已结束，写状态安全。
                 if (formTarget.Get() != target) co_return;
 
                 models::Provider loaded;
@@ -208,8 +209,8 @@ using provider_detail::WriteUsageCache;
         if (!formReady) {
             auto goBack = [tasks, formTarget] {
                 tasks.Launch([formTarget]() -> huxerui::Task<void> {
-                    co_await huxerui::Delay(std::chrono::duration<double>{0});
-                    formTarget = "";
+                    formTarget = "";  // 不经 Delay(0)（帧调度），事件队列立即执行
+                    co_return;
                 });
             };
             const std::string title = target.starts_with("usage:")

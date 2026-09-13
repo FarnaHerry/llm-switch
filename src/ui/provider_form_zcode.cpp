@@ -104,13 +104,13 @@ const AgentFormPolicy& ZcodeFormPolicy() {
                           fetchedModels, toast] {
         addModel = huxerui::TextEditingValue{};
         tasks.Launch([=]() -> huxerui::Task<void> {
-            co_await huxerui::Delay(std::chrono::duration<double>{0});
             dialog.Show(
                 [=](huxerui::DialogContext ctx) -> huxerui::View {
                     return ZcodeAddModelContent(fs, addModel, modelList,
                                                 fetchedModels, ctx, toast);
                 },
                 huxerui::DialogOptions{});
+            co_return;
         });
     };
 

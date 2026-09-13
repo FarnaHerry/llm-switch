@@ -84,8 +84,11 @@ namespace llmswitch::ui {
     // 事件路径；任务挂父级 closeTasks——本页 scope 随写入一起销毁）。
     auto goBack = [closeTasks, formTarget] {
         closeTasks.Launch([formTarget]() -> huxerui::Task<void> {
-            co_await huxerui::Delay(std::chrono::duration<double>{0});
+            // 不经 Delay(0)：那是帧回调调度，窗口空闲时下一帧可能迟迟不
+            // 来（取消卡顿的根源）。任务体经 UI 事件循环队列在点击回调
+            // 返回后立即执行，同样满足「推迟出点击路径」。
             formTarget = "";
+            co_return;
         });
     };
 
