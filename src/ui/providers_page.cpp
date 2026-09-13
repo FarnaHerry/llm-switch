@@ -237,11 +237,12 @@ using provider_detail::WriteUsageCache;
 
         const models::Provider initial = formInitial.Get();
         if (target.starts_with("usage:")) {
-            return UsageFormPage(tool, initial, revision, formTarget)
+            return UsageFormPage(tool, initial, revision, formTarget, tasks)
                 .Key("usage:" + target.substr(6));
         }
         const bool isNew = target == "new";
-        return ProviderFormPage(tool, initial, isNew, revision, formTarget)
+        return ProviderFormPage(tool, initial, isNew, revision, formTarget,
+                                tasks)
             .Key("form:" + target);
     }
 

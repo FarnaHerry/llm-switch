@@ -28,11 +28,13 @@ namespace llmswitch::ui {
 
 huxerui::View ProviderFormPage(std::string tool, models::Provider initial,
                                bool isNew, huxerui::State<int> revision,
-                               huxerui::State<std::string> formTarget);
+                               huxerui::State<std::string> formTarget,
+                               huxerui::TaskScope closeTasks);
 
 huxerui::View UsageFormPage(std::string tool, models::Provider initial,
                             huxerui::State<int> revision,
-                            huxerui::State<std::string> formTarget);
+                            huxerui::State<std::string> formTarget,
+                            huxerui::TaskScope closeTasks);
 
 huxerui::View OfficialCard(std::string tool, bool active,
                            huxerui::ToastHandle toast,

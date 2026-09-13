@@ -375,10 +375,13 @@ bool ModelHasReasoning(const nlohmann::json& meta, const std::string& id) {
 // .Key("form:" + target) 保证换编辑目标整体重建）。isNew 时顶部内嵌预设
 // 模板区（点选 FillForm 预填）。校验：名称必填；非 codex 组 baseUrl 必填；
 // codex 组 apiKey 必填；needsModel 组模型必填。保存成功 toast 后返回列表
-// （写 formTarget 会卸载点击节点：经 tasks.Launch + Delay(0) 推迟）。
+// （写 formTarget 会卸载点击节点：经 closeTasks.Launch + Delay(0) 推迟；
+// closeTasks 是父级页面的 scope——本页 scope 会随 formTarget 写入一起
+// 卸载，不能承载关闭任务本身）。
 [[huxerui::composable]] huxerui::View ProviderFormPage(
     std::string tool, models::Provider initial, bool isNew,
-    huxerui::State<int> revision, huxerui::State<std::string> formTarget) {
+    huxerui::State<int> revision, huxerui::State<std::string> formTarget,
+    huxerui::TaskScope closeTasks) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto tasks = huxerui::UseTaskScope();
     auto toast = huxerui::UseToast();
@@ -428,9 +431,10 @@ bool ModelHasReasoning(const nlohmann::json& meta, const std::string& id) {
     auto showKey = huxerui::UseState(false);
     auto keyHover = huxerui::UseState(false);
 
-    // 返回列表（写 formTarget 会卸载点击路径上的节点：推迟出指针事件路径）。
-    auto goBack = [tasks, formTarget] {
-        tasks.Launch([formTarget]() -> huxerui::Task<void> {
+    // 返回列表（写 formTarget 会卸载本页与点击路径上的节点：推迟出指针
+    // 事件路径；任务挂父级 closeTasks——本页 scope 随写入一起销毁）。
+    auto goBack = [closeTasks, formTarget] {
+        closeTasks.Launch([formTarget]() -> huxerui::Task<void> {
             co_await huxerui::Delay(std::chrono::duration<double>{0});
             formTarget = "";
         });
@@ -1059,7 +1063,7 @@ bool ModelHasReasoning(const nlohmann::json& meta, const std::string& id) {
 // 配置，重新打开即可恢复查询。保存 = updateProvider 只改用量字段。
 [[huxerui::composable]] huxerui::View UsageFormPage(
     std::string tool, models::Provider initial, huxerui::State<int> revision,
-    huxerui::State<std::string> formTarget) {
+    huxerui::State<std::string> formTarget, huxerui::TaskScope closeTasks) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto tasks = huxerui::UseTaskScope();
     auto toast = huxerui::UseToast();
@@ -1072,9 +1076,10 @@ bool ModelHasReasoning(const nlohmann::json& meta, const std::string& id) {
     auto usageInterval =
         huxerui::UseState(UsageIntervalIndex(initial.usageRefreshMinutes));
 
-    // 返回列表（写 formTarget 会卸载点击路径上的节点：推迟出指针事件路径）。
-    auto goBack = [tasks, formTarget] {
-        tasks.Launch([formTarget]() -> huxerui::Task<void> {
+    // 返回列表（写 formTarget 会卸载本页与点击路径上的节点：推迟出指针
+    // 事件路径；任务挂父级 closeTasks——本页 scope 随写入一起销毁）。
+    auto goBack = [closeTasks, formTarget] {
+        closeTasks.Launch([formTarget]() -> huxerui::Task<void> {
             co_await huxerui::Delay(std::chrono::duration<double>{0});
             formTarget = "";
         });

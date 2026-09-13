@@ -389,14 +389,17 @@ bool InvolvesTool(const skills::SkillInfo& skill, std::string_view toolId) {
     };
 
     // Agent 过滤：0 = 全部（通用图标），其余按 kSkillTools 顺序对应各同步
-    // 目标，图标与 Agent 管理页同一注册表。
+    // 目标。只显示 agent 图标（与 Agent 管理页同一注册表），文字仅作无障碍
+    // 语义标签。
     auto agentFilter = huxerui::UseState<std::size_t>(0);
     std::vector<huxerui::SegmentedButtonItem> filterItems;
-    filterItems.emplace_back(ToolIcon("agents"), "全部");
+    filterItems.push_back(
+        huxerui::SegmentedButtonItem::IconOnly(ToolIcon("agents"), "全部"));
     for (const std::string_view toolId : kSkillTools) {
         const auto* spec = models::findTool(toolId);
-        filterItems.emplace_back(ToolIcon(spec != nullptr ? spec->iconName : ""),
-                                 std::string(ToolName(toolId)));
+        filterItems.push_back(huxerui::SegmentedButtonItem::IconOnly(
+            ToolIcon(spec != nullptr ? spec->iconName : ""),
+            std::string(ToolName(toolId))));
     }
 
     const auto& skillItems = store.Get().skills();
