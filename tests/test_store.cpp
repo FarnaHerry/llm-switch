@@ -482,7 +482,9 @@ int main() {
             CHECK(entry["models"].contains("glm-5-air"));
             CHECK(entry["models"].contains("glm-5-pro"));
             CHECK(!entry["models"].contains("glm-5-extra"));
-            CHECK(doc["provider"]["builtin:anthropic"]["enabled"] == false);  // 互斥
+            // 互斥只停本应用托管（llmswitch:*）条目；builtin 与 ZCode 原生
+            // 自建条目的启停由用户在 ZCode 侧管理，保持原状。
+            CHECK(doc["provider"]["builtin:anthropic"]["enabled"] == true);
             CHECK(doc["provider"]["custom:manual"]["enabled"] == false);
             CHECK(s.detectCurrent("zcode") == idZ);
             // 导入：models 不定长清单全量读出（DS 等多模型条目不丢模型）。
@@ -516,7 +518,8 @@ int main() {
         const std::string idZ2 = s.group("zcode").providers.back().id;
         s.switchTo("zcode", idZ2);
         CHECK(readJson(zcodeConfig)["provider"]["llmswitch:" + idZ]["enabled"] == false);
-        CHECK(readJson(zcodeConfig)["provider"]["llmswitch:" + idZ2]["kind"] == "openai");
+        CHECK(readJson(zcodeConfig)["provider"]["llmswitch:" + idZ2]["kind"] ==
+              "openai-compatible");  // ZCode 规范拼写
         // 清单为空、主模型非空 → 退化为单模型清单。
         CHECK(readJson(zcodeConfig)["provider"]["llmswitch:" + idZ2]["models"]
                   .contains("m2"));
@@ -666,6 +669,60 @@ int main() {
                 const auto doc = readJson(zcodeConfig);
                 CHECK(doc["provider"]["llmswitch:" + idN]["enabled"] == false);
             }
+        }
+
+        // ZCode 原生自建条目（键 = 裸 id，无 enabled 字段 = 启用）：读状态
+        // 缺省视为启用；保存同步原位更新（不另起 llmswitch: 重复条目、不
+        // 补写 enabled、options 里 ZCode 自己的键原样保留）；切换只显式
+        // 启用目标条目，互斥不波及其他原生条目；detect 命中原生条目。
+        writeFile(zcodeConfig, R"json({"provider": {
+            "native-a": {"name": "原生甲", "kind": "anthropic", "options": {"apiKey": "kn-a", "baseURL": "https://na.example.com", "apiKeyRequired": true}, "source": "custom", "models": {"na-1": {}}},
+            "native-b": {"name": "原生乙", "kind": "openai-compatible", "options": {"apiKey": "kn-b", "baseURL": "https://nb.example.com"}, "enabled": false, "models": {"nb-1": {}}}
+        }})json");
+        {
+            auto s6 = store::ProviderStore::load();
+            bool sawA = false;
+            models::Provider pe;
+            for (const auto& p : s6.group("zcode").providers) {
+                if (p.id == "native-a") {
+                    sawA = true;
+                    pe = p;
+                }
+            }
+            CHECK(sawA);
+            // enabled 缺省 = 启用；显式 false = 停用；current 跟到原生条目。
+            CHECK(s6.zcodeEntryEnabled("native-a") == true);
+            CHECK(s6.zcodeEntryEnabled("native-b") == false);
+            CHECK(s6.group("zcode").current == "native-a");
+            // 保存同步：原位更新，不另起重复条目、不补写 enabled、
+            // apiKeyRequired 等 ZCode 自有键保留。
+            pe.name = "原生甲改";
+            pe.models = {"na-1", "na-2"};
+            s6.updateProvider("zcode", pe);
+            {
+                const auto doc = readJson(zcodeConfig);
+                CHECK(!doc["provider"].contains("llmswitch:native-a"));
+                const auto& entry = doc["provider"]["native-a"];
+                CHECK(!entry.contains("enabled"));
+                CHECK(entry["name"] == "原生甲改");
+                CHECK(entry["options"]["apiKeyRequired"] == true);
+                CHECK(entry["models"].contains("na-2"));
+            }
+            // 切换：目标原生条目显式启用，detect 命中；原生乙的 enabled
+            // false 不被互斥改写。
+            s6.switchTo("zcode", "native-a");
+            {
+                const auto doc = readJson(zcodeConfig);
+                CHECK(doc["provider"]["native-a"]["enabled"] == true);
+                CHECK(doc["provider"]["native-b"]["enabled"] == false);
+                CHECK(s6.detectCurrent("zcode") == "native-a");
+            }
+            // 停用开关在原生条目上显式写 false。
+            s6.setZcodeEntryEnabled("native-a", false);
+            CHECK(readJson(zcodeConfig)["provider"]["native-a"]["enabled"] ==
+                  false);
+            CHECK(s6.zcodeEntryEnabled("native-a") == false);
+            CHECK(s6.detectCurrent("zcode").empty());
         }
     }
     // 默认档（apiFormat 留空）→ openai-completions
