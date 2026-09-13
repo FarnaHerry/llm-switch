@@ -928,9 +928,16 @@ void ProviderStore::switchTo(std::string_view tool, const std::string& id) {
         entry["options"]["baseURL"] = baseUrl;
         entry["enabled"] = true;
         entry["source"] = "custom";
-        if (!target->model.empty()) {
-            entry["models"][target->model] = nlohmann::json::object(
-                {{"zcode", nlohmann::json::object({{"priority", 100}})}});
+        // models 是不定长清单：清单字段优先，默认模型保证在列。
+        if (!target->model.empty() || !target->models.empty()) {
+            nlohmann::json modelsMap = nlohmann::json::object();
+            const auto put = [&modelsMap](const std::string& id) {
+                modelsMap[id] = nlohmann::json::object(
+                    {{"zcode", nlohmann::json::object({{"priority", 100}})}});
+            };
+            for (const auto& id : target->models) put(id);
+            if (!target->model.empty()) put(target->model);
+            entry["models"] = std::move(modelsMap);
         }
         doc["provider"][entryKey] = entry;
         for (auto it = doc["provider"].begin(); it != doc["provider"].end(); ++it) {
@@ -1449,9 +1456,12 @@ models::Provider ProviderStore::importLive(std::string_view tool) {
                 jsonStr(entry, "kind") == "anthropic" ? "anthropic" : "openai-chat";
             p.baseUrl = baseUrl;
             p.apiKey = apiKey;
-            if (entry.contains("models") && entry["models"].is_object() &&
-                !entry["models"].empty()) {
-                p.model = entry["models"].begin().key();
+            if (entry.contains("models") && entry["models"].is_object()) {
+                for (auto mit = entry["models"].begin();
+                     mit != entry["models"].end(); ++mit) {
+                    p.models.push_back(mit.key());
+                }
+                if (!p.models.empty()) p.model = p.models.front();
             }
             models::Provider* slot = nullptr;
             for (auto& cur : g.providers) {
@@ -1468,6 +1478,7 @@ models::Provider ProviderStore::importLive(std::string_view tool) {
                 slot->name = p.name;
                 slot->apiFormat = p.apiFormat;
                 slot->model = p.model;
+                slot->models = p.models;
             }
             if (it.key() == currentKey) {
                 currentId = slot != nullptr ? slot->id : p.id;

@@ -460,7 +460,7 @@ int main() {
         // import/restore。预置 builtin 与手填条目验证互斥与恢复。
         writeFile(zcodeConfig, R"json({"provider": {
             "builtin:anthropic": {"name": "Anthropic", "kind": "anthropic", "options": {"apiKey": "builtin-key"}, "enabled": true, "source": "builtin"},
-            "custom:manual": {"name": "手填", "kind": "openai", "options": {"apiKey": "k2", "baseURL": "https://m.example.com"}, "enabled": false, "models": {"m1": {}}}
+            "custom:manual": {"name": "手填", "kind": "openai", "options": {"apiKey": "k2", "baseURL": "https://m.example.com"}, "enabled": false, "models": {"m1": {}, "m2": {}}}
         }})json");
         models::Provider pz{.name = "ZCode 中转",
                             .baseUrl = "https://z.example.com",
@@ -480,6 +480,26 @@ int main() {
             CHECK(doc["provider"]["builtin:anthropic"]["enabled"] == false);  // 互斥
             CHECK(doc["provider"]["custom:manual"]["enabled"] == false);
             CHECK(s.detectCurrent("zcode") == idZ);
+            // 导入：models 不定长清单全量读出（DS 等多模型条目不丢模型）。
+            {
+                auto s2 = store::ProviderStore::load();
+                // 持久组此时非空（switchTo 已落盘），改走 importLive 直接断言。
+                const auto imported = s.importLive("zcode");
+                CHECK(imported.apiKey == "sk-z");
+                bool sawM1 = false;
+                bool sawM2 = false;
+                for (const auto& p : s.group("zcode").providers) {
+                    if (p.id == "custom:manual") {
+                        sawM1 = sawM2 = false;
+                        for (const auto& m : p.models) {
+                            sawM1 = sawM1 || m == "m1";
+                            sawM2 = sawM2 || m == "m2";
+                        }
+                    }
+                }
+                CHECK(sawM1);
+                CHECK(sawM2);
+            }
         }
         // 切第二家（openai 协议）：前一家停用、kind 映射 openai。
         models::Provider pz2{.name = "ZCode 二",

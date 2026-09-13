@@ -629,6 +629,15 @@ void ReplaceModelList(const huxerui::StateList<std::string>& destination,
                         p.modelFetchUrl = fs.modelFetchUrl.Get().text;
                         p.apiKey = apiKey;
                         p.model = model;
+                        // 不定长模型清单（zcode 消费）：本次拉取过 = 全量写入
+                        //（默认模型由 model 字段表达）；没拉取 = 保留原清单。
+                        if (!fetchedModels.Empty()) {
+                            for (std::size_t i = 0; i < fetchedModels.Size(); ++i) {
+                                p.models.push_back(fetchedModels.At(i));
+                            }
+                        } else {
+                            p.models = initial.models;
+                        }
                         p.modelSupports1m = fs.modelSupports1m.Get();
                         p.upstreamFormat =
                             UpstreamFormatFromIndex(fs.upstreamFormat.Get());

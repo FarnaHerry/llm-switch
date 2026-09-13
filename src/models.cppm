@@ -126,6 +126,9 @@ export struct Provider {
     std::string modelFetchUrl;   // 可选，空 = 按 baseUrl + 上游格式自动获取模型
     std::string apiKey;
     std::string model;          // 可选，空 = 切换时不写 env.ANTHROPIC_MODEL
+    // 完整模型清单（不定长；zcode 等工具的 models 是列表语义）。空 = 只有
+    // model 一个；「获取模型」拉取成功后整体写入，切换时全量写回。
+    std::vector<std::string> models;
     bool modelSupports1m = false;  // 主模型在 Claude Desktop 菜单中的 1M 能力声明
     // 三档模型映射（仅 hasModelMappings 工具：claude-code / claude，均选填）：
     // * *Model 是发送给上游的实际模型 ID；*DisplayName 是 Claude Desktop
@@ -219,6 +222,9 @@ export nlohmann::json toJson(const Provider& p) {
     j["createdAt"] = p.createdAt;
     j["upstreamFormat"] = p.upstreamFormat;
     j["fullUrl"] = p.fullUrl;
+    if (!p.models.empty()) {
+        j["models"] = p.models;  // 完整模型清单（仅 zcode 写入器消费）
+    }
     return j;
 }
 
@@ -254,6 +260,11 @@ export Provider providerFromJson(const nlohmann::json& j) {
     p.usageLabel = j.value("usageLabel", "");
     p.createdAt = j.value("createdAt", std::int64_t{0});
     p.upstreamFormat = j.value("upstreamFormat", "openai");
+    if (j.contains("models") && j["models"].is_array()) {
+        for (const auto& m : j["models"]) {
+            if (m.is_string()) p.models.push_back(m.get<std::string>());
+        }
+    }
     // 缺少新字段的旧配置保存的是已经可直接访问的 URL，不能按默认
     // 后缀再次拼接，否则会把 /v1 或 /anthropic 复制一遍。
     p.fullUrl = j.contains("fullUrl") ? j.value("fullUrl", true) : true;
