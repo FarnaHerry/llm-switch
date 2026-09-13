@@ -526,25 +526,34 @@ int main() {
             CHECK(s.detectCurrent("zcode").empty());
         }
 
-        // 启动自动收编：持久组清空 + live 文件存在 → load() 即读出全部
-        // 条目（含未启用的）。仅 builtin 原生启用 = 官方原生状态，current
-        // 保持为空（「ZCode 官方」卡亮起），不再指向收编的内置条目。
+        // 启动自动收编：持久组换成旧版残留（一条 builtin:* 卡）+ live 文件
+        // 存在 → load() 清掉 builtin 残留、读出全部自建条目（含未启用的）。
+        // 仅 builtin 原生启用 = 官方原生状态，current 保持为空（「ZCode
+        // 官方」卡亮起）。
         {
             auto persisted = readJson(cfg::configFile());
-            persisted["groups"].erase("zcode");
+            persisted["groups"]["zcode"] = {
+                {"current", "builtin:ghost"},
+                {"providers",
+                 nlohmann::json::array({nlohmann::json{
+                     {"id", "builtin:ghost"},
+                     {"name", "旧版残留"},
+                     {"baseUrl", "https://ghost.example.com"},
+                     {"apiKey", "sk-ghost"},
+                     {"createdAt", 1}}})}};
             writeFile(cfg::configFile(), persisted.dump(2) + "\n");
             auto s2 = store::ProviderStore::load();
             const auto& zg = s2.group("zcode");
-            CHECK(zg.providers.size() == 4);  // builtin + 手填 + 两条 llmswitch
+            CHECK(zg.providers.size() == 3);  // 手填 + 两条 llmswitch
             CHECK(zg.current.empty());
-            bool foundManual = false;
+            bool foundGhost = false;
             bool foundCustom = false;
             for (const auto& p : zg.providers) {
                 if (p.id == "custom:manual") foundCustom = true;
-                if (p.id == "builtin:anthropic") foundManual = true;
+                if (p.id == "builtin:ghost") foundGhost = true;
             }
-            CHECK(foundManual);
             CHECK(foundCustom);
+            CHECK(!foundGhost);
         }
 
         // 组非空也同步：ZCode 侧模型清单变化（新增 m3）→ 启动即刷新。
@@ -583,6 +592,21 @@ int main() {
             writeFile(zcodeConfig, doc.dump(2) + "\n");
             auto s4 = store::ProviderStore::load();
             CHECK(s4.group("zcode").current == idZ2);
+        }
+
+        // 同端点+同密钥的两条自建条目 = 两个供应商：收编按条目键区分身份，
+        // 不按端点+密钥合并（ZCode 页面显示几条就收编几条）。
+        writeFile(zcodeConfig, R"json({"provider": {
+            "dup-one": {"name": "重复一", "kind": "openai", "options": {"apiKey": "k9", "baseURL": "https://dup.example.com"}, "enabled": false},
+            "dup-two": {"name": "重复二", "kind": "openai", "options": {"apiKey": "k9", "baseURL": "https://dup.example.com"}, "enabled": false}
+        }})json");
+        {
+            auto s5 = store::ProviderStore::load();
+            int dupCount = 0;
+            for (const auto& p : s5.group("zcode").providers) {
+                if (p.baseUrl == "https://dup.example.com") ++dupCount;
+            }
+            CHECK(dupCount == 2);
         }
     }
     // 默认档（apiFormat 留空）→ openai-completions

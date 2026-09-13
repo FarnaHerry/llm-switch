@@ -640,7 +640,7 @@ ProviderStore ProviderStore::load() {
     if (!j.is_null()) store.config_ = models::fromJson(j);
     // 首次导入：组为空且 live 文件存在 → 把当前生效配置收编进来。
     // 例外：zcode 每次启动都全量同步——它的 config.json 是自己 provider/
-    // 模型清单的事实源（不定长 models、外部可自行增删），收编按端点+密钥
+    // 模型清单的事实源（不定长 models、外部可自行增删），收编按条目键
     // 原位更新，llm-switch 侧的用量设置等字段不受影响。
     // importLive 失败（如 opencode 的 JSON5 注释文件）静默跳过——不能因为
     // 一个工具的 live 文件让 load 整个垮掉，用户可在 UI 里看到组为空再处理。
@@ -1428,15 +1428,26 @@ models::Provider ProviderStore::importLive(std::string_view tool) {
         return adopt(std::move(p));
     }
     if (tool == "zcode") {
-        // 全量收编：config.json 里每个带凭据的 provider 条目都进列表
-        // （含未启用的；OAuth 等无凭据条目跳过）。current 只跟踪本应用
-        // 托管（llmswitch:*）条目的启用：仅 builtin:* 原生启用时保持
-        // current 为空，供应商列表据此亮起「ZCode 官方」卡。
+        // 全量收编：config.json 里每个带凭据的自建 provider 条目都进列表
+        //（含未启用的；OAuth 等无凭据条目跳过）。builtin:* 是 ZCode 官方
+        // 套餐条目（体验/个人套餐、API key 同属官方域，ZCode 自己融合成
+        // 一个订阅商内部切换），不收编为供应商卡，官方状态由「ZCode 官方」
+        // 卡表达。current 只跟踪本应用托管（llmswitch:*）条目的启用：仅
+        // 官方条目原生启用时 current 保持为空。
         const auto file = cfg::zcodeConfigFile();
         if (!std::filesystem::exists(file, ec)) return {};
         const auto j = readJsonOrNull(file);
         if (!j.is_object() || !j.contains("provider") || !j["provider"].is_object()) {
             return {};
+        }
+        // 旧版本曾把 builtin:* 收编成供应商卡；改为官方域后启动同步时
+        // 清掉残留卡（current 若指向它们由下方重算）。
+        for (auto pit = g.providers.begin(); pit != g.providers.end();) {
+            if (pit->id.starts_with("builtin:")) {
+                pit = g.providers.erase(pit);
+            } else {
+                ++pit;
+            }
         }
         std::string currentKey;
         for (auto it = j["provider"].begin(); it != j["provider"].end(); ++it) {
@@ -1449,6 +1460,7 @@ models::Provider ProviderStore::importLive(std::string_view tool) {
         for (auto it = j["provider"].begin(); it != j["provider"].end(); ++it) {
             const auto& entry = it.value();
             if (!entry.is_object()) continue;
+            if (it.key().starts_with("builtin:")) continue;
             const auto& options = entry["options"];
             const std::string baseUrl =
                 options.is_object() ? jsonStr(options, "baseURL") : "";
@@ -1469,20 +1481,21 @@ models::Provider ProviderStore::importLive(std::string_view tool) {
                 }
                 if (!p.models.empty()) p.model = p.models.front();
             }
+            // 条目键即身份：同端点+同密钥的两条自建条目也是两个供应商，
+            // 不得按端点+密钥合并（ZCode 页面显示几条就收编几条）；
+            // llmswitch: 前缀还原为原始 id，本应用创建的供应商原位更新。
+            const std::string preferred =
+                it.key().starts_with("llmswitch:") ? it.key().substr(10)
+                                                   : it.key();
             models::Provider* slot = nullptr;
             for (auto& cur : g.providers) {
-                if (models::effectiveBaseUrl(cur) == baseUrl && cur.apiKey == apiKey) {
+                if (cur.id == preferred) {
                     slot = &cur;
                     break;
                 }
             }
             if (slot == nullptr) {
-                // llmswitch: 前缀键还原为原始 provider id：持久组被清空后
-                // 重收编仍能拿回同一身份，而不是 llmswitch:<id> 套娃。
-                const std::string preferred =
-                    it.key().starts_with("llmswitch:") ? it.key().substr(10)
-                                                       : it.key();
-                p.id = importId(g, preferred);
+                p.id = preferred;
                 p.createdAt = nowMillis();
                 g.providers.push_back(p);
             } else {
