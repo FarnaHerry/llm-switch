@@ -177,6 +177,52 @@ export std::filesystem::path piSettingsFile() {
     return piAgentDir() / "settings.json";
 }
 
+// gemini-cli 系 coding agent（Gemini CLI / Qwen Code）目录：认证与端点
+// 覆盖写在目录下的 .env（KEY=VALUE 行级 upsert），auth 类型写 settings.json。
+// LLMSWITCH_GEMINI_DIR / LLMSWITCH_QWEN_DIR 覆盖供测试与非常规安装。
+export std::filesystem::path geminiDir() {
+    if (const char* e = std::getenv("LLMSWITCH_GEMINI_DIR"); e && *e) {
+        return std::filesystem::path(e);
+    }
+    return homeDir() / ".gemini";
+}
+
+// Gemini CLI 的 .env（GEMINI_API_KEY / GOOGLE_GEMINI_BASE_URL / GEMINI_MODEL）。
+export std::filesystem::path geminiEnvFile() {
+    return geminiDir() / ".env";
+}
+
+// Gemini CLI 全局设置（security.auth.selectedType 深合并）。
+export std::filesystem::path geminiSettingsFile() {
+    return geminiDir() / "settings.json";
+}
+
+export std::filesystem::path qwenDir() {
+    if (const char* e = std::getenv("LLMSWITCH_QWEN_DIR"); e && *e) {
+        return std::filesystem::path(e);
+    }
+    return homeDir() / ".qwen";
+}
+
+// Qwen Code 的 .env（OPENAI_API_KEY / OPENAI_BASE_URL / OPENAI_MODEL）。
+export std::filesystem::path qwenEnvFile() {
+    return qwenDir() / ".env";
+}
+
+// Qwen Code 全局设置（security.auth.selectedType 深合并）。
+export std::filesystem::path qwenSettingsFile() {
+    return qwenDir() / "settings.json";
+}
+
+// ZCode 的 provider 注册表（provider map upsert + enabled 切换；样本字段
+// name/kind/options{apiKey,baseURL}/models）。LLMSWITCH_ZCODE_CONFIG 覆盖。
+export std::filesystem::path zcodeConfigFile() {
+    if (const char* e = std::getenv("LLMSWITCH_ZCODE_CONFIG"); e && *e) {
+        return std::filesystem::path(e);
+    }
+    return homeDir() / ".zcode" / "v2" / "config.json";
+}
+
 // Claude Desktop 配置目录（3p Direct 模式；**Linux 不支持**，返回空路径——
 // store 层据此报「不支持」错误。LLMSWITCH_CLAUDE_DESKTOP_DIR 覆盖供测试与
 // 非常规安装，覆盖即放行平台门）。

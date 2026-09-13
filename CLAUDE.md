@@ -5,8 +5,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 完整读取。本文件提供架构细节与实现上下文，不重复维护跨工具规则。
 
 llm-switch 是 **cc-switch**（GitHub: farion1231/cc-switch）的 **C++23 模块化重写**：
-管理多款 AI agent 工具的供应商配置切换——领域层已泛化到 5 个工具
-（claude-code / claude desktop / codex / opencode / pi，注册表见
+管理多款 AI agent 工具的供应商配置切换——领域层已泛化到 8 个工具
+（claude-code / claude desktop / codex / opencode / pi / gemini / qwen /
+zcode，注册表见
 `models::toolRegistry()`），把选中的供应商写进工具的 live 配置文件
 （`~/.claude/settings.json` 的 env 块 / `~/.codex/auth.json` + `config.toml` /
 opencode.json additive upsert / pi 的 models.json + settings.json /
@@ -96,8 +97,8 @@ commit，不回滚已经验证的修改，并在最终回复中报告失败原�
 | 模块 | 文件 | 职责 |
 |------|------|------|
 | `llmswitch.config` | `src/config.cppm` | 数据目录（~/.local/share/llm-switch）/ config.json、backups/、mcp.json、skills-store/、router/requests.jsonl 路径 / live 配置与会话/技能目录解析（全部 LLMSWITCH_* 环境变量可覆盖）/ 深色检测 |
-| `llmswitch.models` | `src/models.cppm` | 工具注册表（ToolSpec/toolRegistry/findTool：claude-code/claude/codex/opencode/pi；needsModel/hasApiFormat/hasModelMappings 三标记驱动表单适配）+ Provider/ProviderGroup/AppConfig（groups 以注册表 id 为键的 map，旧格式顶层 claude/codex 自动迁移；router/usage 设置字段，Provider.usageEnabled 控制单个供应商是否查询，routerTools 保存逐 Agent 代理选择；Provider 含 modelFetchUrl、haiku/sonnet/opusModel 三档映射与 upstreamFormat/fullUrl URL 模式）+ JSON 序列化 + 内置预设（builtinPresets）+ 官方厂商名（officialVendorName：claude 系/codex 有官方常驻卡）+ apiFormat 三档归一（normalizeApiFormat/apiFormatLabel）+ 上游 URL 归一/后缀（normalizeUpstreamFormat/upstreamFormatSuffix/effectiveBaseUrl）+ 用量端点模板（suggestUsageQuery） |
-| `llmswitch.store` | `src/store.cppm` + `src/store.cpp` | ProviderStore：config.json 读写、CRUD、switchTo 按工具 id 分发五个 writer（原子写+备份）、restoreOfficial 恢复厂商原生状态（claude-code/claude/codex）、detectCurrent/importLive、导出导入、theme/usage/router 与逐 Agent 路由设置 setter |
+| `llmswitch.models` | `src/models.cppm` | 工具注册表（ToolSpec/toolRegistry/findTool：claude-code/claude/codex/opencode/pi/gemini/qwen/zcode；needsModel/hasApiFormat/hasModelMappings 三标记驱动表单适配）+ Provider/ProviderGroup/AppConfig（groups 以注册表 id 为键的 map，旧格式顶层 claude/codex 自动迁移；router/usage 设置字段，Provider.usageEnabled 控制单个供应商是否查询，routerTools 保存逐 Agent 代理选择；Provider 含 modelFetchUrl、haiku/sonnet/opusModel 三档映射与 upstreamFormat/fullUrl URL 模式）+ JSON 序列化 + 内置预设（builtinPresets）+ 官方厂商名（officialVendorName：claude 系/codex 有官方常驻卡）+ apiFormat 三档归一（normalizeApiFormat/apiFormatLabel）+ 上游 URL 归一/后缀（normalizeUpstreamFormat/upstreamFormatSuffix/effectiveBaseUrl）+ 用量端点模板（suggestUsageQuery） |
+| `llmswitch.store` | `src/store.cppm` + `src/store.cpp` | ProviderStore：config.json 读写、CRUD、switchTo 按工具 id 分发八个 writer（原子写+备份；gemini/qwen 走 <dir>/.env 行级 upsert + settings.json 深合并 auth 类型，zcode 走 provider map upsert + enabled 互斥）、restoreOfficial 恢复厂商原生状态（claude-code/claude/codex）、detectCurrent/importLive、导出导入、theme/usage/router 与逐 Agent 路由设置 setter |
 | `llmswitch.net` | `src/net.cppm` + `src/net.cpp` | 纯函数：模型列表 URL 拼接 `modelListUrl`/候选推导、响应解析 `parseModelIds`（data/models 两种形状，去重保序）和用量取值 `extractByPath`（点分路径+数组下标取标量）；实际网络请求不在此层——供应商页面走 HuxerUI HttpClient（provider_network.cpp），路由出站走 UpstreamSession |
 | `llmswitch.router` | `src/router.cppm` + `src/router.cpp` | LocalRouter：cpp-httplib 服务器监听 127.0.0.1，`/<tool>/` 前缀路由到该组 current 供应商的实际 URL（按 upstreamFormat 追加 /anthropic 或 /v1，fullUrl 时原样），替换鉴权头，线程安全的逐工具开关运行中即时生效（禁用返回 403，不访问上游/统计），可选故障转移（429/5xx/连接失败按组内顺序试下一个）；RequestLog/StatsSnapshot 统计，每请求追加 JSONL（dataDir()/router/requests.jsonl），启动回填内存环形缓冲（最多 1000 条） |
 | `llmswitch.mcp` | `src/mcp.cppm` + `src/mcp.cpp` | MCP 服务器统一清单（SSOT = dataDir()/mcp.json）；启停 = 写/删工具 live 配置条目：claude-code → ~/.claude.json 顶层 mcpServers 深合并、codex → config.toml 行级 [mcp_servers.*] section 重写、opencode → opencode.json 顶层 mcp；claude/pi 不支持（抛中文错） |
@@ -298,8 +299,8 @@ I/O、解析和 JSON 函数默认保留在 `.cpp` 中。
   模板、设置页主题/路径/导入导出）、GUI 冒烟通过。
 - ✅ M3：跨平台 CI（三桌面 job + tag release）+ Windows/macOS 平台入口补齐。
 - ✅ 阶段A（2026-09-06）：领域层泛化到 5 工具注册表（claude-code / claude
-  desktop / codex / opencode / pi），config.json 改 groups map（旧格式自动
-  迁移），store 按工具 id 分发五个 writer + 各自 detectCurrent/importLive，
+  desktop / codex / opencode / pi / gemini / qwen / zcode），config.json 改 groups map（旧格式自动
+  迁移），store 按工具 id 分发八个 writer + 各自 detectCurrent/importLive，
   UI 仅做最小适配（侧栏/供应商页仍只有 Claude Code / Codex，托盘菜单已
   通用列出全部组）——导航重写属阶段B。
 - ✅ 阶段B（2026-09-06）：两级侧边栏导航（顶级 Agent 管理/设置 + Agent 页内
@@ -458,5 +459,15 @@ I/O、解析和 JSON 函数默认保留在 `.cpp` 中。
   factory 可视行且 PangoTextLayout 无跨帧缓存，补丁前详情页静止即 99%
   CPU，补丁后 3-4%、滚动 4-6%；已报上游
   HuxerUI/HuxerUI#136，上游合入后可撤补丁。
+- ✅ 新增 Gemini CLI / Qwen Code / ZCode 三个 agent（2026-09-13）：注册表
+  扩到 8 工具（routerTools 默认清单同步）。gemini/qwen（gemini-cli 系）：
+  认证与端点写 `~/.{gemini,qwen}/.env` 行级 upsert（GEMINI_API_KEY/
+  GOOGLE_GEMINI_BASE_URL/GEMINI_MODEL 与 OPENAI_* 三键，保留其余变量与
+  注释），settings.json 深合并 security.auth.selectedType（gemini-api-key/
+  openai）；zcode：`~/.zcode/v2/config.json` provider map upsert
+  `llmswitch:<id>` 条目（apiFormat 映射 kind）并 enabled 互斥停用其余，
+  restoreOfficial 重启 builtin:*。均接入 detect/import/restore 与 router
+  逐工具开关；MCP/技能/会话暂不涉及（页面自动优雅降级）。新增三枚自绘
+  图标（gemini 四角星 / qwen 六边环 / zcode Z 字）。
 - ⬜ 待做：订阅站端点可能随各家调整，升级版本时需复核；无 CLI 分流、
   无单实例/开机自启。

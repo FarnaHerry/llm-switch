@@ -30,7 +30,7 @@ export struct ToolSpec {
 };
 
 // 注册表顺序即 UI 侧栏/托盘菜单顺序。
-export constexpr std::array<ToolSpec, 5> kToolRegistry{{
+export constexpr std::array<ToolSpec, 8> kToolRegistry{{
     ToolSpec{.id = "claude-code",
              .displayName = "Claude Code",
              .iconName = "claudecode",
@@ -58,6 +58,29 @@ export constexpr std::array<ToolSpec, 5> kToolRegistry{{
     ToolSpec{.id = "pi",
              .displayName = "Pi",
              .iconName = "pi",
+             .needsModel = true,
+             .hasApiFormat = true,
+             .hasModelMappings = false},
+    // gemini-cli 系（Gemini CLI / Qwen Code）：认证与端点走 ~/.<dir>/.env
+    // 行级 upsert（GEMINI_API_KEY/GOOGLE_GEMINI_BASE_URL/GEMINI_MODEL 与
+    // OPENAI_API_KEY/OPENAI_BASE_URL/OPENAI_MODEL），auth 类型写 settings.json。
+    ToolSpec{.id = "gemini",
+             .displayName = "Gemini CLI",
+             .iconName = "gemini",
+             .needsModel = true,
+             .hasApiFormat = false,
+             .hasModelMappings = false},
+    ToolSpec{.id = "qwen",
+             .displayName = "Qwen Code",
+             .iconName = "qwen",
+             .needsModel = true,
+             .hasApiFormat = false,
+             .hasModelMappings = false},
+    // ZCode：provider map（~/.zcode/v2/config.json）upsert 自定义条目并置
+    // enabled，apiFormat 决定 provider.kind（anthropic / openai）。
+    ToolSpec{.id = "zcode",
+             .displayName = "ZCode",
+             .iconName = "zcode",
              .needsModel = true,
              .hasApiFormat = true,
              .hasModelMappings = false},
@@ -158,7 +181,8 @@ export struct AppConfig {
     bool routerFailover = true;    // 上游 429/5xx 时故障转移到组内下一个供应商
     // 允许通过本地路由代理的工具 id；旧配置缺字段时默认全部启用，保持兼容。
     std::vector<std::string> routerTools{
-        "claude-code", "claude", "codex", "opencode", "pi"};
+        "claude-code", "claude", "codex", "opencode", "pi", "gemini", "qwen",
+        "zcode"};
 
     bool operator==(const AppConfig&) const = default;
 };

@@ -192,6 +192,93 @@ std::string claudeEnvValue(const nlohmann::json& settings, std::string_view key)
     return v->get<std::string>();
 }
 
+// ---- gemini-cli 系 .env 行级读写 ---------------------------------------------
+// 行格式容忍「export KEY=VALUE」前缀、键值两侧空白与 # 注释行；值两侧成对
+// 的单/双引号在读取时剥掉。
+
+// 提取一行的 KEY；非赋值行（空/注释/无 =）返回空。
+std::string envLineKey(std::string_view line) {
+    std::string_view v(line);
+    while (!v.empty() && (v.front() == ' ' || v.front() == '\t')) v.remove_prefix(1);
+    if (v.empty() || v.front() == '#') return "";
+    if (v.starts_with("export ")) v.remove_prefix(7);
+    const auto eq = v.find('=');
+    if (eq == std::string_view::npos) return "";
+    std::string key(v.substr(0, eq));
+    while (!key.empty() && (key.back() == ' ' || key.back() == '\t')) key.pop_back();
+    return key;
+}
+
+std::string trimEnvValue(std::string_view value) {
+    while (!value.empty() && (value.front() == ' ' || value.front() == '\t')) {
+        value.remove_prefix(1);
+    }
+    while (!value.empty() && (value.back() == ' ' || value.back() == '\t')) {
+        value.remove_suffix(1);
+    }
+    if (value.size() >= 2 && (value.front() == '"' || value.front() == '\'') &&
+        value.back() == value.front()) {
+        value = value.substr(1, value.size() - 2);
+    }
+    return std::string(value);
+}
+
+// 读单个键（文件/键缺失均为空串）。
+std::string readEnvValue(const std::filesystem::path& file, std::string_view key) {
+    std::error_code ec;
+    if (!std::filesystem::exists(file, ec)) return "";
+    std::ifstream in(file, std::ios::binary);
+    if (!in) return "";
+    std::string line;
+    while (std::getline(in, line)) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        if (envLineKey(line) == key) {
+            const auto eq = line.find('=');
+            return trimEnvValue(std::string_view(line).substr(eq + 1));
+        }
+    }
+    return "";
+}
+
+// 行级 upsert：替换既有 KEY= 行（保留其余行、注释与顺序），缺失追加尾部；
+// value 为空 = 删除该键的行。写前调用方负责 backupLiveFile。
+void writeEnvValues(const std::filesystem::path& file,
+                    const std::vector<std::pair<std::string, std::string>>& targets) {
+    std::vector<std::string> lines;
+    {
+        std::ifstream in(file, std::ios::binary);
+        if (in) {
+            std::string line;
+            while (std::getline(in, line)) {
+                if (!line.empty() && line.back() == '\r') line.pop_back();
+                lines.push_back(std::move(line));
+            }
+        }
+    }
+    for (const auto& [key, value] : targets) {
+        bool found = false;
+        for (std::size_t i = 0; i < lines.size(); ++i) {
+            if (envLineKey(lines[i]) != key) continue;
+            found = true;
+            if (value.empty()) {
+                lines.erase(lines.begin() + static_cast<std::ptrdiff_t>(i));
+            } else {
+                lines[i] = key + "=" + value;
+            }
+            break;
+        }
+        if (!found && !value.empty()) {
+            lines.push_back(key + "=" + value);
+        }
+    }
+    std::string out;
+    for (const auto& line : lines) {
+        out += line;
+        out += '\n';
+    }
+    atomicWrite(file, out);
+}
+
 // 合并导入的组：provider 按 id 覆盖/新增；导入的 current 指向合并后仍存在
 // 的 provider 时才采用，否则保留现状。
 void mergeGroup(models::ProviderGroup& dst, const models::ProviderGroup& src) {
@@ -788,6 +875,67 @@ void ProviderStore::switchTo(std::string_view tool, const std::string& id) {
         deepMerge(settings, patch);
         atomicWrite(settingsFile, settings.dump(2) + "\n");
         restrictPiFile(settingsFile);
+    } else if (tool == "gemini" || tool == "qwen") {
+        // gemini-cli 系（Gemini CLI / Qwen Code）：认证与端点写 <dir>/.env
+        // （行级 upsert，其余变量与注释原样保留），auth 类型写 settings.json
+        // 深合并。baseUrl 为空 = 回到官方端点（删除覆盖行）。.env 含密钥，
+        // 目录 0700 / 文件 0600。
+        const bool isGemini = tool == "gemini";
+        const auto dir = isGemini ? cfg::geminiDir() : cfg::qwenDir();
+        const auto envFile = isGemini ? cfg::geminiEnvFile() : cfg::qwenEnvFile();
+        const auto settingsFile =
+            isGemini ? cfg::geminiSettingsFile() : cfg::qwenSettingsFile();
+        const std::string keyVar = isGemini ? "GEMINI_API_KEY" : "OPENAI_API_KEY";
+        const std::string baseVar =
+            isGemini ? "GOOGLE_GEMINI_BASE_URL" : "OPENAI_BASE_URL";
+        const std::string modelVar = isGemini ? "GEMINI_MODEL" : "OPENAI_MODEL";
+        const std::string authType = isGemini ? "gemini-api-key" : "openai";
+        restrictPiDir(dir);
+        backupLiveFile(tool, envFile);
+        writeEnvValues(envFile,
+                       {{keyVar, target->apiKey},
+                        {baseVar, baseUrl},
+                        {modelVar, target->model}});
+        restrictPiFile(envFile);
+        nlohmann::json settings = readJsonOrNull(settingsFile);
+        if (!settings.is_object()) settings = nlohmann::json::object();
+        backupLiveFile(tool, settingsFile);
+        nlohmann::json patch;
+        patch["security"]["auth"]["selectedType"] = authType;
+        deepMerge(settings, patch);
+        atomicWrite(settingsFile, settings.dump(2) + "\n");
+    } else if (tool == "zcode") {
+        // provider map upsert + enabled 互斥：写入 llmswitch:<id> 条目并停用
+        // 其余 provider；models map 写所选模型的最小条目（reasoning/limit 等
+        // 元数据由 ZCode 自行补全）；apiFormat 映射 provider.kind。
+        const auto file = cfg::zcodeConfigFile();
+        nlohmann::json doc = readJsonOrNull(file);
+        if (!doc.is_object()) doc = nlohmann::json::object();
+        if (!doc.contains("provider") || !doc["provider"].is_object()) {
+            doc["provider"] = nlohmann::json::object();
+        }
+        backupLiveFile(tool, file);
+        const std::string entryKey = "llmswitch:" + target->id;
+        nlohmann::json entry;
+        entry["name"] = target->name;
+        entry["kind"] = models::normalizeApiFormat(target->apiFormat) == "anthropic"
+                            ? "anthropic"
+                            : "openai";
+        entry["options"]["apiKey"] = target->apiKey;
+        entry["options"]["baseURL"] = baseUrl;
+        entry["enabled"] = true;
+        entry["source"] = "custom";
+        if (!target->model.empty()) {
+            entry["models"][target->model] = nlohmann::json::object(
+                {{"zcode", nlohmann::json::object({{"priority", 100}})}});
+        }
+        doc["provider"][entryKey] = entry;
+        for (auto it = doc["provider"].begin(); it != doc["provider"].end(); ++it) {
+            if (it.key() != entryKey && it.value().is_object()) {
+                it.value()["enabled"] = false;
+            }
+        }
+        atomicWrite(file, doc.dump(2) + "\n");
     } else if (tool == "claude") {
         // Claude Desktop 3p 直连（对齐 cc-switch）：Linux 不支持。
         const auto baseDir = cfg::claudeDesktopDir();
@@ -934,6 +1082,36 @@ std::string ProviderStore::detectCurrent(std::string_view tool) const {
         }
         return "";
     }
+    if (tool == "gemini" || tool == "qwen") {
+        // .env 的端点+密钥匹配组内供应商；两者都空 = 官方登录，未切换。
+        const auto envFile = tool == "gemini" ? cfg::geminiEnvFile() : cfg::qwenEnvFile();
+        const std::string baseVar =
+            tool == "gemini" ? "GOOGLE_GEMINI_BASE_URL" : "OPENAI_BASE_URL";
+        const std::string keyVar = tool == "gemini" ? "GEMINI_API_KEY" : "OPENAI_API_KEY";
+        const std::string baseUrl = readEnvValue(envFile, baseVar);
+        const std::string apiKey = readEnvValue(envFile, keyVar);
+        if (baseUrl.empty() && apiKey.empty()) return "";
+        const auto* p = matchByUrlKey(g, baseUrl, apiKey);
+        return p != nullptr ? p->id : "";
+    }
+    if (tool == "zcode") {
+        // 启用中的 llmswitch:<id> 条目命中组内 id；组里已删则视为未切换。
+        const auto j = readJsonOrNull(cfg::zcodeConfigFile());
+        if (!j.is_object() || !j.contains("provider") || !j["provider"].is_object()) {
+            return "";
+        }
+        for (auto it = j["provider"].begin(); it != j["provider"].end(); ++it) {
+            if (!it.value().is_object() || !it.value().value("enabled", false)) {
+                continue;
+            }
+            if (!it.key().starts_with("llmswitch:")) continue;
+            const std::string id = it.key().substr(10);
+            for (const auto& p : g.providers) {
+                if (p.id == id) return p.id;
+            }
+        }
+        return "";
+    }
     if (tool == "claude") {
         const auto profile = claudeDesktopProfileFile();
         if (profile.empty()) return "";  // Linux 不支持
@@ -1001,6 +1179,57 @@ void ProviderStore::restoreOfficial(std::string_view tool) {
                     std::filesystem::remove(tomlFile, ec);
                     break;
                 }
+            }
+        }
+    } else if (tool == "gemini" || tool == "qwen") {
+        // 回到官方认证：.env 删本应用写入的三行（其余变量与注释原样保留），
+        // settings.json 删 security.auth.selectedType（其余字段保留）。
+        const auto envFile = tool == "gemini" ? cfg::geminiEnvFile() : cfg::qwenEnvFile();
+        const std::string baseVar =
+            tool == "gemini" ? "GOOGLE_GEMINI_BASE_URL" : "OPENAI_BASE_URL";
+        const std::string keyVar = tool == "gemini" ? "GEMINI_API_KEY" : "OPENAI_API_KEY";
+        const std::string modelVar = tool == "gemini" ? "GEMINI_MODEL" : "OPENAI_MODEL";
+        std::error_code ec;
+        if (std::filesystem::exists(envFile, ec)) {
+            backupLiveFile(tool, envFile);
+            writeEnvValues(envFile, {{keyVar, ""}, {baseVar, ""}, {modelVar, ""}});
+        }
+        const auto settingsFile =
+            tool == "gemini" ? cfg::geminiSettingsFile() : cfg::qwenSettingsFile();
+        if (std::filesystem::exists(settingsFile, ec)) {
+            nlohmann::json settings = readJsonOrNull(settingsFile);
+            if (settings.is_object() && settings.contains("security") &&
+                settings["security"].is_object() &&
+                settings["security"].contains("auth") &&
+                settings["security"]["auth"].is_object()) {
+                backupLiveFile(tool, settingsFile);
+                settings["security"]["auth"].erase("selectedType");
+                atomicWrite(settingsFile, settings.dump(2) + "\n");
+            }
+        }
+    } else if (tool == "zcode") {
+        // 关闭本应用写入的 llmswitch:* 条目，重新启用第一个内置（builtin:*）
+        // provider；无内置条目时保持现状，用户可在 ZCode 内自选。
+        const auto file = cfg::zcodeConfigFile();
+        std::error_code ec;
+        if (std::filesystem::exists(file, ec)) {
+            nlohmann::json doc = readJsonOrNull(file);
+            if (doc.is_object() && doc.contains("provider") &&
+                doc["provider"].is_object()) {
+                backupLiveFile(tool, file);
+                bool enabledBuiltin = false;
+                for (auto it = doc["provider"].begin();
+                     it != doc["provider"].end(); ++it) {
+                    if (!it.value().is_object()) continue;
+                    if (it.key().starts_with("llmswitch:")) {
+                        it.value()["enabled"] = false;
+                    } else if (!enabledBuiltin &&
+                               it.key().starts_with("builtin:")) {
+                        it.value()["enabled"] = true;
+                        enabledBuiltin = true;
+                    }
+                }
+                atomicWrite(file, doc.dump(2) + "\n");
             }
         }
     } else if (tool == "claude") {
@@ -1169,6 +1398,48 @@ models::Provider ProviderStore::importLive(std::string_view tool) {
         p.apiFormat = piApiFormatValue(jsonStr(entry, "api"));
         p.model = jsonStr(readJsonOrNull(settingsFile), "defaultModel");
         return adopt(std::move(p));
+    }
+    if (tool == "gemini" || tool == "qwen") {
+        const auto envFile = tool == "gemini" ? cfg::geminiEnvFile() : cfg::qwenEnvFile();
+        if (!std::filesystem::exists(envFile, ec)) return {};
+        const std::string baseVar =
+            tool == "gemini" ? "GOOGLE_GEMINI_BASE_URL" : "OPENAI_BASE_URL";
+        const std::string keyVar = tool == "gemini" ? "GEMINI_API_KEY" : "OPENAI_API_KEY";
+        const std::string modelVar = tool == "gemini" ? "GEMINI_MODEL" : "OPENAI_MODEL";
+        models::Provider p;
+        p.baseUrl = readEnvValue(envFile, baseVar);
+        p.apiKey = readEnvValue(envFile, keyVar);
+        p.model = readEnvValue(envFile, modelVar);
+        if (p.baseUrl.empty() && p.apiKey.empty()) return {};
+        return adopt(std::move(p));
+    }
+    if (tool == "zcode") {
+        // 收编当前 enabled 的 provider 条目（内置或本应用写入均可）。
+        const auto file = cfg::zcodeConfigFile();
+        if (!std::filesystem::exists(file, ec)) return {};
+        const auto j = readJsonOrNull(file);
+        if (!j.is_object() || !j.contains("provider") || !j["provider"].is_object()) {
+            return {};
+        }
+        for (auto it = j["provider"].begin(); it != j["provider"].end(); ++it) {
+            if (!it.value().is_object() || !it.value().value("enabled", false)) {
+                continue;
+            }
+            models::Provider p;
+            p.name = jsonStr(it.value(), "name");
+            if (p.name.empty()) p.name = it.key();
+            p.apiFormat =
+                jsonStr(it.value(), "kind") == "anthropic" ? "anthropic" : "openai-chat";
+            const auto& options = it.value()["options"];
+            p.baseUrl = options.is_object() ? jsonStr(options, "baseURL") : "";
+            p.apiKey = options.is_object() ? jsonStr(options, "apiKey") : "";
+            if (it.value().contains("models") && it.value()["models"].is_object() &&
+                !it.value()["models"].empty()) {
+                p.model = it.value()["models"].begin().key();
+            }
+            return adopt(std::move(p));
+        }
+        return {};
     }
     if (tool == "claude") {
         const auto profile = claudeDesktopProfileFile();

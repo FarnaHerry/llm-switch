@@ -1,13 +1,14 @@
 # llm-switch
 
 [cc-switch](https://github.com/farion1231/cc-switch) 的 C++ 重写：Claude Code /
-Claude Desktop / Codex / opencode / pi 五款 AI 编程工具的供应商配置切换，
+Claude Desktop / Codex / opencode / pi / Gemini CLI / Qwen Code /
+ZCode 八款 AI 编程工具的供应商配置切换，
 附本地路由、用量查询、MCP / Skills / 会话管理。C++23 modules + HuxerUI
 桌面壳，无 Electron、无运行时依赖（除系统 GTK4 运行库）。
 
 ## 功能
 
-- **供应商管理**：五个工具组各自维护供应商列表（新增 / 编辑 / 复制 /
+- **供应商管理**：八个工具组各自维护供应商列表（新增 / 编辑 / 复制 /
   删除），内置 DeepSeek / Kimi / GLM / OpenRouter 等预设模板；API 协议三档
   （OpenAI Chat Completions / OpenAI Responses / Anthropic Messages）。
 - **一键切换**：把选中供应商写进工具的 live 配置文件——
