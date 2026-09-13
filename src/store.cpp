@@ -586,6 +586,9 @@ bool liveFileExists(std::string_view tool) {
         return std::filesystem::exists(cfg::piModelsFile(), ec) ||
                std::filesystem::exists(cfg::piSettingsFile(), ec);
     }
+    if (tool == "zcode") {
+        return std::filesystem::exists(cfg::zcodeConfigFile(), ec);
+    }
     if (tool == "claude") {
         const auto profile = claudeDesktopProfileFile();
         return !profile.empty() && std::filesystem::exists(profile, ec);
@@ -1414,30 +1417,73 @@ models::Provider ProviderStore::importLive(std::string_view tool) {
         return adopt(std::move(p));
     }
     if (tool == "zcode") {
-        // 收编当前 enabled 的 provider 条目（内置或本应用写入均可）。
+        // 全量收编：config.json 里每个带凭据的 provider 条目都进列表
+        // （含未启用的；OAuth 等无凭据条目跳过），enabled 条目设为 current。
+        // 组内已有同端点+密钥的条目原位更新（保留 id），不产生重复。
         const auto file = cfg::zcodeConfigFile();
         if (!std::filesystem::exists(file, ec)) return {};
         const auto j = readJsonOrNull(file);
         if (!j.is_object() || !j.contains("provider") || !j["provider"].is_object()) {
             return {};
         }
+        std::string currentKey;
         for (auto it = j["provider"].begin(); it != j["provider"].end(); ++it) {
-            if (!it.value().is_object() || !it.value().value("enabled", false)) {
-                continue;
+            if (it.value().is_object() && it.value().value("enabled", false)) {
+                currentKey = it.key();
             }
+        }
+        std::string currentId;
+        for (auto it = j["provider"].begin(); it != j["provider"].end(); ++it) {
+            const auto& entry = it.value();
+            if (!entry.is_object()) continue;
+            const auto& options = entry["options"];
+            const std::string baseUrl =
+                options.is_object() ? jsonStr(options, "baseURL") : "";
+            const std::string apiKey =
+                options.is_object() ? jsonStr(options, "apiKey") : "";
+            if (baseUrl.empty() && apiKey.empty()) continue;
             models::Provider p;
-            p.name = jsonStr(it.value(), "name");
+            p.name = jsonStr(entry, "name");
             if (p.name.empty()) p.name = it.key();
             p.apiFormat =
-                jsonStr(it.value(), "kind") == "anthropic" ? "anthropic" : "openai-chat";
-            const auto& options = it.value()["options"];
-            p.baseUrl = options.is_object() ? jsonStr(options, "baseURL") : "";
-            p.apiKey = options.is_object() ? jsonStr(options, "apiKey") : "";
-            if (it.value().contains("models") && it.value()["models"].is_object() &&
-                !it.value()["models"].empty()) {
-                p.model = it.value()["models"].begin().key();
+                jsonStr(entry, "kind") == "anthropic" ? "anthropic" : "openai-chat";
+            p.baseUrl = baseUrl;
+            p.apiKey = apiKey;
+            if (entry.contains("models") && entry["models"].is_object() &&
+                !entry["models"].empty()) {
+                p.model = entry["models"].begin().key();
             }
-            return adopt(std::move(p));
+            models::Provider* slot = nullptr;
+            for (auto& cur : g.providers) {
+                if (models::effectiveBaseUrl(cur) == baseUrl && cur.apiKey == apiKey) {
+                    slot = &cur;
+                    break;
+                }
+            }
+            if (slot == nullptr) {
+                p.id = importId(g, it.key());
+                p.createdAt = nowMillis();
+                g.providers.push_back(p);
+            } else {
+                slot->name = p.name;
+                slot->apiFormat = p.apiFormat;
+                slot->model = p.model;
+            }
+            if (it.key() == currentKey) {
+                currentId = slot != nullptr ? slot->id : p.id;
+            }
+        }
+        if (currentId.empty() && !g.providers.empty()) {
+            currentId = g.providers.front().id;
+        }
+        if (!currentId.empty()) {
+            g.current = currentId;
+            for (const auto& p : g.providers) {
+                if (p.id == currentId) {
+                    save();
+                    return p;
+                }
+            }
         }
         return {};
     }

@@ -468,6 +468,9 @@ I/O、解析和 JSON 函数默认保留在 `.cpp` 中。
   `llmswitch:<id>` 条目（apiFormat 映射 kind）并 enabled 互斥停用其余，
   restoreOfficial 重启 builtin:*。均接入 detect/import/restore 与 router
   逐工具开关；MCP/技能/会话暂不涉及（页面自动优雅降级）。新增三枚自绘
-  图标（gemini 四角星 / qwen 六边环 / zcode Z 字）。
+  图标（gemini 四角星 / qwen 六边环 / zcode Z 字）。zcode 的 load() 首次
+  自动收编为**全量**（liveFileExists 补 zcode 分支；importLive 把每个带
+  凭据的 provider 条目都收进列表——同端点+密钥原位更新保留 id，enabled
+  条目设为 current，无凭据的 OAuth 条目跳过），避免打开页面为空。
 - ⬜ 待做：订阅站端点可能随各家调整，升级版本时需复核；无 CLI 分流、
   无单实例/开机自启。

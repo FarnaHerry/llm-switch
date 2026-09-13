@@ -505,6 +505,26 @@ int main() {
             CHECK(doc["provider"]["builtin:anthropic"]["enabled"] == true);
             CHECK(s.detectCurrent("zcode").empty());
         }
+
+        // 启动自动收编：持久组清空 + live 文件存在 → load() 即读出全部
+        // 条目（含未启用的），enabled 条目成为 current。
+        {
+            auto persisted = readJson(cfg::configFile());
+            persisted["groups"].erase("zcode");
+            writeFile(cfg::configFile(), persisted.dump(2) + "\n");
+            auto s2 = store::ProviderStore::load();
+            const auto& zg = s2.group("zcode");
+            CHECK(zg.providers.size() == 4);  // builtin + 手填 + 两条 llmswitch
+            CHECK(zg.current == "builtin:anthropic");
+            bool foundManual = false;
+            bool foundCustom = false;
+            for (const auto& p : zg.providers) {
+                if (p.id == "custom:manual") foundCustom = true;
+                if (p.id == "builtin:anthropic") foundManual = true;
+            }
+            CHECK(foundManual);
+            CHECK(foundCustom);
+        }
     }
     // 默认档（apiFormat 留空）→ openai-completions
     {
@@ -1064,8 +1084,13 @@ int main() {
     writeFile(cfg::configFile(), "这不是 JSON {{{\n");
     {
         auto broken = store::ProviderStore::load();
-        CHECK(broken.config().groups.empty());
-        CHECK(!fs::exists(cfg::configFile()));  // 已被挪走且未重建
+        // 坏文件挪走后等价全新启动：live 文件仍在的组（claude-code/zcode 等）
+        // 会被首次导入自动收编，组不再为空是预期行为。
+        CHECK(broken.detectCurrent("zcode").empty() ||
+              !broken.group("zcode").providers.empty());
+        // 自动收编可能已重建 config.json（坏文件仍被挪走且不再被读回）。
+        CHECK(!fs::exists(cfg::configFile()) ||
+              readJson(cfg::configFile()).is_object());
         bool corruptMoved = false;
         for (const auto& entry : fs::directory_iterator(cfg::dataDir())) {
             if (entry.path().filename().string().starts_with("config.json.corrupt-")) {
