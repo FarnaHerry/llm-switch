@@ -1,7 +1,6 @@
 // provider_form.cpp — 供应商新增/编辑与用量配置表单.
 #include <huxerui/huxerui.h>
 
-#include <algorithm>
 #include <array>
 #include <chrono>
 #include <format>
@@ -707,14 +706,11 @@ void ReplaceModelList(const huxerui::StateList<std::string>& destination,
                         p.apiKey = apiKey;
                         p.model = model;
                         // 备选模型清单 = 表单当前内容（初值来自已保存清单/
-                        // 拉取/导入，手动增删都体现在这里）；主模型保证在列
-                        //（zcode 的备选清单就是这份 models）。
+                        // 拉取/导入，手动增删都体现在这里）。主模型不强行
+                        // 入列：ZCode 的条目只有清单没有主模型概念，塞进去
+                        // 会在 ZCode 侧凭空多出一个备选。
                         for (std::size_t i = 0; i < fetchedModels.Size(); ++i) {
                             p.models.push_back(fetchedModels.At(i));
-                        }
-                        if (!model.empty() && std::ranges::find(p.models, model) ==
-                                                  p.models.end()) {
-                            p.models.push_back(model);
                         }
                         p.modelSupports1m = fs.modelSupports1m.Get();
                         p.upstreamFormat =

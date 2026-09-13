@@ -932,15 +932,20 @@ void ProviderStore::switchTo(std::string_view tool, const std::string& id) {
         entry["options"]["baseURL"] = baseUrl;
         entry["enabled"] = true;
         entry["source"] = "custom";
-        // models 是不定长清单：清单字段优先，默认模型保证在列。
-        if (!target->model.empty() || !target->models.empty()) {
+        // models 是不定长清单。ZCode 的存储结构里没有主模型概念（条目只有
+        // 模型清单，选模型是运行时行为），所以只写清单本身——不把主模型
+        // 强行塞进去；清单为空而主模型非空时退化为单模型清单。
+        if (!target->models.empty() || !target->model.empty()) {
             nlohmann::json modelsMap = nlohmann::json::object();
             const auto put = [&modelsMap](const std::string& id) {
                 modelsMap[id] = nlohmann::json::object(
                     {{"zcode", nlohmann::json::object({{"priority", 100}})}});
             };
-            for (const auto& id : target->models) put(id);
-            if (!target->model.empty()) put(target->model);
+            if (!target->models.empty()) {
+                for (const auto& id : target->models) put(id);
+            } else {
+                put(target->model);
+            }
             entry["models"] = std::move(modelsMap);
         }
         doc["provider"][entryKey] = entry;

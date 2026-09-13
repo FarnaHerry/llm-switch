@@ -462,10 +462,13 @@ int main() {
             "builtin:anthropic": {"name": "Anthropic", "kind": "anthropic", "options": {"apiKey": "builtin-key"}, "enabled": true, "source": "builtin"},
             "custom:manual": {"name": "手填", "kind": "openai", "options": {"apiKey": "k2", "baseURL": "https://m.example.com"}, "enabled": false, "models": {"m1": {}, "m2": {}}}
         }})json");
+        // 主模型不在清单中：写入即清单本身，不把主模型塞进 ZCode 的
+        // 模型备选（ZCode 条目只有清单，没有主模型概念）。
         models::Provider pz{.name = "ZCode 中转",
                             .baseUrl = "https://z.example.com",
                             .apiKey = "sk-z",
-                            .model = "glm-5-air",
+                            .model = "glm-5-extra",
+                            .models = {"glm-5-air", "glm-5-pro"},
                             .apiFormat = "anthropic"};
         s.addProvider("zcode", pz);
         const std::string idZ = s.group("zcode").providers.back().id;
@@ -477,6 +480,8 @@ int main() {
             CHECK(entry["kind"] == "anthropic");  // apiFormat → provider.kind
             CHECK(entry["options"]["baseURL"] == "https://z.example.com");
             CHECK(entry["models"].contains("glm-5-air"));
+            CHECK(entry["models"].contains("glm-5-pro"));
+            CHECK(!entry["models"].contains("glm-5-extra"));
             CHECK(doc["provider"]["builtin:anthropic"]["enabled"] == false);  // 互斥
             CHECK(doc["provider"]["custom:manual"]["enabled"] == false);
             CHECK(s.detectCurrent("zcode") == idZ);
@@ -512,6 +517,9 @@ int main() {
         s.switchTo("zcode", idZ2);
         CHECK(readJson(zcodeConfig)["provider"]["llmswitch:" + idZ]["enabled"] == false);
         CHECK(readJson(zcodeConfig)["provider"]["llmswitch:" + idZ2]["kind"] == "openai");
+        // 清单为空、主模型非空 → 退化为单模型清单。
+        CHECK(readJson(zcodeConfig)["provider"]["llmswitch:" + idZ2]["models"]
+                  .contains("m2"));
         CHECK(s.detectCurrent("zcode") == idZ2);
         // importLive：收编当前 enabled 条目。
         const auto importedZ = s.importLive("zcode");
