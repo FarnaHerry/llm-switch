@@ -145,13 +145,10 @@ std::string FormatSize(std::uintmax_t bytes) {
             {});
     };
 
-    auto open = [tasks, onOpen, session] {
-        // 切换到保留的详情页也会改变当前命中节点，避开指针事件路径。
-        tasks.Launch([onOpen, session]() mutable
-                         -> huxerui::Task<void> {
-            co_await huxerui::Delay(std::chrono::duration<double>{0});
-            onOpen(session);
-        });
+    auto open = [onOpen, session] {
+        // onOpen 只是写 selectedSession State：State 失效排的是稍后重组，
+        // 不会同步卸载点击路径上的节点，直接写即可（同 provider 表单的修复）。
+        onOpen(session);
     };
 
     huxerui::View content = huxerui::Column {
@@ -186,9 +183,10 @@ std::string FormatSize(std::uintmax_t bytes) {
                 });
             }),
             huxerui::Button("删除").OnClick([tasks, showDeleteConfirm] {
+                // 弹窗会卸载点击路径上的节点：经事件队列推迟，不走帧调度。
                 tasks.Launch([showDeleteConfirm]() -> huxerui::Task<void> {
-                    co_await huxerui::Delay(std::chrono::duration<double>{0});
                     showDeleteConfirm();
+                    co_return;
                 });
             }),
         }.With(huxerui::Spacing(8.0F)),
@@ -570,12 +568,7 @@ std::string FormatSize(std::uintmax_t bytes) {
             return [requestGeneration] { ++requestGeneration; };
         },
         targetKey);
-    auto goBack = [tasks, selectedSession] {
-        tasks.Launch([selectedSession]() -> huxerui::Task<void> {
-            co_await huxerui::Delay(std::chrono::duration<double>{0});
-            selectedSession = sessions::SessionInfo{};
-        });
-    };
+    auto goBack = [selectedSession] { selectedSession = sessions::SessionInfo{}; };
     auto retry = [load, tool, path] {
         if (!path.empty()) load(tool, path);
     };

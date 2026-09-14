@@ -186,13 +186,14 @@ bool InvolvesTool(const skills::SkillInfo& skill, std::string_view toolId) {
             }
         }
         tasks.Launch([=]() -> huxerui::Task<void> {
-            co_await huxerui::Delay(std::chrono::duration<double>{0});
+            // 弹窗会卸载点击路径上的节点：经事件队列推迟，不走帧调度。
             dialog.Show(
                 [=](huxerui::DialogContext ctx) -> huxerui::View {
                     return SkillEditContent(name, description, body, ctx, toast,
                                             store);
                 },
                 huxerui::DialogOptions{});
+            co_return;
         });
     };
 
@@ -257,10 +258,10 @@ bool InvolvesTool(const skills::SkillInfo& skill, std::string_view toolId) {
                       huxerui::Tooltip(skill.inStore ? "编辑描述与正文"
                                                      : "仅中央库中的 Skill 可编辑")),
             huxerui::Button("删除").OnClick([tasks, showDeleteConfirm] {
-                // 弹窗会卸载点击路径上的节点：推迟出指针事件路径。
+                // 弹窗会卸载点击路径上的节点：经事件队列推迟，不走帧调度。
                 tasks.Launch([=]() -> huxerui::Task<void> {
-                    co_await huxerui::Delay(std::chrono::duration<double>{0});
                     showDeleteConfirm();
+                    co_return;
                 });
             }),
         }.With(huxerui::Spacing(8.0F)),
@@ -367,24 +368,25 @@ bool InvolvesTool(const skills::SkillInfo& skill, std::string_view toolId) {
         newDesc = huxerui::TextEditingValue{""};
         newBody = huxerui::TextEditingValue{""};
         tasks.Launch([=]() -> huxerui::Task<void> {
-            co_await huxerui::Delay(std::chrono::duration<double>{0});
+            // 弹窗会卸载点击路径上的节点：经事件队列推迟，不走帧调度。
             dialog.Show(
                 [=](huxerui::DialogContext ctx) -> huxerui::View {
                     return SkillCreateContent(newName, newDesc, newBody, ctx, toast,
                                               store);
                 },
                 huxerui::DialogOptions{});
+            co_return;
         });
     };
 
     auto showImportDialog = [=] {
         tasks.Launch([=]() -> huxerui::Task<void> {
-            co_await huxerui::Delay(std::chrono::duration<double>{0});
             dialog.Show(
                 [=](huxerui::DialogContext ctx) -> huxerui::View {
                     return SkillImportContent(ctx, toast, store);
                 },
                 huxerui::DialogOptions{});
+            co_return;
         });
     };
 

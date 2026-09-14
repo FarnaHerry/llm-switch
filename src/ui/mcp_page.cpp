@@ -286,13 +286,14 @@ void ShowMcpForm(huxerui::DialogHandle dialog, huxerui::ToastHandle toast,
 
     auto bump = [revision] { revision = revision.Get() + 1; };
 
-    // 编辑：预填表单后开弹窗（弹窗会卸载点击路径上的节点：推迟出指针事件路径）。
+    // 编辑：预填表单后开弹窗（弹窗会卸载点击路径上的节点：经事件队列
+    // 推迟出指针事件路径，不走帧调度）。
     auto showEdit = [dialog, tasks, toast, fs, server, name, revision] {
         FillMcpForm(fs, server);
         tasks.Launch([=]() -> huxerui::Task<void> {
-            co_await huxerui::Delay(std::chrono::duration<double>{0});
             ShowMcpForm(dialog, toast, "编辑 MCP 服务器 — " + server.name, fs, name,
                         revision);
+            co_return;
         });
     };
 
@@ -359,10 +360,10 @@ void ShowMcpForm(huxerui::DialogHandle dialog, huxerui::ToastHandle toast,
         huxerui::Row {
             huxerui::Button("编辑").OnClick([showEdit] { showEdit(); }),
             huxerui::Button("删除").OnClick([tasks, showDeleteConfirm] {
-                // 弹窗会卸载点击路径上的节点：推迟出指针事件路径。
+                // 弹窗会卸载点击路径上的节点：经事件队列推迟，不走帧调度。
                 tasks.Launch([=]() -> huxerui::Task<void> {
-                    co_await huxerui::Delay(std::chrono::duration<double>{0});
                     showDeleteConfirm();
+                    co_return;
                 });
             }),
         }.With(huxerui::Spacing(8.0F)),
@@ -437,19 +438,19 @@ void ShowMcpForm(huxerui::DialogHandle dialog, huxerui::ToastHandle toast,
     auto showCreateDialog = [=] {
         FillMcpForm(fs, mcp::McpServer{});
         tasks.Launch([=]() -> huxerui::Task<void> {
-            co_await huxerui::Delay(std::chrono::duration<double>{0});
             ShowMcpForm(dialog, toast, "新增 MCP 服务器", fs, "", revision);
+            co_return;
         });
     };
 
     auto showImportDialog = [=] {
         tasks.Launch([=]() -> huxerui::Task<void> {
-            co_await huxerui::Delay(std::chrono::duration<double>{0});
             dialog.Show(
                 [=](huxerui::DialogContext ctx) -> huxerui::View {
                     return McpImportContent(ctx, toast, revision);
                 },
                 huxerui::DialogOptions{});
+            co_return;
         });
     };
 

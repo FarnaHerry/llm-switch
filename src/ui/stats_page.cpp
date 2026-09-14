@@ -164,10 +164,10 @@ void ApplySnapshot(const router::StatsSnapshot& snapshot,
         },
         navPage.Get() == 2);
 
-    // 清空统计：弹窗会卸载点击路径上的节点，推迟出指针事件路径再弹。
+    // 清空统计：弹窗会卸载点击路径上的节点，经事件队列推迟出指针事件
+    // 路径再弹（不走帧调度）。
     auto confirmClear = [=] {
         tasks.Launch([=]() -> huxerui::Task<void> {
-            co_await huxerui::Delay(std::chrono::duration<double>{0});
             dialog.Show(
                 "清空统计", "确定清空全部请求统计与日志？此操作不可撤销。",
                 "清空", "取消",
