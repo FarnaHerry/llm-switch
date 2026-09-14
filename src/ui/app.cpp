@@ -26,6 +26,7 @@
 #include "ui.h"
 #include "app.h"
 #include "app_resources.h"
+#include "single_instance.h"
 
 import llmswitch.config;
 import llmswitch.models;
@@ -393,6 +394,16 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(huxerui::WindowHandle window,
     const huxerui::SystemTrayHandle tray = application.SystemTray();
     const bool trayAvailable = tray.IsAvailable();
     auto toast = huxerui::UseToast();
+    auto tasks = huxerui::UseTaskScope();
+
+    // A second Linux process forwards here; TaskScope::Post returns to the UI thread before activating the window.
+    huxerui::Lifecycle(
+        [window, tasks] {
+            single_instance::SetActivationHandler([window, tasks] {
+                tasks.Post([window] { window.Activate(); });
+            });
+            return [] { single_instance::ClearActivationHandler(); };
+        });
 
     // 初始值在 UseState 之前算好（组合体内不写 State）：
     // 主题模式 0=跟随系统 1=深色 2=浅色；配置里的 themeMode 字符串映射。

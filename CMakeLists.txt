@@ -532,5 +532,16 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
         target_compile_features(test_sessions PRIVATE cxx_std_23)
         target_link_libraries(test_sessions PRIVATE llmswitch_json Threads::Threads)
         add_test(NAME sessions COMMAND test_sessions)
+
+        if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+            add_executable(test_single_instance tests/test_single_instance.cpp
+                src/single_instance.cpp)
+            set_target_properties(test_single_instance PROPERTIES CXX_MODULE_STD ON)
+            target_compile_features(test_single_instance PRIVATE cxx_std_23)
+            target_include_directories(test_single_instance PRIVATE
+                "${CMAKE_CURRENT_SOURCE_DIR}/src")
+            target_link_libraries(test_single_instance PRIVATE Threads::Threads)
+            add_test(NAME single_instance COMMAND test_single_instance)
+        endif ()
     endif ()
 endif ()
