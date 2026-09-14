@@ -467,7 +467,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          version="$GITHUB_REF_NAME"
+          if [[ "$GITHUB_REF_NAME" != v* ]]; then
+            echo "Expected a v-prefixed release tag, got: $GITHUB_REF_NAME"
+            exit 1
+          fi
+          version="${GITHUB_REF_NAME#v}"
           for suffix in \
             linux-x86_64.tar.gz \
             linux-x86_64.deb \
@@ -486,7 +490,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          version="$GITHUB_REF_NAME"
+          if [[ "$GITHUB_REF_NAME" != v* ]]; then
+            echo "Expected a v-prefixed release tag, got: $GITHUB_REF_NAME"
+            exit 1
+          fi
+          version="${GITHUB_REF_NAME#v}"
           for artifact in \
             "llm-switch-${version}-linux-x86_64.tar.gz" \
             "llm-switch-${version}-linux-x86_64.deb" \

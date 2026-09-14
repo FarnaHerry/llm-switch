@@ -1,8 +1,7 @@
 // skills_page.cpp — Skills 管理页：中央库（dataDir()/skills-store/）+ 符号链接
 // 同步状态的合并视图。每卡：名称 + 描述（空显示「无描述」）+ 状态徽章
-// （中央库 / 已同步 claude-code / 已同步 codex / 仅某工具安装）+ 同步开关
-// （claude-code / codex 两个 Switch → setLinked，建链失败的中文错直接 toast，
-// Windows 上会带开发者模式/管理员提示）+ 编辑（描述 + 正文多行 → updateBody）
+// （中央库 / 已同步 claude-code / 已同步 codex / 仅某工具安装）+ Agent 图标行
+// （仅显示已同步或仅安装在该工具的 Agent）+ 编辑（描述 + 正文多行 → updateBody）
 // + 删除（确认框）。顶部：新建 Skill + 收编工具已有 Skill；列表上方按 Agent
 // 过滤（SegmentedButton：全部 + 各同步目标，命中 = 已同步或仅安装在该工具）。
 //
@@ -66,6 +65,28 @@ bool InvolvesTool(const skills::SkillInfo& skill, std::string_view toolId) {
     }
     return huxerui::Row(std::move(badges))
         .With(huxerui::Spacing(6.0F),
+              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
+}
+
+// Agent 状态行：只显示已同步或仅安装在该工具的 Agent 图标，不显示文字开关。
+[[huxerui::composable]] huxerui::View SkillAgentIcons(const skills::SkillInfo& skill) {
+    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    std::vector<huxerui::View> icons;
+    for (const std::string_view toolId : kSkillTools) {
+        if (!InvolvesTool(skill, toolId)) continue;
+        const auto* spec = models::findTool(toolId);
+        if (spec == nullptr) continue;
+        const std::string label(ToolName(toolId));
+        icons.push_back(
+            huxerui::Image(ToolIcon(spec->iconName))
+                .Tint(theme.colors.on_surface_variant)
+                .With(huxerui::Frame{.width = 24.0F, .height = 24.0F},
+                      huxerui::Semantics{.role = huxerui::SemanticRole::Image,
+                                         .label = label},
+                      huxerui::Tooltip(label)));
+    }
+    return huxerui::Row(std::move(icons))
+        .With(huxerui::Spacing(8.0F),
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
 }
 
@@ -214,27 +235,6 @@ bool InvolvesTool(const skills::SkillInfo& skill, std::string_view toolId) {
             {});
     };
 
-    // 同步开关：仅中央库中的 Skill 可同步；未收编的需先「收编工具已有 Skill」。
-    std::vector<huxerui::View> toggles;
-    for (const std::string_view toolId : kSkillTools) {
-        toggles.push_back(
-            huxerui::Switch(std::string(ToolName(toolId)),
-                            IsLinked(skill, toolId))
-                .OnChanged([toast, name, toolId = std::string(toolId), store,
-                            reload](bool on) {
-                    try {
-                        skills::SkillsStore::load().setLinked(name, toolId, on);
-                    } catch (const std::exception& e) {
-                        toast.Show(e.what());
-                    }
-                    reload();
-                })
-                .With(huxerui::Enabled(skill.inStore),
-                      huxerui::Tooltip(skill.inStore
-                                           ? "同步到该工具的 skills 目录"
-                                           : "仅中央库中的 Skill 可同步")));
-    }
-
     return Card(huxerui::Column {
         huxerui::Row {
             huxerui::Text(name).Style(huxerui::TextStyle{
@@ -248,9 +248,7 @@ bool InvolvesTool(const skills::SkillInfo& skill, std::string_view toolId) {
         huxerui::Text(skill.description.empty() ? "无描述" : skill.description)
             .Style(huxerui::TextStyle{huxerui::Font::System(font_size::kCaption),
                                       theme.colors.on_surface_variant}),
-        huxerui::Row(std::move(toggles))
-            .With(huxerui::Spacing(16.0F),
-                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
+        SkillAgentIcons(skill),
         huxerui::Row {
             huxerui::Button("编辑")
                 .OnClick([showEdit] { showEdit(); })
