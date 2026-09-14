@@ -1,7 +1,7 @@
 // provider_usage_form.cpp — 用量查询配置页（UsageFormPage）：从供应商卡片的
 // gauge 图标进入，formTarget = "usage:" + id。字段：启用开关 / 用量 URL /
 // 取值路径 / 单位标签 / 刷新间隔；「自动填充」按 baseUrl 匹配
-// models::suggestUsageQuery 的内置端点模板。保存 = updateProvider 只改用量字段。
+// models::suggestUsageQuery 的官方默认配置（URL / 取值路径 / 单位标签）。
 #include <huxerui/huxerui.h>
 
 #include <string>
@@ -30,7 +30,7 @@ int UsageIntervalIndex(int minutes) {
 
 // 用量查询配置页（整页，从卡片的 gauge 图标进入，formTarget = "usage:" + id）。
 // 字段：启用开关 / 用量 URL / 取值路径 / 单位标签；「自动填充」按供应商
-// baseUrl 匹配 models::suggestUsageQuery 的内置端点模板。关闭开关会保留已填
+// baseUrl 匹配 models::suggestUsageQuery 的官方默认配置。关闭开关会保留已填
 // 配置，重新打开即可恢复查询。保存 = updateProvider 只改用量字段。
 [[huxerui::composable]] huxerui::View UsageFormPage(
     std::string tool, models::Provider initial, huxerui::State<int> revision,
@@ -88,17 +88,18 @@ int UsageIntervalIndex(int minutes) {
             })
             .With(huxerui::Grow(1.0F)),
         huxerui::Button("自动填充")
-            .OnClick([usageUrl, usagePath, toast, initial] {
+            .OnClick([usageUrl, usagePath, usageLabel, toast, initial] {
                 const auto suggested =
                     models::suggestUsageQuery(initial.baseUrl);
                 if (!suggested) {
                     toast.Show("该供应商暂无内置用量端点模板，请手动填写");
                     return;
                 }
-                usageUrl = huxerui::TextEditingValue{suggested->first};
-                usagePath = huxerui::TextEditingValue{suggested->second};
+                usageUrl = huxerui::TextEditingValue{suggested->url};
+                usagePath = huxerui::TextEditingValue{suggested->path};
+                usageLabel = huxerui::TextEditingValue{suggested->label};
             })
-            .With(huxerui::Tooltip("按 Base URL 匹配内置用量端点模板")),
+            .With(huxerui::Tooltip("按 Base URL 匹配官方默认用量查询配置")),
     }.With(huxerui::Spacing(8.0F),
            huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)));
     fields.push_back(huxerui::TextField(usagePath.Get())

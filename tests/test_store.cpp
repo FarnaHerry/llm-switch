@@ -901,12 +901,32 @@ int main() {
             nlohmann::json{{"usageEnabled", false},
                            {"usageUrl", "https://legacy.example.com/usage"}});
         CHECK(!disabledUsage.usageEnabled);
+        // 官方默认用量查询配置：DeepSeek / Moonshot（国内外站币种不同）/
+        // OpenRouter；不认识的 baseUrl 不建议。
         const auto sug =
             models::suggestUsageQuery("https://api.deepseek.com/v1");
         CHECK(sug.has_value());
-        CHECK(sug->first == "https://api.deepseek.com/user/balance");
-        CHECK(sug->second == "balance_infos.0.total_balance");
+        CHECK(sug->url == "https://api.deepseek.com/user/balance");
+        CHECK(sug->path == "balance_infos.0.total_balance");
+        CHECK(sug->label == "CNY");
+        const auto kimiCn = models::suggestUsageQuery("https://api.moonshot.cn");
+        CHECK(kimiCn.has_value());
+        CHECK(kimiCn->url == "https://api.moonshot.cn/v1/users/me/balance");
+        CHECK(kimiCn->path == "data.available_balance");
+        CHECK(kimiCn->label == "CNY");
+        const auto kimiIntl =
+            models::suggestUsageQuery("https://api.moonshot.ai/v1");
+        CHECK(kimiIntl.has_value());
+        CHECK(kimiIntl->url == "https://api.moonshot.ai/v1/users/me/balance");
+        CHECK(kimiIntl->label == "USD");
+        const auto openrouter =
+            models::suggestUsageQuery("https://openrouter.ai/api/v1");
+        CHECK(openrouter.has_value());
+        CHECK(openrouter->url == "https://openrouter.ai/api/v1/key");
+        CHECK(openrouter->path == "data.usage");
         CHECK(!models::suggestUsageQuery("https://x.example.com").has_value());
+        CHECK(!models::suggestUsageQuery("https://api.kimi.com/coding/")
+                   .has_value());
     }
     {
         // usage 三字段随落盘持久

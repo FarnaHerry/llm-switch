@@ -572,16 +572,49 @@ export std::string_view officialVendorName(std::string_view tool) {
 }
 
 // ---- 用量查询模板 ---------------------------------------------------------------
-// 已知厂商的用量查询建议（只收有官方文档的，没把握的不编）。
-// 返回 {usageUrl, usagePath}（usageLabel 由调用方决定，如 "CNY"）；
-// 不认识该 baseUrl 返回 std::nullopt。
-export std::optional<std::pair<std::string, std::string>> suggestUsageQuery(
+// 已知厂商的官方默认用量查询配置（只收官方文档公开的端点，没把握的不编）。
+// 三个字段都给官方默认值，自动填充一次到位；不认识该 baseUrl 返回
+// std::nullopt。查询是 GET + Bearer（供应商 API Key），响应按 path 点分取值。
+export struct UsageQuerySuggestion {
+    std::string url;    // 用量查询端点
+    std::string path;   // 响应 JSON 点分取值路径
+    std::string label;  // 默认单位标签（如 "CNY"）
+};
+
+export std::optional<UsageQuerySuggestion> suggestUsageQuery(
     std::string_view baseUrl) {
-    // DeepSeek 官方：GET /user/balance（Bearer），响应
-    // {"balance_infos": [{"total_balance": "...", ...}]}。
+    // DeepSeek 官方：GET /user/balance，响应
+    // {"balance_infos": [{"currency": "CNY", "total_balance": "...", ...}]}。
     if (baseUrl.find("api.deepseek.com") != std::string_view::npos) {
-        return std::pair{std::string("https://api.deepseek.com/user/balance"),
-                         std::string("balance_infos.0.total_balance")};
+        return UsageQuerySuggestion{
+            .url = "https://api.deepseek.com/user/balance",
+            .path = "balance_infos.0.total_balance",
+            .label = "CNY"};
+    }
+    // Moonshot / Kimi 官方：GET /v1/users/me/balance，响应
+    // {"code": 0, "data": {"available_balance": ..., ...}}。国内站
+    // （platform.kimi.com）与国际站（platform.kimi.ai）key 不通用，端点
+    // 结构相同，余额币种分别是人民币与美元。
+    if (baseUrl.find("api.moonshot.cn") != std::string_view::npos) {
+        return UsageQuerySuggestion{
+            .url = "https://api.moonshot.cn/v1/users/me/balance",
+            .path = "data.available_balance",
+            .label = "CNY"};
+    }
+    if (baseUrl.find("api.moonshot.ai") != std::string_view::npos) {
+        return UsageQuerySuggestion{
+            .url = "https://api.moonshot.ai/v1/users/me/balance",
+            .path = "data.available_balance",
+            .label = "USD"};
+    }
+    // OpenRouter 官方：GET /api/v1/key（普通推理 key 即可），响应
+    // {"data": {"usage": ..., ...}}，usage 为该账号已消费金额（美元）；
+    // /api/v1/credits 的余额查询需要单独的 management key，这里不用。
+    if (baseUrl.find("openrouter.ai") != std::string_view::npos) {
+        return UsageQuerySuggestion{
+            .url = "https://openrouter.ai/api/v1/key",
+            .path = "data.usage",
+            .label = "USD 已用"};
     }
     return std::nullopt;
 }
