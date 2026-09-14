@@ -359,11 +359,11 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(huxerui::WindowHandle window,
         auto nextPages = std::make_shared<std::vector<huxerui::View>>();
         nextPages->reserve(8);
         nextPages->push_back(
-            AgentPage(revision).Key("agents").With(huxerui::Grow(1.0F)));
+            AgentPage(revision, navPage).Key("agents").With(huxerui::Grow(1.0F)));
         nextPages->push_back(
-            RouterPage().Key("router").With(huxerui::Grow(1.0F)));
+            RouterPage(navPage).Key("router").With(huxerui::Grow(1.0F)));
         nextPages->push_back(
-            StatsPage().Key("stats").With(huxerui::Grow(1.0F)));
+            StatsPage(navPage).Key("stats").With(huxerui::Grow(1.0F)));
         nextPages->push_back(
             McpPage().Key("mcp").With(huxerui::Grow(1.0F)));
         nextPages->push_back(

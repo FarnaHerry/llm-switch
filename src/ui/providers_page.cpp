@@ -23,8 +23,7 @@
 // 高级选项中覆盖完整模型列表 URL；平台异步请求完成后结果回 UI 线程写 State；拉取成功后模型行在按钮前出现 Select
 // 下拉，点选回填该行的模型字段（不弹窗）。
 // 用量查询：启用开关打开且 usageUrl 非空的卡片显示用量文本 + 手动刷新按钮；AgentPage
-// 共享缓存，且只允许一个保留页启动轮询；刷新间隔按供应商独立配置，避免 Pager
-// 保留多页后重复请求。
+// 共享缓存，仅可见列表进入或配置改变时按供应商刷新间隔惰性检查。
 //
 // 数据流：所有 store 读写都在 UI 线程（store 无内部锁，UI 线程独占是契约；
 // live 文件读写为微秒级本地 IO，不经任务线程）。写操作后 revision+1，
@@ -37,7 +36,7 @@
 #include <array>
 #include <chrono>
 #include <map>
-#include <set>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -58,7 +57,9 @@ using provider_detail::WriteUsageCache;
 
 [[huxerui::composable]] huxerui::View ProvidersPage(
     std::string tool, huxerui::State<int> revision, UsageCache usageCache,
-    huxerui::State<std::string> addProviderRequest, bool enableUsagePolling) {
+    huxerui::State<std::string> addProviderRequest,
+    huxerui::State<std::size_t> navPage,
+    huxerui::State<std::size_t> selectedTool, std::size_t toolIndex) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto tasks = huxerui::UseTaskScope();
     auto toast = huxerui::UseToast();
@@ -111,7 +112,7 @@ using provider_detail::WriteUsageCache;
                 models::Provider loaded;
                 const auto& group = providerStore().group(tool);
                 for (const auto& provider : group.providers) {
-                    if (provider.id == target) {
+                    if (provider.id == (target.starts_with("usage:") ? target.substr(6) : target)) {
                         loaded = provider;
                         break;
                     }
@@ -124,80 +125,40 @@ using provider_detail::WriteUsageCache;
         },
         target);
 
-    // 用量缓存由 AgentPage 共享；自动轮询只由第一个保留页启动（TaskScope
-    // 随 Agent 页卸载取消）。每次在 UI 线程重读全部 Provider：仅启用且配置了
-    // usageUrl、usageRefreshMinutes>0 的供应商进入调度，各自到期后顺序拉取；
-    // 最多 30s 重读一次配置，使配置页修改及时生效。State 只在 UI 线程写。
+    // 保留页不会卸载：仅在当前列表进入或配置变更时惰性检查，不设后台计时器。
+    // 时间戳跨表单/导航切换保留，取消返回不会重新查询尚未到期的供应商。
+    using UsageTimes = std::map<std::string, std::chrono::steady_clock::time_point>;
+    auto checkedAt = huxerui::UseState(std::make_shared<UsageTimes>());
+    const bool usageVisible = navPage.Get() == 0 &&
+                              selectedTool.Get() == toolIndex && target.empty();
     huxerui::Lifecycle(
-        [tasks, usageCache, http, enableUsagePolling] {
-            if (enableUsagePolling) {
-                tasks.Launch([usageCache, http]() -> huxerui::Task<void> {
-                    struct UsageSchedule {
-                        int intervalMinutes = 0;
-                        std::chrono::steady_clock::time_point nextRun;
-                    };
-                    std::map<std::string, UsageSchedule> schedules;
-                    while (true) {
+        [tasks, usageCache, http, tool, checkedAt, usageVisible] {
+            auto active = std::make_shared<bool>(usageVisible);
+            huxerui::TaskHandle request;
+            if (usageVisible) {
+                request = tasks.Launch([=]() -> huxerui::Task<void> {
+                    if (!*active) co_return;
+                    // 拷贝当前组，避免跨 await 持有 store 内部引用。
+                    const auto providers = providerStore().group(tool).providers;
+                    for (const auto& p : providers) {
+                        if (!*active) co_return;
+                        if (!p.usageEnabled || p.usageUrl.empty() ||
+                            p.usageRefreshMinutes <= 0) continue;
                         const auto now = std::chrono::steady_clock::now();
-                        const auto configurationCheck =
-                            now + std::chrono::seconds{30};
-                        auto nextWake = configurationCheck;
-                        std::set<std::string> activeIds;
-                        std::vector<models::Provider> due;
-                        const auto& config = providerStore().config();
-                        for (const auto& [toolId, grp] : config.groups) {
-                            for (const auto& p : grp.providers) {
-                                if (!p.usageEnabled || p.usageUrl.empty() ||
-                                    p.usageRefreshMinutes <= 0) {
-                                    continue;
-                                }
-                                activeIds.insert(p.id);
-                                auto [it, inserted] = schedules.try_emplace(
-                                    p.id,
-                                    UsageSchedule{p.usageRefreshMinutes, now});
-                                if (!inserted && it->second.intervalMinutes !=
-                                                        p.usageRefreshMinutes) {
-                                    it->second.intervalMinutes =
-                                        p.usageRefreshMinutes;
-                                    it->second.nextRun = now;
-                                }
-                                if (it->second.nextRun <= now) {
-                                    due.push_back(p);
-                                    it->second.nextRun =
-                                        now + std::chrono::minutes{
-                                            it->second.intervalMinutes};
-                                }
-                                nextWake = std::min(nextWake, it->second.nextRun);
-                            }
-                        }
-                        for (auto it = schedules.begin(); it != schedules.end();) {
-                            if (!activeIds.contains(it->first)) {
-                                it = schedules.erase(it);
-                            } else {
-                                ++it;
-                            }
-                        }
-                        // 顺序拉取（每次最长 10s），每个完成即回写缓存。
-                        for (const auto& p : due) {
-                            WriteUsageCache(usageCache, p.id,
-                                            co_await FetchUsageText(http, p));
-                        }
-                        const auto afterRequests =
-                            std::chrono::steady_clock::now();
-                        if (nextWake <= afterRequests) {
-                            co_await huxerui::Delay(
-                                std::chrono::duration<double>{1.0});
-                        } else {
-                            co_await huxerui::Delay(
-                                std::chrono::duration<double>{nextWake -
-                                                              afterRequests});
-                        }
+                        const auto previous = checkedAt.Get()->find(p.id);
+                        if (previous != checkedAt.Get()->end() &&
+                            now - previous->second < std::chrono::minutes{p.usageRefreshMinutes}) continue;
+                        auto text = co_await FetchUsageText(http, p);
+                        if (!*active) co_return;
+                        (*checkedAt.Get())[p.id] = std::chrono::steady_clock::now();
+                        WriteUsageCache(usageCache, p.id, std::move(text));
                     }
                 });
             }
-            return [] {};
+            // 离开列表即取消任务，阻止旧配置/隐藏页结果回写。
+            return [active, request] { *active = false; request.Cancel(); };
         },
-        enableUsagePolling);
+        usageVisible, revision.Get());
 
     // 订阅全局变更计数：托盘切换 / 设置页导入后本页重读。
     (void)revision.Get();

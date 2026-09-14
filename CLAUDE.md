@@ -149,8 +149,10 @@ commit，不回滚已经验证的修改，并在最终回复中报告失败原�
   路径（支持数组下标）取标量；`suggestUsageQuery` 只内置有官方文档的
   DeepSeek（/user/balance）。UI 侧：用量三字段在独立的 UsageFormPage
   （卡片 gauge 图标进入，formTarget = "usage:" + id；启用开关 + 编辑表单只保留其余
-  字段、保存时沿用原用量配置），卡片显示 + HuxerUI HTTP 轮询（State 只在
-  UI 线程写）。
+  字段、保存时沿用原用量配置），卡片显示 + 惰性 HuxerUI HTTP 查询：仅当前 Agent 列表进入或配置变更时
+  检查刷新间隔，隐藏页与表单不查询，离开列表取消任务；返回时复用未到期缓存，
+  持续停留可手动刷新。路由/统计页的定时刷新仅在对应顶级导航可见时运行
+  （State 只在 UI 线程写）。
 - **本地路由设置**：AppConfig.routerEnabled（启动自启）/ routerPort（默认
   15731）/ routerFailover / routerTools（逐 Agent 代理选择，旧配置默认全开），
   store 有对应 setter；AppRoot 首组合时自启（见 src/ui/app.cpp 的 Lifecycle）。

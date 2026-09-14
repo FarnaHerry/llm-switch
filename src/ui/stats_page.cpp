@@ -140,7 +140,7 @@ void ApplySnapshot(const router::StatsSnapshot& snapshot,
 
 } // namespace
 
-[[huxerui::composable]] huxerui::View StatsPage() {
+[[huxerui::composable]] huxerui::View StatsPage(huxerui::State<std::size_t> navPage) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto tasks = huxerui::UseTaskScope();
     auto toast = huxerui::UseToast();
@@ -151,17 +151,18 @@ void ApplySnapshot(const router::StatsSnapshot& snapshot,
     // 首组合加载 + 可见期间每 5s 自动刷新（卸载自动取消轮询）。
     huxerui::Lifecycle(
         [=] {
+            if (navPage.Get() != 2) return std::function<void()>{[] {}};
             ApplySnapshot(routerInstance().snapshot(), summary, providerStats);
-            tasks.Launch([=]() -> huxerui::Task<void> {
+            const auto polling = tasks.Launch([=]() -> huxerui::Task<void> {
                 while (true) {
                     co_await huxerui::Delay(std::chrono::seconds{5});
                     ApplySnapshot(routerInstance().snapshot(), summary,
                                   providerStats);
                 }
             });
-            return [] {};
+            return std::function<void()>{[polling] { polling.Cancel(); }};
         },
-        0);
+        navPage.Get() == 2);
 
     // 清空统计：弹窗会卸载点击路径上的节点，推迟出指针事件路径再弹。
     auto confirmClear = [=] {

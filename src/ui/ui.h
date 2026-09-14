@@ -67,18 +67,18 @@ huxerui::View IslandSurface(huxerui::View content, IslandLevel level = IslandLev
 // ---- 页面（定义在各自 .cpp，均为 [[huxerui::composable]]）----
 // Agent 管理页：持有 Agent 工具栏/Pager 的受控选中索引，并让各工具页保持
 // 挂载，从而保留各页的表单、列表和检查状态。
-huxerui::View AgentPage(huxerui::State<int> revision);
+huxerui::View AgentPage(huxerui::State<int> revision, huxerui::State<std::size_t> navPage);
 // 供应商列表页：各工具组共用同一组件，tool 是
 // models::toolRegistry() 的稳定注册表 id（claude-code / codex / ...）。
 // usageCache 与 addProviderRequest 在 AgentPage 中只创建一份；
-// enableUsagePolling 只允许一个保留页负责全局用量轮询，避免 Pager 保留多页
-// 后重复请求。addProviderRequest 由顶部 action group 发出，目标页消费后打开
+// 可见列表进入或配置变化时惰性检查到期时间。addProviderRequest 由顶部 action group 发出，目标页消费后打开
 // 自己的新增表单。
 using UsageCache = huxerui::State<std::map<std::string, std::string>>;
 huxerui::View ProvidersPage(std::string tool, huxerui::State<int> revision,
                             UsageCache usageCache,
                             huxerui::State<std::string> addProviderRequest,
-                            bool enableUsagePolling);
+                            huxerui::State<std::size_t> navPage,
+                            huxerui::State<std::size_t> selectedTool, std::size_t toolIndex);
 // 设置页持有主题模式 State（AppRoot 传入）。
 huxerui::View SettingsPage(huxerui::State<int> themeMode, huxerui::State<int> revision);
 
@@ -113,9 +113,9 @@ enum class InkSplashAnchor {
 
 // ---- 路由/统计页面（router_page.cpp / stats_page.cpp）----
 // 本地路由页：运行状态/启用开关/端口/故障转移控制、各工具接入地址、最近请求日志。
-huxerui::View RouterPage();
+huxerui::View RouterPage(huxerui::State<std::size_t> navPage);
 // 使用统计页：汇总指标、按供应商分布、刷新/清空统计。
-huxerui::View StatsPage();
+huxerui::View StatsPage(huxerui::State<std::size_t> navPage);
 
 // 进程级 LocalRouter 单例（定义在 router_page.cpp）：resolver 回调读
 // providerStore() 的组快照，首次访问按 config().routerFailover 设置故障转移。

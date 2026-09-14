@@ -15,7 +15,7 @@ import llmswitch.models;
 
 namespace llmswitch::ui {
 
-[[huxerui::composable]] huxerui::View AgentPage(huxerui::State<int> revision) {
+[[huxerui::composable]] huxerui::View AgentPage(huxerui::State<int> revision, huxerui::State<std::size_t> navPage) {
     const auto& registry = models::toolRegistry();
     if (registry.empty()) {
         return huxerui::Text("没有可用的 Agent 工具");
@@ -43,7 +43,7 @@ namespace llmswitch::ui {
             const std::string id(spec.id);
             nextPages->push_back(
                 ProvidersPage(id, revision, usageCache, addProviderRequest,
-                              index == 0)
+                              navPage, selectedTool, index)
                     .Key("agent-providers:" + id)
                     .With(huxerui::Grow(1.0F)));
         }
