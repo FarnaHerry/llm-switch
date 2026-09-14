@@ -475,6 +475,9 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
         set_target_properties(test_store PROPERTIES CXX_MODULE_STD ON CXX_SCAN_FOR_MODULES ON)
         target_compile_features(test_store PRIVATE cxx_std_23)
         target_link_libraries(test_store PRIVATE llmswitch_json Threads::Threads)
+        # 校验随资源包发布的用量模板仓库数据文件（resources/raw/usage_templates.json）。
+        target_compile_definitions(test_store PRIVATE
+            LLMSWITCH_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
         add_test(NAME store COMMAND test_store)
 
         # 网络层测试：只测模型列表地址/响应解析纯函数（不碰真实网络；

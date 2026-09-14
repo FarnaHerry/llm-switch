@@ -102,8 +102,8 @@ commit，不回滚已经验证的修改，并在最终回复中报告失败原�
 | 模块 | 文件 | 职责 |
 |------|------|------|
 | `llmswitch.config` | `src/config.cppm` | 数据目录（~/.local/share/llm-switch）/ config.json、backups/、mcp.json、skills-store/、router/requests.jsonl 路径 / live 配置与会话/技能目录解析（全部 LLMSWITCH_* 环境变量可覆盖）/ 深色检测 |
-| `llmswitch.models` | `src/models.cppm` | 工具注册表（ToolSpec/toolRegistry/findTool：claude-code/claude/codex/opencode/pi/gemini/qwen/zcode；needsModel/hasApiFormat/hasModelMappings 三标记驱动表单适配）+ Provider/ProviderGroup/AppConfig（groups 以注册表 id 为键的 map，旧格式顶层 claude/codex 自动迁移；router/usage 设置字段，Provider.usageEnabled 控制单个供应商是否查询，routerTools 保存逐 Agent 代理选择；Provider 含 modelFetchUrl、haiku/sonnet/opusModel 三档映射与 upstreamFormat/fullUrl URL 模式）+ JSON 序列化 + 内置预设（builtinPresets）+ 官方厂商名（officialVendorName：claude 系/codex 有官方常驻卡）+ apiFormat 三档归一（normalizeApiFormat/apiFormatLabel）+ 上游 URL 归一/后缀（normalizeUpstreamFormat/upstreamFormatSuffix/effectiveBaseUrl）+ 用量端点模板（suggestUsageQuery） |
-| `llmswitch.store` | `src/store.cppm` + `src/store.cpp` | ProviderStore：config.json 读写、CRUD、switchTo 按工具 id 分发八个 writer（原子写+备份；gemini/qwen 走 <dir>/.env 行级 upsert + settings.json 深合并 auth 类型，zcode 走 provider map upsert + enabled 互斥）、restoreOfficial 恢复厂商原生状态（claude-code/claude/codex）、detectCurrent/importLive、导出导入、theme/usage/router 与逐 Agent 路由设置 setter |
+| `llmswitch.models` | `src/models.cppm` | 工具注册表（ToolSpec/toolRegistry/findTool：claude-code/claude/codex/opencode/pi/gemini/qwen/zcode；needsModel/hasApiFormat/hasModelMappings 三标记驱动表单适配）+ Provider/ProviderGroup/AppConfig（groups 以注册表 id 为键的 map，旧格式顶层 claude/codex 自动迁移；router/usage 设置字段，Provider.usageEnabled 控制单个供应商是否查询，routerTools 保存逐 Agent 代理选择；Provider 含 modelFetchUrl、haiku/sonnet/opusModel 三档映射与 upstreamFormat/fullUrl URL 模式）+ JSON 序列化 + 内置预设（builtinPresets）+ 官方厂商名（officialVendorName：claude 系/codex 有官方常驻卡）+ apiFormat 三档归一（normalizeApiFormat/apiFormatLabel）+ 上游 URL 归一/后缀（normalizeUpstreamFormat/upstreamFormatSuffix/effectiveBaseUrl）+ 用量模板表纯解析与匹配（parseUsageTemplates/suggestUsageQuery：数据在 resources/raw/usage_templates.json 资源包内置 + dataDir 用户覆盖，不硬编码） |
+| `llmswitch.store` | `src/store.cppm` + `src/store.cpp` | ProviderStore：config.json 读写、CRUD、switchTo 按工具 id 分发八个 writer（原子写+备份；gemini/qwen 走 <dir>/.env 行级 upsert + settings.json 深合并 auth 类型，zcode 走 provider map upsert + enabled 互斥）、restoreOfficial 恢复厂商原生状态（claude-code/claude/codex）、detectCurrent/importLive、导出导入、theme/usage/router 与逐 Agent 路由设置 setter、用量模板用户覆盖表读取（loadUsageTemplatesOverride） |
 | `llmswitch.net` | `src/net.cppm` + `src/net.cpp` | 纯函数：模型列表 URL 拼接 `modelListUrl`/候选推导、响应解析 `parseModelIds`（data/models 两种形状，去重保序）和用量取值 `extractByPath`（点分路径+数组下标取标量）；实际网络请求不在此层——供应商页面走 HuxerUI HttpClient（provider_network.cpp），路由出站走 UpstreamSession |
 | `llmswitch.router` | `src/router.cppm` + `src/router.cpp` | LocalRouter：cpp-httplib 服务器监听 127.0.0.1，`/<tool>/` 前缀路由到该组 current 供应商的实际 URL（按 upstreamFormat 追加 /anthropic 或 /v1，fullUrl 时原样），替换鉴权头，线程安全的逐工具开关运行中即时生效（禁用返回 403，不访问上游/统计），可选故障转移（429/5xx/连接失败按组内顺序试下一个）；RequestLog/StatsSnapshot 统计，每请求追加 JSONL（dataDir()/router/requests.jsonl），启动回填内存环形缓冲（最多 1000 条） |
 | `llmswitch.mcp` | `src/mcp.cppm` + `src/mcp.cpp` | MCP 服务器统一清单（SSOT = dataDir()/mcp.json）；启停 = 写/删工具 live 配置条目：claude-code → ~/.claude.json 顶层 mcpServers 深合并、codex → config.toml 行级 [mcp_servers.*] section 重写、opencode → opencode.json 顶层 mcp；claude/pi 不支持（抛中文错） |
@@ -150,8 +150,11 @@ commit，不回滚已经验证的修改，并在最终回复中报告失败原�
 - **用量查询**：Provider.usageEnabled + usageRefreshMinutes + usageUrl/usagePath/usageLabel
   （开关关闭或 usageUrl 空 = 不查，刷新间隔 0 = 仅手动，旧配置缺字段自动取默认
   10）；每个供应商在独立用量配置页控制开关和刷新间隔，HuxerUI HttpClient 异步 GET 后由 `extractByPath` 按点分
-  路径（支持数组下标）取标量；`suggestUsageQuery` 只内置有官方文档的
-  DeepSeek（/user/balance）。UI 侧：用量三字段在独立的 UsageFormPage
+  路径（支持数组下标）取标量；官方用量模板表不写在代码里——数据随资源包发布
+  （`resources/raw/usage_templates.json`，只收有官方文档的端点），用户可在
+  `dataDir()/usage_templates.json` 放同格式文件整体覆盖（设置页展示路径），
+  `models::parseUsageTemplates` 容错解析、`suggestUsageQuery` 按 baseUrl
+  子串匹配。UI 侧：用量三字段在独立的 UsageFormPage
   （卡片 gauge 图标进入，formTarget = "usage:" + id；启用开关 + 编辑表单只保留其余
   字段、保存时沿用原用量配置），卡片显示 + 惰性 HuxerUI HTTP 查询：仅当前 Agent 列表进入或配置变更时
   检查刷新间隔，隐藏页与表单不查询，离开列表取消任务；返回时复用未到期缓存，

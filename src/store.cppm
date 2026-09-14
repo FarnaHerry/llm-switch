@@ -127,6 +127,11 @@ private:
     models::AppConfig config_;
 };
 
+// 用量查询模板的用户覆盖表（cfg::usageTemplatesFile()）原文；文件不存在
+// 返回空串。文件存在但读不出来抛 std::runtime_error（带路径，中文消息）；
+// 内容校验由 models::parseUsageTemplates 负责。
+export std::string loadUsageTemplatesOverride();
+
 // ---- 模块内共享工具（模块链接，不导出）----
 // 实现单元之间复用的文件工具、live 格式解析与 ZCode 条目助手；对模块外
 // 不可见。定义位置：文件工具在 store.cpp；live 格式工具在 store_live.cpp；

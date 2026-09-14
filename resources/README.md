@@ -3,6 +3,18 @@
 HuxerUI 资源根（`huxerui_add_app` 以 `app` 命名空间注册，codegen 生成
 `app_resources.h` 常量）：`images/` 图标、`strings/` 本地化串。
 
+## raw/usage_templates.json — 官方用量查询模板表（数据文件，非图标）
+
+厂商用量查询端点的官方默认表，随资源包发布（运行时经 `UseRawResource`
+读取，键 `app::raw::usage_templates_json`），**不在 C++ 代码中硬编码**。
+收录原则：只收厂商官方文档公开的端点，没把握的不编；每条目的 `source`
+字段记录文档出处，修改/新增时必须同步核实并更新。
+
+用户可在 `dataDir()/usage_templates.json`（设置页展示路径）放一份同格式
+文件整体覆盖/扩展内置表。解析与匹配在 `llmswitch.models`
+（`parseUsageTemplates` / `suggestUsageQuery`），仓库内这份文件由
+`test_store` 每次校验可解析且已知厂商可命中。
+
 ## 水墨图标规范（新增图标必须遵守）
 
 项目内所有 24×24 功能图标使用同一套“无色 alpha-mask + 水墨材质”语言：

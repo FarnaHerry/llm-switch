@@ -1,0 +1,36 @@
+{
+  "templates": [
+    {
+      "name": "DeepSeek",
+      "match": "api.deepseek.com",
+      "url": "https://api.deepseek.com/user/balance",
+      "path": "balance_infos.0.total_balance",
+      "label": "CNY",
+      "source": "https://api-docs.deepseek.com/api/get-user-balance"
+    },
+    {
+      "name": "Kimi（Moonshot 国内站）",
+      "match": "api.moonshot.cn",
+      "url": "https://api.moonshot.cn/v1/users/me/balance",
+      "path": "data.available_balance",
+      "label": "CNY",
+      "source": "https://platform.kimi.com/docs/api/balance"
+    },
+    {
+      "name": "Kimi（Moonshot 国际站）",
+      "match": "api.moonshot.ai",
+      "url": "https://api.moonshot.ai/v1/users/me/balance",
+      "path": "data.available_balance",
+      "label": "USD",
+      "source": "https://platform.kimi.ai/docs/api/balance"
+    },
+    {
+      "name": "OpenRouter",
+      "match": "openrouter.ai",
+      "url": "https://openrouter.ai/api/v1/key",
+      "path": "data.usage",
+      "label": "USD 已用",
+      "source": "https://openrouter.ai/docs/api/api-reference/api-keys/get-current-api-key"
+    }
+  ]
+}

@@ -901,32 +901,100 @@ int main() {
             nlohmann::json{{"usageEnabled", false},
                            {"usageUrl", "https://legacy.example.com/usage"}});
         CHECK(!disabledUsage.usageEnabled);
-        // 官方默认用量查询配置：DeepSeek / Moonshot（国内外站币种不同）/
-        // OpenRouter；不认识的 baseUrl 不建议。
+    }
+    {
+        // 官方默认用量模板表随资源包发布（resources/raw/usage_templates.json）：
+        // 仓库内数据文件必须始终可解析，且四家已核实厂商可按 baseUrl 匹配。
+        std::ifstream bundled(
+            std::filesystem::path(LLMSWITCH_SOURCE_DIR) / "resources" / "raw" /
+            "usage_templates.json");
+        CHECK(bundled.is_open());
+        const std::string text((std::istreambuf_iterator<char>(bundled)),
+                               std::istreambuf_iterator<char>());
+        const auto table = models::parseUsageTemplates(text);
+        CHECK(table.size() == 4);
         const auto sug =
-            models::suggestUsageQuery("https://api.deepseek.com/v1");
+            models::suggestUsageQuery("https://api.deepseek.com/v1", table);
         CHECK(sug.has_value());
         CHECK(sug->url == "https://api.deepseek.com/user/balance");
         CHECK(sug->path == "balance_infos.0.total_balance");
         CHECK(sug->label == "CNY");
-        const auto kimiCn = models::suggestUsageQuery("https://api.moonshot.cn");
+        const auto kimiCn =
+            models::suggestUsageQuery("https://api.moonshot.cn", table);
         CHECK(kimiCn.has_value());
         CHECK(kimiCn->url == "https://api.moonshot.cn/v1/users/me/balance");
         CHECK(kimiCn->path == "data.available_balance");
         CHECK(kimiCn->label == "CNY");
         const auto kimiIntl =
-            models::suggestUsageQuery("https://api.moonshot.ai/v1");
+            models::suggestUsageQuery("https://api.moonshot.ai/v1", table);
         CHECK(kimiIntl.has_value());
         CHECK(kimiIntl->url == "https://api.moonshot.ai/v1/users/me/balance");
         CHECK(kimiIntl->label == "USD");
         const auto openrouter =
-            models::suggestUsageQuery("https://openrouter.ai/api/v1");
+            models::suggestUsageQuery("https://openrouter.ai/api/v1", table);
         CHECK(openrouter.has_value());
         CHECK(openrouter->url == "https://openrouter.ai/api/v1/key");
         CHECK(openrouter->path == "data.usage");
-        CHECK(!models::suggestUsageQuery("https://x.example.com").has_value());
-        CHECK(!models::suggestUsageQuery("https://api.kimi.com/coding/")
-                   .has_value());
+        // 不认识的 baseUrl 不建议（api.kimi.com 是订阅端点，无已核实模板）。
+        CHECK(!models::suggestUsageQuery("https://x.example.com", table)
+                    .has_value());
+        CHECK(!models::suggestUsageQuery("https://api.kimi.com/coding/", table)
+                    .has_value());
+    }
+    {
+        // 解析容错：缺必填字段的条目跳过、顶层裸数组接受、坏 JSON 与缺
+        // templates 数组抛错；便捷重载从原文直接解析匹配。
+        const auto parsed = models::parseUsageTemplates(R"json(
+            {"templates": [
+                {"match": "api.example.com", "url": "https://api.example.com/u",
+                 "path": "data.balance", "label": "CNY", "note": "未知字段忽略"},
+                {"match": "broken.example.com"},
+                {"url": "https://no.match.example"},
+                "不是对象"
+            ]}
+        )json");
+        CHECK(parsed.size() == 1);
+        CHECK(parsed.front().match == "api.example.com");
+        CHECK(parsed.front().label == "CNY");
+        const auto bare = models::parseUsageTemplates(
+            R"([{"match": "m", "url": "u", "path": "p"}])");
+        CHECK(bare.size() == 1);
+        const auto hit = models::suggestUsageQuery(
+            "https://api.example.com/v1",
+            R"json({"templates": [{"match": "api.example.com", "url": "u1", "path": "p1"}]})json");
+        CHECK(hit.has_value() && hit->url == "u1");
+        bool threw = false;
+        try {
+            static_cast<void>(models::parseUsageTemplates("{ 不是 JSON"));
+        } catch (const std::runtime_error&) {
+            threw = true;
+        }
+        CHECK(threw);
+        threw = false;
+        try {
+            static_cast<void>(models::parseUsageTemplates(R"({"a": 1})"));
+        } catch (const std::runtime_error&) {
+            threw = true;
+        }
+        CHECK(threw);
+    }
+    {
+        // 用户覆盖表：dataDir()/usage_templates.json 不存在返回空串；存在时
+        // 原样读出（存在即整体替换内置表，UI 层负责选源）。
+        CHECK(store::loadUsageTemplatesOverride().empty());
+        const auto overrideFile = cfg::usageTemplatesFile();
+        std::ofstream out(overrideFile, std::ios::binary);
+        out << R"({"templates": [{"match": "relay.example.com", "url": "u",
+                                   "path": "p", "label": "CNY"}]})";
+        out.close();
+        CHECK(!store::loadUsageTemplatesOverride().empty());
+        const auto relay = models::suggestUsageQuery(
+            "https://relay.example.com/v1",
+            store::loadUsageTemplatesOverride());
+        CHECK(relay.has_value() && relay->label == "CNY");
+        std::error_code ec;
+        std::filesystem::remove(overrideFile, ec);
+        CHECK(store::loadUsageTemplatesOverride().empty());
     }
     {
         // usage 三字段随落盘持久

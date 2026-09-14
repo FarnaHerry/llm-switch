@@ -272,6 +272,8 @@ bool ResolvesToDark(int mode) {
                     PathRow("Codex 凭据（live）", cfg::codexAuthFile().string()),
                     PathRow("Codex 主配置（live）", cfg::codexConfigFile().string()),
                     PathRow("llm-switch 配置库", cfg::configFile().string()),
+                    PathRow("用量模板（可选覆盖）",
+                            cfg::usageTemplatesFile().string()),
                     PathRow("备份目录", cfg::backupsDir().string()),
                 }.With(huxerui::Spacing(8.0F),
                        huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))),

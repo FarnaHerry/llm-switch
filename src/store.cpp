@@ -348,4 +348,17 @@ void ProviderStore::exportTo(const std::filesystem::path& path) const {
     atomicWrite(path, models::toJson(config_).dump(2) + "\n");
 }
 
+std::string loadUsageTemplatesOverride() {
+    const std::filesystem::path file = cfg::usageTemplatesFile();
+    std::error_code ec;
+    if (!std::filesystem::exists(file, ec) || ec) return {};
+    std::ifstream in(file, std::ios::binary);
+    if (!in) {
+        throw std::runtime_error(
+            std::format("读取用量模板覆盖失败：{}", file.string()));
+    }
+    return std::string((std::istreambuf_iterator<char>(in)),
+                       std::istreambuf_iterator<char>());
+}
+
 } // namespace store

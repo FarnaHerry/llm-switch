@@ -1,12 +1,15 @@
 // provider_usage_form.cpp — 用量查询配置页（UsageFormPage）：从供应商卡片的
 // gauge 图标进入，formTarget = "usage:" + id。字段：启用开关 / 用量 URL /
-// 取值路径 / 单位标签 / 刷新间隔；「自动填充」按 baseUrl 匹配
-// models::suggestUsageQuery 的官方默认配置（URL / 取值路径 / 单位标签）。
+// 取值路径 / 单位标签 / 刷新间隔；「自动填充」按 baseUrl 匹配用量模板表：
+// 官方默认随资源包发布（resources/usage_templates.json），用户可在
+// dataDir()/usage_templates.json 放同格式文件整体覆盖/扩展。保存 =
+// updateProvider 只改用量字段。
 #include <huxerui/huxerui.h>
 
 #include <string>
 #include <vector>
 
+#include "app_resources.h"
 #include "providers_internal.h"
 
 import llmswitch.models;
@@ -30,13 +33,17 @@ int UsageIntervalIndex(int minutes) {
 
 // 用量查询配置页（整页，从卡片的 gauge 图标进入，formTarget = "usage:" + id）。
 // 字段：启用开关 / 用量 URL / 取值路径 / 单位标签；「自动填充」按供应商
-// baseUrl 匹配 models::suggestUsageQuery 的官方默认配置。关闭开关会保留已填
-// 配置，重新打开即可恢复查询。保存 = updateProvider 只改用量字段。
+// baseUrl 匹配用量模板表（资源包内置官方默认 + dataDir 用户覆盖）。关闭开关
+// 会保留已填配置，重新打开即可恢复查询。保存 = updateProvider 只改用量字段。
 [[huxerui::composable]] huxerui::View UsageFormPage(
     std::string tool, models::Provider initial, huxerui::State<int> revision,
     huxerui::State<std::string> formTarget) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto toast = huxerui::UseToast();
+    // 官方默认模板表随资源包发布；组合期只解析资源身份（不读字节），
+    // 字节在「自动填充」点击事件里读（小文件，ReadString(true) 进共享缓存）。
+    const huxerui::RawAsset usageTemplates =
+        huxerui::UseRawResource(app::raw::usage_templates_json);
     auto usageUrl = huxerui::UseState(huxerui::TextEditingValue{initial.usageUrl});
     auto usagePath =
         huxerui::UseState(huxerui::TextEditingValue{initial.usagePath});
@@ -81,18 +88,31 @@ int UsageIntervalIndex(int minutes) {
             })
             .With(huxerui::Grow(1.0F)),
         huxerui::Button("自动填充")
-            .OnClick([usageUrl, usagePath, usageLabel, toast, initial] {
-                const auto suggested =
-                    models::suggestUsageQuery(initial.baseUrl);
-                if (!suggested) {
-                    toast.Show("该供应商暂无内置用量端点模板，请手动填写");
-                    return;
+            .OnClick([usageUrl, usagePath, usageLabel, usageTemplates, toast,
+                      initial] {
+                // 用户覆盖表（dataDir()/usage_templates.json）优先；没有则用
+                // 资源包内置的官方默认表。解析失败给出中文错误（含文件原因）。
+                std::string text;
+                try {
+                    text = store::loadUsageTemplatesOverride();
+                    if (text.empty()) text = usageTemplates.ReadString(true);
+                    const auto suggested =
+                        models::suggestUsageQuery(initial.baseUrl, text);
+                    if (!suggested) {
+                        toast.Show(
+                            "用量模板未收录该 Base URL，可在数据目录的 "
+                            "usage_templates.json 中添加");
+                        return;
+                    }
+                    usageUrl = huxerui::TextEditingValue{suggested->url};
+                    usagePath = huxerui::TextEditingValue{suggested->path};
+                    usageLabel = huxerui::TextEditingValue{suggested->label};
+                } catch (const std::exception& e) {
+                    toast.Show(e.what());
                 }
-                usageUrl = huxerui::TextEditingValue{suggested->url};
-                usagePath = huxerui::TextEditingValue{suggested->path};
-                usageLabel = huxerui::TextEditingValue{suggested->label};
             })
-            .With(huxerui::Tooltip("按 Base URL 匹配官方默认用量查询配置")),
+            .With(huxerui::Tooltip(
+                "按 Base URL 匹配用量模板表（官方默认 + 用户覆盖）")),
     }.With(huxerui::Spacing(8.0F),
            huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)));
     fields.push_back(huxerui::TextField(usagePath.Get())

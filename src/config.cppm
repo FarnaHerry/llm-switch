@@ -119,6 +119,12 @@ export std::filesystem::path backupsDir() {
     return dir;
 }
 
+// 用量查询模板的用户覆盖表 dataDir()/usage_templates.json（可选；存在即整体
+// 替换资源包内置的官方默认表 resources/usage_templates.json）。
+export std::filesystem::path usageTemplatesFile() {
+    return dataDir() / "usage_templates.json";
+}
+
 // ---- live 配置路径（环境变量覆盖优先，便于测试与非常规安装）-----------------
 
 // Claude Code 全局设置（供应商 baseUrl / token 写在 env 块）。
