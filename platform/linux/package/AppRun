@@ -1,0 +1,7 @@
+#!/bin/sh
+set -eu
+app_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+if [ -x "$app_dir/usr/bin/llm-switch" ]; then
+    exec "$app_dir/usr/bin/llm-switch" "$@"
+fi
+exec "$app_dir/bin/llm-switch" "$@"

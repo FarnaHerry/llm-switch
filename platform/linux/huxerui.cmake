@@ -23,4 +23,28 @@ function(huxerui_configure_linux_project_package target_name install_component)
                 COMPONENT "${install_component}"
         )
     endif ()
+
+    # AppImage expects its launcher, desktop entry, and icon at the AppDir root.
+    install(PROGRAMS "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/package/AppRun"
+            DESTINATION .
+            COMPONENT "${install_component}"
+    )
+    install(FILES
+            "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/package/${target_name}.desktop"
+            "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/package/${target_name}.svg"
+            DESTINATION .
+            COMPONENT "${install_component}"
+    )
+
+    # Also register the application for native DEB/RPM installations.
+    install(FILES
+            "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/package/${target_name}.desktop"
+            DESTINATION share/applications
+            COMPONENT "${install_component}"
+    )
+    install(FILES
+            "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/package/${target_name}.svg"
+            DESTINATION share/icons/hicolor/scalable/apps
+            COMPONENT "${install_component}"
+    )
 endfunction()

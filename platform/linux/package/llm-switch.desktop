@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=llm-switch
+Comment=AI provider configuration switcher
+Exec=llm-switch
+Icon=llm-switch
+Categories=Development;
+Terminal=false
+StartupNotify=true
+StartupWMClass=llm-switch
