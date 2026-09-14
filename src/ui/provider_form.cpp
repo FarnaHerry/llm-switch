@@ -26,14 +26,11 @@ namespace llmswitch::ui {
 // .Key("form:" + target) 保证换编辑目标整体重建）。isNew 时顶部内嵌预设
 // 模板区（点选 FillForm 预填）。通用校验：名称必填；URL / API Key 按各
 // agent 策略；有主模型行的 agent 按 needsModel 校验模型必填；zcode 校验
-// 模型清单非空。保存成功 toast 后返回列表（写 formTarget 会卸载本页与
-// 点击路径上的节点：经 closeTasks.Launch + Delay(0) 推迟；closeTasks 是
-// 父级页面的 scope——本页 scope 会随 formTarget 写入一起卸载，不能承载
-// 关闭任务本身）。
+// 模型清单非空。保存成功 toast 后返回列表。
+// 点击回调只写 State：框架在后续帧重组并卸载本页，不必排入异步任务队列。
 [[huxerui::composable]] huxerui::View ProviderFormPage(
     std::string tool, models::Provider initial, bool isNew,
-    huxerui::State<int> revision, huxerui::State<std::string> formTarget,
-    huxerui::TaskScope closeTasks) {
+    huxerui::State<int> revision, huxerui::State<std::string> formTarget) {
     const auto tasks = huxerui::UseTaskScope();
     auto toast = huxerui::UseToast();
     const auto http = huxerui::UseService<huxerui::HttpClient>();
@@ -80,17 +77,8 @@ namespace llmswitch::ui {
     auto showKey = huxerui::UseState(false);
     auto keyHover = huxerui::UseState(false);
 
-    // 返回列表（写 formTarget 会卸载本页与点击路径上的节点：推迟出指针
-    // 事件路径；任务挂父级 closeTasks——本页 scope 随写入一起销毁）。
-    auto goBack = [closeTasks, formTarget] {
-        closeTasks.Launch([formTarget]() -> huxerui::Task<void> {
-            // 不经 Delay(0)：那是帧回调调度，窗口空闲时下一帧可能迟迟不
-            // 来（取消卡顿的根源）。任务体经 UI 事件循环队列在点击回调
-            // 返回后立即执行，同样满足「推迟出点击路径」。
-            formTarget = "";
-            co_return;
-        });
-    };
+    // State 赋值只请求下一帧；直接完成导航，避免等待低优先级 UI 任务队列。
+    auto goBack = [formTarget] { formTarget = ""; };
 
     // 公共区块：预设（仅新增）+ 通用字段。
     huxerui::View fields =

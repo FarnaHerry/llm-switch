@@ -34,9 +34,8 @@ int UsageIntervalIndex(int minutes) {
 // 配置，重新打开即可恢复查询。保存 = updateProvider 只改用量字段。
 [[huxerui::composable]] huxerui::View UsageFormPage(
     std::string tool, models::Provider initial, huxerui::State<int> revision,
-    huxerui::State<std::string> formTarget, huxerui::TaskScope closeTasks) {
+    huxerui::State<std::string> formTarget) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
-    auto tasks = huxerui::UseTaskScope();
     auto toast = huxerui::UseToast();
     auto usageUrl = huxerui::UseState(huxerui::TextEditingValue{initial.usageUrl});
     auto usagePath =
@@ -47,14 +46,8 @@ int UsageIntervalIndex(int minutes) {
     auto usageInterval =
         huxerui::UseState(UsageIntervalIndex(initial.usageRefreshMinutes));
 
-    // 返回列表（写 formTarget 会卸载本页与点击路径上的节点：推迟出指针
-    // 事件路径；任务挂父级 closeTasks——本页 scope 随写入一起销毁）。
-    auto goBack = [closeTasks, formTarget] {
-        closeTasks.Launch([formTarget]() -> huxerui::Task<void> {
-            formTarget = "";  // 不经 Delay(0)（帧调度），事件队列立即执行
-            co_return;
-        });
-    };
+    // State 赋值只请求下一帧，不在点击路径内卸载节点。
+    auto goBack = [formTarget] { formTarget = ""; };
 
     std::vector<huxerui::View> fields;
     fields.push_back(huxerui::Row {

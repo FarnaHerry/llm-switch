@@ -109,21 +109,9 @@ using provider_detail::WriteUsageCache;
 
     auto bump = [revision] { revision = revision.Get() + 1; };
 
-    // 编辑：进入整页表单（写 formTarget 会卸载点击路径上的节点：推迟）。
-    auto showEdit = [tasks, formTarget, id] {
-        tasks.Launch([=]() -> huxerui::Task<void> {
-            formTarget = id;  // 不经 Delay(0)（帧调度），事件队列立即执行
-            co_return;
-        });
-    };
-
-    // 用量查询配置：进入独立配置页（同样推迟）。
-    auto showUsage = [tasks, formTarget, id] {
-        tasks.Launch([=]() -> huxerui::Task<void> {
-            formTarget = "usage:" + id;  // 不经 Delay(0)（帧调度）
-            co_return;
-        });
-    };
+    // 纯导航直接写 State；卸载由后续帧完成，无需等待 UI idle 任务。
+    auto showEdit = [formTarget, id] { formTarget = id; };
+    auto showUsage = [formTarget, id] { formTarget = "usage:" + id; };
 
     // 删除：内置确认框（主题化 DialogStyle 见 app.cpp MinimalThemed）。
     auto showDeleteConfirm = [dialog, toast, tool, id, name, bump] {

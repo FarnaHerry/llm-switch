@@ -47,6 +47,10 @@ UI 工作先读 skill：`.claude/skills/huxerui-app-development/SKILL.md`（refe
   函数不加 `inline`；入口根在 src/app.cpp + src/ui/app.cpp。
 - **composable 函数体内不能有条件编译**（hcg 不支持 #ifdef 穿行）——版本号等
   宏在文件作用域先展开成常量（settings_page.cpp 的 kAboutText）。
+- 供应商编辑/用量配置的进入、取消、返回属于纯 State 导航，点击回调直接写
+  `formTarget`；State 通知仅标记重组并请求后续帧，不同步卸载点击节点。
+  不要为纯导航套 `TaskScope::Launch` / `Delay(0)`：Linux dispatcher 使用低优先级
+  idle 队列，可能被持续绘制推迟；网络和文件 IO 仍使用相应异步 API。
 - **hcg 的组合函数限制**：`UseTheme()` 等只能在 `[[huxerui::composable]]` 函数
   体内调用；普通函数里的 dialog 工厂 lambda 也不行。解法见
   providers_page.cpp：内容拆成 `ProviderFormContent` composable，普通函数

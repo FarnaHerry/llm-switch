@@ -168,12 +168,7 @@ using provider_detail::WriteUsageCache;
     const bool formReady = formDataTarget.Get() == target && !formLoading.Get();
     if (!target.empty()) {
         if (!formReady) {
-            auto goBack = [tasks, formTarget] {
-                tasks.Launch([formTarget]() -> huxerui::Task<void> {
-                    formTarget = "";  // 不经 Delay(0)（帧调度），事件队列立即执行
-                    co_return;
-                });
-            };
+            auto goBack = [formTarget] { formTarget = ""; };
             const std::string title = target.starts_with("usage:")
                                           ? "用量查询"
                                           : "编辑供应商";
@@ -199,12 +194,11 @@ using provider_detail::WriteUsageCache;
 
         const models::Provider initial = formInitial.Get();
         if (target.starts_with("usage:")) {
-            return UsageFormPage(tool, initial, revision, formTarget, tasks)
+            return UsageFormPage(tool, initial, revision, formTarget)
                 .Key("usage:" + target.substr(6));
         }
         const bool isNew = target == "new";
-        return ProviderFormPage(tool, initial, isNew, revision, formTarget,
-                                tasks)
+        return ProviderFormPage(tool, initial, isNew, revision, formTarget)
             .Key("form:" + target);
     }
 

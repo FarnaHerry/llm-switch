@@ -31,13 +31,11 @@ namespace llmswitch::ui {
 
 huxerui::View ProviderFormPage(std::string tool, models::Provider initial,
                                bool isNew, huxerui::State<int> revision,
-                               huxerui::State<std::string> formTarget,
-                               huxerui::TaskScope closeTasks);
+                               huxerui::State<std::string> formTarget);
 
 huxerui::View UsageFormPage(std::string tool, models::Provider initial,
                             huxerui::State<int> revision,
-                            huxerui::State<std::string> formTarget,
-                            huxerui::TaskScope closeTasks);
+                            huxerui::State<std::string> formTarget);
 
 // ---- 模型清单 / 每模型参数辅助（provider_form_models.cpp）----
 // modelsMeta 是 zcode 条目 models map 的原值回放（reasoning/modalities/
