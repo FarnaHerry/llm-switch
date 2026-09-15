@@ -249,15 +249,10 @@ bool ResolvesToDark(int mode) {
         huxerui::ScrollView(
             huxerui::Column {
                 Card(huxerui::Column {
-                    SectionTitle("外观"),
+                    SectionTitle("通用"),
                     SettingRow(
                         "主题", "",
                         TaijiThemeSelector(themeMode)),
-                }.With(huxerui::Spacing(10.0F),
-                       huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))),
-
-                Card(huxerui::Column {
-                    SectionTitle("窗口关闭"),
                     SettingRow(
                         "关闭行为",
                         "系统关闭按钮和标题栏关闭按钮均使用此行为",
@@ -298,7 +293,7 @@ bool ResolvesToDark(int mode) {
                        huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))),
 
                 Card(huxerui::Column {
-                    SectionTitle("配置文件"),
+                    SectionTitle("配置"),
                     PathRow("Claude Code 设置（live）",
                             cfg::claudeSettingsFile().string()),
                     PathRow("Codex 凭据（live）", cfg::codexAuthFile().string()),
@@ -307,11 +302,6 @@ bool ResolvesToDark(int mode) {
                     PathRow("用量模板（可选覆盖）",
                             cfg::usageTemplatesFile().string()),
                     PathRow("备份目录", cfg::backupsDir().string()),
-                }.With(huxerui::Spacing(8.0F),
-                       huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))),
-
-                Card(huxerui::Column {
-                    SectionTitle("导入 / 导出"),
                     huxerui::Text("导出整个配置库为 JSON；导入按供应商 id 合并"
                                   "（导入前自动备份当前配置到 backups/）。")
                         .Style(huxerui::TextStyle{
