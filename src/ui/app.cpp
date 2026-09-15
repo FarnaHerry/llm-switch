@@ -287,6 +287,51 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(huxerui::WindowHandle window,
     return entries;
 }
 
+// 关闭确认弹窗使用自定义内容，保证弹层卡片、正文和操作按钮都走应用主题。
+// 托盘宿主可能不存在（例如 Linux 桌面未提供 StatusNotifierHost），此时仍显示
+// 「最小化到托盘」选项但明确禁用，避免用户误以为点击后应用会安全地隐藏。
+[[huxerui::composable]] huxerui::View CloseConfirmationContent(
+    huxerui::DialogContext context, huxerui::ApplicationHandle application,
+    huxerui::SystemTrayHandle tray, huxerui::WindowHandle window,
+    huxerui::ToastHandle toast) {
+    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    const bool trayAvailable = tray.IsAvailable();
+    const huxerui::TextStyle hintStyle{
+        huxerui::Font::System(font_size::kCaption),
+        theme.colors.on_surface_variant};
+
+    const std::string trayHintText =
+        trayAvailable ? "最小化到托盘后，应用会继续在后台运行。"
+                      : "系统托盘当前不可用，暂时无法最小化到托盘。";
+    huxerui::View trayHint =
+        huxerui::Text(trayHintText).Style(hintStyle);
+
+    return DialogCard(huxerui::Column {
+        huxerui::Text("关闭 llm-switch", huxerui::TextRole::Title),
+        huxerui::Text("确定要退出应用吗？"),
+        std::move(trayHint),
+        huxerui::Row {
+            huxerui::Spacer(),
+            huxerui::Button("取消").OnClick([context] { context.Dismiss(); }),
+            huxerui::Button("最小化到托盘")
+                .OnClick([context, tray, window, toast] {
+                    // 托盘宿主可能在弹窗打开后才消失，点击时再次确认最新状态。
+                    if (!tray.IsAvailable()) {
+                        toast.Show("系统托盘当前不可用，无法最小化到托盘");
+                        return;
+                    }
+                    context.Dismiss();
+                    window.Hide();
+                })
+                .With(huxerui::Enabled(trayAvailable)),
+            huxerui::Button("退出").OnClick([application] { application.Quit(); }),
+        }.With(huxerui::Spacing(8.0F),
+               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
+    }.With(huxerui::Spacing(12.0F),
+           huxerui::Frame{.width = 420.0F},
+           huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)));
+}
+
 // 左列：图标侧边栏（无岛屿包裹，单套无色图标由主题 tint 自适应；
 // 选中态用承载底块表达，悬停显示文字提示）。导航状态由
 // TopLevelNavigation 持有，因此点击只让本栏和页面宿主订阅者重组。
@@ -536,19 +581,47 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(huxerui::WindowHandle window,
     // DialogHandle 必须在 InkThemed 的子作用域内获取，否则关闭确认框会捕获
     // HuxerUI 默认 Environment，无法使用应用的主体色和对话框样式。
     huxerui::View windowBehavior = huxerui::Scope(
-        [application, tray, window] {
+        [application, tray, window, toast] {
             const auto dialog = huxerui::UseDialog();
-            window.OnCloseRequest([application, tray, window, dialog] {
+            const auto showCloseConfirmation =
+                [application, tray, window, toast, dialog] {
+                    dialog.Show(
+                        [application, tray, window,
+                         toast](huxerui::DialogContext context) -> huxerui::View {
+                            return CloseConfirmationContent(
+                                context, application, tray, window, toast);
+                        },
+                        huxerui::DialogOptions{});
+                };
+
+            // 「最小化到托盘」同时覆盖标题栏最小化按钮和系统最小化请求。
+            // 其他关闭策略保留平台原生最小化语义；托盘不可用时不吞掉请求，
+            // 让窗口仍能普通最小化，并给出原因提示。
+            window.OnMinimizeRequest([tray, window, toast] {
+                if (providerStore().config().closeBehavior != "tray") return false;
+                if (!tray.IsAvailable()) {
+                    toast.Show("系统托盘当前不可用，已保留普通最小化");
+                    return false;
+                }
+                window.Hide();
+                return true;
+            });
+
+            window.OnCloseRequest([tray, window, showCloseConfirmation] {
                 const std::string& behavior = providerStore().config().closeBehavior;
                 if (behavior == "tray") {
-                    if (!tray.IsAvailable()) return false;
+                    // 托盘不可用时不能返回 false，否则原生关闭路径会直接退出
+                    // 应用；改为询问弹窗，用户仍可取消关闭。
+                    if (!tray.IsAvailable()) {
+                        showCloseConfirmation();
+                        return true;
+                    }
                     window.Hide();
                     return true;
                 }
                 if (behavior == "quit") return false;
 
-                dialog.Show("关闭 llm-switch", "确定要退出应用吗？", "退出", "取消",
-                            [application] { application.Quit(); }, {});
+                showCloseConfirmation();
                 return true;
             });
             // 保留一个实际挂载的空布局节点；默认构造 View 没有 ViewSpec，Scope
