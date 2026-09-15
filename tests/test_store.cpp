@@ -167,6 +167,33 @@ int main() {
                   .closeBehavior == "ask");
     }
 
+    // 1b. Codex 官方订阅使用 OAuth auth.json（没有 OPENAI_API_KEY）时，不能
+    // 收编成空白第三方卡；同时清理旧版本已经生成的「当前配置」占位卡。
+    writeFile(codexAuth,
+              R"json({"auth_mode":"chatgpt","tokens":{"access_token":"oauth-token"}})json");
+    writeFile(cfg::configFile(), R"json({
+  "groups": {
+    "codex": {
+      "current": "legacy-blank",
+      "providers": [{
+        "id": "legacy-blank",
+        "name": "当前配置",
+        "baseUrl": "",
+        "apiKey": "",
+        "model": "",
+        "codexConfigToml": ""
+      }]
+    }
+  }
+})json");
+    auto officialCodex = store::ProviderStore::load();
+    CHECK(officialCodex.group("codex").providers.empty());
+    CHECK(officialCodex.group("codex").current.empty());
+    CHECK(officialCodex.detectCurrent("codex").empty());
+    CHECK(officialCodex.importLive("codex").id.empty());
+    CHECK(readJson(cfg::configFile())["groups"]["codex"]["providers"].empty());
+    fs::remove(codexAuth);
+
     // 2. 写入假 settings.json（含非 env 字段）→ 首次 load 自动收编成「当前配置」
     writeFile(claudeSettings, R"json({
   "permissions": {"allow": ["Bash(*)"]},

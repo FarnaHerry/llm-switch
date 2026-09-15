@@ -135,7 +135,7 @@ export std::filesystem::path claudeSettingsFile() {
     return homeDir() / ".claude" / "settings.json";
 }
 
-// Codex 凭据（OPENAI_API_KEY）。
+// Codex 凭据（OAuth tokens 或 OPENAI_API_KEY）。
 export std::filesystem::path codexAuthFile() {
     if (const char* e = std::getenv("LLMSWITCH_CODEX_AUTH"); e && *e) {
         return std::filesystem::path(e);

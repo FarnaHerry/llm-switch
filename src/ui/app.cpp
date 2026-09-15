@@ -418,38 +418,26 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(huxerui::WindowHandle window,
     // （Lifecycle 依赖）与页面重读。
     auto revision = huxerui::UseState<int>(0);
 
-    // 托盘：图标 + 菜单；点击托盘图标激活主窗口。仅在可用时注册。
-    if (trayAvailable) {
-        tray.OnActivate([window] { window.Activate(); });
-        huxerui::Lifecycle(
-            [tray, window, application, toast, revision] {
-                tray.Show(app::images::tray,
-                          huxerui::SystemTrayOptions{
-                              .tooltip = "llm-switch",
-                              .menu = BuildTrayMenu(window, application, toast,
-                                                    revision)});
-                return [tray] { tray.Hide(); };
-            },
-            revision);
-    }
+    // 托盘：始终提交图标 + 菜单；点击托盘图标激活主窗口。Linux 的托盘宿主
+    // 可能晚于应用出现，HuxerUI 会在不可用期间暂存展示，宿主恢复后自动显示。
+    tray.OnActivate([window] { window.Activate(); });
+    huxerui::Lifecycle(
+        [tray, window, application, toast, revision] {
+            tray.Show(app::images::tray,
+                      huxerui::SystemTrayOptions{
+                          .tooltip = "llm-switch",
+                          .menu = BuildTrayMenu(window, application, toast,
+                                                revision)});
+            return [tray] { tray.Hide(); };
+        },
+        revision);
 
-    // 系统关闭与自定义标题栏关闭按钮都进入同一请求处理器。询问模式用确认框
-    // 消费请求；托盘模式只有托盘可用时才隐藏窗口，避免 Linux 无托盘宿主时
-    // 把进程藏死；直接关闭交回平台默认关闭流程。
-    const auto dialog = huxerui::UseDialog();
-    window.OnCloseRequest([application, tray, window, dialog] {
-        const std::string& behavior = providerStore().config().closeBehavior;
-        if (behavior == "tray") {
-            if (!tray.IsAvailable()) return false;
-            window.Hide();
-            return true;
-        }
-        if (behavior == "quit") return false;
-
-        dialog.Show("关闭 llm-switch", "确定要退出应用吗？", "退出", "取消",
-                    [application] { application.Quit(); }, {});
-        return true;
-    });
+    // 托盘宿主消失时恢复窗口，避免已经隐藏的窗口失去可见入口。
+    huxerui::Lifecycle(
+        [window, trayAvailable] {
+            if (!trayAvailable) window.Show();
+        },
+        trayAvailable);
 
     // 路由上游会话绑定（首组合）：生产桥接 = HuxerUI 平台 HttpClient。UseService/
     // UseTaskScope 在组合体内求值；本调用早于下方自启与一切托盘/页面/事件
@@ -545,7 +533,31 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(huxerui::WindowHandle window,
     // Stack 的 Stretch 只拉伸子项，不会让 Stack 自身从自然尺寸扩展到窗口。
     // 用一个有 Grow 子项的 Column 把完整窗口约束传入 Stack，保证四边都能
     // 随窗口拉伸，也让内容区获得稳定的有限滚动视口。
+    // DialogHandle 必须在 InkThemed 的子作用域内获取，否则关闭确认框会捕获
+    // HuxerUI 默认 Environment，无法使用应用的主体色和对话框样式。
+    huxerui::View windowBehavior = huxerui::Scope(
+        [application, tray, window] {
+            const auto dialog = huxerui::UseDialog();
+            window.OnCloseRequest([application, tray, window, dialog] {
+                const std::string& behavior = providerStore().config().closeBehavior;
+                if (behavior == "tray") {
+                    if (!tray.IsAvailable()) return false;
+                    window.Hide();
+                    return true;
+                }
+                if (behavior == "quit") return false;
+
+                dialog.Show("关闭 llm-switch", "确定要退出应用吗？", "退出", "取消",
+                            [application] { application.Quit(); }, {});
+                return true;
+            });
+            // 保留一个实际挂载的空布局节点；默认构造 View 没有 ViewSpec，Scope
+            // 可能被运行时省略，导致关闭处理器没有机会注册。
+            return huxerui::Row {};
+        });
+
     huxerui::View filledContent = huxerui::Column {
+        std::move(windowBehavior),
         std::move(content).With(huxerui::Grow(1.0F)),
     }.With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
            huxerui::Grow(1.0F));

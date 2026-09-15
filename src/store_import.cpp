@@ -237,6 +237,9 @@ models::Provider ProviderStore::importLive(std::string_view tool) {
         const auto j = readJsonOrNull(file);
         models::Provider p;
         p.apiKey = jsonStr(j, "OPENAI_API_KEY");
+        // 官方 Codex 订阅是 OAuth 登录（auth_mode=chatgpt / tokens），没有
+        // OPENAI_API_KEY；这类 auth.json 不能收编为空白第三方供应商。
+        if (p.apiKey.empty()) return {};
         // 顺带从 config.toml 顶层 model 键收回模型（best-effort，读不到为空）。
         const auto tomlFile = cfg::codexConfigFile();
         if (std::filesystem::exists(tomlFile, ec)) {

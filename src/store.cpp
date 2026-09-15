@@ -214,6 +214,36 @@ ProviderStore ProviderStore::load() {
         const bool empty = it == store.config_.groups.end() ||
                            it->second.providers.empty();
         const bool resync = t.id == "zcode";
+
+        // Codex 官方订阅使用 OAuth（auth_mode=chatgpt + tokens），没有
+        // OPENAI_API_KEY。旧版本曾把这种 auth.json 收编成空白「当前配置」
+        // 第三方卡；启动时清掉这个可识别的历史占位，恢复「OpenAI 官方」卡。
+        if (t.id == "codex" && it != store.config_.groups.end()) {
+            const auto auth = readJsonOrNull(cfg::codexAuthFile());
+            const auto tokens = auth.is_object() ? auth.find("tokens") : auth.end();
+            const bool hasOAuthToken =
+                auth.is_object() &&
+                (jsonStr(auth, "auth_mode") == "chatgpt" ||
+                 (tokens != auth.end() && tokens->is_object() &&
+                  !jsonStr(*tokens, "access_token").empty()));
+            if (hasOAuthToken && jsonStr(auth, "OPENAI_API_KEY").empty()) {
+                auto& codexGroup = it->second;
+                const auto oldSize = codexGroup.providers.size();
+                std::erase_if(codexGroup.providers, [](const models::Provider& p) {
+                    return p.name == "当前配置" && p.baseUrl.empty() &&
+                           p.apiKey.empty() && p.model.empty() &&
+                           p.codexConfigToml.empty();
+                });
+                if (codexGroup.providers.size() != oldSize) {
+                    const bool currentStillExists = std::ranges::any_of(
+                        codexGroup.providers, [&](const models::Provider& p) {
+                            return p.id == codexGroup.current;
+                        });
+                    if (!currentStillExists) codexGroup.current.clear();
+                    store.save();
+                }
+            }
+        }
         if ((empty || resync) && liveFileExists(t.id)) {
             try {
                 store.importLive(t.id);
