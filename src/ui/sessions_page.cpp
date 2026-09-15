@@ -397,14 +397,8 @@ std::string FormatSize(std::uintmax_t bytes) {
                           .With(huxerui::Grow(1.0F));
     }
 
-    return Card(huxerui::Column {
-        huxerui::Text(std::string(ToolName(tool))).Style(huxerui::TextStyle{
-            huxerui::Font::System(font_size::kTitle)
-                .WithWeight(huxerui::FontWeight::SemiBold),
-            theme.colors.on_surface}),
-        listContent,
-    }.With(huxerui::Spacing(8.0F),
-           huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)));
+    return std::move(listContent).With(
+        huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 }
 
 [[huxerui::composable]] huxerui::View SessionsListPage(
