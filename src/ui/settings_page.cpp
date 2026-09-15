@@ -12,6 +12,7 @@
 #include <chrono>
 #include <cmath>
 #include <filesystem>
+#include <string_view>
 #include <string>
 #include <vector>
 
@@ -28,6 +29,12 @@ namespace {
 const std::vector<std::string> kThemeNames{"跟随系统", "玄墨（深色）",
                                            "宣纸（浅色）"};
 const std::vector<std::string> kThemeModes{"system", "dark", "light"};
+
+std::size_t CloseBehaviorIndex(std::string_view behavior) {
+    if (behavior == "tray") return 1;
+    if (behavior == "quit") return 2;
+    return 0;
+}
 
 bool ResolvesToDark(int mode) {
     return mode == 1 || (mode == 0 && cfg::systemPrefersDark());
@@ -153,6 +160,8 @@ bool ResolvesToDark(int mode) {
     const auto picker = huxerui::UseService<huxerui::FilePicker>();
     auto lastExport = huxerui::UseState<std::string>({});
     auto importPath = huxerui::UseState(huxerui::TextEditingValue{""});
+    auto closeBehavior = huxerui::UseState<std::size_t>(
+        CloseBehaviorIndex(providerStore().config().closeBehavior));
     auto claudeCodeSkipInstallationChecks =
         huxerui::UseState(providerStore().claudeCodeSkipInstallationChecks());
 
@@ -244,6 +253,29 @@ bool ResolvesToDark(int mode) {
                     SettingRow(
                         "主题", "",
                         TaijiThemeSelector(themeMode)),
+                }.With(huxerui::Spacing(10.0F),
+                       huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))),
+
+                Card(huxerui::Column {
+                    SectionTitle("窗口关闭"),
+                    SettingRow(
+                        "关闭行为",
+                        "系统关闭按钮和标题栏关闭按钮均使用此行为",
+                        huxerui::SegmentedButton(
+                            {"关闭时询问", "最小化到托盘", "直接关闭"},
+                            closeBehavior)
+                            .OnChanged([closeBehavior, toast](std::size_t index) {
+                                static constexpr std::string_view behaviors[] = {
+                                    "ask", "tray", "quit"};
+                                if (index >= std::size(behaviors)) return;
+                                try {
+                                    providerStore().setCloseBehavior(
+                                        std::string(behaviors[index]));
+                                    closeBehavior = index;
+                                } catch (const std::exception& e) {
+                                    toast.Show(e.what());
+                                }
+                            })),
                 }.With(huxerui::Spacing(10.0F),
                        huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))),
 

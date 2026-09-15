@@ -182,6 +182,8 @@ export struct AppConfig {
     // 用 map 而非固定字段，新增工具不改序列化结构。
     std::map<std::string, ProviderGroup> groups;
     std::string themeMode = "system";  // system / dark / light
+    // 窗口关闭行为：ask（询问）/ tray（最小化到托盘）/ quit（直接关闭）。
+    std::string closeBehavior = "ask";
     // 本地路由（llmswitch.router）设置：
     bool routerEnabled = false;    // 启动应用时自动开启本地路由
     int routerPort = 15731;        // 监听 127.0.0.1:<port>
@@ -359,6 +361,7 @@ export nlohmann::json toJson(const AppConfig& c) {
         j["groups"][id] = toJson(g);
     }
     j["themeMode"] = c.themeMode;
+    j["closeBehavior"] = c.closeBehavior;
     j["routerEnabled"] = c.routerEnabled;
     j["routerPort"] = c.routerPort;
     j["routerFailover"] = c.routerFailover;
@@ -393,6 +396,11 @@ export AppConfig fromJson(const nlohmann::json& j) {
             groupFromJsonWithUsageFallback(j["codex"], legacyUsageMinutes);
     }
     c.themeMode = j.value("themeMode", "system");
+    c.closeBehavior = j.value("closeBehavior", "ask");
+    if (c.closeBehavior != "ask" && c.closeBehavior != "tray" &&
+        c.closeBehavior != "quit") {
+        c.closeBehavior = "ask";
+    }
     c.routerEnabled = j.value("routerEnabled", false);
     c.routerPort = j.value("routerPort", 15731);
     c.routerFailover = j.value("routerFailover", true);

@@ -40,6 +40,9 @@ public:
     // 主题模式（system / dark / light；其余值原样保存由 UI 兜底），立即落盘。
     void setThemeMode(std::string mode);
 
+    // 窗口关闭行为（ask / tray / quit），立即落盘。
+    void setCloseBehavior(std::string behavior);
+
     // Claude Code 安装检查：写入/移除 settings.json env.DISABLE_INSTALLATION_CHECKS。
     bool claudeCodeSkipInstallationChecks() const;
     void setClaudeCodeSkipInstallationChecks(bool enabled);

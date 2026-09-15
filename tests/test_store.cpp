@@ -129,6 +129,7 @@ int main() {
         auto s = store::ProviderStore::load();
         CHECK(s.config().groups.empty());
         CHECK(s.config().themeMode == "system");
+        CHECK(s.config().closeBehavior == "ask");
         CHECK(s.config().routerTools.size() == models::toolRegistry().size());
         CHECK(std::ranges::find(s.config().routerTools, "claude-code") !=
               s.config().routerTools.end());
@@ -148,6 +149,22 @@ int main() {
         CHECK(models::findTool("claude")->hasModelMappings);
         CHECK(!models::findTool("codex")->hasModelMappings);
         CHECK(models::findTool("nope") == nullptr);
+    }
+
+    // 1a. 窗口关闭行为持久化，旧配置缺字段默认询问，未知值收敛为询问。
+    {
+        auto closeSettings = store::ProviderStore::load();
+        closeSettings.setCloseBehavior("tray");
+        CHECK(closeSettings.config().closeBehavior == "tray");
+        auto reloaded = store::ProviderStore::load();
+        CHECK(reloaded.config().closeBehavior == "tray");
+        reloaded.setCloseBehavior("quit");
+        CHECK(reloaded.config().closeBehavior == "quit");
+        reloaded.setCloseBehavior("unknown");
+        CHECK(reloaded.config().closeBehavior == "ask");
+        CHECK(models::fromJson(nlohmann::json::parse(
+                  R"json({"closeBehavior":"unknown"})json"))
+                  .closeBehavior == "ask");
     }
 
     // 2. 写入假 settings.json（含非 env 字段）→ 首次 load 自动收编成「当前配置」

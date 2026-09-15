@@ -233,6 +233,14 @@ void ProviderStore::setThemeMode(std::string mode) {
     save();
 }
 
+void ProviderStore::setCloseBehavior(std::string behavior) {
+    if (behavior != "ask" && behavior != "tray" && behavior != "quit") {
+        behavior = "ask";
+    }
+    config_.closeBehavior = std::move(behavior);
+    save();
+}
+
 bool ProviderStore::claudeCodeSkipInstallationChecks() const {
     const auto settings = readJsonPassive(cfg::claudeSettingsFile());
     const std::string value =

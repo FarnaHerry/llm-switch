@@ -14,7 +14,7 @@
 // 只接受位图故不带工具图标），hover 展开二级菜单选供应商（有官方厂商的组
 // 首位「官方」条目 = restoreOfficial），点击直接切换；另有本地路由开关 /
 // 显示主窗口 / 退出。菜单随全局 revision 变更重建。
-// 关闭按钮在托盘可用时只隐藏窗口（OnCloseRequest 消费请求），「退出」经
+// 关闭行为由设置页配置：询问、最小化到托盘或直接关闭；托盘菜单「退出」经
 // application.Quit() 绕过关闭处理器正常终止。
 #include <huxerui/huxerui.h>
 
@@ -433,12 +433,21 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(huxerui::WindowHandle window,
             revision);
     }
 
-    // 关闭最小化到托盘：托盘可用时关闭请求只隐藏窗口（托盘菜单「显示主窗口」
-    // 经 Activate 召回；「退出」走 application.Quit()，绕过本处理器正常终止）。
-    // 托盘不可用时返回 false 继续平台默认关闭，避免进程藏死。
-    window.OnCloseRequest([tray, window] {
-        if (!tray.IsAvailable()) return false;
-        window.Hide();
+    // 系统关闭与自定义标题栏关闭按钮都进入同一请求处理器。询问模式用确认框
+    // 消费请求；托盘模式只有托盘可用时才隐藏窗口，避免 Linux 无托盘宿主时
+    // 把进程藏死；直接关闭交回平台默认关闭流程。
+    const auto dialog = huxerui::UseDialog();
+    window.OnCloseRequest([application, tray, window, dialog] {
+        const std::string& behavior = providerStore().config().closeBehavior;
+        if (behavior == "tray") {
+            if (!tray.IsAvailable()) return false;
+            window.Hide();
+            return true;
+        }
+        if (behavior == "quit") return false;
+
+        dialog.Show("关闭 llm-switch", "确定要退出应用吗？", "退出", "取消",
+                    [application] { application.Quit(); }, {});
         return true;
     });
 
