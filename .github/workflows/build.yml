@@ -220,6 +220,8 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $sdk = Join-Path $env:GITHUB_WORKSPACE 'huxerui-sdk'
+          # HuxerUI 的目标配置函数会重置平台定义变量；用编译器级宏确保
+          # 预编译 SDK 的 Win32 框架保留 llm-switch 的应用图标绑定。
           cmake -S third_party/huxerui -B sdk-build -G Ninja `
             -DCMAKE_BUILD_TYPE=Release `
             -DCMAKE_INSTALL_PREFIX="$sdk" `
@@ -231,7 +233,7 @@ jobs:
             -DHUXERUI_BUILD_EXAMPLES=OFF `
             -DHUXERUI_BUILD_CLI=ON `
             -DHUXERUI_ENABLE_PROFILING=OFF `
-            -DHUXERUI_PLATFORM_COMPILE_DEFINITIONS=HUXERUI_WINDOWS_APPLICATION_ICON_RESOURCE_ID=101
+            -DCMAKE_CXX_FLAGS="/DHUXERUI_WINDOWS_APPLICATION_ICON_RESOURCE_ID=101"
 
       - name: Build and install HuxerUI SDK
         shell: pwsh
