@@ -8,10 +8,13 @@
 # tag 触发与 release job。
 #
 # HuxerUI SDK 来源假设（关键）：
-#   * 上游 https://github.com/HuxerUI/HuxerUI.git 公开可匿名 clone —— 三个桌面
-#     job 全部走「源码通道」：把上游钉在 env.HUXERUI_COMMIT clone 到
+#   * 上游 https://github.com/HuxerUI/HuxerUI.git 公开可匿名 clone —— Linux 与
+#     macOS job 走「源码通道」：把上游钉在 env.HUXERUI_COMMIT clone 到
 #     third_party/huxerui/（该路径已 gitignore，不入库），由顶层 CMakeLists 的
 #     优先级 2 add_subdirectory 编译，与本机开发形态一致。
+#   * Windows 先由 build-windows-sdk 编译一次同一钉定 commit 的已安装 SDK，上传
+#     为 job artifact；build-windows 与 build-windows-installer 下载并复用这份 SDK，
+#     两个消费者再并行编译应用/安装器，避免重复编译整个 HuxerUI 框架。
 #   * 宿主工具 hcg/hrc 用上游源码内预置（tools/prebuilt/linux/x86_64）：
 #     钉住的 commit 区间内 387f315 已刷新预置宿主工具，预置与源码同步；
 #     若未来升级 commit 后出现 hrc 报 "unknown path operation"，即预置落后，
@@ -184,13 +187,9 @@ jobs:
           retention-days: 14
 
   # ---------------------------------------------------------------- Windows
-  # 工具链沿用 Clash-Flux 实证：MSVC（VS2022，C++23 模块 + import std）+
-  # choco ninja。zip 与 setup.exe 拆成两个并行 job：huxerui package windows
-  # 会在 .huxerui/build 里从头重新配置并编译整个项目（含 C++23 模块、整个
-  # HuxerUI 框架与安装器 UI），与 zip 的 build/ 构建互不共享产物，串在
-  # 同一个 job 里等于把 Windows 腿的墙钟时间翻倍。
-  build-windows:
-    name: build-windows-x86_64
+  # 先构建一次 SDK；主程序 zip 与 setup.exe 都依赖它，SDK 完成后两个 job 并行。
+  build-windows-sdk:
+    name: build-huxerui-sdk-windows-x86_64
     runs-on: windows-latest
     steps:
       - name: Check out source
@@ -202,7 +201,100 @@ jobs:
           set -euo pipefail
           git clone --filter=blob:none "$HUXERUI_REPO" third_party/huxerui
           git -C third_party/huxerui checkout "$HUXERUI_COMMIT"
+          # SDK 中预编译的 Win32 框架也必须保留应用窗口图标支持。
           git -C third_party/huxerui apply "$GITHUB_WORKSPACE/cmake/patches/huxerui-windows-icon.patch"
+
+      - name: Ensure CMake >= 4.4 and Ninja
+        shell: pwsh
+        run: |
+          # import std 的 experimental UUID 门控要求 CMake >= 4.4。
+          python -m pip install --quiet "cmake==4.4.2"
+          cmake --version | Select-Object -First 1
+          choco install ninja -y --no-progress
+
+      - name: Set up MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Configure HuxerUI SDK
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sdk = Join-Path $env:GITHUB_WORKSPACE 'huxerui-sdk'
+          cmake -S third_party/huxerui -B sdk-build -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_INSTALL_PREFIX="$sdk" `
+            -DHUXERUI_BUILD_SHARED=ON `
+            -DHUXERUI_BUILD_STATIC=OFF `
+            -DHUXERUI_BUILD_TESTS=OFF `
+            -DHUXERUI_BUILD_TESTING_LIBRARY=OFF `
+            -DHUXERUI_BUILD_TESTING_SMOKE_TESTS=OFF `
+            -DHUXERUI_BUILD_EXAMPLES=OFF `
+            -DHUXERUI_BUILD_CLI=ON `
+            -DHUXERUI_ENABLE_PROFILING=OFF `
+            -DHUXERUI_PLATFORM_COMPILE_DEFINITIONS=HUXERUI_WINDOWS_APPLICATION_ICON_RESOURCE_ID=101
+
+      - name: Build and install HuxerUI SDK
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cmake --build sdk-build --config Release --parallel
+          cmake --install sdk-build --config Release
+          $sdk = Join-Path $env:GITHUB_WORKSPACE 'huxerui-sdk'
+          foreach ($path in @(
+            (Join-Path $sdk 'bin/huxerui.exe'),
+            (Join-Path $sdk 'bin/huxerui.dll'),
+            (Join-Path $sdk 'lib/cmake/HuxerUI/HuxerUIConfig.cmake'),
+            (Join-Path $sdk 'share/huxerui/resources/huxerui/resources.bin'),
+            (Join-Path $sdk 'share/huxerui/tools/windows/x86_64/hrc.exe')
+          )) {
+            if (-not (Test-Path $path -PathType Leaf)) { throw "HuxerUI SDK file is missing: $path" }
+          }
+          Get-ChildItem $sdk -Recurse -File | Measure-Object -Property Length -Sum
+
+      - name: Package HuxerUI SDK artifact
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Compress-Archive -Path huxerui-sdk\* `
+            -DestinationPath dist\huxerui-sdk-windows-x86_64.zip -Force
+          Get-Item dist\huxerui-sdk-windows-x86_64.zip
+
+      - name: Upload HuxerUI SDK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: huxerui-windows-sdk
+          path: dist/huxerui-sdk-windows-x86_64.zip
+          if-no-files-found: error
+          retention-days: 14
+
+  # SDK 完成后，主程序 zip 与 setup.exe 两条腿并行。
+  build-windows:
+    name: build-windows-x86_64
+    runs-on: windows-latest
+    needs: build-windows-sdk
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Download HuxerUI SDK artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: huxerui-windows-sdk
+          path: sdk-artifact
+
+      - name: Unpack HuxerUI SDK
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $archive = Get-ChildItem sdk-artifact -File -Filter '*.zip' | Select-Object -First 1
+          if (-not $archive) { throw 'HuxerUI SDK artifact archive not found' }
+          Expand-Archive -Path $archive.FullName -DestinationPath huxerui-sdk -Force
+          $sdk = (Resolve-Path huxerui-sdk).Path
+          if (-not (Test-Path (Join-Path $sdk 'lib/cmake/HuxerUI/HuxerUIConfig.cmake'))) {
+            throw "Invalid HuxerUI SDK extracted at $sdk"
+          }
+          "HUXERUI_HOME=$sdk" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Ensure CMake >= 4.4 and Ninja
         shell: pwsh
@@ -219,7 +311,9 @@ jobs:
       - name: Configure
         shell: pwsh
         run: |
-          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release `
+            -DHUXERUI_HOME="$env:HUXERUI_HOME" `
+            -DLLMSWITCH_HUXERUI_FORCE_SDK=ON
 
       - name: Build release
         run: cmake --build build --config Release --parallel
@@ -266,24 +360,35 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  # 安装器（setup.exe + 水墨品牌安装页面）单独一个 job 与 zip 并行。
-  # huxerui_cli 只为驱动打包流程存在（configure 需要 MSVC 环境）；真正的
-  # 构建、WiX nuget下载与 MSI/Bundle 组装都发生在 huxerui package windows
-  # 内部的 .huxerui/build 里。
+  # 安装器（setup.exe + 水墨品牌安装页面）与 zip 并行，共用上面的 SDK。
+  # huxerui package windows 仍会在本 job 编译应用与安装器 UI，但不会再编译
+  # HuxerUI 框架；WiX nuget 依赖仍按官方流程在本 job 内准备。
   build-windows-installer:
     name: build-windows-installer-x86_64
     runs-on: windows-latest
+    needs: build-windows-sdk
     steps:
       - name: Check out source
         uses: actions/checkout@v4
 
-      - name: Fetch HuxerUI source (pinned)
-        shell: bash
+      - name: Download HuxerUI SDK artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: huxerui-windows-sdk
+          path: sdk-artifact
+
+      - name: Unpack HuxerUI SDK
+        shell: pwsh
         run: |
-          set -euo pipefail
-          git clone --filter=blob:none "$HUXERUI_REPO" third_party/huxerui
-          git -C third_party/huxerui checkout "$HUXERUI_COMMIT"
-          git -C third_party/huxerui apply "$GITHUB_WORKSPACE/cmake/patches/huxerui-windows-icon.patch"
+          $ErrorActionPreference = 'Stop'
+          $archive = Get-ChildItem sdk-artifact -File -Filter '*.zip' | Select-Object -First 1
+          if (-not $archive) { throw 'HuxerUI SDK artifact archive not found' }
+          Expand-Archive -Path $archive.FullName -DestinationPath huxerui-sdk -Force
+          $sdk = (Resolve-Path huxerui-sdk).Path
+          if (-not (Test-Path (Join-Path $sdk 'bin/huxerui.exe'))) {
+            throw "Invalid HuxerUI SDK extracted at $sdk"
+          }
+          "HUXERUI_HOME=$sdk" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Ensure CMake >= 4.4 and Ninja
         shell: pwsh
@@ -297,24 +402,15 @@ jobs:
       - name: Set up MSVC environment
         uses: ilammy/msvc-dev-cmd@v1
 
-      - name: Configure
-        shell: pwsh
-        run: |
-          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release `
-            -DHUXERUI_BUILD_CLI=ON
-
-      - name: Build HuxerUI CLI
-        run: cmake --build build --config Release --target huxerui_cli --parallel
-
       - name: Package HuxerUI installer
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $cli = 'build/huxerui-sdk/bin/huxerui.exe'
+          $cli = Join-Path $env:HUXERUI_HOME 'bin/huxerui.exe'
           if (-not (Test-Path $cli -PathType Leaf)) { throw "$cli not found" }
-          # 使用 HuxerUI 官方打包流程：它会配置并构建 MSI、Burn bundle，
+          # 使用已安装 SDK 的 CLI；官方流程会配置并构建 MSI、Burn bundle，
           # 并把 platform/windows/package/src 下的托管安装器 UI 嵌入 Setup.exe。
-          & $cli package windows --profile release --source third_party/huxerui
+          & $cli package windows --profile release
           if ($LASTEXITCODE -ne 0) { throw "huxerui package windows failed with exit code $LASTEXITCODE" }
           $versionMatch = Select-String -Path CMakeLists.txt -Pattern 'project\(llm-switch VERSION ([^ )]+)' | Select-Object -First 1
           if (-not $versionMatch) { throw 'Unable to determine project version from CMakeLists.txt' }
@@ -446,12 +542,14 @@ jobs:
   # 发布前再次检查至少存在一个产物，禁止创建空 Release。
   release:
     name: release
-    needs: [build-linux, build-windows, build-windows-installer, build-macos]
+    needs: [build-linux, build-windows-sdk, build-windows, build-windows-installer, build-macos]
     runs-on: ubuntu-24.04
     if: >-
       startsWith(github.ref, 'refs/tags/v') &&
       needs.build-linux.result == 'success' &&
+      needs.build-windows-sdk.result == 'success' &&
       needs.build-windows.result == 'success' &&
+      needs.build-windows-installer.result == 'success' &&
       needs.build-macos.result == 'success'
     permissions:
       contents: write
