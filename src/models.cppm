@@ -28,7 +28,8 @@ export struct ToolSpec {
     // ANTHROPIC_DEFAULT_*_MODEL env；claude desktop 写 inferenceModels 映射条目）
     bool hasModelMappings;
     // 切换供应商后是否需重启该工具客户端才生效：live 配置只在进程启动时
-    // 读取的工具为 true（当前注册的工具均属此类）。
+    // 读取的工具为 true（codex / zcode 等）；claude-code 运行中会重读
+    // settings.json，切换后直接使用，无需重启。
     bool needsRestart;
 };
 
@@ -40,7 +41,7 @@ export constexpr std::array<ToolSpec, 8> kToolRegistry{{
              .needsModel = false,
              .hasApiFormat = false,
              .hasModelMappings = true,
-             .needsRestart = true},
+             .needsRestart = false},
     ToolSpec{.id = "claude",
              .displayName = "Claude Desktop",
              .iconName = "claude",
