@@ -1,7 +1,7 @@
 # llm-switch
 
 [cc-switch](https://github.com/farion1231/cc-switch) 的 C++ 重写：Claude Code /
-Claude Desktop / Codex / opencode / pi / DeepSeek Harness（dsh）/
+Claude Desktop / Codex / opencode / pi / Harness（DeepSeek，CLI 为 dsh）/
 Gemini CLI / Qwen Code / ZCode 九款 AI 编程工具的供应商配置切换，
 附本地路由、用量查询、MCP / Skills / 会话管理。C++23 modules + HuxerUI
 桌面壳，无 Electron、无运行时依赖（除系统 GTK4 运行库）。
@@ -16,7 +16,7 @@ Gemini CLI / Qwen Code / ZCode 九款 AI 编程工具的供应商配置切换，
   （`ANTHROPIC_BASE_URL` / `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_MODEL`，其余字段
   原样保留）；Codex 写 `~/.codex/auth.json` 的 `OPENAI_API_KEY`，并可整段替换
   `~/.codex/config.toml`；opencode 顶层 provider map additive upsert；
-  pi 写 models.json + settings.json；dsh 行级改写
+  pi 写 models.json + settings.json；harness 行级改写
   `~/.dsh/settings.yaml` 的 llm-pi-ai 路由并把密钥写进
   `~/.dsh/.credentials.yaml`（apiKeyEnv 引用，热监听即时生效）；
   Claude Desktop 3p profile（仅 macOS / Windows）。

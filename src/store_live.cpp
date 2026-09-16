@@ -3,7 +3,7 @@
 // switchTo / detectCurrent / restoreOfficial / importLive / importFrom
 // 与各工具的格式细节（env 行级读写、opencode / pi 的 provider 映射、
 // codex 的 auth.json + config.toml、claude desktop 的 3p profile、
-// zcode 的 config.json 条目、dsh 的 settings.yaml/.credentials.yaml
+// zcode 的 config.json 条目、harness 的 settings.yaml/.credentials.yaml
 // 行级改写）都在这里。跨单元共用的文件工具与 ZCode 条目助手以模块链接
 // 声明在 store.cppm、定义在 store.cpp / store_zcode.cpp。
 module llmswitch.store;
@@ -319,7 +319,7 @@ void restrictPiFile(const std::filesystem::path& file) {
 #endif
 }
 
-// ---- dsh（DeepSeek Harness）YAML 行级助手 ----
+// ---- harness（DeepSeek，CLI 为 dsh）YAML 行级助手 ----
 // 无 YAML 库，按缩进做行级读写；无关键、注释与顺序原样保留。
 
 std::string_view trimRight(std::string_view s) {
@@ -379,7 +379,7 @@ std::string yamlScalar(std::string_view v) {
 
 // 一行的 YAML 结构信息：indent = 前导空白列数；key = 首个 ': ' 前的键
 // （列表项 "- id: x" 的 key 为 id；裸标量列表项与无冒号行 key 为空）。
-struct DshLine {
+struct YamlLine {
     int indent = 0;
     std::string_view key;
     std::string_view value;
@@ -388,8 +388,8 @@ struct DshLine {
     bool listItem = false;
 };
 
-DshLine dshLineOf(std::string_view line) {
-    DshLine r;
+YamlLine yamlLineOf(std::string_view line) {
+    YamlLine r;
     const auto trimmed = trimLeft(line);
     r.indent = static_cast<int>(line.size() - trimmed.size());
     r.blank = trimmed.empty();
@@ -415,7 +415,7 @@ DshLine dshLineOf(std::string_view line) {
 }
 
 // 凭据 env 名：LLMSWITCH_ + id 大写（非字母数字转 _）。
-std::string dshApiKeyEnv(std::string_view id) {
+std::string harnessApiKeyEnv(std::string_view id) {
     std::string out = "LLMSWITCH_";
     for (const unsigned char c : id) {
         out += std::isalnum(c) ? static_cast<char>(std::toupper(c)) : '_';
@@ -428,7 +428,7 @@ std::string dshApiKeyEnv(std::string_view id) {
 // 块尾插入（缩进随实际 providers 行调整，entryLines 以 4 列基准缩进生成）；
 // defaultProvider 非空时在文件头重建 agent-default-model 指向块。
 // restore 模式 = entryLines 空 + defaultProvider 空（只删不增）。
-std::string rewriteDshSettings(std::string_view text,
+std::string rewriteHarnessSettings(std::string_view text,
                                const std::vector<std::string>& entryLines,
                                std::string_view defaultProvider,
                                std::string_view defaultModel) {
@@ -462,7 +462,7 @@ std::string rewriteDshSettings(std::string_view text,
     };
 
     for (const auto& line : lines) {
-        const DshLine dl = dshLineOf(line);
+        const YamlLine dl = yamlLineOf(line);
         if (skipping) {
             // 块内（更深层、空行或注释行）继续丢弃；落到同级/外层结束丢弃。
             if (dl.blank || dl.comment || dl.indent > skipIndent) continue;
@@ -546,7 +546,7 @@ std::string rewriteDshSettings(std::string_view text,
 
 // .credentials.yaml 行级 upsert `ENV: "key"`（顶层 map；version 等其它键、
 // 注释与顺序原样保留，缺失追加尾部）。写前调用方负责 backupLiveFile。
-void upsertDshCredential(const std::filesystem::path& file,
+void upsertHarnessCredential(const std::filesystem::path& file,
                          std::string_view envName, std::string_view apiKey) {
     std::vector<std::string> lines;
     {
@@ -562,7 +562,7 @@ void upsertDshCredential(const std::filesystem::path& file,
         std::string(envName) + ": " + yamlQuote(apiKey);
     bool found = false;
     for (auto& line : lines) {
-        const DshLine dl = dshLineOf(line);
+        const YamlLine dl = yamlLineOf(line);
         if (dl.listItem || dl.key != envName) continue;
         line = newLine;
         found = true;
@@ -634,16 +634,16 @@ nlohmann::json claudeDesktopModelEntry(const std::string& actual,
 // 行级解析 settings.yaml：顶层 agent-default-model 的 provider/model，以及
 // llm-pi-ai.providers 下每条手写路由的 baseURL / api / apiKeyEnv / 首个
 // models 条目 id。best-effort；结构不符的字段留空。
-DshSettingsInfo parseDshSettings(std::string_view text) {
-    DshSettingsInfo info;
+HarnessSettingsInfo parseHarnessSettings(std::string_view text) {
+    HarnessSettingsInfo info;
     std::istringstream in{std::string(text)};
     bool inAdm = false, inPi = false, inProv = false, inModels = false;
     int admIndent = -1, piIndent = -1, provIndent = -1;
     int entryIndent = -1, modelsIndent = -1;
-    DshProviderEntry* cur = nullptr;
+    HarnessProviderEntry* cur = nullptr;
     for (std::string line; std::getline(in, line);) {
         if (!line.empty() && line.back() == '\r') line.pop_back();
-        const DshLine dl = dshLineOf(line);
+        const YamlLine dl = yamlLineOf(line);
         if (dl.blank || dl.comment) continue;
         if (inModels && dl.indent <= modelsIndent) inModels = false;
         if (cur != nullptr && dl.indent <= entryIndent) {
@@ -688,7 +688,7 @@ DshSettingsInfo parseDshSettings(std::string_view text) {
         if (inProv) {
             if (!dl.listItem && !dl.key.empty() && trimBoth(dl.value).empty()) {
                 info.providers.push_back(
-                    DshProviderEntry{.key = std::string(dl.key)});
+                    HarnessProviderEntry{.key = std::string(dl.key)});
                 cur = &info.providers.back();
                 entryIndent = dl.indent;
             }
@@ -715,7 +715,7 @@ DshSettingsInfo parseDshSettings(std::string_view text) {
 }
 
 // 读 .credentials.yaml 顶层 map 里 envName 对应的密钥值（缺失返回空串）。
-std::string readDshCredential(const std::filesystem::path& file,
+std::string readHarnessCredential(const std::filesystem::path& file,
                               std::string_view envName) {
     std::error_code ec;
     if (!std::filesystem::exists(file, ec)) return "";
@@ -723,7 +723,7 @@ std::string readDshCredential(const std::filesystem::path& file,
     if (!in) return "";
     for (std::string line; std::getline(in, line);) {
         if (!line.empty() && line.back() == '\r') line.pop_back();
-        const DshLine dl = dshLineOf(line);
+        const YamlLine dl = yamlLineOf(line);
         if (!dl.listItem && dl.key == envName) return yamlScalar(dl.value);
     }
     return "";
@@ -837,12 +837,12 @@ void ProviderStore::switchTo(std::string_view tool, const std::string& id) {
         deepMerge(settings, patch);
         atomicWrite(settingsFile, settings.dump(2) + "\n");
         restrictPiFile(settingsFile);
-    } else if (tool == "dsh") {
+    } else if (tool == "harness") {
         // settings.yaml：删旧 agent-default-model 与 llmswitch-* 路由后 upsert
         // llmswitch-<id> 条目，并在文件头重建 agent-default-model 指向；密钥
-        // 只写 .credentials.yaml（apiKeyEnv 引用）。两份文件都被 dsh 热监听
+        // 只写 .credentials.yaml（apiKeyEnv 引用）。两份文件都被 harness（dsh）热监听
         // → 切换即时生效，无需重启。
-        const auto settingsFile = cfg::dshSettingsFile();
+        const auto settingsFile = cfg::harnessSettingsFile();
         restrictPiDir(settingsFile.parent_path());
         backupLiveFile(tool, settingsFile);
         std::string text;
@@ -852,7 +852,7 @@ void ProviderStore::switchTo(std::string_view tool, const std::string& id) {
                 text = readTextFile(settingsFile);
             }
         }
-        const std::string envName = dshApiKeyEnv(target->id);
+        const std::string envName = harnessApiKeyEnv(target->id);
         std::vector<std::string> entry;
         entry.push_back("    llmswitch-" + target->id + ":");
         entry.push_back("      displayName: " + yamlQuote(target->name));
@@ -864,12 +864,12 @@ void ProviderStore::switchTo(std::string_view tool, const std::string& id) {
             entry.push_back("        - id: " + yamlQuote(target->model));
         }
         atomicWrite(settingsFile,
-                    rewriteDshSettings(text, entry, "llmswitch-" + target->id,
+                    rewriteHarnessSettings(text, entry, "llmswitch-" + target->id,
                                        target->model));
         if (!target->apiKey.empty()) {
-            const auto credFile = cfg::dshCredentialsFile();
+            const auto credFile = cfg::harnessCredentialsFile();
             backupLiveFile(tool, credFile);
-            upsertDshCredential(credFile, envName, target->apiKey);
+            upsertHarnessCredential(credFile, envName, target->apiKey);
             restrictPiFile(credFile);
         }
     } else if (tool == "gemini" || tool == "qwen") {
@@ -1127,16 +1127,16 @@ void ProviderStore::restoreOfficial(std::string_view tool) {
                 atomicWrite(file, doc.dump(2) + "\n");
             }
         }
-    } else if (tool == "dsh") {
+    } else if (tool == "harness") {
         // 回到内置 deepseek-official 路由：删 settings.yaml 的
         // agent-default-model 块与 llmswitch-* 手写路由，其余键保留。
         // .credentials.yaml 里的 LLMSWITCH_* 密钥无引用即无害，不代清。
-        const auto settingsFile = cfg::dshSettingsFile();
+        const auto settingsFile = cfg::harnessSettingsFile();
         std::error_code ec;
         if (std::filesystem::exists(settingsFile, ec)) {
             backupLiveFile(tool, settingsFile);
             atomicWrite(settingsFile,
-                        rewriteDshSettings(readTextFile(settingsFile), {}, "",
+                        rewriteHarnessSettings(readTextFile(settingsFile), {}, "",
                                            ""));
         }
     } else if (tool == "claude") {

@@ -6,12 +6,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 llm-switch 是 **cc-switch**（GitHub: farion1231/cc-switch）的 **C++23 模块化重写**：
 管理多款 AI agent 工具的供应商配置切换——领域层已泛化到 9 个工具
-（claude-code / claude desktop / codex / opencode / pi / dsh / gemini /
+（claude-code / claude desktop / codex / opencode / pi / harness / gemini /
 qwen / zcode，注册表见
 `models::toolRegistry()`），把选中的供应商写进工具的 live 配置文件
 （`~/.claude/settings.json` 的 env 块 / `~/.codex/auth.json` + `config.toml` /
 opencode.json additive upsert / pi 的 models.json + settings.json /
-dsh 的 settings.yaml + .credentials.yaml 行级改写 /
+harness 的 settings.yaml + .credentials.yaml 行级改写 /
 Claude Desktop 3p profile 组），并提供收编、备份、导入导出。在此之上还有：
 本地路由引擎（127.0.0.1 反代到当前供应商 + 请求统计）、供应商用量查询、
 MCP 服务器统一清单、Skills 中央库同步、历史会话管理。用 **HuxerUI**（组件式
@@ -105,8 +105,8 @@ commit，不回滚已经验证的修改，并在最终回复中报告失败原�
 | 模块 | 文件 | 职责 |
 |------|------|------|
 | `llmswitch.config` | `src/config.cppm` | 数据目录（~/.local/share/llm-switch）/ config.json、backups/、mcp.json、skills-store/、router/requests.jsonl 路径 / live 配置与会话/技能目录解析（全部 LLMSWITCH_* 环境变量可覆盖）/ 深色检测 |
-| `llmswitch.models` | `src/models.cppm` | 工具注册表（ToolSpec/toolRegistry/findTool：claude-code/claude/codex/opencode/pi/dsh/gemini/qwen/zcode；needsModel/hasApiFormat/hasModelMappings 三标记驱动表单适配）+ Provider/ProviderGroup/AppConfig（groups 以注册表 id 为键的 map，旧格式顶层 claude/codex 自动迁移；router/usage 设置字段，Provider.usageEnabled 控制单个供应商是否查询，routerTools 保存逐 Agent 代理选择；Provider 含 modelFetchUrl、haiku/sonnet/opusModel 三档映射与 upstreamFormat/fullUrl URL 模式）+ JSON 序列化 + 内置预设（builtinPresets）+ 官方厂商名（officialVendorName：claude 系/codex/zcode/dsh 有官方常驻卡）+ apiFormat 三档归一（normalizeApiFormat/apiFormatLabel）+ 上游 URL 归一/后缀（normalizeUpstreamFormat/upstreamFormatSuffix/effectiveBaseUrl）+ 用量模板表纯解析与匹配（parseUsageTemplates/suggestUsageQuery：数据在 resources/raw/usage_templates.json 资源包内置 + dataDir 用户覆盖，不硬编码） |
-| `llmswitch.store` | `src/store.cppm` + `src/store.cpp` | ProviderStore：config.json 读写、CRUD、switchTo 按工具 id 分发九个 writer（原子写+备份；gemini/qwen 走 <dir>/.env 行级 upsert + settings.json 深合并 auth 类型，zcode 走 provider map upsert + enabled 互斥，dsh 走 settings.yaml 行级 upsert + .credentials.yaml 密钥库）、restoreOfficial 恢复厂商原生状态（claude-code/claude/codex/gemini/qwen/zcode/dsh）、detectCurrent/importLive、导出导入、theme/usage/router 与逐 Agent 路由设置 setter、用量模板用户覆盖表读取（loadUsageTemplatesOverride） |
+| `llmswitch.models` | `src/models.cppm` | 工具注册表（ToolSpec/toolRegistry/findTool：claude-code/claude/codex/opencode/pi/harness/gemini/qwen/zcode；needsModel/hasApiFormat/hasModelMappings 三标记驱动表单适配）+ Provider/ProviderGroup/AppConfig（groups 以注册表 id 为键的 map，旧格式顶层 claude/codex 自动迁移；router/usage 设置字段，Provider.usageEnabled 控制单个供应商是否查询，routerTools 保存逐 Agent 代理选择；Provider 含 modelFetchUrl、haiku/sonnet/opusModel 三档映射与 upstreamFormat/fullUrl URL 模式）+ JSON 序列化 + 内置预设（builtinPresets）+ 官方厂商名（officialVendorName：claude 系/codex/zcode/harness 有官方常驻卡）+ apiFormat 三档归一（normalizeApiFormat/apiFormatLabel）+ 上游 URL 归一/后缀（normalizeUpstreamFormat/upstreamFormatSuffix/effectiveBaseUrl）+ 用量模板表纯解析与匹配（parseUsageTemplates/suggestUsageQuery：数据在 resources/raw/usage_templates.json 资源包内置 + dataDir 用户覆盖，不硬编码） |
+| `llmswitch.store` | `src/store.cppm` + `src/store.cpp` | ProviderStore：config.json 读写、CRUD、switchTo 按工具 id 分发九个 writer（原子写+备份；gemini/qwen 走 <dir>/.env 行级 upsert + settings.json 深合并 auth 类型，zcode 走 provider map upsert + enabled 互斥，harness 走 settings.yaml 行级 upsert + .credentials.yaml 密钥库）、restoreOfficial 恢复厂商原生状态（claude-code/claude/codex/gemini/qwen/zcode/harness）、detectCurrent/importLive、导出导入、theme/usage/router 与逐 Agent 路由设置 setter、用量模板用户覆盖表读取（loadUsageTemplatesOverride） |
 | `llmswitch.net` | `src/net.cppm` + `src/net.cpp` | 纯函数：模型列表 URL 拼接 `modelListUrl`/候选推导、响应解析 `parseModelIds`（data/models 两种形状，去重保序）和用量取值 `extractByPath`（点分路径+数组下标取标量）；实际网络请求不在此层——供应商页面走 HuxerUI HttpClient（provider_network.cpp），路由出站走 UpstreamSession |
 | `llmswitch.router` | `src/router.cppm` + `src/router.cpp` | LocalRouter：cpp-httplib 服务器监听 127.0.0.1，`/<tool>/` 前缀路由到该组 current 供应商的实际 URL（按 upstreamFormat 追加 /anthropic 或 /v1，fullUrl 时原样），替换鉴权头，线程安全的逐工具开关运行中即时生效（禁用返回 403，不访问上游/统计），可选故障转移（429/5xx/连接失败按组内顺序试下一个）；RequestLog/StatsSnapshot 统计，每请求追加 JSONL（dataDir()/router/requests.jsonl），启动回填内存环形缓冲（最多 1000 条） |
 | `llmswitch.mcp` | `src/mcp.cppm` + `src/mcp.cpp` | MCP 服务器统一清单（SSOT = dataDir()/mcp.json）；启停 = 写/删工具 live 配置条目：claude-code → ~/.claude.json 顶层 mcpServers 深合并、codex → config.toml 行级 [mcp_servers.*] section 重写、opencode → opencode.json 顶层 mcp；claude/pi 不支持（抛中文错） |
@@ -139,7 +139,7 @@ commit，不回滚已经验证的修改，并在最终回复中报告失败原�
   `llmswitch-<id>` 手写路由条目（api 字段复用 pi 三档映射）+ 文件头
   agent-default-model 指向，密钥只写 `~/.dsh/.credentials.yaml`（顶层
   env 名→密钥 map，apiKeyEnv 引用，目录 0700、文件 0600）；两份 YAML
-  都被 dsh 热监听 → 切换即时生效（needsRestart=false），restoreOfficial
+  都被 harness（dsh）热监听 → 切换即时生效（needsRestart=false），restoreOfficial
   删 agent-default-model 块与 llmswitch-* 条目回到内置 deepseek-official
   路由；
   claude desktop = 3p 直连（两份 claude_desktop_config.json 置
@@ -186,13 +186,13 @@ commit，不回滚已经验证的修改，并在最终回复中报告失败原�
 - **detectCurrent**：读 live 文件与组内 provider 匹配（claude 按
   baseUrl+apiKey，codex 按 apiKey），只读不改配置。
 - **restoreOfficial**：恢复厂商原生状态（UI 入口 = 供应商列表首位的
-  「官方」常驻卡，claude-code / claude / codex / zcode / dsh 等
+  「官方」常驻卡，claude-code / claude / codex / zcode / harness 等
   officialVendorName 非空的工具；opencode / pi 无官方
   默认态抛错）——claude-code 删 settings.json env 块的 ANTHROPIC_* 六键；
   codex 删 auth.json 的 OPENAI_API_KEY（删完为空对象则删文件），
   config.toml 仅当内容与组内某 provider 的模板（应用 model 后）完全一致
   才删除（用户手改过的文件不动）；claude desktop 删两份 config 的
-  deploymentMode 键 + _meta.json 移除本应用条目/清 appliedId；dsh 删
+  deploymentMode 键 + _meta.json 移除本应用条目/清 appliedId；harness 删
   settings.yaml 的 agent-default-model 块与 llmswitch-* 手写路由条目，
   回到内置 deepseek-official 路由（.credentials.yaml 的密钥不代清）。
   改前照常备份，组 current 清空。
@@ -279,7 +279,7 @@ I/O、解析和 JSON 函数默认保留在 `.cpp` 中。
   importFromTool 收编进 mcp.json，首次启停后丢失。
 - **opencode 配置不支持 JSON5 注释**：opencode.json / 顶层 mcp 改写都走严格
   JSON 解析，带注释的官方文件会抛中文错且绝不碰原文件（让用户手动去注释）。
-- **MCP 不支持 claude desktop / pi / dsh**：setEnabled/importFromTool 对这些
+- **MCP 不支持 claude desktop / pi / harness**：setEnabled/importFromTool 对这些
   工具抛「该工具暂不支持 MCP 管理」。
 - **尚未接入剪贴板 / 打开浏览器交互**：上游 `d1d2daa` 已提供应用层
   `Clipboard` 服务，但路由页的各工具接入地址目前仍是等宽纯文本；关于页链接

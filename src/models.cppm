@@ -69,13 +69,13 @@ export constexpr std::array<ToolSpec, 9> kToolRegistry{{
              .hasApiFormat = true,
              .hasModelMappings = false,
              .needsRestart = true},
-    // DeepSeek Harness（dsh）：~/.dsh/settings.yaml 的 llm-pi-ai.providers
-    // 手写 YAML upsert + agent-default-model 指向；密钥只写
-    // ~/.dsh/.credentials.yaml（apiKeyEnv 引用，热监听即时生效），
+    // Harness（DeepSeek 出品，CLI 命令 dsh）：~/.dsh/settings.yaml 的
+    // llm-pi-ai.providers 手写 YAML upsert + agent-default-model 指向；密钥
+    // 只写 ~/.dsh/.credentials.yaml（apiKeyEnv 引用，热监听即时生效），
     // settings.yaml 同样热重载 → 切换无需重启。
-    ToolSpec{.id = "dsh",
-             .displayName = "DeepSeek Harness",
-             .iconName = "dsh",
+    ToolSpec{.id = "harness",
+             .displayName = "Harness",
+             .iconName = "harness",
              .needsModel = true,
              .hasApiFormat = true,
              .hasModelMappings = false,
@@ -212,7 +212,7 @@ export struct AppConfig {
     bool routerFailover = true;    // 上游 429/5xx 时故障转移到组内下一个供应商
     // 允许通过本地路由代理的工具 id；旧配置缺字段时默认全部启用，保持兼容。
     std::vector<std::string> routerTools{
-        "claude-code", "claude", "codex", "opencode", "pi", "dsh", "gemini",
+        "claude-code", "claude", "codex", "opencode", "pi", "harness", "gemini",
         "qwen", "zcode"};
 
     bool operator==(const AppConfig&) const = default;
@@ -1098,8 +1098,8 @@ wire_api = "responses"
         };
         return groups;
     }
-    if (tool == "dsh") {
-        // DeepSeek Harness（dsh）：手写路由走 llm-pi-ai.providers，协议三档
+    if (tool == "harness") {
+        // Harness（CLI 为 dsh）：手写路由走 llm-pi-ai.providers，协议三档
         // 对应 apiFormat（"" / openai-chat → openai-completions，另两档同名
         // 映射）；官方 deepseek-official 路由由常驻「官方」卡承担。端点
         // 均为各家文档的直连地址（2026-09 核实；千问平台 dsh 接入指南同源）。
@@ -1156,9 +1156,9 @@ export std::string_view officialVendorName(std::string_view tool) {
     if (tool == "codex") return "OpenAI 官方";
     // ZCode 官方 = 内置（builtin:*）provider 原生启用、无本应用托管条目生效。
     if (tool == "zcode") return "ZCode 官方";
-    // DeepSeek 官方 = dsh 内置 deepseek-official 路由接管（无
+    // DeepSeek 官方 = harness 内置 deepseek-official 路由接管（无
     // agent-default-model 覆盖、无 llmswitch-* 手写路由）。
-    if (tool == "dsh") return "DeepSeek 官方";
+    if (tool == "harness") return "DeepSeek 官方";
     return "";
 }
 

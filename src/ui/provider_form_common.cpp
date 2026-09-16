@@ -81,7 +81,7 @@ const AgentFormPolicy& AgentPolicyFor(std::string_view tool) {
     if (tool == "claude-code") return ClaudeCodeFormPolicy();
     if (tool == "claude") return ClaudeDesktopFormPolicy();
     if (tool == "codex") return CodexFormPolicy();
-    if (tool == "opencode" || tool == "pi" || tool == "dsh") {
+    if (tool == "opencode" || tool == "pi" || tool == "harness") {
         return OpenAiCliFormPolicy();
     }
     if (tool == "zcode") return ZcodeFormPolicy();

@@ -147,14 +147,14 @@ std::string ProviderStore::detectCurrent(std::string_view tool) const {
         }
         return "";
     }
-    if (tool == "dsh") {
+    if (tool == "harness") {
         // settings.yaml 的 agent-default-model.provider：llmswitch-<id> 前缀
         // 剥离后命中组内 id 视为已切换；内置 deepseek-official 等其它值
         // （含未设置）视为官方状态。
-        const auto file = cfg::dshSettingsFile();
+        const auto file = cfg::harnessSettingsFile();
         std::error_code ec;
         if (!std::filesystem::exists(file, ec)) return "";
-        const auto info = parseDshSettings(readTextFile(file));
+        const auto info = parseHarnessSettings(readTextFile(file));
         if (!info.defaultProvider.starts_with("llmswitch-")) return "";
         const std::string id = info.defaultProvider.substr(10);
         for (const auto& p : g.providers) {
@@ -329,15 +329,15 @@ models::Provider ProviderStore::importLive(std::string_view tool) {
         p.model = jsonStr(readJsonOrNull(settingsFile), "defaultModel");
         return adopt(std::move(p));
     }
-    if (tool == "dsh") {
+    if (tool == "harness") {
         // 经 agent-default-model.provider 找 llm-pi-ai.providers 里的条目；
         // 密钥从 .credentials.yaml 按 apiKeyEnv 引用读回。条目键剥离
         // llmswitch- 前缀作为收编 id（本应用写入的条目原位更新）。
-        const auto file = cfg::dshSettingsFile();
+        const auto file = cfg::harnessSettingsFile();
         if (!std::filesystem::exists(file, ec)) return {};
-        const auto info = parseDshSettings(readTextFile(file));
+        const auto info = parseHarnessSettings(readTextFile(file));
         if (info.defaultProvider.empty()) return {};
-        const DshProviderEntry* entry = nullptr;
+        const HarnessProviderEntry* entry = nullptr;
         for (const auto& e : info.providers) {
             if (e.key == info.defaultProvider) entry = &e;
         }
@@ -352,7 +352,7 @@ models::Provider ProviderStore::importLive(std::string_view tool) {
                                              : entry->firstModel;
         if (!entry->apiKeyEnv.empty()) {
             p.apiKey =
-                readDshCredential(cfg::dshCredentialsFile(), entry->apiKeyEnv);
+                readHarnessCredential(cfg::harnessCredentialsFile(), entry->apiKeyEnv);
         }
         return adopt(std::move(p));
     }
