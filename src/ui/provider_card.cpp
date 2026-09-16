@@ -139,8 +139,9 @@ std::string RestartHintSuffix(const std::string& tool) {
             {});
     };
 
-    // 三段式：左信息列（Grow 吃满剩余宽度）｜ 中间状态列（延迟 + 用量，
-    // 垂直居中落在内容与操作组之间）｜ 右侧操作图标组（自绘图标 + Tooltip）。
+    // 三段式：左信息列（Grow 吃满剩余宽度）｜ 中间状态行（延迟 + 用量
+    // 横向排列，垂直居中落在内容与操作组之间）｜ 右侧操作图标组（自绘
+    // 图标 + Tooltip）。
     return Card(huxerui::Row {
         huxerui::Column {
             huxerui::Row {
@@ -175,10 +176,11 @@ std::string RestartHintSuffix(const std::string& tool) {
         }.With(huxerui::Spacing(6.0F),
                huxerui::Grow(1.0F),
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Start)),
-        // 中间状态列：连通检测结果（未检测不显示；失败 error 色）+ 用量
-        // （启用开关打开且 usageUrl 非空才显示，带手动刷新图标）。两者皆无时
-        // 整列塌缩为零宽。
-        huxerui::Column {
+        // 中间状态行：延迟与用量横向排列（延迟在前、用量在后，后续新增的
+        // 状态项也在此行追加）。延迟：连通检测结果（未检测不显示；失败
+        // error 色）；用量：启用开关打开且 usageUrl 非空才显示，带手动刷新
+        // 图标。两者皆无时整行塌缩为零宽。
+        huxerui::Row {
             (!checking.Get() && latency.Get().empty())
                 ? huxerui::View{huxerui::Row{}}
                 : huxerui::View{huxerui::Text(
@@ -190,12 +192,15 @@ std::string RestartHintSuffix(const std::string& tool) {
                               : theme.colors.on_surface_variant})},
             !usageConfigured
                 ? huxerui::View{huxerui::Row{}}
-                : huxerui::View{huxerui::Row {
-                      huxerui::Text(usageText)
-                          .Style(huxerui::TextStyle{
-                              huxerui::Font::System(font_size::kCaption),
-                              usageError ? theme.colors.error
-                                         : theme.colors.on_surface_variant}),
+                : huxerui::View{huxerui::Text(usageText)
+                                    .Style(huxerui::TextStyle{
+                                        huxerui::Font::System(font_size::kCaption),
+                                        usageError
+                                            ? theme.colors.error
+                                            : theme.colors.on_surface_variant})},
+            !usageConfigured
+                ? huxerui::View{huxerui::Row{}}
+                : huxerui::View{
                       huxerui::IconButton(app::images::refresh, "刷新")
                           .OnClick([tasks, usageCache, provider, http] {
                               // HuxerUI HTTP 异步请求完成后回 UI 线程写缓存 State。
@@ -205,11 +210,9 @@ std::string RestartHintSuffix(const std::string& tool) {
                                                   co_await FetchUsageText(http, provider));
                               });
                           })
-                          .With(huxerui::Tooltip("重新查询用量")),
-                  }.With(huxerui::Spacing(4.0F),
-                         huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center))},
-        }.With(huxerui::Spacing(4.0F),
-               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Start)),
+                          .With(huxerui::Tooltip("重新查询用量"))},
+        }.With(huxerui::Spacing(8.0F),
+               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
         huxerui::Row {
             huxerui::IconButton(app::images::swap, "切换")
                 .OnClick([toast, tool, id, name, bump] {
