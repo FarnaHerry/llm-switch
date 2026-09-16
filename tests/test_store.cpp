@@ -113,6 +113,9 @@ int main() {
     const fs::path qwenEnv = qwenDir / ".env";
     const fs::path qwenSettings = qwenDir / "settings.json";
     const fs::path zcodeConfig = root / "zcode" / "config.json";
+    const fs::path dshDir = root / "dsh";
+    const fs::path dshSettings = dshDir / "settings.yaml";
+    const fs::path dshCredentials = dshDir / ".credentials.yaml";
     testenv::setenv("LLMSWITCH_CLAUDE_SETTINGS", claudeSettings);
     testenv::setenv("LLMSWITCH_CODEX_AUTH", codexAuth);
     testenv::setenv("LLMSWITCH_CODEX_CONFIG", codexConfig);
@@ -121,7 +124,10 @@ int main() {
     testenv::setenv("LLMSWITCH_GEMINI_DIR", geminiDir);
     testenv::setenv("LLMSWITCH_QWEN_DIR", qwenDir);
     testenv::setenv("LLMSWITCH_ZCODE_CONFIG", zcodeConfig);
+    testenv::setenv("LLMSWITCH_DSH_SETTINGS", dshSettings);
+    testenv::setenv("LLMSWITCH_DSH_CREDENTIALS", dshCredentials);
     testenv::unsetenv("PI_CODING_AGENT_DIR");
+    testenv::unsetenv("DSH_HOME");
     testenv::unsetenv("LLMSWITCH_CLAUDE_DESKTOP_DIR");  // 默认 Linux 不支持
 
     // 1. 空环境 load → 默认空配置
@@ -135,11 +141,14 @@ int main() {
               s.config().routerTools.end());
         CHECK(s.detectCurrent("claude-code").empty());
         CHECK(s.detectCurrent("claude").empty());  // Linux 无桌面目录 → 空
-        // 注册表自检：8 个工具、id 可互查
-        CHECK(models::toolRegistry().size() == 8);
+        // 注册表自检：9 个工具、id 可互查
+        CHECK(models::toolRegistry().size() == 9);
         CHECK(models::findTool("claude-code") != nullptr);
         CHECK(models::findTool("opencode")->needsModel);
         CHECK(models::findTool("pi")->hasApiFormat);
+        CHECK(models::findTool("dsh")->needsModel);
+        CHECK(models::findTool("dsh")->hasApiFormat);
+        CHECK(!models::findTool("dsh")->hasModelMappings);
         CHECK(models::findTool("gemini")->needsModel);
         CHECK(models::findTool("qwen")->needsModel);
         CHECK(!models::findTool("gemini")->hasApiFormat);
@@ -148,13 +157,17 @@ int main() {
         CHECK(models::findTool("claude-code")->hasModelMappings);
         CHECK(models::findTool("claude")->hasModelMappings);
         CHECK(!models::findTool("codex")->hasModelMappings);
-        // needsRestart：claude-code 运行中重读配置无需重启；其余工具
-        // （codex / zcode 等）live 配置在进程启动时读取，切换后需重启
+        // needsRestart：claude-code 运行中重读配置、dsh 两份 YAML 均被热
+        // 监听，切换无需重启；其余工具（codex / zcode 等）live 配置在进程
+        // 启动时读取，切换后需重启
         CHECK(!models::findTool("claude-code")->needsRestart);
+        CHECK(!models::findTool("dsh")->needsRestart);
         CHECK(std::ranges::all_of(
             models::toolRegistry(), [](const auto& t) {
-                return t.id == "claude-code" || t.needsRestart;
+                return t.id == "claude-code" || t.id == "dsh" || t.needsRestart;
             }));
+        CHECK(std::ranges::find(s.config().routerTools, "dsh") !=
+              s.config().routerTools.end());
         CHECK(models::findTool("nope") == nullptr);
     }
 
@@ -806,6 +819,110 @@ int main() {
         CHECK(s.detectCurrent("pi") == idP2);
     }
 
+    // 8d. dsh：settings.yaml 行级 upsert（删旧 llmswitch-* 条目 +
+    // agent-default-model 指向，无关键/注释/内置路由保留）+ 密钥只进
+    // .credentials.yaml + detect/import 往返 + restore 回内置官方路由。
+    {
+        writeFile(dshSettings,
+                  "# dsh 设置\ntheme: dark\n"
+                  "llm-pi-ai:\n"
+                  "  providers:\n"
+                  "    deepseek-official:\n"
+                  "      api: anthropic-messages\n"
+                  "      baseURL: https://api.deepseek.com/anthropic\n"
+                  "    llmswitch-stale:\n"
+                  "      api: openai-completions\n"
+                  "      baseURL: https://stale.example.com\n");
+        writeFile(dshCredentials, "version: 1\nOTHER_KEY: \"keep-me\"\n");
+        models::Provider pd2{.name = "DeepSeek 中转",
+                             .baseUrl = "https://relay.example.com/anthropic",
+                             .apiKey = "sk-dsh",
+                             .model = "deepseek-v4-flash",
+                             .apiFormat = "anthropic"};
+        s.addProvider("dsh", pd2);
+        const std::string idS = s.group("dsh").providers.back().id;
+        const auto envNameOf = [](std::string_view id) {
+            std::string out = "LLMSWITCH_";
+            for (const unsigned char c : id) {
+                out += std::isalnum(c) ? static_cast<char>(std::toupper(c)) : '_';
+            }
+            return out;
+        };
+        s.switchTo("dsh", idS);
+        {
+            const std::string y = readTextFile(dshSettings);
+            CHECK(y.find("# dsh 设置") != std::string::npos);   // 注释保留
+            CHECK(y.find("theme: dark") != std::string::npos);  // 无关键保留
+            CHECK(y.find("deepseek-official:") != std::string::npos);  // 内置路由保留
+            CHECK(y.find("llmswitch-stale") == std::string::npos);     // 旧条目删除
+            CHECK(y.find("stale.example.com") == std::string::npos);
+            CHECK(y.find("    llmswitch-" + idS + ":") != std::string::npos);
+            CHECK(y.find("api: anthropic-messages") != std::string::npos);
+            CHECK(y.find("baseURL: \"https://relay.example.com/anthropic\"") !=
+                  std::string::npos);
+            CHECK(y.find("apiKeyEnv: " + envNameOf(idS)) != std::string::npos);
+            CHECK(y.find("- id: \"deepseek-v4-flash\"") != std::string::npos);
+            CHECK(y.find("agent-default-model:") != std::string::npos);
+            CHECK(y.find("provider: llmswitch-" + idS) != std::string::npos);
+            CHECK(y.find("model: \"deepseek-v4-flash\"") != std::string::npos);
+            CHECK(y.find("sk-dsh") == std::string::npos);  // 密钥不进 settings
+            const std::string cred = readTextFile(dshCredentials);
+            CHECK(cred.find("version: 1") != std::string::npos);  // version 保留
+            CHECK(cred.find("OTHER_KEY: \"keep-me\"") != std::string::npos);
+            CHECK(cred.find(envNameOf(idS) + ": \"sk-dsh\"") != std::string::npos);
+#if !defined(_WIN32)
+            // 权限：目录 0700、凭据文件 0600（Windows 无 POSIX 权限位语义）
+            CHECK((fs::status(dshDir).permissions() & fs::perms::all) ==
+                  fs::perms::owner_all);
+            CHECK((fs::status(dshCredentials).permissions() & fs::perms::all) ==
+                  (fs::perms::owner_read | fs::perms::owner_write));
+#endif
+            CHECK(s.detectCurrent("dsh") == idS);
+        }
+        // 二次切换：条目替换而非堆积，agent-default-model 只此一块跟着改。
+        models::Provider pd3{.name = "GLM 直连",
+                             .baseUrl = "https://open.bigmodel.cn/api/paas/v4",
+                             .apiKey = "sk-dsh-2",
+                             .model = "glm-5.1"};  // apiFormat 默认
+        s.addProvider("dsh", pd3);
+        const std::string idS2 = s.group("dsh").providers.back().id;
+        s.switchTo("dsh", idS2);
+        {
+            const std::string y = readTextFile(dshSettings);
+            CHECK(y.find("llmswitch-" + idS + ":") == std::string::npos);
+            CHECK(y.find("llmswitch-" + idS2 + ":") != std::string::npos);
+            CHECK(y.find("api: openai-completions") != std::string::npos);
+            CHECK(y.find("provider: llmswitch-" + idS2) != std::string::npos);
+            int admBlocks = 0;
+            for (std::size_t pos = 0;
+                 (pos = y.find("agent-default-model:", pos)) != std::string::npos;
+                 pos += 1) {
+                ++admBlocks;
+            }
+            CHECK(admBlocks == 1);
+            CHECK(s.detectCurrent("dsh") == idS2);
+        }
+        // importLive 往返：从 live 文件收编（同端点+密钥命中 idS2 复用）。
+        {
+            const auto imported = s.importLive("dsh");
+            CHECK(imported.id == idS2);
+            CHECK(imported.apiKey == "sk-dsh-2");
+            CHECK(imported.baseUrl == "https://open.bigmodel.cn/api/paas/v4");
+            CHECK(imported.model == "glm-5.1");
+            CHECK(s.detectCurrent("dsh") == idS2);
+        }
+        // restoreOfficial：块与 llmswitch-* 条目移除，内置路由与无关键保留。
+        s.restoreOfficial("dsh");
+        {
+            const std::string y = readTextFile(dshSettings);
+            CHECK(y.find("agent-default-model") == std::string::npos);
+            CHECK(y.find("llmswitch-") == std::string::npos);
+            CHECK(y.find("deepseek-official:") != std::string::npos);
+            CHECK(y.find("theme: dark") != std::string::npos);
+            CHECK(s.detectCurrent("dsh").empty());
+        }
+    }
+
     // 9. claude desktop：Linux 默认不支持（抛错）；设覆盖目录后写四个文件
     models::Provider pd{.name = "桌面网关",
                         .baseUrl = "https://desktop.example.com/anthropic",
@@ -1350,6 +1467,17 @@ int main() {
         CHECK(qw.subscription.empty() && qw.metered.empty());
         const auto zc = models::builtinPresets("zcode");
         CHECK(zc.subscription.empty() && zc.metered.empty());
+        // dsh：按量组 4 家直连（DeepSeek / Kimi / GLM / 千问），都带模型；
+        // 官方走常驻卡（内置 deepseek-official 路由）。
+        CHECK(models::officialVendorName("dsh") == "DeepSeek 官方");
+        const auto ds = models::builtinPresets("dsh");
+        CHECK(ds.subscription.empty() && ds.metered.size() == 4);
+        CHECK(ds.metered.front().name == "DeepSeek" &&
+              ds.metered.front().apiFormat == "anthropic" &&
+              ds.metered.front().usageEnabled);
+        CHECK(std::ranges::all_of(ds.metered, [](const models::Provider& p) {
+            return !p.baseUrl.empty() && !p.model.empty() && p.fullUrl;
+        }));
     }
 
     // 15. 三档模型映射：claude-code env 写入/收回/擦除 + desktop

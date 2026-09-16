@@ -1,14 +1,14 @@
 # llm-switch
 
 [cc-switch](https://github.com/farion1231/cc-switch) 的 C++ 重写：Claude Code /
-Claude Desktop / Codex / opencode / pi / Gemini CLI / Qwen Code /
-ZCode 八款 AI 编程工具的供应商配置切换，
+Claude Desktop / Codex / opencode / pi / DeepSeek Harness（dsh）/
+Gemini CLI / Qwen Code / ZCode 九款 AI 编程工具的供应商配置切换，
 附本地路由、用量查询、MCP / Skills / 会话管理。C++23 modules + HuxerUI
 桌面壳，无 Electron、无运行时依赖（除系统 GTK4 运行库）。
 
 ## 功能
 
-- **供应商管理**：八个工具组各自维护供应商列表（新增 / 编辑 / 复制 /
+- **供应商管理**：九个工具组各自维护供应商列表（新增 / 编辑 / 复制 /
   删除），内置 DeepSeek / Kimi / GLM / OpenRouter 等预设模板；API 协议三档
   （OpenAI Chat Completions / OpenAI Responses / Anthropic Messages）。
 - **一键切换**：把选中供应商写进工具的 live 配置文件——
@@ -16,8 +16,10 @@ ZCode 八款 AI 编程工具的供应商配置切换，
   （`ANTHROPIC_BASE_URL` / `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_MODEL`，其余字段
   原样保留）；Codex 写 `~/.codex/auth.json` 的 `OPENAI_API_KEY`，并可整段替换
   `~/.codex/config.toml`；opencode 顶层 provider map additive upsert；
-  pi 写 models.json + settings.json；Claude Desktop 3p profile（仅
-  macOS / Windows）。
+  pi 写 models.json + settings.json；dsh 行级改写
+  `~/.dsh/settings.yaml` 的 llm-pi-ai 路由并把密钥写进
+  `~/.dsh/.credentials.yaml`（apiKeyEnv 引用，热监听即时生效）；
+  Claude Desktop 3p profile（仅 macOS / Windows）。
 - **本地路由**：内置反向代理监听 `http://127.0.0.1:<port>/<tool>/`（默认
   15731），转发到该工具当前供应商并自动替换鉴权头；上游 429/5xx 可选故障
   转移；支持逐 Agent 选择是否接受代理，运行中切换即时生效，并支持开机自启。

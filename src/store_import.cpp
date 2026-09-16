@@ -147,6 +147,21 @@ std::string ProviderStore::detectCurrent(std::string_view tool) const {
         }
         return "";
     }
+    if (tool == "dsh") {
+        // settings.yaml 的 agent-default-model.provider：llmswitch-<id> 前缀
+        // 剥离后命中组内 id 视为已切换；内置 deepseek-official 等其它值
+        // （含未设置）视为官方状态。
+        const auto file = cfg::dshSettingsFile();
+        std::error_code ec;
+        if (!std::filesystem::exists(file, ec)) return "";
+        const auto info = parseDshSettings(readTextFile(file));
+        if (!info.defaultProvider.starts_with("llmswitch-")) return "";
+        const std::string id = info.defaultProvider.substr(10);
+        for (const auto& p : g.providers) {
+            if (p.id == id) return p.id;
+        }
+        return "";
+    }
     if (tool == "gemini" || tool == "qwen") {
         // .env 的端点+密钥匹配组内供应商；两者都空 = 官方登录，未切换。
         const auto envFile = tool == "gemini" ? cfg::geminiEnvFile() : cfg::qwenEnvFile();
@@ -312,6 +327,33 @@ models::Provider ProviderStore::importLive(std::string_view tool) {
         p.apiKey = jsonStr(entry, "apiKey");
         p.apiFormat = piApiFormatValue(jsonStr(entry, "api"));
         p.model = jsonStr(readJsonOrNull(settingsFile), "defaultModel");
+        return adopt(std::move(p));
+    }
+    if (tool == "dsh") {
+        // 经 agent-default-model.provider 找 llm-pi-ai.providers 里的条目；
+        // 密钥从 .credentials.yaml 按 apiKeyEnv 引用读回。条目键剥离
+        // llmswitch- 前缀作为收编 id（本应用写入的条目原位更新）。
+        const auto file = cfg::dshSettingsFile();
+        if (!std::filesystem::exists(file, ec)) return {};
+        const auto info = parseDshSettings(readTextFile(file));
+        if (info.defaultProvider.empty()) return {};
+        const DshProviderEntry* entry = nullptr;
+        for (const auto& e : info.providers) {
+            if (e.key == info.defaultProvider) entry = &e;
+        }
+        if (entry == nullptr) return {};
+        models::Provider p;
+        p.id = importId(g, entry->key.starts_with("llmswitch-")
+                             ? std::string(entry->key.substr(10))
+                             : entry->key);
+        p.baseUrl = entry->baseUrl;
+        p.apiFormat = piApiFormatValue(entry->api);
+        p.model = !info.defaultModel.empty() ? info.defaultModel
+                                             : entry->firstModel;
+        if (!entry->apiKeyEnv.empty()) {
+            p.apiKey =
+                readDshCredential(cfg::dshCredentialsFile(), entry->apiKeyEnv);
+        }
         return adopt(std::move(p));
     }
     if (tool == "gemini" || tool == "qwen") {

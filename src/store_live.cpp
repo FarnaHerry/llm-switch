@@ -3,8 +3,9 @@
 // switchTo / detectCurrent / restoreOfficial / importLive / importFrom
 // 与各工具的格式细节（env 行级读写、opencode / pi 的 provider 映射、
 // codex 的 auth.json + config.toml、claude desktop 的 3p profile、
-// zcode 的 config.json 条目）都在这里。跨单元共用的文件工具与 ZCode
-// 条目助手以模块链接声明在 store.cppm、定义在 store.cpp / store_zcode.cpp。
+// zcode 的 config.json 条目、dsh 的 settings.yaml/.credentials.yaml
+// 行级改写）都在这里。跨单元共用的文件工具与 ZCode 条目助手以模块链接
+// 声明在 store.cppm、定义在 store.cpp / store_zcode.cpp。
 module llmswitch.store;
 
 import std;
@@ -318,6 +319,264 @@ void restrictPiFile(const std::filesystem::path& file) {
 #endif
 }
 
+// ---- dsh（DeepSeek Harness）YAML 行级助手 ----
+// 无 YAML 库，按缩进做行级读写；无关键、注释与顺序原样保留。
+
+std::string_view trimRight(std::string_view s) {
+    while (!s.empty() && (s.back() == ' ' || s.back() == '\t')) {
+        s.remove_suffix(1);
+    }
+    return s;
+}
+
+std::string_view trimBoth(std::string_view s) { return trimRight(trimLeft(s)); }
+
+// YAML 双引号标量（转义 \ 与 "）。
+std::string yamlQuote(std::string_view v) {
+    std::string out = "\"";
+    for (const char c : v) {
+        if (c == '\\' || c == '"') out += '\\';
+        out += c;
+    }
+    out += '"';
+    return out;
+}
+
+// 读 YAML 标量：去引号（双引号解 \" \\，单引号解 ''）；裸值去掉 " #" 行尾
+// 注释。读不到结构时 best-effort 返回原文。
+std::string yamlScalar(std::string_view v) {
+    v = trimBoth(v);
+    if (v.size() >= 2 && v.front() == '"' && v.back() == '"') {
+        std::string out;
+        for (std::size_t i = 1; i + 1 < v.size(); ++i) {
+            if (v[i] == '\\' && i + 2 < v.size() &&
+                (v[i + 1] == '"' || v[i + 1] == '\\')) {
+                out += v[i + 1];
+                ++i;
+            } else {
+                out += v[i];
+            }
+        }
+        return out;
+    }
+    if (v.size() >= 2 && v.front() == '\'' && v.back() == '\'') {
+        std::string out;
+        for (std::size_t i = 1; i + 1 < v.size(); ++i) {
+            if (v[i] == '\'' && i + 2 < v.size() && v[i + 1] == '\'') {
+                out += '\'';
+                ++i;
+            } else {
+                out += v[i];
+            }
+        }
+        return out;
+    }
+    if (const auto p = v.find(" #"); p != std::string_view::npos) {
+        v = trimRight(v.substr(0, p));
+    }
+    return std::string(v);
+}
+
+// 一行的 YAML 结构信息：indent = 前导空白列数；key = 首个 ': ' 前的键
+// （列表项 "- id: x" 的 key 为 id；裸标量列表项与无冒号行 key 为空）。
+struct DshLine {
+    int indent = 0;
+    std::string_view key;
+    std::string_view value;
+    bool blank = false;
+    bool comment = false;
+    bool listItem = false;
+};
+
+DshLine dshLineOf(std::string_view line) {
+    DshLine r;
+    const auto trimmed = trimLeft(line);
+    r.indent = static_cast<int>(line.size() - trimmed.size());
+    r.blank = trimmed.empty();
+    r.comment = !r.blank && trimmed.front() == '#';
+    if (r.blank || r.comment) return r;
+    std::string_view body = trimmed;
+    r.listItem = body.front() == '-';
+    if (r.listItem) body = trimLeft(body.substr(1));
+    const auto colon = body.find(':');
+    if (colon == std::string_view::npos) {
+        if (r.listItem) r.value = body;
+        return r;
+    }
+    std::string_view value = body.substr(colon + 1);
+    // 冒号后必须为空或空白分隔才是键值行（URL 等含冒号的标量不算）。
+    if (!value.empty() && value.front() != ' ' && value.front() != '\t') {
+        if (r.listItem) r.value = body;
+        return r;
+    }
+    r.key = trimRight(body.substr(0, colon));
+    r.value = value;
+    return r;
+}
+
+// 凭据 env 名：LLMSWITCH_ + id 大写（非字母数字转 _）。
+std::string dshApiKeyEnv(std::string_view id) {
+    std::string out = "LLMSWITCH_";
+    for (const unsigned char c : id) {
+        out += std::isalnum(c) ? static_cast<char>(std::toupper(c)) : '_';
+    }
+    return out;
+}
+
+// 行级改写 settings.yaml：删顶层 agent-default-model 块与
+// llm-pi-ai.providers 下的 llmswitch-* 条目；entryLines 非空时在 providers
+// 块尾插入（缩进随实际 providers 行调整，entryLines 以 4 列基准缩进生成）；
+// defaultProvider 非空时在文件头重建 agent-default-model 指向块。
+// restore 模式 = entryLines 空 + defaultProvider 空（只删不增）。
+std::string rewriteDshSettings(std::string_view text,
+                               const std::vector<std::string>& entryLines,
+                               std::string_view defaultProvider,
+                               std::string_view defaultModel) {
+    std::vector<std::string> lines;
+    {
+        std::istringstream in{std::string(text)};
+        for (std::string line; std::getline(in, line);) {
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+            lines.push_back(std::move(line));
+        }
+    }
+    std::vector<std::string> out;
+    bool inserted = entryLines.empty();
+    bool inPi = false, inProv = false, sawPi = false, sawProv = false;
+    int piIndent = -1, provIndent = -1, entryIndent = -1;
+    bool skipping = false;
+    int skipIndent = -1;
+
+    const auto insertEntries = [&](int baseIndent) {
+        if (inserted) return;
+        const int shift = baseIndent - 4;
+        for (const auto& e : entryLines) {
+            if (shift >= 0) {
+                out.push_back(std::string(static_cast<std::size_t>(shift), ' ') +
+                              e);
+            } else {
+                out.push_back(e.substr(static_cast<std::size_t>(-shift)));
+            }
+        }
+        inserted = true;
+    };
+
+    for (const auto& line : lines) {
+        const DshLine dl = dshLineOf(line);
+        if (skipping) {
+            // 块内（更深层、空行或注释行）继续丢弃；落到同级/外层结束丢弃。
+            if (dl.blank || dl.comment || dl.indent > skipIndent) continue;
+            skipping = false;
+        }
+        if (!dl.blank && !dl.comment) {
+            if (inProv && dl.indent <= provIndent) {
+                insertEntries(provIndent + 2);
+                inProv = false;
+                entryIndent = -1;
+            }
+            if (inPi && dl.indent <= piIndent) {
+                if (sawPi && !sawProv) {
+                    out.push_back(
+                        std::string(static_cast<std::size_t>(piIndent + 2), ' ') +
+                        "providers:");
+                    insertEntries(piIndent + 4);
+                }
+                inPi = false;
+            }
+            if (inProv) {
+                if (entryIndent == -1 || dl.indent <= entryIndent) {
+                    entryIndent = dl.indent;
+                    if (dl.key.starts_with("llmswitch-")) {
+                        skipping = true;
+                        skipIndent = dl.indent;
+                        continue;
+                    }
+                }
+            } else if (inPi) {
+                if (dl.key == "providers" && trimBoth(dl.value).empty()) {
+                    inProv = true;
+                    sawProv = true;
+                    provIndent = dl.indent;
+                    entryIndent = -1;
+                }
+            } else if (dl.indent == 0) {
+                if (dl.key == "agent-default-model") {
+                    skipping = true;
+                    skipIndent = 0;
+                    continue;
+                }
+                if (dl.key == "llm-pi-ai") {
+                    inPi = true;
+                    sawPi = true;
+                    piIndent = dl.indent;
+                }
+            }
+        }
+        out.push_back(line);
+    }
+    if (inProv) {
+        insertEntries(provIndent + 2);
+    } else if (sawPi && !sawProv) {
+        out.push_back(std::string(static_cast<std::size_t>(piIndent + 2), ' ') +
+                      "providers:");
+        insertEntries(piIndent + 4);
+    } else if (!sawPi && !inserted) {
+        if (!out.empty() && !out.back().empty()) out.emplace_back();
+        out.push_back("llm-pi-ai:");
+        out.push_back("  providers:");
+        insertEntries(4);
+    }
+    if (!defaultProvider.empty()) {
+        std::vector<std::string> head;
+        head.push_back("agent-default-model:");
+        head.push_back("  provider: " + std::string(defaultProvider));
+        if (!defaultModel.empty()) {
+            head.push_back("  model: " + yamlQuote(defaultModel));
+        }
+        head.emplace_back();
+        out.insert(out.begin(), head.begin(), head.end());
+    }
+    std::string result;
+    for (const auto& l : out) {
+        result += l;
+        result += '\n';
+    }
+    return result;
+}
+
+// .credentials.yaml 行级 upsert `ENV: "key"`（顶层 map；version 等其它键、
+// 注释与顺序原样保留，缺失追加尾部）。写前调用方负责 backupLiveFile。
+void upsertDshCredential(const std::filesystem::path& file,
+                         std::string_view envName, std::string_view apiKey) {
+    std::vector<std::string> lines;
+    {
+        std::ifstream in(file, std::ios::binary);
+        if (in) {
+            for (std::string line; std::getline(in, line);) {
+                if (!line.empty() && line.back() == '\r') line.pop_back();
+                lines.push_back(std::move(line));
+            }
+        }
+    }
+    const std::string newLine =
+        std::string(envName) + ": " + yamlQuote(apiKey);
+    bool found = false;
+    for (auto& line : lines) {
+        const DshLine dl = dshLineOf(line);
+        if (dl.listItem || dl.key != envName) continue;
+        line = newLine;
+        found = true;
+        break;
+    }
+    if (!found) lines.push_back(newLine);
+    std::string out;
+    for (const auto& line : lines) {
+        out += line;
+        out += '\n';
+    }
+    atomicWrite(file, out);
+}
+
 // 对齐 cc-switch 上游 is_claude_safe_model_id：Claude Desktop 的模型菜单只认
 // claude-(sonnet|opus|haiku|fable)-* / anthropic/claude-* 前缀的 route id，
 // 且角色前缀后必须有实际模型标识；其它名字（kimi-k2 等）写入 profile 会触发
@@ -371,6 +630,104 @@ nlohmann::json claudeDesktopModelEntry(const std::string& actual,
 }
 
 } // namespace
+
+// 行级解析 settings.yaml：顶层 agent-default-model 的 provider/model，以及
+// llm-pi-ai.providers 下每条手写路由的 baseURL / api / apiKeyEnv / 首个
+// models 条目 id。best-effort；结构不符的字段留空。
+DshSettingsInfo parseDshSettings(std::string_view text) {
+    DshSettingsInfo info;
+    std::istringstream in{std::string(text)};
+    bool inAdm = false, inPi = false, inProv = false, inModels = false;
+    int admIndent = -1, piIndent = -1, provIndent = -1;
+    int entryIndent = -1, modelsIndent = -1;
+    DshProviderEntry* cur = nullptr;
+    for (std::string line; std::getline(in, line);) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        const DshLine dl = dshLineOf(line);
+        if (dl.blank || dl.comment) continue;
+        if (inModels && dl.indent <= modelsIndent) inModels = false;
+        if (cur != nullptr && dl.indent <= entryIndent) {
+            cur = nullptr;
+            inModels = false;
+        }
+        if (inProv && dl.indent <= provIndent) inProv = false;
+        if (inPi && dl.indent <= piIndent) inPi = false;
+        if (inAdm && dl.indent <= admIndent) inAdm = false;
+        if (inAdm) {
+            if (dl.key == "provider") {
+                info.defaultProvider = yamlScalar(dl.value);
+            } else if (dl.key == "model") {
+                info.defaultModel = yamlScalar(dl.value);
+            }
+            continue;
+        }
+        if (inModels && cur != nullptr) {
+            if (dl.listItem) {
+                // "- id: x" 或裸标量 "- x"
+                const std::string id =
+                    dl.key == "id" || dl.key.empty() ? yamlScalar(dl.value) : "";
+                if (!id.empty() && cur->firstModel.empty()) {
+                    cur->firstModel = id;
+                }
+            }
+            continue;
+        }
+        if (cur != nullptr) {
+            if (dl.key == "baseURL") {
+                cur->baseUrl = yamlScalar(dl.value);
+            } else if (dl.key == "api") {
+                cur->api = yamlScalar(dl.value);
+            } else if (dl.key == "apiKeyEnv") {
+                cur->apiKeyEnv = yamlScalar(dl.value);
+            } else if (dl.key == "models" && trimBoth(dl.value).empty()) {
+                inModels = true;
+                modelsIndent = dl.indent;
+            }
+            continue;
+        }
+        if (inProv) {
+            if (!dl.listItem && !dl.key.empty() && trimBoth(dl.value).empty()) {
+                info.providers.push_back(
+                    DshProviderEntry{.key = std::string(dl.key)});
+                cur = &info.providers.back();
+                entryIndent = dl.indent;
+            }
+            continue;
+        }
+        if (inPi) {
+            if (dl.key == "providers" && trimBoth(dl.value).empty()) {
+                inProv = true;
+                provIndent = dl.indent;
+            }
+            continue;
+        }
+        if (dl.indent == 0) {
+            if (dl.key == "agent-default-model") {
+                inAdm = true;
+                admIndent = 0;
+            } else if (dl.key == "llm-pi-ai") {
+                inPi = true;
+                piIndent = 0;
+            }
+        }
+    }
+    return info;
+}
+
+// 读 .credentials.yaml 顶层 map 里 envName 对应的密钥值（缺失返回空串）。
+std::string readDshCredential(const std::filesystem::path& file,
+                              std::string_view envName) {
+    std::error_code ec;
+    if (!std::filesystem::exists(file, ec)) return "";
+    std::ifstream in(file, std::ios::binary);
+    if (!in) return "";
+    for (std::string line; std::getline(in, line);) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        const DshLine dl = dshLineOf(line);
+        if (!dl.listItem && dl.key == envName) return yamlScalar(dl.value);
+    }
+    return "";
+}
 
 void ProviderStore::switchTo(std::string_view tool, const std::string& id) {
     auto& g = groupRef(tool);
@@ -480,6 +837,41 @@ void ProviderStore::switchTo(std::string_view tool, const std::string& id) {
         deepMerge(settings, patch);
         atomicWrite(settingsFile, settings.dump(2) + "\n");
         restrictPiFile(settingsFile);
+    } else if (tool == "dsh") {
+        // settings.yaml：删旧 agent-default-model 与 llmswitch-* 路由后 upsert
+        // llmswitch-<id> 条目，并在文件头重建 agent-default-model 指向；密钥
+        // 只写 .credentials.yaml（apiKeyEnv 引用）。两份文件都被 dsh 热监听
+        // → 切换即时生效，无需重启。
+        const auto settingsFile = cfg::dshSettingsFile();
+        restrictPiDir(settingsFile.parent_path());
+        backupLiveFile(tool, settingsFile);
+        std::string text;
+        {
+            std::error_code ec;
+            if (std::filesystem::exists(settingsFile, ec)) {
+                text = readTextFile(settingsFile);
+            }
+        }
+        const std::string envName = dshApiKeyEnv(target->id);
+        std::vector<std::string> entry;
+        entry.push_back("    llmswitch-" + target->id + ":");
+        entry.push_back("      displayName: " + yamlQuote(target->name));
+        entry.push_back("      api: " + piApiValue(target->apiFormat));
+        entry.push_back("      baseURL: " + yamlQuote(baseUrl));
+        entry.push_back("      apiKeyEnv: " + envName);
+        if (!target->model.empty()) {
+            entry.push_back("      models:");
+            entry.push_back("        - id: " + yamlQuote(target->model));
+        }
+        atomicWrite(settingsFile,
+                    rewriteDshSettings(text, entry, "llmswitch-" + target->id,
+                                       target->model));
+        if (!target->apiKey.empty()) {
+            const auto credFile = cfg::dshCredentialsFile();
+            backupLiveFile(tool, credFile);
+            upsertDshCredential(credFile, envName, target->apiKey);
+            restrictPiFile(credFile);
+        }
     } else if (tool == "gemini" || tool == "qwen") {
         // gemini-cli 系（Gemini CLI / Qwen Code）：认证与端点写 <dir>/.env
         // （行级 upsert，其余变量与注释原样保留），auth 类型写 settings.json
@@ -734,6 +1126,18 @@ void ProviderStore::restoreOfficial(std::string_view tool) {
                 }
                 atomicWrite(file, doc.dump(2) + "\n");
             }
+        }
+    } else if (tool == "dsh") {
+        // 回到内置 deepseek-official 路由：删 settings.yaml 的
+        // agent-default-model 块与 llmswitch-* 手写路由，其余键保留。
+        // .credentials.yaml 里的 LLMSWITCH_* 密钥无引用即无害，不代清。
+        const auto settingsFile = cfg::dshSettingsFile();
+        std::error_code ec;
+        if (std::filesystem::exists(settingsFile, ec)) {
+            backupLiveFile(tool, settingsFile);
+            atomicWrite(settingsFile,
+                        rewriteDshSettings(readTextFile(settingsFile), {}, "",
+                                           ""));
         }
     } else if (tool == "claude") {
         // 撤掉 3p 直连：两份 claude_desktop_config.json 删 deploymentMode 键；

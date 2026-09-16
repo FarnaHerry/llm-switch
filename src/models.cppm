@@ -2,9 +2,8 @@
 //
 // 数据形态对齐 cc-switch：一个工具一组供应商，组内 current 指向当前激活项；
 // 切换时由 llmswitch.store 把选中项写进该工具的 live 配置文件。工具集合由
-// toolRegistry() 注册表定义（claude-code / claude / codex / opencode / pi），
-// AppConfig.groups 以注册表 id 为键——新增工具只需扩展注册表与 store 的
-// writer/detect/import 分发。
+// toolRegistry() 注册表定义，AppConfig.groups 以注册表 id 为键——新增工具
+// 只需扩展注册表与 store 的 writer/detect/import 分发。
 // JSON 序列化用 nlohmann::json 模块 —— 该模块下禁用
 // `.items()` 结构化绑定（迭代器退化问题），遍历时用 it.key()/it.value()。
 export module llmswitch.models;
@@ -34,7 +33,7 @@ export struct ToolSpec {
 };
 
 // 注册表顺序即 UI 侧栏/托盘菜单顺序。
-export constexpr std::array<ToolSpec, 8> kToolRegistry{{
+export constexpr std::array<ToolSpec, 9> kToolRegistry{{
     ToolSpec{.id = "claude-code",
              .displayName = "Claude Code",
              .iconName = "claudecode",
@@ -70,6 +69,17 @@ export constexpr std::array<ToolSpec, 8> kToolRegistry{{
              .hasApiFormat = true,
              .hasModelMappings = false,
              .needsRestart = true},
+    // DeepSeek Harness（dsh）：~/.dsh/settings.yaml 的 llm-pi-ai.providers
+    // 手写 YAML upsert + agent-default-model 指向；密钥只写
+    // ~/.dsh/.credentials.yaml（apiKeyEnv 引用，热监听即时生效），
+    // settings.yaml 同样热重载 → 切换无需重启。
+    ToolSpec{.id = "dsh",
+             .displayName = "DeepSeek Harness",
+             .iconName = "dsh",
+             .needsModel = true,
+             .hasApiFormat = true,
+             .hasModelMappings = false,
+             .needsRestart = false},
     // gemini-cli 系（Gemini CLI / Qwen Code）：认证与端点走 ~/.<dir>/.env
     // 行级 upsert（GEMINI_API_KEY/GOOGLE_GEMINI_BASE_URL/GEMINI_MODEL 与
     // OPENAI_API_KEY/OPENAI_BASE_URL/OPENAI_MODEL），auth 类型写 settings.json。
@@ -202,8 +212,8 @@ export struct AppConfig {
     bool routerFailover = true;    // 上游 429/5xx 时故障转移到组内下一个供应商
     // 允许通过本地路由代理的工具 id；旧配置缺字段时默认全部启用，保持兼容。
     std::vector<std::string> routerTools{
-        "claude-code", "claude", "codex", "opencode", "pi", "gemini", "qwen",
-        "zcode"};
+        "claude-code", "claude", "codex", "opencode", "pi", "dsh", "gemini",
+        "qwen", "zcode"};
 
     bool operator==(const AppConfig&) const = default;
 };
@@ -1088,6 +1098,51 @@ wire_api = "responses"
         };
         return groups;
     }
+    if (tool == "dsh") {
+        // DeepSeek Harness（dsh）：手写路由走 llm-pi-ai.providers，协议三档
+        // 对应 apiFormat（"" / openai-chat → openai-completions，另两档同名
+        // 映射）；官方 deepseek-official 路由由常驻「官方」卡承担。端点
+        // 均为各家文档的直连地址（2026-09 核实；千问平台 dsh 接入指南同源）。
+        groups.metered = {
+            Provider{.name = "DeepSeek",
+                     .baseUrl = "https://api.deepseek.com/anthropic",
+                     .model = "deepseek-v4-flash",
+                     .website = "https://platform.deepseek.com",
+                     .apiFormat = "anthropic",
+                     .usageEnabled = true,
+                     .usageUrl = "https://api.deepseek.com/user/balance",
+                     .usagePath = "balance_infos.0.total_balance",
+                     .usageLabel = "CNY",
+                     .upstreamFormat = "anthropic",
+                     .fullUrl = true},
+            Provider{.name = "Kimi（Moonshot）",
+                     .baseUrl = "https://api.moonshot.cn/v1",
+                     .model = "kimi-k2-0905-preview",
+                     .website = "https://platform.moonshot.cn",
+                     .apiFormat = "openai-chat",
+                     .usageEnabled = true,
+                     .usageUrl = "https://api.moonshot.cn/v1/users/me/balance",
+                     .usagePath = "data.available_balance",
+                     .usageLabel = "CNY",
+                     .upstreamFormat = "openai",
+                     .fullUrl = true},
+            Provider{.name = "GLM（智谱）",
+                     .baseUrl = "https://open.bigmodel.cn/api/paas/v4",
+                     .model = "glm-5.1",
+                     .website = "https://open.bigmodel.cn",
+                     .apiFormat = "openai-chat",
+                     .upstreamFormat = "openai",
+                     .fullUrl = true},
+            Provider{.name = "千问（阿里百炼）",
+                     .baseUrl = "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                     .model = "qwen3.8-max",
+                     .website = "https://platform.qianwenai.com",
+                     .apiFormat = "openai-chat",
+                     .upstreamFormat = "openai",
+                     .fullUrl = true},
+        };
+        return groups;
+    }
     // claude（Claude Desktop 3p 直连）：暂无第三方预设（官方走常驻卡）。
     // qwen / zcode：cc-switch 无对应预设来源，暂不预设。
     return groups;
@@ -1101,6 +1156,9 @@ export std::string_view officialVendorName(std::string_view tool) {
     if (tool == "codex") return "OpenAI 官方";
     // ZCode 官方 = 内置（builtin:*）provider 原生启用、无本应用托管条目生效。
     if (tool == "zcode") return "ZCode 官方";
+    // DeepSeek 官方 = dsh 内置 deepseek-official 路由接管（无
+    // agent-default-model 覆盖、无 llmswitch-* 手写路由）。
+    if (tool == "dsh") return "DeepSeek 官方";
     return "";
 }
 

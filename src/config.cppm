@@ -12,6 +12,9 @@
 //   LLMSWITCH_CLAUDE_DESKTOP_DIR  → macOS ~/Library/Application Support/Claude /
 //                                   Windows %LOCALAPPDATA%/Claude  （claude desktop，
 //                                   Linux 不支持；3p 目录取其兄弟 <dir>-3p）
+//   LLMSWITCH_ZCODE_CONFIG      → ~/.zcode/v2/config.json        （zcode）
+//   LLMSWITCH_DSH_SETTINGS      → ~/.dsh/settings.yaml           （dsh）
+//   LLMSWITCH_DSH_CREDENTIALS   → ~/.dsh/.credentials.yaml       （dsh）
 module;
 
 #ifdef _WIN32
@@ -227,6 +230,31 @@ export std::filesystem::path zcodeConfigFile() {
         return std::filesystem::path(e);
     }
     return homeDir() / ".zcode" / "v2" / "config.json";
+}
+
+// DeepSeek Harness（dsh）主设置（llm-pi-ai.providers 手写路由 +
+// agent-default-model 指向，YAML 行级改写，其余键原样保留）。
+// $DSH_HOME 为官方目录覆盖变量，优先于默认 ~/.dsh，低于 LLMSWITCH_* 覆盖。
+export std::filesystem::path dshSettingsFile() {
+    if (const char* e = std::getenv("LLMSWITCH_DSH_SETTINGS"); e && *e) {
+        return std::filesystem::path(e);
+    }
+    if (const char* e = std::getenv("DSH_HOME"); e && *e) {
+        return std::filesystem::path(e) / "settings.yaml";
+    }
+    return homeDir() / ".dsh" / "settings.yaml";
+}
+
+// dsh 的密钥库（env 名 → 密钥值的 YAML map，热监听即时生效；目录 0700、
+// 文件 0600）。settings.yaml 只写 apiKeyEnv 引用，密钥一律不落主设置。
+export std::filesystem::path dshCredentialsFile() {
+    if (const char* e = std::getenv("LLMSWITCH_DSH_CREDENTIALS"); e && *e) {
+        return std::filesystem::path(e);
+    }
+    if (const char* e = std::getenv("DSH_HOME"); e && *e) {
+        return std::filesystem::path(e) / ".credentials.yaml";
+    }
+    return homeDir() / ".dsh" / ".credentials.yaml";
 }
 
 // Claude Desktop 配置目录（3p Direct 模式；**Linux 不支持**，返回空路径——
