@@ -49,8 +49,11 @@ bool liveFileExists(std::string_view tool) {
     if (tool == "zcode") {
         return std::filesystem::exists(cfg::zcodeConfigFile(), ec);
     }
-    if (tool == "harness") {
-        return std::filesystem::exists(cfg::harnessSettingsFile(), ec);
+    if (tool == "dsh") {
+        return std::filesystem::exists(cfg::dshSettingsFile(), ec);
+    }
+    if (tool == "hermes") {
+        return std::filesystem::exists(cfg::hermesConfigFile(), ec);
     }
     if (tool == "claude") {
         const auto profile = claudeDesktopProfileFile();

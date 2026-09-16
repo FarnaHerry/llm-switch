@@ -13,9 +13,10 @@
 //                                   Windows %LOCALAPPDATA%/Claude  （claude desktop，
 //                                   Linux 不支持；3p 目录取其兄弟 <dir>-3p）
 //   LLMSWITCH_ZCODE_CONFIG      → ~/.zcode/v2/config.json        （zcode）
-//   LLMSWITCH_HARNESS_SETTINGS    → ~/.dsh/settings.yaml           （harness，
-//                                   CLI 为 dsh）
-//   LLMSWITCH_HARNESS_CREDENTIALS → ~/.dsh/.credentials.yaml       （harness）
+//   LLMSWITCH_DSH_SETTINGS      → ~/.dsh/settings.yaml           （dsh）
+//   LLMSWITCH_DSH_CREDENTIALS   → ~/.dsh/.credentials.yaml       （dsh）
+//   LLMSWITCH_HERMES_CONFIG     → ~/.hermes/config.yaml          （hermes，
+//                                 Windows %LOCALAPPDATA%\hermes）
 module;
 
 #ifdef _WIN32
@@ -233,11 +234,11 @@ export std::filesystem::path zcodeConfigFile() {
     return homeDir() / ".zcode" / "v2" / "config.json";
 }
 
-// Harness（DeepSeek，CLI 为 dsh）主设置（llm-pi-ai.providers 手写路由 +
+// DeepSeek Harness（dsh）主设置（llm-pi-ai.providers 手写路由 +
 // agent-default-model 指向，YAML 行级改写，其余键原样保留）。
 // $DSH_HOME 为官方目录覆盖变量，优先于默认 ~/.dsh，低于 LLMSWITCH_* 覆盖。
-export std::filesystem::path harnessSettingsFile() {
-    if (const char* e = std::getenv("LLMSWITCH_HARNESS_SETTINGS"); e && *e) {
+export std::filesystem::path dshSettingsFile() {
+    if (const char* e = std::getenv("LLMSWITCH_DSH_SETTINGS"); e && *e) {
         return std::filesystem::path(e);
     }
     if (const char* e = std::getenv("DSH_HOME"); e && *e) {
@@ -246,16 +247,39 @@ export std::filesystem::path harnessSettingsFile() {
     return homeDir() / ".dsh" / "settings.yaml";
 }
 
-// harness 的密钥库（env 名 → 密钥值的 YAML map，热监听即时生效；目录 0700、
+// dsh 的密钥库（env 名 → 密钥值的 YAML map，热监听即时生效；目录 0700、
 // 文件 0600）。settings.yaml 只写 apiKeyEnv 引用，密钥一律不落主设置。
-export std::filesystem::path harnessCredentialsFile() {
-    if (const char* e = std::getenv("LLMSWITCH_HARNESS_CREDENTIALS"); e && *e) {
+export std::filesystem::path dshCredentialsFile() {
+    if (const char* e = std::getenv("LLMSWITCH_DSH_CREDENTIALS"); e && *e) {
         return std::filesystem::path(e);
     }
     if (const char* e = std::getenv("DSH_HOME"); e && *e) {
         return std::filesystem::path(e) / ".credentials.yaml";
     }
     return homeDir() / ".dsh" / ".credentials.yaml";
+}
+
+// Hermes Agent 主配置（custom_providers 列表 + 顶层 model 节指向，YAML 行级
+// 改写，其余节原样保留）。$HERMES_HOME 为官方目录覆盖变量（对齐 cc-switch
+// 与 hermes_cli 的 get_hermes_home），Windows 默认 %LOCALAPPDATA%\hermes。
+export std::filesystem::path hermesConfigFile() {
+    if (const char* e = std::getenv("LLMSWITCH_HERMES_CONFIG"); e && *e) {
+        return std::filesystem::path(e);
+    }
+#ifdef _WIN32
+    if (const char* e = std::getenv("HERMES_HOME"); e && *e) {
+        return std::filesystem::path(e) / "config.yaml";
+    }
+    if (const char* e = std::getenv("LOCALAPPDATA"); e && *e) {
+        return std::filesystem::path(e) / "hermes" / "config.yaml";
+    }
+    return homeDir() / "AppData" / "Local" / "hermes" / "config.yaml";
+#else
+    if (const char* e = std::getenv("HERMES_HOME"); e && *e) {
+        return std::filesystem::path(e) / "config.yaml";
+    }
+    return homeDir() / ".hermes" / "config.yaml";
+#endif
 }
 
 // Claude Desktop 配置目录（3p Direct 模式；**Linux 不支持**，返回空路径——

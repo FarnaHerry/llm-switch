@@ -44,7 +44,8 @@ CMake 配置阶段会检查全部 24×24 SVG：包含硬编码颜色（非 `#FFF
 | `codex.svg` | OpenAI 官方 logo，simple-icons `openai`（取自 release tag 15.1.0；官方轮廓不变，增加 alpha 水墨纹理） | CC0 1.0 |
 | `opencode.svg` | opencode 官方 logo，simple-icons develop 分支 `opencode`（保留镂空规则与官方轮廓） | CC0 1.0 |
 | `pi.svg` | pi-mono 官方 logo，[pi.dev](https://pi.dev) `logo-auto.svg`（等比缩到 24×24，官方轮廓不变） | MIT（[pi-mono 仓库](https://github.com/badlogic/pi-mono)） |
-| `harness.svg` | 本仓库自绘束带扣（Harness 的 harness 意象） | 同本仓库 |
+| `dsh.svg` | 本仓库自绘束带扣（DeepSeek Harness 的 harness 意象） | 同本仓库 |
+| `hermes.svg` | 本仓库自绘飞翼（Hermes 的神使飞翼意象） | 同本仓库 |
 | `home/agents/providers/models/router/skills/mcp/sessions/stats/settings.svg` | `docs/icon-reference.png` 中的核心导航水墨图标（对应首页、Agent、供应商、模型、本地路由、Skills、MCP、会话、用量、设置） | 本仓库转换稿 |
 | `trash/download/upload/search/refresh/add/edit/import/export/backup/restore.svg` | `docs/icon-reference.png` 中的常用操作水墨图标 | 本仓库转换稿 |
 | `success/error/warning/info/loading/more/disabled/processing.svg` | `docs/icon-reference.png` 中的状态提示水墨图标 | 本仓库转换稿 |

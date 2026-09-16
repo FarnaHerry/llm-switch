@@ -3,7 +3,8 @@
 // 职责：config.json 的读写与 CRUD、把选中供应商写进各工具的 live 配置文件
 // （claude-code 的 settings.json / codex 的 auth.json + config.toml /
 // opencode 的 opencode.json / pi 的 models.json + settings.json /
-// harness 的 settings.yaml + .credentials.yaml / claude desktop 的 3p profile 组）、live 文件备份与收编、配置导出导入。
+// dsh 的 settings.yaml + .credentials.yaml / hermes 的 config.yaml /
+// claude desktop 的 3p profile 组）、live 文件备份与收编、配置导出导入。
 // 实现单元：store.cpp（核心）/ store_live.cpp（切换与还原）/
 // store_import.cpp（收编、探测与导入）/ store_zcode.cpp（ZCode 条目同步）。
 // 工具 id 以 models::toolRegistry() 注册表为准。不强制单例 —— 测试可直接
@@ -88,9 +89,12 @@ public:
     //     只认严格 JSON——解析失败抛错且不碰原文件；
     //   pi：models.json 顶层 providers map upsert + settings.json 深合并
     //     defaultProvider/defaultModel，目录 0700 文件 0600；
-    //   harness：settings.yaml 行级 upsert llm-pi-ai.providers 的 llmswitch-<id>
+    //   dsh：settings.yaml 行级 upsert llm-pi-ai.providers 的 llmswitch-<id>
     //     条目 + 文件头 agent-default-model 指向；密钥只写
     //     .credentials.yaml（apiKeyEnv 引用，两份文件均被热监听 → 即时生效）；
+    //   hermes：config.yaml 的 custom_providers 列表删旧 llmswitch-* 条目后
+    //     追加新条目（api_mode 三档映射），顶层 model 节写 provider（总是）
+    //     与 default（model 非空时），其余节原样保留；
     //   claude（Desktop 3p 直连）：两个 claude_desktop_config.json 深合并
     //     deploymentMode=3p，写 configLibrary 下固定 id 的 profile 与
     //     _meta.json；inferenceModels = 主模型 + 三档映射条目（非白名单模型名
@@ -112,9 +116,9 @@ public:
     //     （即本应用写入且未被手改）才删除，否则不动；
     //   claude（Desktop）：两份 claude_desktop_config.json 删 deploymentMode
     //     键，_meta.json 移除本应用 profile 条目并清 appliedId；Linux 抛错；
-    //   harness：settings.yaml 删 agent-default-model 块与 llmswitch-* 路由条目，
+    //   dsh：settings.yaml 删 agent-default-model 块与 llmswitch-* 路由条目，
     //     回到内置 deepseek-official 路由（.credentials.yaml 的密钥不代清）。
-    // opencode / pi 没有官方默认状态，抛 std::runtime_error。
+    // opencode / pi / hermes 没有官方默认状态，抛 std::runtime_error。
     void restoreOfficial(std::string_view tool);
 
     // 把 live 文件当前内容收编成名为「当前配置」的新 provider（已有匹配项则
@@ -166,23 +170,40 @@ std::string_view trimLeft(std::string_view s);
 std::string codexModelLineValue(std::string_view line, bool& commentedOut);
 std::filesystem::path claudeDesktopProfileFile();
 
-// harness（DeepSeek，CLI 为 dsh）settings.yaml 行级读取结果与助手（定义在
+// dsh（DeepSeek Harness）settings.yaml 行级读取结果与助手（定义在
 // store_live.cpp；写侧的行级改写是该文件私有）。
-struct HarnessProviderEntry {
+struct DshProviderEntry {
     std::string key;
     std::string baseUrl;
     std::string api;
     std::string apiKeyEnv;
     std::string firstModel;
 };
-struct HarnessSettingsInfo {
+struct DshSettingsInfo {
     std::string defaultProvider;
     std::string defaultModel;
-    std::vector<HarnessProviderEntry> providers;
+    std::vector<DshProviderEntry> providers;
 };
-HarnessSettingsInfo parseHarnessSettings(std::string_view text);
-std::string readHarnessCredential(const std::filesystem::path& file,
+DshSettingsInfo parseDshSettings(std::string_view text);
+std::string readDshCredential(const std::filesystem::path& file,
                               std::string_view envName);
+
+// hermes（Hermes Agent）config.yaml 行级读取结果与助手（定义在
+// store_live.cpp；写侧的行级改写是该文件私有）。
+struct HermesProviderEntry {
+    std::string name;
+    std::string baseUrl;
+    std::string apiKey;
+    std::string apiMode;
+    std::string model;
+    std::string firstModel;
+};
+struct HermesConfigInfo {
+    std::string modelProvider;
+    std::string modelDefault;
+    std::vector<HermesProviderEntry> providers;
+};
+HermesConfigInfo parseHermesConfig(std::string_view text);
 
 // Claude Desktop 3p profile 的固定 id（对齐 cc-switch，configLibrary 按 id
 // 索引，entries 里注册同名条目）。

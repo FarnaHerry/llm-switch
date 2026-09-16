@@ -113,9 +113,10 @@ int main() {
     const fs::path qwenEnv = qwenDir / ".env";
     const fs::path qwenSettings = qwenDir / "settings.json";
     const fs::path zcodeConfig = root / "zcode" / "config.json";
-    const fs::path harnessDir = root / "harness";
-    const fs::path harnessSettingsPath = harnessDir / "settings.yaml";
-    const fs::path harnessCredentialsPath = harnessDir / ".credentials.yaml";
+    const fs::path dshDir = root / "dsh";
+    const fs::path dshSettings = dshDir / "settings.yaml";
+    const fs::path dshCredentials = dshDir / ".credentials.yaml";
+    const fs::path hermesConfig = root / "hermes" / "config.yaml";
     testenv::setenv("LLMSWITCH_CLAUDE_SETTINGS", claudeSettings);
     testenv::setenv("LLMSWITCH_CODEX_AUTH", codexAuth);
     testenv::setenv("LLMSWITCH_CODEX_CONFIG", codexConfig);
@@ -124,10 +125,12 @@ int main() {
     testenv::setenv("LLMSWITCH_GEMINI_DIR", geminiDir);
     testenv::setenv("LLMSWITCH_QWEN_DIR", qwenDir);
     testenv::setenv("LLMSWITCH_ZCODE_CONFIG", zcodeConfig);
-    testenv::setenv("LLMSWITCH_HARNESS_SETTINGS", harnessSettingsPath);
-    testenv::setenv("LLMSWITCH_HARNESS_CREDENTIALS", harnessCredentialsPath);
+    testenv::setenv("LLMSWITCH_DSH_SETTINGS", dshSettings);
+    testenv::setenv("LLMSWITCH_DSH_CREDENTIALS", dshCredentials);
+    testenv::setenv("LLMSWITCH_HERMES_CONFIG", hermesConfig);
     testenv::unsetenv("PI_CODING_AGENT_DIR");
     testenv::unsetenv("DSH_HOME");
+    testenv::unsetenv("HERMES_HOME");
     testenv::unsetenv("LLMSWITCH_CLAUDE_DESKTOP_DIR");  // 默认 Linux 不支持
 
     // 1. 空环境 load → 默认空配置
@@ -141,14 +144,17 @@ int main() {
               s.config().routerTools.end());
         CHECK(s.detectCurrent("claude-code").empty());
         CHECK(s.detectCurrent("claude").empty());  // Linux 无桌面目录 → 空
-        // 注册表自检：9 个工具、id 可互查
-        CHECK(models::toolRegistry().size() == 9);
+        // 注册表自检：10 个工具、id 可互查
+        CHECK(models::toolRegistry().size() == 10);
         CHECK(models::findTool("claude-code") != nullptr);
         CHECK(models::findTool("opencode")->needsModel);
         CHECK(models::findTool("pi")->hasApiFormat);
-        CHECK(models::findTool("harness")->needsModel);
-        CHECK(models::findTool("harness")->hasApiFormat);
-        CHECK(!models::findTool("harness")->hasModelMappings);
+        CHECK(models::findTool("dsh")->needsModel);
+        CHECK(models::findTool("dsh")->hasApiFormat);
+        CHECK(!models::findTool("dsh")->hasModelMappings);
+        CHECK(models::findTool("hermes")->needsModel);
+        CHECK(models::findTool("hermes")->hasApiFormat);
+        CHECK(models::findTool("hermes")->needsRestart);
         CHECK(models::findTool("gemini")->needsModel);
         CHECK(models::findTool("qwen")->needsModel);
         CHECK(!models::findTool("gemini")->hasApiFormat);
@@ -157,16 +163,18 @@ int main() {
         CHECK(models::findTool("claude-code")->hasModelMappings);
         CHECK(models::findTool("claude")->hasModelMappings);
         CHECK(!models::findTool("codex")->hasModelMappings);
-        // needsRestart：claude-code 运行中重读配置、harness 两份 YAML 均被热
-        // 监听，切换无需重启；其余工具（codex / zcode 等）live 配置在进程
-        // 启动时读取，切换后需重启
+        // needsRestart：claude-code 运行中重读配置、dsh 两份 YAML 均被热
+        // 监听，切换无需重启；其余工具（codex / zcode / hermes 等）live
+        // 配置在进程启动时读取，切换后需重启
         CHECK(!models::findTool("claude-code")->needsRestart);
-        CHECK(!models::findTool("harness")->needsRestart);
+        CHECK(!models::findTool("dsh")->needsRestart);
         CHECK(std::ranges::all_of(
             models::toolRegistry(), [](const auto& t) {
-                return t.id == "claude-code" || t.id == "harness" || t.needsRestart;
+                return t.id == "claude-code" || t.id == "dsh" || t.needsRestart;
             }));
-        CHECK(std::ranges::find(s.config().routerTools, "harness") !=
+        CHECK(std::ranges::find(s.config().routerTools, "dsh") !=
+              s.config().routerTools.end());
+        CHECK(std::ranges::find(s.config().routerTools, "hermes") !=
               s.config().routerTools.end());
         CHECK(models::findTool("nope") == nullptr);
     }
@@ -819,12 +827,12 @@ int main() {
         CHECK(s.detectCurrent("pi") == idP2);
     }
 
-    // 8d. harness：settings.yaml 行级 upsert（删旧 llmswitch-* 条目 +
+    // 8d. dsh：settings.yaml 行级 upsert（删旧 llmswitch-* 条目 +
     // agent-default-model 指向，无关键/注释/内置路由保留）+ 密钥只进
     // .credentials.yaml + detect/import 往返 + restore 回内置官方路由。
     {
-        writeFile(harnessSettingsPath,
-                  "# harness 设置\ntheme: dark\n"
+        writeFile(dshSettings,
+                  "# dsh 设置\ntheme: dark\n"
                   "llm-pi-ai:\n"
                   "  providers:\n"
                   "    deepseek-official:\n"
@@ -833,14 +841,14 @@ int main() {
                   "    llmswitch-stale:\n"
                   "      api: openai-completions\n"
                   "      baseURL: https://stale.example.com\n");
-        writeFile(harnessCredentialsPath, "version: 1\nOTHER_KEY: \"keep-me\"\n");
+        writeFile(dshCredentials, "version: 1\nOTHER_KEY: \"keep-me\"\n");
         models::Provider pd2{.name = "DeepSeek 中转",
                              .baseUrl = "https://relay.example.com/anthropic",
                              .apiKey = "sk-dsh",
                              .model = "deepseek-v4-flash",
                              .apiFormat = "anthropic"};
-        s.addProvider("harness", pd2);
-        const std::string idS = s.group("harness").providers.back().id;
+        s.addProvider("dsh", pd2);
+        const std::string idS = s.group("dsh").providers.back().id;
         const auto envNameOf = [](std::string_view id) {
             std::string out = "LLMSWITCH_";
             for (const unsigned char c : id) {
@@ -848,10 +856,10 @@ int main() {
             }
             return out;
         };
-        s.switchTo("harness", idS);
+        s.switchTo("dsh", idS);
         {
-            const std::string y = readTextFile(harnessSettingsPath);
-            CHECK(y.find("# harness 设置") != std::string::npos);   // 注释保留
+            const std::string y = readTextFile(dshSettings);
+            CHECK(y.find("# dsh 设置") != std::string::npos);   // 注释保留
             CHECK(y.find("theme: dark") != std::string::npos);  // 无关键保留
             CHECK(y.find("deepseek-official:") != std::string::npos);  // 内置路由保留
             CHECK(y.find("llmswitch-stale") == std::string::npos);     // 旧条目删除
@@ -866,29 +874,29 @@ int main() {
             CHECK(y.find("provider: llmswitch-" + idS) != std::string::npos);
             CHECK(y.find("model: \"deepseek-v4-flash\"") != std::string::npos);
             CHECK(y.find("sk-dsh") == std::string::npos);  // 密钥不进 settings
-            const std::string cred = readTextFile(harnessCredentialsPath);
+            const std::string cred = readTextFile(dshCredentials);
             CHECK(cred.find("version: 1") != std::string::npos);  // version 保留
             CHECK(cred.find("OTHER_KEY: \"keep-me\"") != std::string::npos);
             CHECK(cred.find(envNameOf(idS) + ": \"sk-dsh\"") != std::string::npos);
 #if !defined(_WIN32)
             // 权限：目录 0700、凭据文件 0600（Windows 无 POSIX 权限位语义）
-            CHECK((fs::status(harnessDir).permissions() & fs::perms::all) ==
+            CHECK((fs::status(dshDir).permissions() & fs::perms::all) ==
                   fs::perms::owner_all);
-            CHECK((fs::status(harnessCredentialsPath).permissions() & fs::perms::all) ==
+            CHECK((fs::status(dshCredentials).permissions() & fs::perms::all) ==
                   (fs::perms::owner_read | fs::perms::owner_write));
 #endif
-            CHECK(s.detectCurrent("harness") == idS);
+            CHECK(s.detectCurrent("dsh") == idS);
         }
         // 二次切换：条目替换而非堆积，agent-default-model 只此一块跟着改。
         models::Provider pd3{.name = "GLM 直连",
                              .baseUrl = "https://open.bigmodel.cn/api/paas/v4",
                              .apiKey = "sk-dsh-2",
                              .model = "glm-5.1"};  // apiFormat 默认
-        s.addProvider("harness", pd3);
-        const std::string idS2 = s.group("harness").providers.back().id;
-        s.switchTo("harness", idS2);
+        s.addProvider("dsh", pd3);
+        const std::string idS2 = s.group("dsh").providers.back().id;
+        s.switchTo("dsh", idS2);
         {
-            const std::string y = readTextFile(harnessSettingsPath);
+            const std::string y = readTextFile(dshSettings);
             CHECK(y.find("llmswitch-" + idS + ":") == std::string::npos);
             CHECK(y.find("llmswitch-" + idS2 + ":") != std::string::npos);
             CHECK(y.find("api: openai-completions") != std::string::npos);
@@ -900,26 +908,114 @@ int main() {
                 ++admBlocks;
             }
             CHECK(admBlocks == 1);
-            CHECK(s.detectCurrent("harness") == idS2);
+            CHECK(s.detectCurrent("dsh") == idS2);
         }
         // importLive 往返：从 live 文件收编（同端点+密钥命中 idS2 复用）。
         {
-            const auto imported = s.importLive("harness");
+            const auto imported = s.importLive("dsh");
             CHECK(imported.id == idS2);
             CHECK(imported.apiKey == "sk-dsh-2");
             CHECK(imported.baseUrl == "https://open.bigmodel.cn/api/paas/v4");
             CHECK(imported.model == "glm-5.1");
-            CHECK(s.detectCurrent("harness") == idS2);
+            CHECK(s.detectCurrent("dsh") == idS2);
         }
         // restoreOfficial：块与 llmswitch-* 条目移除，内置路由与无关键保留。
-        s.restoreOfficial("harness");
+        s.restoreOfficial("dsh");
         {
-            const std::string y = readTextFile(harnessSettingsPath);
+            const std::string y = readTextFile(dshSettings);
             CHECK(y.find("agent-default-model") == std::string::npos);
             CHECK(y.find("llmswitch-") == std::string::npos);
             CHECK(y.find("deepseek-official:") != std::string::npos);
             CHECK(y.find("theme: dark") != std::string::npos);
-            CHECK(s.detectCurrent("harness").empty());
+            CHECK(s.detectCurrent("dsh").empty());
+        }
+    }
+
+    // 8e. hermes：config.yaml 的 custom_providers 列表 upsert（删旧
+    // llmswitch-* 条目）+ 顶层 model 节指向，无关节/注释保留；detect/
+    // import 往返；api_mode 三档映射；无官方态 restore 抛错。
+    {
+        writeFile(hermesConfig,
+                  "# hermes 配置\n"
+                  "model:\n"
+                  "  default: \"old-model\"\n"
+                  "  provider: some-native\n"
+                  "  base_url: https://native.example.com\n"
+                  "agent:\n"
+                  "  max_turns: 50\n"
+                  "custom_providers:\n"
+                  "  - name: native-a\n"
+                  "    base_url: https://a.example.com/v1\n"
+                  "    api_key: sk-a\n"
+                  "    api_mode: chat_completions\n"
+                  "  - name: llmswitch-stale\n"
+                  "    base_url: https://stale.example.com\n"
+                  "    api_key: sk-stale\n");
+        models::Provider ph{.name = "Hermes 中转",
+                            .baseUrl = "https://relay.example.com/v1",
+                            .apiKey = "sk-hermes",
+                            .model = "test-model-1",
+                            .apiFormat = "openai-responses"};
+        s.addProvider("hermes", ph);
+        const std::string idH = s.group("hermes").providers.back().id;
+        s.switchTo("hermes", idH);
+        {
+            const std::string y = readTextFile(hermesConfig);
+            CHECK(y.find("# hermes 配置") != std::string::npos);  // 注释保留
+            CHECK(y.find("agent:\n  max_turns: 50") != std::string::npos);  // 无关节保留
+            CHECK(y.find("- name: native-a") != std::string::npos);  // 原生条目保留
+            CHECK(y.find("llmswitch-stale") == std::string::npos);   // 旧条目删除
+            CHECK(y.find("stale.example.com") == std::string::npos);
+            CHECK(y.find("- name: llmswitch-" + idH) != std::string::npos);
+            CHECK(y.find("base_url: \"https://relay.example.com/v1\"") !=
+                  std::string::npos);
+            CHECK(y.find("api_key: \"sk-hermes\"") != std::string::npos);
+            CHECK(y.find("api_mode: codex_responses") != std::string::npos);
+            CHECK(y.find("\"test-model-1\": {}") != std::string::npos);
+            CHECK(y.find("provider: llmswitch-" + idH) != std::string::npos);
+            CHECK(y.find("default: \"test-model-1\"") != std::string::npos);
+            // model 节其余键保留
+            CHECK(y.find("base_url: https://native.example.com") !=
+                  std::string::npos);
+            CHECK(y.find("provider: some-native") == std::string::npos);
+            CHECK(s.detectCurrent("hermes") == idH);
+        }
+        // 二次切换：条目替换而非堆积，model 节跟着改，原生条目不受影响。
+        models::Provider ph2{.name = "GLM 直连",
+                             .baseUrl = "https://open.bigmodel.cn/api/paas/v4",
+                             .apiKey = "sk-hermes-2",
+                             .model = "glm-5.1",
+                             .apiFormat = "anthropic"};
+        s.addProvider("hermes", ph2);
+        const std::string idH2 = s.group("hermes").providers.back().id;
+        s.switchTo("hermes", idH2);
+        {
+            const std::string y = readTextFile(hermesConfig);
+            CHECK(y.find("- name: llmswitch-" + idH + "\n") == std::string::npos);
+            CHECK(y.find("- name: llmswitch-" + idH2) != std::string::npos);
+            CHECK(y.find("api_mode: anthropic_messages") != std::string::npos);
+            CHECK(y.find("- name: native-a") != std::string::npos);
+            CHECK(y.find("provider: llmswitch-" + idH2) != std::string::npos);
+            CHECK(s.detectCurrent("hermes") == idH2);
+        }
+        // importLive 往返：同端点+密钥命中 idH2 复用。
+        {
+            const auto imported = s.importLive("hermes");
+            CHECK(imported.id == idH2);
+            CHECK(imported.apiKey == "sk-hermes-2");
+            CHECK(imported.apiFormat == "anthropic");
+            CHECK(imported.model == "glm-5.1");
+            CHECK(s.detectCurrent("hermes") == idH2);
+        }
+        // 无官方默认状态：restoreOfficial 抛错。
+        {
+            bool threw = false;
+            try {
+                s.restoreOfficial("hermes");
+            } catch (const std::exception&) {
+                threw = true;
+            }
+            CHECK(threw);
         }
     }
 
@@ -1469,8 +1565,8 @@ int main() {
         CHECK(zc.subscription.empty() && zc.metered.empty());
         // dsh：按量组 4 家直连（DeepSeek / Kimi / GLM / 千问），都带模型；
         // 官方走常驻卡（内置 deepseek-official 路由）。
-        CHECK(models::officialVendorName("harness") == "DeepSeek 官方");
-        const auto ds = models::builtinPresets("harness");
+        CHECK(models::officialVendorName("dsh") == "DeepSeek 官方");
+        const auto ds = models::builtinPresets("dsh");
         CHECK(ds.subscription.empty() && ds.metered.size() == 4);
         CHECK(ds.metered.front().name == "DeepSeek" &&
               ds.metered.front().apiFormat == "anthropic" &&
@@ -1478,6 +1574,21 @@ int main() {
         CHECK(std::ranges::all_of(ds.metered, [](const models::Provider& p) {
             return !p.baseUrl.empty() && !p.model.empty() && p.fullUrl;
         }));
+        // hermes：cc-switch hermesProviderPresets 同源迁移，无官方常驻卡；
+        // 预设都带模型，apiFormat 覆盖三档。
+        CHECK(models::officialVendorName("hermes").empty());
+        const auto hm = models::builtinPresets("hermes");
+        CHECK(hm.subscription.empty() && !hm.metered.empty());
+        CHECK(std::ranges::all_of(hm.metered, [](const models::Provider& p) {
+            return !p.baseUrl.empty() && !p.model.empty() && p.fullUrl;
+        }));
+        CHECK(std::ranges::any_of(hm.metered, [](const models::Provider& p) {
+            return p.apiFormat == "anthropic";
+        }));
+        const auto hmDs = std::ranges::find_if(hm.metered,
+            [](const models::Provider& p) { return p.name == "DeepSeek"; });
+        CHECK(hmDs != hm.metered.end() && hmDs->usageEnabled &&
+              hmDs->apiFormat == "openai-chat");
     }
 
     // 15. 三档模型映射：claude-code env 写入/收回/擦除 + desktop

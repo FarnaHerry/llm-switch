@@ -3,9 +3,9 @@
 // switchTo / detectCurrent / restoreOfficial / importLive / importFrom
 // 与各工具的格式细节（env 行级读写、opencode / pi 的 provider 映射、
 // codex 的 auth.json + config.toml、claude desktop 的 3p profile、
-// zcode 的 config.json 条目、harness 的 settings.yaml/.credentials.yaml
-// 行级改写）都在这里。跨单元共用的文件工具与 ZCode 条目助手以模块链接
-// 声明在 store.cppm、定义在 store.cpp / store_zcode.cpp。
+// zcode 的 config.json 条目、dsh 的 settings.yaml/.credentials.yaml 与
+// hermes 的 config.yaml 行级改写）都在这里。跨单元共用的文件工具与 ZCode
+// 条目助手以模块链接声明在 store.cppm、定义在 store.cpp / store_zcode.cpp。
 module llmswitch.store;
 
 import std;
@@ -319,7 +319,8 @@ void restrictPiFile(const std::filesystem::path& file) {
 #endif
 }
 
-// ---- harness（DeepSeek，CLI 为 dsh）YAML 行级助手 ----
+// ---- dsh（DeepSeek Harness）YAML 行级助手（hermes 等其它 YAML 工具也复用 ----
+// yamlLineOf / yamlScalar / yamlQuote）。
 // 无 YAML 库，按缩进做行级读写；无关键、注释与顺序原样保留。
 
 std::string_view trimRight(std::string_view s) {
@@ -415,7 +416,7 @@ YamlLine yamlLineOf(std::string_view line) {
 }
 
 // 凭据 env 名：LLMSWITCH_ + id 大写（非字母数字转 _）。
-std::string harnessApiKeyEnv(std::string_view id) {
+std::string dshApiKeyEnv(std::string_view id) {
     std::string out = "LLMSWITCH_";
     for (const unsigned char c : id) {
         out += std::isalnum(c) ? static_cast<char>(std::toupper(c)) : '_';
@@ -428,7 +429,7 @@ std::string harnessApiKeyEnv(std::string_view id) {
 // 块尾插入（缩进随实际 providers 行调整，entryLines 以 4 列基准缩进生成）；
 // defaultProvider 非空时在文件头重建 agent-default-model 指向块。
 // restore 模式 = entryLines 空 + defaultProvider 空（只删不增）。
-std::string rewriteHarnessSettings(std::string_view text,
+std::string rewriteDshSettings(std::string_view text,
                                const std::vector<std::string>& entryLines,
                                std::string_view defaultProvider,
                                std::string_view defaultModel) {
@@ -546,7 +547,7 @@ std::string rewriteHarnessSettings(std::string_view text,
 
 // .credentials.yaml 行级 upsert `ENV: "key"`（顶层 map；version 等其它键、
 // 注释与顺序原样保留，缺失追加尾部）。写前调用方负责 backupLiveFile。
-void upsertHarnessCredential(const std::filesystem::path& file,
+void upsertDshCredential(const std::filesystem::path& file,
                          std::string_view envName, std::string_view apiKey) {
     std::vector<std::string> lines;
     {
@@ -575,6 +576,171 @@ void upsertHarnessCredential(const std::filesystem::path& file,
         out += '\n';
     }
     atomicWrite(file, out);
+}
+
+// ---- hermes（Hermes Agent）config.yaml 行级助手 ----
+
+// hermes 的 api_mode 字段映射（三档，经 models::normalizeApiFormat 归一）：
+// anthropic → anthropic_messages；openai-responses → codex_responses；
+// 其余（openai-chat / 默认）→ chat_completions。bedrock_converse 不在
+// apiFormat 三档内，不生成。
+std::string hermesApiMode(std::string_view apiFormat) {
+    const auto f = models::normalizeApiFormat(apiFormat);
+    if (f == "anthropic") return "anthropic_messages";
+    if (f == "openai-responses") return "codex_responses";
+    return "chat_completions";
+}
+
+// 行级改写 config.yaml（对齐 cc-switch hermes_config.rs 的切换语义）：
+// custom_providers 列表删掉 name 以 llmswitch- 开头的条目后在块尾追加
+// entryLines（缩进固定 2/4/6，与 hermes 官方写法一致；块不存在则文件尾
+// 补脚手架）；顶层 model 节原位写 provider（总是）与 default（非空时），
+// 键缺失补进节尾，节不存在则文件头新建。其余节（agent / mcp_servers /
+// v12+ providers dict 等）与注释原样保留。
+std::string rewriteHermesConfig(std::string_view text,
+                                const std::vector<std::string>& entryLines,
+                                std::string_view providerName,
+                                std::string_view defaultModel) {
+    std::vector<std::string> lines;
+    {
+        std::istringstream in{std::string(text)};
+        for (std::string line; std::getline(in, line);) {
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+            lines.push_back(std::move(line));
+        }
+    }
+    const int n = static_cast<int>(lines.size());
+    // 第一遍：定位 custom_providers / model 节区间与本应用托管条目区间。
+    int customStart = -1, customEnd = -1;
+    int modelStart = -1, modelEnd = -1;
+    int providerIdx = -1, defaultIdx = -1;
+    struct Range {
+        int start;
+        int end;
+    };
+    std::vector<Range> dropItems;
+    bool inCustom = false, inModel = false, inItem = false, inModels = false;
+    int itemIndent = -1, modelsIndent = -1, itemStart = -1;
+    bool itemOurs = false;
+    for (int i = 0; i < n; ++i) {
+        const YamlLine dl = yamlLineOf(lines[static_cast<std::size_t>(i)]);
+        if (dl.blank || dl.comment) continue;
+        if (inModels && dl.indent <= modelsIndent) inModels = false;
+        if (inItem && dl.indent <= itemIndent) {
+            if (itemOurs) dropItems.push_back({itemStart, i});
+            inItem = false;
+            inModels = false;
+        }
+        if (inCustom && dl.indent == 0) {
+            inCustom = false;
+            customEnd = i;
+        }
+        if (inModel && dl.indent == 0) {
+            inModel = false;
+            modelEnd = i;
+        }
+        if (inModel) {
+            if (dl.key == "provider") providerIdx = i;
+            if (dl.key == "default") defaultIdx = i;
+            continue;
+        }
+        if (inItem) {
+            if (dl.key == "name" &&
+                yamlScalar(dl.value).starts_with("llmswitch-")) {
+                itemOurs = true;
+            } else if (dl.key == "models" && trimBoth(dl.value).empty()) {
+                inModels = true;
+                modelsIndent = dl.indent;
+            }
+            continue;
+        }
+        if (inCustom) {
+            if (dl.listItem) {
+                inItem = true;
+                itemIndent = dl.indent;
+                itemStart = i;
+                itemOurs = dl.key == "name" &&
+                           yamlScalar(dl.value).starts_with("llmswitch-");
+            }
+            continue;
+        }
+        if (dl.indent == 0 && trimBoth(dl.value).empty()) {
+            if (dl.key == "model") {
+                inModel = true;
+                modelStart = i;
+            } else if (dl.key == "custom_providers") {
+                inCustom = true;
+                customStart = i;
+            }
+        }
+    }
+    if (inItem && itemOurs) dropItems.push_back({itemStart, n});
+    if (inCustom && customEnd == -1) customEnd = n;
+    if (inModel && modelEnd == -1) modelEnd = n;
+
+    const std::string providerLine =
+        "  provider: " + std::string(providerName);
+    const std::string defaultLine =
+        "  default: " + yamlQuote(defaultModel);
+    std::vector<std::string> out;
+    bool insertedEntries = false;
+    bool wroteProvider = false, wroteDefault = false;
+    for (int i = 0; i < n; ++i) {
+        if (i == customEnd && !insertedEntries) {
+            out.insert(out.end(), entryLines.begin(), entryLines.end());
+            insertedEntries = true;
+        }
+        if (i == modelEnd) {
+            if (!wroteProvider) {
+                out.push_back(providerLine);
+                wroteProvider = true;
+            }
+            if (!defaultModel.empty() && !wroteDefault) {
+                out.push_back(defaultLine);
+                wroteDefault = true;
+            }
+        }
+        bool dropped = false;
+        for (const auto& r : dropItems) {
+            if (i >= r.start && i < r.end) {
+                dropped = true;
+                break;
+            }
+        }
+        if (dropped) continue;
+        if (i == providerIdx) {
+            out.push_back(providerLine);
+            wroteProvider = true;
+            continue;
+        }
+        if (i == defaultIdx && !defaultModel.empty()) {
+            out.push_back(defaultLine);
+            wroteDefault = true;
+            continue;
+        }
+        out.push_back(lines[static_cast<std::size_t>(i)]);
+    }
+    if (!insertedEntries) {
+        if (customStart == -1) {
+            if (!out.empty() && !out.back().empty()) out.emplace_back();
+            out.push_back("custom_providers:");
+        }
+        out.insert(out.end(), entryLines.begin(), entryLines.end());
+    }
+    if (modelStart == -1) {
+        std::vector<std::string> head;
+        head.push_back("model:");
+        head.push_back(providerLine);
+        if (!defaultModel.empty()) head.push_back(defaultLine);
+        head.emplace_back();
+        out.insert(out.begin(), head.begin(), head.end());
+    }
+    std::string result;
+    for (const auto& l : out) {
+        result += l;
+        result += '\n';
+    }
+    return result;
 }
 
 // 对齐 cc-switch 上游 is_claude_safe_model_id：Claude Desktop 的模型菜单只认
@@ -634,13 +800,13 @@ nlohmann::json claudeDesktopModelEntry(const std::string& actual,
 // 行级解析 settings.yaml：顶层 agent-default-model 的 provider/model，以及
 // llm-pi-ai.providers 下每条手写路由的 baseURL / api / apiKeyEnv / 首个
 // models 条目 id。best-effort；结构不符的字段留空。
-HarnessSettingsInfo parseHarnessSettings(std::string_view text) {
-    HarnessSettingsInfo info;
+DshSettingsInfo parseDshSettings(std::string_view text) {
+    DshSettingsInfo info;
     std::istringstream in{std::string(text)};
     bool inAdm = false, inPi = false, inProv = false, inModels = false;
     int admIndent = -1, piIndent = -1, provIndent = -1;
     int entryIndent = -1, modelsIndent = -1;
-    HarnessProviderEntry* cur = nullptr;
+    DshProviderEntry* cur = nullptr;
     for (std::string line; std::getline(in, line);) {
         if (!line.empty() && line.back() == '\r') line.pop_back();
         const YamlLine dl = yamlLineOf(line);
@@ -688,7 +854,7 @@ HarnessSettingsInfo parseHarnessSettings(std::string_view text) {
         if (inProv) {
             if (!dl.listItem && !dl.key.empty() && trimBoth(dl.value).empty()) {
                 info.providers.push_back(
-                    HarnessProviderEntry{.key = std::string(dl.key)});
+                    DshProviderEntry{.key = std::string(dl.key)});
                 cur = &info.providers.back();
                 entryIndent = dl.indent;
             }
@@ -715,7 +881,7 @@ HarnessSettingsInfo parseHarnessSettings(std::string_view text) {
 }
 
 // 读 .credentials.yaml 顶层 map 里 envName 对应的密钥值（缺失返回空串）。
-std::string readHarnessCredential(const std::filesystem::path& file,
+std::string readDshCredential(const std::filesystem::path& file,
                               std::string_view envName) {
     std::error_code ec;
     if (!std::filesystem::exists(file, ec)) return "";
@@ -727,6 +893,78 @@ std::string readHarnessCredential(const std::filesystem::path& file,
         if (!dl.listItem && dl.key == envName) return yamlScalar(dl.value);
     }
     return "";
+}
+
+// 行级解析 hermes config.yaml：顶层 model 节的 provider/default，以及
+// custom_providers 列表每条目的 name/base_url/api_key/api_mode/model 与
+// models dict 首个键。best-effort；结构不符的字段留空。
+HermesConfigInfo parseHermesConfig(std::string_view text) {
+    HermesConfigInfo info;
+    std::istringstream in{std::string(text)};
+    bool inModel = false, inCustom = false, inModels = false;
+    int itemIndent = -1, modelsIndent = -1;
+    HermesProviderEntry* cur = nullptr;
+    for (std::string line; std::getline(in, line);) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        const YamlLine dl = yamlLineOf(line);
+        if (dl.blank || dl.comment) continue;
+        if (inModels && dl.indent <= modelsIndent) inModels = false;
+        if (cur != nullptr && dl.indent <= itemIndent) {
+            cur = nullptr;
+            inModels = false;
+        }
+        if (inCustom && dl.indent == 0) inCustom = false;
+        if (inModel && dl.indent == 0) inModel = false;
+        if (inModel) {
+            if (dl.key == "provider") {
+                info.modelProvider = yamlScalar(dl.value);
+            } else if (dl.key == "default") {
+                info.modelDefault = yamlScalar(dl.value);
+            }
+            continue;
+        }
+        if (cur != nullptr) {
+            if (inModels) {
+                // models dict 键（quoted 或裸键均可）
+                if (cur->firstModel.empty() && !dl.key.empty()) {
+                    cur->firstModel = yamlScalar(dl.key);
+                }
+                continue;
+            }
+            if (dl.key == "name") {
+                cur->name = yamlScalar(dl.value);
+            } else if (dl.key == "base_url") {
+                cur->baseUrl = yamlScalar(dl.value);
+            } else if (dl.key == "api_key") {
+                cur->apiKey = yamlScalar(dl.value);
+            } else if (dl.key == "api_mode") {
+                cur->apiMode = yamlScalar(dl.value);
+            } else if (dl.key == "model") {
+                cur->model = yamlScalar(dl.value);
+            } else if (dl.key == "models" && trimBoth(dl.value).empty()) {
+                inModels = true;
+                modelsIndent = dl.indent;
+            }
+            continue;
+        }
+        if (inCustom) {
+            if (dl.listItem) {
+                info.providers.push_back(HermesProviderEntry{});
+                cur = &info.providers.back();
+                itemIndent = dl.indent;
+                if (dl.key == "name") cur->name = yamlScalar(dl.value);
+            }
+            continue;
+        }
+        if (dl.indent == 0 && trimBoth(dl.value).empty()) {
+            if (dl.key == "model") {
+                inModel = true;
+            } else if (dl.key == "custom_providers") {
+                inCustom = true;
+            }
+        }
+    }
+    return info;
 }
 
 void ProviderStore::switchTo(std::string_view tool, const std::string& id) {
@@ -837,12 +1075,12 @@ void ProviderStore::switchTo(std::string_view tool, const std::string& id) {
         deepMerge(settings, patch);
         atomicWrite(settingsFile, settings.dump(2) + "\n");
         restrictPiFile(settingsFile);
-    } else if (tool == "harness") {
+    } else if (tool == "dsh") {
         // settings.yaml：删旧 agent-default-model 与 llmswitch-* 路由后 upsert
         // llmswitch-<id> 条目，并在文件头重建 agent-default-model 指向；密钥
-        // 只写 .credentials.yaml（apiKeyEnv 引用）。两份文件都被 harness（dsh）热监听
+        // 只写 .credentials.yaml（apiKeyEnv 引用）。两份文件都被 dsh 热监听
         // → 切换即时生效，无需重启。
-        const auto settingsFile = cfg::harnessSettingsFile();
+        const auto settingsFile = cfg::dshSettingsFile();
         restrictPiDir(settingsFile.parent_path());
         backupLiveFile(tool, settingsFile);
         std::string text;
@@ -852,7 +1090,7 @@ void ProviderStore::switchTo(std::string_view tool, const std::string& id) {
                 text = readTextFile(settingsFile);
             }
         }
-        const std::string envName = harnessApiKeyEnv(target->id);
+        const std::string envName = dshApiKeyEnv(target->id);
         std::vector<std::string> entry;
         entry.push_back("    llmswitch-" + target->id + ":");
         entry.push_back("      displayName: " + yamlQuote(target->name));
@@ -864,14 +1102,43 @@ void ProviderStore::switchTo(std::string_view tool, const std::string& id) {
             entry.push_back("        - id: " + yamlQuote(target->model));
         }
         atomicWrite(settingsFile,
-                    rewriteHarnessSettings(text, entry, "llmswitch-" + target->id,
+                    rewriteDshSettings(text, entry, "llmswitch-" + target->id,
                                        target->model));
         if (!target->apiKey.empty()) {
-            const auto credFile = cfg::harnessCredentialsFile();
+            const auto credFile = cfg::dshCredentialsFile();
             backupLiveFile(tool, credFile);
-            upsertHarnessCredential(credFile, envName, target->apiKey);
+            upsertDshCredential(credFile, envName, target->apiKey);
             restrictPiFile(credFile);
         }
+    } else if (tool == "hermes") {
+        // config.yaml：custom_providers 列表删旧 llmswitch-* 条目后追加新
+        // 条目（api_mode 三档映射），顶层 model 节写 provider（总是）与
+        // default（model 非空时）；agent / mcp_servers / v12+ providers
+        // dict 等其余节原样保留。配置含密钥，目录 0700 / 文件 0600。
+        const auto file = cfg::hermesConfigFile();
+        restrictPiDir(file.parent_path());
+        backupLiveFile(tool, file);
+        std::string text;
+        {
+            std::error_code ec;
+            if (std::filesystem::exists(file, ec)) {
+                text = readTextFile(file);
+            }
+        }
+        std::vector<std::string> entry;
+        entry.push_back("  - name: llmswitch-" + target->id);
+        entry.push_back("    base_url: " + yamlQuote(baseUrl));
+        entry.push_back("    api_key: " + yamlQuote(target->apiKey));
+        entry.push_back("    api_mode: " + hermesApiMode(target->apiFormat));
+        if (!target->model.empty()) {
+            entry.push_back("    model: " + yamlQuote(target->model));
+            entry.push_back("    models:");
+            entry.push_back("      " + yamlQuote(target->model) + ": {}");
+        }
+        atomicWrite(file,
+                    rewriteHermesConfig(text, entry, "llmswitch-" + target->id,
+                                        target->model));
+        restrictPiFile(file);
     } else if (tool == "gemini" || tool == "qwen") {
         // gemini-cli 系（Gemini CLI / Qwen Code）：认证与端点写 <dir>/.env
         // （行级 upsert，其余变量与注释原样保留），auth 类型写 settings.json
@@ -1127,16 +1394,16 @@ void ProviderStore::restoreOfficial(std::string_view tool) {
                 atomicWrite(file, doc.dump(2) + "\n");
             }
         }
-    } else if (tool == "harness") {
+    } else if (tool == "dsh") {
         // 回到内置 deepseek-official 路由：删 settings.yaml 的
         // agent-default-model 块与 llmswitch-* 手写路由，其余键保留。
         // .credentials.yaml 里的 LLMSWITCH_* 密钥无引用即无害，不代清。
-        const auto settingsFile = cfg::harnessSettingsFile();
+        const auto settingsFile = cfg::dshSettingsFile();
         std::error_code ec;
         if (std::filesystem::exists(settingsFile, ec)) {
             backupLiveFile(tool, settingsFile);
             atomicWrite(settingsFile,
-                        rewriteHarnessSettings(readTextFile(settingsFile), {}, "",
+                        rewriteDshSettings(readTextFile(settingsFile), {}, "",
                                            ""));
         }
     } else if (tool == "claude") {

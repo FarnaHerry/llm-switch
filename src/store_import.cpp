@@ -47,6 +47,15 @@ std::string piApiFormatValue(std::string_view api) {
     return "";
 }
 
+// hermes 的 api_mode 反映射（importLive 用；bedrock_converse 等非三档值
+// 归空串 = 未知）。
+std::string hermesApiFormatValue(std::string_view apiMode) {
+    if (apiMode == "anthropic_messages") return "anthropic";
+    if (apiMode == "codex_responses") return "openai-responses";
+    if (apiMode == "chat_completions") return "openai-chat";
+    return "";
+}
+
 // 读顶层 model = "..." 的值（只认未注释行；best-effort，读不到返回空串）。
 std::string parseCodexModel(std::string_view toml) {
     std::istringstream in{std::string(toml)};
@@ -147,16 +156,30 @@ std::string ProviderStore::detectCurrent(std::string_view tool) const {
         }
         return "";
     }
-    if (tool == "harness") {
+    if (tool == "dsh") {
         // settings.yaml 的 agent-default-model.provider：llmswitch-<id> 前缀
         // 剥离后命中组内 id 视为已切换；内置 deepseek-official 等其它值
         // （含未设置）视为官方状态。
-        const auto file = cfg::harnessSettingsFile();
+        const auto file = cfg::dshSettingsFile();
         std::error_code ec;
         if (!std::filesystem::exists(file, ec)) return "";
-        const auto info = parseHarnessSettings(readTextFile(file));
+        const auto info = parseDshSettings(readTextFile(file));
         if (!info.defaultProvider.starts_with("llmswitch-")) return "";
         const std::string id = info.defaultProvider.substr(10);
+        for (const auto& p : g.providers) {
+            if (p.id == id) return p.id;
+        }
+        return "";
+    }
+    if (tool == "hermes") {
+        // config.yaml 顶层 model.provider：llmswitch-<id> 前缀剥离后命中
+        // 组内 id 视为已切换；其它值（含未设置）视为未切换。
+        const auto file = cfg::hermesConfigFile();
+        std::error_code ec;
+        if (!std::filesystem::exists(file, ec)) return "";
+        const auto info = parseHermesConfig(readTextFile(file));
+        if (!info.modelProvider.starts_with("llmswitch-")) return "";
+        const std::string id = info.modelProvider.substr(10);
         for (const auto& p : g.providers) {
             if (p.id == id) return p.id;
         }
@@ -329,15 +352,15 @@ models::Provider ProviderStore::importLive(std::string_view tool) {
         p.model = jsonStr(readJsonOrNull(settingsFile), "defaultModel");
         return adopt(std::move(p));
     }
-    if (tool == "harness") {
+    if (tool == "dsh") {
         // 经 agent-default-model.provider 找 llm-pi-ai.providers 里的条目；
         // 密钥从 .credentials.yaml 按 apiKeyEnv 引用读回。条目键剥离
         // llmswitch- 前缀作为收编 id（本应用写入的条目原位更新）。
-        const auto file = cfg::harnessSettingsFile();
+        const auto file = cfg::dshSettingsFile();
         if (!std::filesystem::exists(file, ec)) return {};
-        const auto info = parseHarnessSettings(readTextFile(file));
+        const auto info = parseDshSettings(readTextFile(file));
         if (info.defaultProvider.empty()) return {};
-        const HarnessProviderEntry* entry = nullptr;
+        const DshProviderEntry* entry = nullptr;
         for (const auto& e : info.providers) {
             if (e.key == info.defaultProvider) entry = &e;
         }
@@ -352,7 +375,36 @@ models::Provider ProviderStore::importLive(std::string_view tool) {
                                              : entry->firstModel;
         if (!entry->apiKeyEnv.empty()) {
             p.apiKey =
-                readHarnessCredential(cfg::harnessCredentialsFile(), entry->apiKeyEnv);
+                readDshCredential(cfg::dshCredentialsFile(), entry->apiKeyEnv);
+        }
+        return adopt(std::move(p));
+    }
+    if (tool == "hermes") {
+        // 经顶层 model.provider 找 custom_providers 列表里的条目收编；
+        // 条目 name 剥离 llmswitch- 前缀作为收编 id（本应用写入的条目原位
+        // 更新）。
+        const auto file = cfg::hermesConfigFile();
+        if (!std::filesystem::exists(file, ec)) return {};
+        const auto info = parseHermesConfig(readTextFile(file));
+        if (info.modelProvider.empty()) return {};
+        const HermesProviderEntry* entry = nullptr;
+        for (const auto& e : info.providers) {
+            if (e.name == info.modelProvider) entry = &e;
+        }
+        if (entry == nullptr) return {};
+        models::Provider p;
+        p.id = importId(g, entry->name.starts_with("llmswitch-")
+                             ? std::string(entry->name.substr(10))
+                             : entry->name);
+        p.baseUrl = entry->baseUrl;
+        p.apiKey = entry->apiKey;
+        p.apiFormat = hermesApiFormatValue(entry->apiMode);
+        if (!info.modelDefault.empty()) {
+            p.model = info.modelDefault;
+        } else if (!entry->model.empty()) {
+            p.model = entry->model;
+        } else {
+            p.model = entry->firstModel;
         }
         return adopt(std::move(p));
     }
