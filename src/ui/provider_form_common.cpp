@@ -57,6 +57,7 @@ void FillForm(const FormStates& fs, const models::Provider& p) {
     fs.haikuSearch = huxerui::TextEditingValue{};
     fs.sonnetSearch = huxerui::TextEditingValue{};
     fs.opusSearch = huxerui::TextEditingValue{};
+    fs.presetCarry = p;
 }
 
 // apiFormat 下标 → Provider.apiFormat 存储值（0 = 默认 OpenAI 兼容，存空串）。
@@ -122,8 +123,9 @@ const AgentFormPolicy& AgentPolicyFor(std::string_view tool) {
                                     FillForm(fs, preset);
                                 }));
         }
+        // 预设较多时用 Flow 自动换行，避免单行 Row 横向溢出。
         items.push_back(
-            huxerui::Row(std::move(chips)).With(huxerui::Spacing(8.0F)));
+            huxerui::Flow(std::move(chips)).With(huxerui::Spacing(8.0F)));
     }
     if (!groups.metered.empty()) {
         items.push_back(
@@ -140,7 +142,7 @@ const AgentFormPolicy& AgentPolicyFor(std::string_view tool) {
                                 }));
         }
         items.push_back(
-            huxerui::Row(std::move(chips)).With(huxerui::Spacing(8.0F)));
+            huxerui::Flow(std::move(chips)).With(huxerui::Spacing(8.0F)));
     }
     if (items.empty()) return huxerui::View{huxerui::Row{}};
     return huxerui::Column(std::move(items))

@@ -83,7 +83,8 @@ namespace llmswitch::ui {
     // 公共区块：预设（仅新增）+ 通用字段。
     huxerui::View fields =
         huxerui::Column {
-            PresetsSection(tool, fs, fetchedModels),
+            isNew ? PresetsSection(tool, fs, fetchedModels)
+                  : huxerui::View{huxerui::Row{}},
             CommonFields(policy, fs, showKey, keyHover, showModelFetchOptions),
         }.With(huxerui::Spacing(12.0F),
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
@@ -187,12 +188,15 @@ namespace llmswitch::ui {
                         p.haikuSupports1m = fs.haikuSupports1m.Get();
                         p.sonnetSupports1m = fs.sonnetSupports1m.Get();
                         p.opusSupports1m = fs.opusSupports1m.Get();
-                        // 用量查询配置归 UsageFormPage 管，编辑保留原值。
-                        p.usageEnabled = initial.usageEnabled;
-                        p.usageRefreshMinutes = initial.usageRefreshMinutes;
-                        p.usageUrl = initial.usageUrl;
-                        p.usagePath = initial.usagePath;
-                        p.usageLabel = initial.usageLabel;
+                        // 用量查询配置归 UsageFormPage 管：编辑保留原值；
+                        // 新增取预设携带值（无预设点选时为默认空配置）。
+                        const models::Provider& usageSource =
+                            editingId.empty() ? fs.presetCarry.Get() : initial;
+                        p.usageEnabled = usageSource.usageEnabled;
+                        p.usageRefreshMinutes = usageSource.usageRefreshMinutes;
+                        p.usageUrl = usageSource.usageUrl;
+                        p.usagePath = usageSource.usagePath;
+                        p.usageLabel = usageSource.usageLabel;
                         std::string savedId = editingId;
                         try {
                             if (editingId.empty()) {

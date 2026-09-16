@@ -31,6 +31,38 @@
       "path": "data.usage",
       "label": "USD 已用",
       "source": "https://openrouter.ai/docs/api/api-reference/api-keys/get-current-api-key"
+    },
+    {
+      "name": "StepFun（阶跃国内站）",
+      "match": "api.stepfun.com",
+      "url": "https://api.stepfun.com/v1/accounts",
+      "path": "balance",
+      "label": "CNY",
+      "source": "https://github.com/farion1231/cc-switch/blob/main/src-tauri/src/services/balance.rs"
+    },
+    {
+      "name": "StepFun（阶跃国际站）",
+      "match": "api.stepfun.ai",
+      "url": "https://api.stepfun.ai/v1/accounts",
+      "path": "balance",
+      "label": "USD",
+      "source": "https://github.com/farion1231/cc-switch/blob/main/src-tauri/src/services/balance.rs"
+    },
+    {
+      "name": "SiliconFlow（国内站）",
+      "match": "api.siliconflow.cn",
+      "url": "https://api.siliconflow.cn/v1/user/info",
+      "path": "data.totalBalance",
+      "label": "CNY",
+      "source": "https://github.com/farion1231/cc-switch/blob/main/src-tauri/src/services/balance.rs"
+    },
+    {
+      "name": "SiliconFlow（国际站）",
+      "match": "api.siliconflow.com",
+      "url": "https://api.siliconflow.com/v1/user/info",
+      "path": "data.totalBalance",
+      "label": "USD",
+      "source": "https://github.com/farion1231/cc-switch/blob/main/src-tauri/src/services/balance.rs"
     }
   ]
 }

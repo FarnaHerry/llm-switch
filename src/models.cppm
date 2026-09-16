@@ -439,6 +439,12 @@ export AppConfig fromJson(const nlohmann::json& j) {
 // 参数为注册表工具 id。
 // subscription = 订阅制中转站（包月/订阅码；baseUrl 为各家文档给出的直连
 // 端点，不再追加格式后缀，因此 fullUrl=true）；metered = 按量计费官方 API。
+// 预设数据对齐 cc-switch（farion1231/cc-switch，MIT）2026-09 上游预设：
+// claude-code / codex 收录 cn_official 与知名中转条目，gemini 收录可核实
+// 中转条目；上游的 OAuth（requiresOAuth）、云厂商（cloud_provider）、自定义
+// 与 hidden 条目本应用无法表达，不收录。有可表达计费接口（GET + Bearer +
+// 标量取值路径，见 resources/raw/usage_templates.json）的 metered 预设直接
+// 带好用量查询配置，点选即用。
 export struct PresetGroups {
     std::vector<Provider> subscription;
     std::vector<Provider> metered;
@@ -482,23 +488,239 @@ export PresetGroups builtinPresets(std::string_view tool) {
                      .website = "https://www.kimi.com/code/",
                      .upstreamFormat = "anthropic",
                      .fullUrl = true},
+            // 以下为 cc-switch 上游收录的官方订阅/套餐计划（cn_official）。
+            Provider{.name = "火山引擎 Coding Plan",
+                     .baseUrl = "https://ark.cn-beijing.volces.com/api/coding",
+                     .model = "ark-code-latest",
+                     .haikuModel = "ark-code-latest",
+                     .sonnetModel = "ark-code-latest",
+                     .opusModel = "ark-code-latest",
+                     .website = "https://www.volcengine.com/activity/codingplan",
+                     .upstreamFormat = "anthropic",
+                     .fullUrl = true},
+            Provider{.name = "百度千帆 Coding Plan",
+                     .baseUrl = "https://qianfan.baidubce.com/anthropic/coding",
+                     .model = "qianfan-code-latest",
+                     .haikuModel = "qianfan-code-latest",
+                     .sonnetModel = "qianfan-code-latest",
+                     .opusModel = "qianfan-code-latest",
+                     .website = "https://cloud.baidu.com/product/qianfan_modelbuilder",
+                     .upstreamFormat = "anthropic",
+                     .fullUrl = true},
+            Provider{.name = "千问AI平台 Coding Plan",
+                     .baseUrl = "https://coding.dashscope.aliyuncs.com/apps/anthropic",
+                     .website = "https://bailian.console.aliyun.com",
+                     .upstreamFormat = "anthropic",
+                     .fullUrl = true},
+            Provider{.name = "腾讯 Token Plan",
+                     .baseUrl = "https://api.lkeap.cloud.tencent.com/plan/anthropic",
+                     .model = "tc-code-latest",
+                     .haikuModel = "tc-code-latest",
+                     .sonnetModel = "tc-code-latest",
+                     .opusModel = "tc-code-latest",
+                     .website = "https://cloud.tencent.com/product/tokenhub",
+                     .upstreamFormat = "anthropic",
+                     .fullUrl = true},
+            Provider{.name = "小米 MiMo Token Plan",
+                     .baseUrl = "https://token-plan-cn.xiaomimimo.com/anthropic",
+                     .model = "mimo-v2.5-pro",
+                     .haikuModel = "mimo-v2.5-pro",
+                     .sonnetModel = "mimo-v2.5-pro",
+                     .opusModel = "mimo-v2.5-pro",
+                     .website = "https://platform.xiaomimimo.com/#/token-plan",
+                     .upstreamFormat = "anthropic",
+                     .fullUrl = true},
         };
         groups.metered = {
             Provider{.name = "DeepSeek",
                      .baseUrl = "https://api.deepseek.com",
                      .website = "https://platform.deepseek.com",
+                     .usageEnabled = true,
+                     .usageUrl = "https://api.deepseek.com/user/balance",
+                     .usagePath = "balance_infos.0.total_balance",
+                     .usageLabel = "CNY",
                      .upstreamFormat = "anthropic",
                      .fullUrl = false},
             Provider{.name = "Kimi（Moonshot）",
                      .baseUrl = "https://api.moonshot.cn",
                      .website = "https://platform.moonshot.cn",
+                     .usageEnabled = true,
+                     .usageUrl = "https://api.moonshot.cn/v1/users/me/balance",
+                     .usagePath = "data.available_balance",
+                     .usageLabel = "CNY",
                      .upstreamFormat = "anthropic",
                      .fullUrl = false},
+            // GLM 原生计费接口要求 Authorization 不带 Bearer 前缀，当前用量
+            // 引擎无法表达，故不带用量配置（同 z.ai 国际站）。
             Provider{.name = "GLM（智谱）",
                      .baseUrl = "https://open.bigmodel.cn/api",
+                     .model = "glm-5.1",
+                     .haikuModel = "glm-5.1",
+                     .sonnetModel = "glm-5.1",
+                     .opusModel = "glm-5.1",
                      .website = "https://open.bigmodel.cn",
                      .upstreamFormat = "anthropic",
                      .fullUrl = false},
+            Provider{.name = "GLM 国际（z.ai）",
+                     .baseUrl = "https://api.z.ai/api",
+                     .model = "glm-5.1",
+                     .haikuModel = "glm-5.1",
+                     .sonnetModel = "glm-5.1",
+                     .opusModel = "glm-5.1",
+                     .website = "https://z.ai",
+                     .upstreamFormat = "anthropic",
+                     .fullUrl = false},
+            Provider{.name = "MiniMax",
+                     .baseUrl = "https://api.minimaxi.com",
+                     .model = "MiniMax-M3[1M]",
+                     .haikuModel = "MiniMax-M3[1M]",
+                     .sonnetModel = "MiniMax-M3[1M]",
+                     .opusModel = "MiniMax-M3[1M]",
+                     .website = "https://platform.minimaxi.com",
+                     .upstreamFormat = "anthropic",
+                     .fullUrl = false},
+            Provider{.name = "MiniMax 国际",
+                     .baseUrl = "https://api.minimax.io",
+                     .model = "MiniMax-M3[1M]",
+                     .haikuModel = "MiniMax-M3[1M]",
+                     .sonnetModel = "MiniMax-M3[1M]",
+                     .opusModel = "MiniMax-M3[1M]",
+                     .website = "https://platform.minimax.io",
+                     .upstreamFormat = "anthropic",
+                     .fullUrl = false},
+            Provider{.name = "StepFun（阶跃）",
+                     .baseUrl = "https://api.stepfun.com/step_plan",
+                     .model = "step-3.5-flash-2603",
+                     .haikuModel = "step-3.5-flash-2603",
+                     .sonnetModel = "step-3.5-flash-2603",
+                     .opusModel = "step-3.5-flash-2603",
+                     .website = "https://platform.stepfun.com/step-plan",
+                     .usageEnabled = true,
+                     .usageUrl = "https://api.stepfun.com/v1/accounts",
+                     .usagePath = "balance",
+                     .usageLabel = "CNY",
+                     .upstreamFormat = "anthropic",
+                     .fullUrl = true},
+            Provider{.name = "StepFun 国际",
+                     .baseUrl = "https://api.stepfun.ai/step_plan",
+                     .model = "step-3.5-flash-2603",
+                     .haikuModel = "step-3.5-flash-2603",
+                     .sonnetModel = "step-3.5-flash-2603",
+                     .opusModel = "step-3.5-flash-2603",
+                     .website = "https://platform.stepfun.ai/step-plan",
+                     .usageEnabled = true,
+                     .usageUrl = "https://api.stepfun.ai/v1/accounts",
+                     .usagePath = "balance",
+                     .usageLabel = "USD",
+                     .upstreamFormat = "anthropic",
+                     .fullUrl = true},
+            Provider{.name = "千问（阿里百炼）",
+                     .baseUrl = "https://dashscope.aliyuncs.com/apps/anthropic",
+                     .model = "qwen3.8-max",
+                     .haikuModel = "qwen3.8-flash",
+                     .sonnetModel = "qwen3.7-plus",
+                     .opusModel = "qwen3.8-max",
+                     .website = "https://platform.qianwenai.com",
+                     .upstreamFormat = "anthropic",
+                     .fullUrl = true},
+            Provider{.name = "火山引擎豆包",
+                     .baseUrl = "https://ark.cn-beijing.volces.com/api/compatible",
+                     .model = "doubao-seed-2-1-pro-260628",
+                     .haikuModel = "doubao-seed-2-1-pro-260628",
+                     .sonnetModel = "doubao-seed-2-1-pro-260628",
+                     .opusModel = "doubao-seed-2-1-pro-260628",
+                     .website = "https://www.volcengine.com/product/ark",
+                     .upstreamFormat = "anthropic",
+                     .fullUrl = true},
+            Provider{.name = "SiliconFlow",
+                     .baseUrl = "https://api.siliconflow.cn",
+                     .model = "Pro/MiniMaxAI/MiniMax-M2.5",
+                     .haikuModel = "Pro/MiniMaxAI/MiniMax-M2.5",
+                     .sonnetModel = "Pro/MiniMaxAI/MiniMax-M2.5",
+                     .opusModel = "Pro/MiniMaxAI/MiniMax-M2.5",
+                     .website = "https://siliconflow.cn",
+                     .usageEnabled = true,
+                     .usageUrl = "https://api.siliconflow.cn/v1/user/info",
+                     .usagePath = "data.totalBalance",
+                     .usageLabel = "CNY",
+                     .upstreamFormat = "anthropic",
+                     .fullUrl = true},
+            Provider{.name = "SiliconFlow 国际",
+                     .baseUrl = "https://api.siliconflow.com",
+                     .model = "MiniMaxAI/MiniMax-M3",
+                     .haikuModel = "MiniMaxAI/MiniMax-M3",
+                     .sonnetModel = "MiniMaxAI/MiniMax-M3",
+                     .opusModel = "MiniMaxAI/MiniMax-M3",
+                     .website = "https://siliconflow.com",
+                     .usageEnabled = true,
+                     .usageUrl = "https://api.siliconflow.com/v1/user/info",
+                     .usagePath = "data.totalBalance",
+                     .usageLabel = "USD",
+                     .upstreamFormat = "anthropic",
+                     .fullUrl = true},
+            Provider{.name = "Longcat（美团）",
+                     .baseUrl = "https://api.longcat.chat",
+                     .model = "LongCat-2.0",
+                     .haikuModel = "LongCat-2.0",
+                     .sonnetModel = "LongCat-2.0",
+                     .opusModel = "LongCat-2.0",
+                     .website = "https://longcat.chat/platform",
+                     .upstreamFormat = "anthropic",
+                     .fullUrl = false},
+            Provider{.name = "BaiLing（蚂蚁）",
+                     .baseUrl = "https://api.tbox.cn/api",
+                     .model = "Ling-2.5-1T",
+                     .haikuModel = "Ling-2.5-1T",
+                     .sonnetModel = "Ling-2.5-1T",
+                     .opusModel = "Ling-2.5-1T",
+                     .website = "https://alipaytbox.yuque.com/sxs0ba/ling/get_started",
+                     .upstreamFormat = "anthropic",
+                     .fullUrl = false},
+            Provider{.name = "小米 MiMo",
+                     .baseUrl = "https://api.xiaomimimo.com",
+                     .model = "mimo-v2.5-pro",
+                     .haikuModel = "mimo-v2.5-pro",
+                     .sonnetModel = "mimo-v2.5-pro",
+                     .opusModel = "mimo-v2.5-pro",
+                     .website = "https://platform.xiaomimimo.com",
+                     .upstreamFormat = "anthropic",
+                     .fullUrl = false},
+            Provider{.name = "ModelScope",
+                     .baseUrl = "https://api-inference.modelscope.cn",
+                     .model = "ZhipuAI/GLM-5.2",
+                     .haikuModel = "ZhipuAI/GLM-5.2",
+                     .sonnetModel = "ZhipuAI/GLM-5.2",
+                     .opusModel = "ZhipuAI/GLM-5.2",
+                     .website = "https://modelscope.cn",
+                     .upstreamFormat = "anthropic",
+                     .fullUrl = true},
+            Provider{.name = "PPIO",
+                     .baseUrl = "https://api.ppio.com",
+                     .model = "deepseek/deepseek-v4-flash-0731",
+                     .haikuModel = "deepseek/deepseek-v4-flash-0731",
+                     .sonnetModel = "deepseek/deepseek-v4-flash-0731",
+                     .opusModel = "deepseek/deepseek-v4-flash-0731",
+                     .website = "https://ppio.com",
+                     .upstreamFormat = "anthropic",
+                     .fullUrl = false},
+            Provider{.name = "OpenRouter",
+                     .baseUrl = "https://openrouter.ai/api",
+                     .model = "anthropic/claude-sonnet-5",
+                     .haikuModel = "anthropic/claude-haiku-4.5",
+                     .sonnetModel = "anthropic/claude-sonnet-5",
+                     .opusModel = "anthropic/claude-opus-5",
+                     .website = "https://openrouter.ai",
+                     .usageEnabled = true,
+                     .usageUrl = "https://openrouter.ai/api/v1/key",
+                     .usagePath = "data.usage",
+                     .usageLabel = "USD 已用",
+                     .upstreamFormat = "anthropic",
+                     .fullUrl = true},
+            Provider{.name = "AiHubMix",
+                     .baseUrl = "https://aihubmix.com",
+                     .website = "https://aihubmix.com",
+                     .upstreamFormat = "anthropic",
+                     .fullUrl = true},
         };
         return groups;
     }
@@ -506,7 +728,9 @@ export PresetGroups builtinPresets(std::string_view tool) {
         // OpenAI 兼容端点（Codex 走 auth.json 的 OPENAI_API_KEY + config.toml 的
         // model_providers 段；wire_api 两种取值："chat"（OpenAI Chat
         // Completions，各家都支持）或 "responses"（OpenAI Responses）——模板
-        // 默认 chat；model 以注释提示，避免写死一个用户没有的模型）。
+        // 默认 chat，上游官方文档明确走 Responses 的（Kimi / GLM / MiniMax /
+        // Longcat / MiMo / 千问 / 火山，cc-switch 预设同源）用 responses；
+        // model 以注释提示，避免写死一个用户没有的模型）。
         groups.subscription = {
             // PackyCode 的 Codex 中转走 Responses 协议（cc-switch 预设同源）。
             Provider{.name = "PackyCode",
@@ -519,6 +743,22 @@ export PresetGroups builtinPresets(std::string_view tool) {
 [model_providers.packycode]
 name = "PackyCode"
 base_url = "https://www.packyapi.ai/v1"
+wire_api = "responses"
+)toml",
+                     .upstreamFormat = "openai",
+                     .fullUrl = true},
+            // Kimi Code 订阅计划：官方 Codex 文档明写 wire_api 必须填
+            // responses（cc-switch 预设同源）。
+            Provider{.name = "Kimi For Coding",
+                     .baseUrl = "https://api.kimi.com/coding/v1",
+                     .website = "https://www.kimi.com/code/",
+                     .codexConfigToml =
+                         R"toml(model_provider = "kimi_coding"
+# model = "kimi-for-coding"   # 按需填写要使用的模型
+
+[model_providers.kimi_coding]
+name = "Kimi For Coding"
+base_url = "https://api.kimi.com/coding/v1"
 wire_api = "responses"
 )toml",
                      .upstreamFormat = "openai",
@@ -537,6 +777,10 @@ name = "OpenRouter"
 base_url = "https://openrouter.ai/api"
 wire_api = "chat"
 )toml",
+                     .usageEnabled = true,
+                     .usageUrl = "https://openrouter.ai/api/v1/key",
+                     .usagePath = "data.usage",
+                     .usageLabel = "USD 已用",
                      .upstreamFormat = "openai",
                      .fullUrl = false},
             Provider{.name = "DeepSeek",
@@ -551,8 +795,215 @@ name = "DeepSeek"
 base_url = "https://api.deepseek.com"
 wire_api = "chat"
 )toml",
+                     .usageEnabled = true,
+                     .usageUrl = "https://api.deepseek.com/user/balance",
+                     .usagePath = "balance_infos.0.total_balance",
+                     .usageLabel = "CNY",
                      .upstreamFormat = "openai",
                      .fullUrl = false},
+            // 以下为 cc-switch 上游收录的按量官方 API（cn_official 为主）。
+            Provider{.name = "Kimi（Moonshot）",
+                     .baseUrl = "https://api.moonshot.cn/v1",
+                     .website = "https://platform.moonshot.cn",
+                     .codexConfigToml =
+                         R"toml(model_provider = "kimi"
+# model = "kimi-k3"   # 按需填写要使用的模型
+
+[model_providers.kimi]
+name = "Kimi"
+base_url = "https://api.moonshot.cn/v1"
+wire_api = "responses"
+)toml",
+                     .usageEnabled = true,
+                     .usageUrl = "https://api.moonshot.cn/v1/users/me/balance",
+                     .usagePath = "data.available_balance",
+                     .usageLabel = "CNY",
+                     .upstreamFormat = "openai",
+                     .fullUrl = true},
+            Provider{.name = "GLM（智谱）",
+                     .baseUrl = "https://open.bigmodel.cn/api/v1",
+                     .website = "https://open.bigmodel.cn",
+                     .codexConfigToml =
+                         R"toml(model_provider = "glm"
+# model = "glm-5.3"   # 按需填写要使用的模型
+
+[model_providers.glm]
+name = "GLM"
+base_url = "https://open.bigmodel.cn/api/v1"
+wire_api = "responses"
+)toml",
+                     .upstreamFormat = "openai",
+                     .fullUrl = true},
+            Provider{.name = "GLM 国际（z.ai）",
+                     .baseUrl = "https://api.z.ai/api/v1",
+                     .website = "https://z.ai",
+                     .codexConfigToml =
+                         R"toml(model_provider = "glm_intl"
+# model = "glm-5.3"   # 按需填写要使用的模型
+
+[model_providers.glm_intl]
+name = "GLM International"
+base_url = "https://api.z.ai/api/v1"
+wire_api = "responses"
+)toml",
+                     .upstreamFormat = "openai",
+                     .fullUrl = true},
+            Provider{.name = "SiliconFlow",
+                     .baseUrl = "https://api.siliconflow.cn/v1",
+                     .website = "https://siliconflow.cn",
+                     .codexConfigToml =
+                         R"toml(model_provider = "siliconflow"
+# model = "deepseek-ai/DeepSeek-V4-Flash"   # 按需填写要使用的模型
+
+[model_providers.siliconflow]
+name = "SiliconFlow"
+base_url = "https://api.siliconflow.cn/v1"
+wire_api = "chat"
+)toml",
+                     .usageEnabled = true,
+                     .usageUrl = "https://api.siliconflow.cn/v1/user/info",
+                     .usagePath = "data.totalBalance",
+                     .usageLabel = "CNY",
+                     .upstreamFormat = "openai",
+                     .fullUrl = true},
+            Provider{.name = "SiliconFlow 国际",
+                     .baseUrl = "https://api.siliconflow.com/v1",
+                     .website = "https://siliconflow.com",
+                     .codexConfigToml =
+                         R"toml(model_provider = "siliconflow_en"
+# model = "MiniMaxAI/MiniMax-M3"   # 按需填写要使用的模型
+
+[model_providers.siliconflow_en]
+name = "SiliconFlow International"
+base_url = "https://api.siliconflow.com/v1"
+wire_api = "chat"
+)toml",
+                     .usageEnabled = true,
+                     .usageUrl = "https://api.siliconflow.com/v1/user/info",
+                     .usagePath = "data.totalBalance",
+                     .usageLabel = "USD",
+                     .upstreamFormat = "openai",
+                     .fullUrl = true},
+            Provider{.name = "StepFun（阶跃）",
+                     .baseUrl = "https://api.stepfun.com/step_plan/v1",
+                     .website = "https://platform.stepfun.com/step-plan",
+                     .codexConfigToml =
+                         R"toml(model_provider = "stepfun"
+# model = "step-3.7-flash"   # 按需填写要使用的模型
+
+[model_providers.stepfun]
+name = "StepFun"
+base_url = "https://api.stepfun.com/step_plan/v1"
+wire_api = "chat"
+)toml",
+                     .usageEnabled = true,
+                     .usageUrl = "https://api.stepfun.com/v1/accounts",
+                     .usagePath = "balance",
+                     .usageLabel = "CNY",
+                     .upstreamFormat = "openai",
+                     .fullUrl = true},
+            Provider{.name = "StepFun 国际",
+                     .baseUrl = "https://api.stepfun.ai/step_plan/v1",
+                     .website = "https://platform.stepfun.ai/step-plan",
+                     .codexConfigToml =
+                         R"toml(model_provider = "stepfun_en"
+# model = "step-3.7-flash"   # 按需填写要使用的模型
+
+[model_providers.stepfun_en]
+name = "StepFun International"
+base_url = "https://api.stepfun.ai/step_plan/v1"
+wire_api = "chat"
+)toml",
+                     .usageEnabled = true,
+                     .usageUrl = "https://api.stepfun.ai/v1/accounts",
+                     .usagePath = "balance",
+                     .usageLabel = "USD",
+                     .upstreamFormat = "openai",
+                     .fullUrl = true},
+            Provider{.name = "千问（阿里百炼）",
+                     .baseUrl = "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                     .website = "https://platform.qianwenai.com",
+                     .codexConfigToml =
+                         R"toml(model_provider = "qwen"
+# model = "qwen3.8-max"   # 按需填写要使用的模型
+
+[model_providers.qwen]
+name = "Qwen"
+base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+wire_api = "responses"
+)toml",
+                     .upstreamFormat = "openai",
+                     .fullUrl = true},
+            Provider{.name = "MiniMax",
+                     .baseUrl = "https://api.minimaxi.com/v1",
+                     .website = "https://platform.minimaxi.com",
+                     .codexConfigToml =
+                         R"toml(model_provider = "minimax"
+# model = "MiniMax-M3"   # 按需填写要使用的模型
+
+[model_providers.minimax]
+name = "MiniMax"
+base_url = "https://api.minimaxi.com/v1"
+wire_api = "responses"
+)toml",
+                     .upstreamFormat = "openai",
+                     .fullUrl = true},
+            Provider{.name = "MiniMax 国际",
+                     .baseUrl = "https://api.minimax.io/v1",
+                     .website = "https://platform.minimax.io",
+                     .codexConfigToml =
+                         R"toml(model_provider = "minimax_en"
+# model = "MiniMax-M3"   # 按需填写要使用的模型
+
+[model_providers.minimax_en]
+name = "MiniMax International"
+base_url = "https://api.minimax.io/v1"
+wire_api = "responses"
+)toml",
+                     .upstreamFormat = "openai",
+                     .fullUrl = true},
+            Provider{.name = "Longcat（美团）",
+                     .baseUrl = "https://api.longcat.chat/openai/v1",
+                     .website = "https://longcat.chat/platform",
+                     .codexConfigToml =
+                         R"toml(model_provider = "longcat"
+# model = "LongCat-2.0"   # 按需填写要使用的模型
+
+[model_providers.longcat]
+name = "Longcat"
+base_url = "https://api.longcat.chat/openai/v1"
+wire_api = "responses"
+)toml",
+                     .upstreamFormat = "openai",
+                     .fullUrl = true},
+            Provider{.name = "小米 MiMo",
+                     .baseUrl = "https://api.xiaomimimo.com/v1",
+                     .website = "https://platform.xiaomimimo.com",
+                     .codexConfigToml =
+                         R"toml(model_provider = "mimo"
+# model = "mimo-v2.5-pro"   # 按需填写要使用的模型
+
+[model_providers.mimo]
+name = "Xiaomi MiMo"
+base_url = "https://api.xiaomimimo.com/v1"
+wire_api = "responses"
+)toml",
+                     .upstreamFormat = "openai",
+                     .fullUrl = true},
+            Provider{.name = "火山引擎豆包",
+                     .baseUrl = "https://ark.cn-beijing.volces.com/api/v3",
+                     .website = "https://www.volcengine.com/product/ark",
+                     .codexConfigToml =
+                         R"toml(model_provider = "volcengine"
+# model = "doubao-seed-2-1-pro-260628"   # 按需填写要使用的模型
+
+[model_providers.volcengine]
+name = "Volcengine Doubao"
+base_url = "https://ark.cn-beijing.volces.com/api/v3"
+wire_api = "responses"
+)toml",
+                     .upstreamFormat = "openai",
+                     .fullUrl = true},
         };
         return groups;
     }
@@ -565,18 +1016,80 @@ wire_api = "chat"
                      .baseUrl = "https://api.deepseek.com",
                      .model = "deepseek-chat",
                      .website = "https://platform.deepseek.com",
+                     .usageEnabled = true,
+                     .usageUrl = "https://api.deepseek.com/user/balance",
+                     .usagePath = "balance_infos.0.total_balance",
+                     .usageLabel = "CNY",
                      .upstreamFormat = "openai",
                      .fullUrl = false},
             Provider{.name = "Kimi（Moonshot）",
                      .baseUrl = "https://api.moonshot.cn",
                      .model = "kimi-k2-0905-preview",
                      .website = "https://platform.moonshot.cn",
+                     .usageEnabled = true,
+                     .usageUrl = "https://api.moonshot.cn/v1/users/me/balance",
+                     .usagePath = "data.available_balance",
+                     .usageLabel = "CNY",
                      .upstreamFormat = "openai",
                      .fullUrl = false},
         };
         return groups;
     }
+    if (tool == "gemini") {
+        // gemini-cli 中转站（写 ~/.gemini/.env 的 GOOGLE_GEMINI_BASE_URL /
+        // GEMINI_MODEL；端点为各家文档直连地址，fullUrl=true）。来源：
+        // cc-switch 上游 geminiProviderPresets（2026-09 核实）；Google 官方
+        // 走 OAuth，不属于预设。
+        groups.subscription = {
+            Provider{.name = "PackyCode",
+                     .baseUrl = "https://www.packyapi.ai",
+                     .model = "gemini-3.6-flash",
+                     .website = "https://www.packyapi.ai",
+                     .fullUrl = true},
+            Provider{.name = "AICodeMirror",
+                     .baseUrl = "https://api.aicodemirror.ai/api/gemini",
+                     .model = "gemini-3.6-flash",
+                     .website = "https://www.aicodemirror.ai",
+                     .fullUrl = true},
+            Provider{.name = "Shengsuanyun",
+                     .baseUrl = "https://router.shengsuanyun.com/api",
+                     .model = "google/gemini-3.6-flash",
+                     .website = "https://www.shengsuanyun.com",
+                     .fullUrl = true},
+            Provider{.name = "Qiniu",
+                     .baseUrl = "https://api.qnaigc.com/bypass/vertex",
+                     .model = "gemini-3.6-flash",
+                     .website = "https://s.qiniu.com/nMvAvy",
+                     .fullUrl = true},
+            Provider{.name = "AICoding",
+                     .baseUrl = "https://api.aicoding.inc",
+                     .model = "gemini-3.6-flash",
+                     .website = "https://aicoding.inc",
+                     .fullUrl = true},
+            Provider{.name = "SubRouter",
+                     .baseUrl = "https://subrouter.ai/v1beta",
+                     .model = "gemini-3.6-flash",
+                     .website = "https://subrouter.ai",
+                     .fullUrl = true},
+            Provider{.name = "OpenRouter",
+                     .baseUrl = "https://openrouter.ai/api",
+                     .model = "gemini-3.6-flash",
+                     .website = "https://openrouter.ai",
+                     .usageEnabled = true,
+                     .usageUrl = "https://openrouter.ai/api/v1/key",
+                     .usagePath = "data.usage",
+                     .usageLabel = "USD 已用",
+                     .fullUrl = true},
+            Provider{.name = "CherryIN",
+                     .baseUrl = "https://open.cherryin.net",
+                     .model = "google/gemini-3.6-flash",
+                     .website = "https://open.cherryin.ai",
+                     .fullUrl = true},
+        };
+        return groups;
+    }
     // claude（Claude Desktop 3p 直连）：暂无第三方预设（官方走常驻卡）。
+    // qwen / zcode：cc-switch 无对应预设来源，暂不预设。
     return groups;
 }
 

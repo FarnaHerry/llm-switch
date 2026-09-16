@@ -963,7 +963,7 @@ int main() {
         const std::string text((std::istreambuf_iterator<char>(bundled)),
                                std::istreambuf_iterator<char>());
         const auto table = models::parseUsageTemplates(text);
-        CHECK(table.size() == 4);
+        CHECK(table.size() == 8);
         const auto sug =
             models::suggestUsageQuery("https://api.deepseek.com/v1", table);
         CHECK(sug.has_value());
@@ -986,6 +986,27 @@ int main() {
         CHECK(openrouter.has_value());
         CHECK(openrouter->url == "https://openrouter.ai/api/v1/key");
         CHECK(openrouter->path == "data.usage");
+        // cc-switch 原生计费接口迁移：StepFun / SiliconFlow（国内与国际站
+        // 按 host 区分，label 单位不同）。
+        const auto stepfunCn =
+            models::suggestUsageQuery("https://api.stepfun.com/step_plan", table);
+        CHECK(stepfunCn.has_value());
+        CHECK(stepfunCn->url == "https://api.stepfun.com/v1/accounts");
+        CHECK(stepfunCn->path == "balance");
+        CHECK(stepfunCn->label == "CNY");
+        const auto stepfunIntl =
+            models::suggestUsageQuery("https://api.stepfun.ai/step_plan", table);
+        CHECK(stepfunIntl.has_value() && stepfunIntl->label == "USD");
+        CHECK(stepfunIntl->url == "https://api.stepfun.ai/v1/accounts");
+        const auto sfCn =
+            models::suggestUsageQuery("https://api.siliconflow.cn", table);
+        CHECK(sfCn.has_value());
+        CHECK(sfCn->url == "https://api.siliconflow.cn/v1/user/info");
+        CHECK(sfCn->path == "data.totalBalance");
+        CHECK(sfCn->label == "CNY");
+        const auto sfIntl =
+            models::suggestUsageQuery("https://api.siliconflow.com/v1", table);
+        CHECK(sfIntl.has_value() && sfIntl->label == "USD");
         // 不认识的 baseUrl 不建议（api.kimi.com 是订阅端点，无已核实模板）。
         CHECK(!models::suggestUsageQuery("https://x.example.com", table)
                     .has_value());
@@ -1282,6 +1303,53 @@ int main() {
             [](const models::Provider& p) { return p.name == "Kimi For Coding"; });
         CHECK(kfc != cc.subscription.end() && kfc->model == "kimi-for-coding" &&
               kfc->haikuModel == "kimi-for-coding" && kfc->opusModel == "kimi-for-coding");
+        // cc-switch 预设迁移：claude-code 订阅组收录官方套餐计划；按量组
+        // 收录 cn_official 与知名中转，有可表达计费接口的带好用量配置。
+        const auto volc = std::ranges::find_if(cc.subscription,
+            [](const models::Provider& p) { return p.name == "火山引擎 Coding Plan"; });
+        CHECK(volc != cc.subscription.end() &&
+              volc->baseUrl == "https://ark.cn-beijing.volces.com/api/coding" &&
+              volc->model == "ark-code-latest" && volc->fullUrl);
+        const auto ccOpenrouter = std::ranges::find_if(cc.metered,
+            [](const models::Provider& p) { return p.name == "OpenRouter"; });
+        CHECK(ccOpenrouter != cc.metered.end() && ccOpenrouter->usageEnabled &&
+              ccOpenrouter->usageUrl == "https://openrouter.ai/api/v1/key" &&
+              ccOpenrouter->usagePath == "data.usage");
+        const auto ccSf = std::ranges::find_if(cc.metered,
+            [](const models::Provider& p) { return p.name == "SiliconFlow"; });
+        CHECK(ccSf != cc.metered.end() &&
+              ccSf->usageUrl == "https://api.siliconflow.cn/v1/user/info" &&
+              ccSf->usageLabel == "CNY");
+        // GLM 计费接口需非 Bearer 鉴权，引擎无法表达 → 不带用量配置。
+        const auto ccGlm = std::ranges::find_if(cc.metered,
+            [](const models::Provider& p) { return p.name == "GLM（智谱）"; });
+        CHECK(ccGlm != cc.metered.end() && !ccGlm->usageEnabled);
+        // codex：新增条目带 TOML 模板，wire_api 与上游协议标注一致。
+        const auto cxKfc = std::ranges::find_if(cx.subscription,
+            [](const models::Provider& p) { return p.name == "Kimi For Coding"; });
+        CHECK(cxKfc != cx.subscription.end() &&
+              cxKfc->codexConfigToml.find(
+                  "base_url = \"https://api.kimi.com/coding/v1\"") !=
+                  std::string::npos &&
+              cxKfc->codexConfigToml.find("wire_api = \"responses\"") !=
+                  std::string::npos);
+        const auto cxStepfun = std::ranges::find_if(cx.metered,
+            [](const models::Provider& p) { return p.name == "StepFun（阶跃）"; });
+        CHECK(cxStepfun != cx.metered.end() &&
+              cxStepfun->codexConfigToml.find(
+                  "base_url = \"https://api.stepfun.com/step_plan/v1\"") !=
+                  std::string::npos &&
+              cxStepfun->usageEnabled && cxStepfun->usagePath == "balance");
+        // gemini：新增预设分支（cc-switch geminiProviderPresets 同源），
+        // needsModel 工具的预设都带模型；qwen / zcode 仍无预设。
+        const auto gm = models::builtinPresets("gemini");
+        CHECK(!gm.subscription.empty() && gm.metered.empty());
+        CHECK(std::ranges::all_of(gm.subscription,
+            [](const models::Provider& p) { return !p.model.empty(); }));
+        const auto qw = models::builtinPresets("qwen");
+        CHECK(qw.subscription.empty() && qw.metered.empty());
+        const auto zc = models::builtinPresets("zcode");
+        CHECK(zc.subscription.empty() && zc.metered.empty());
     }
 
     // 15. 三档模型映射：claude-code env 写入/收回/擦除 + desktop

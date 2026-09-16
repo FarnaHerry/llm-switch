@@ -110,6 +110,9 @@ struct FormStates {
     huxerui::State<huxerui::TextEditingValue> haikuSearch;
     huxerui::State<huxerui::TextEditingValue> sonnetSearch;
     huxerui::State<huxerui::TextEditingValue> opusSearch;
+    // 预设携带的非表单字段（当前为用量查询配置）：预设 chip 点选时随
+    // FillForm 更新，新增保存时从这里取；编辑时忽略（用量归 UsageFormPage）。
+    huxerui::State<models::Provider> presetCarry;
 };
 
 // 表单状态初始化（ProviderFormPage 用）：hcg 要求 composable 返回 View（不能
@@ -143,7 +146,8 @@ struct FormStates {
      huxerui::UseState(huxerui::TextEditingValue{}),                         \
      huxerui::UseState(huxerui::TextEditingValue{}),                         \
      huxerui::UseState(huxerui::TextEditingValue{}),                         \
-     huxerui::UseState(huxerui::TextEditingValue{})}
+     huxerui::UseState(huxerui::TextEditingValue{}),                         \
+     huxerui::UseState((p))}
 
 void FillForm(const FormStates& fs, const models::Provider& p);
 std::string ApiFormatFromIndex(int index);
