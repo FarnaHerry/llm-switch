@@ -295,6 +295,7 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(huxerui::WindowHandle window,
     huxerui::SystemTrayHandle tray, huxerui::WindowHandle window,
     huxerui::ToastHandle toast) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    const huxerui::TaskScope tasks = huxerui::UseTaskScope();
     const bool trayAvailable = tray.IsAvailable();
     const huxerui::TextStyle hintStyle{
         huxerui::Font::System(font_size::kCaption),
@@ -314,14 +315,18 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(huxerui::WindowHandle window,
             huxerui::Spacer(),
             huxerui::Button("取消").OnClick([context] { context.Dismiss(); }),
             huxerui::Button("最小化到托盘")
-                .OnClick([context, tray, window, toast] {
+                .OnClick([context, tray, window, toast, tasks] {
                     // 托盘宿主可能在弹窗打开后才消失，点击时再次确认最新状态。
                     if (!tray.IsAvailable()) {
                         toast.Show("系统托盘当前不可用，无法最小化到托盘");
                         return;
                     }
-                    context.Dismiss();
-                    window.Hide();
+                    // Hide 会清空当前窗口的 pointer session；必须等本次 PointerUp
+                    // 派发完成，否则运行时随后擦除该 session 时会使用失效迭代器。
+                    tasks.Post([context, window] {
+                        context.Dismiss();
+                        window.Hide();
+                    });
                 })
                 .With(huxerui::Enabled(trayAvailable)),
             huxerui::Button("退出").OnClick([application] { application.Quit(); }),
@@ -583,6 +588,7 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(huxerui::WindowHandle window,
     huxerui::View windowBehavior = huxerui::Scope(
         [application, tray, window, toast] {
             const auto dialog = huxerui::UseDialog();
+            const auto tasks = huxerui::UseTaskScope();
             const auto showCloseConfirmation =
                 [application, tray, window, toast, dialog] {
                     dialog.Show(
@@ -597,17 +603,19 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(huxerui::WindowHandle window,
             // 「最小化到托盘」同时覆盖标题栏最小化按钮和系统最小化请求。
             // 其他关闭策略保留平台原生最小化语义；托盘不可用时不吞掉请求，
             // 让窗口仍能普通最小化，并给出原因提示。
-            window.OnMinimizeRequest([tray, window, toast] {
+            window.OnMinimizeRequest([tray, window, toast, tasks] {
                 if (providerStore().config().closeBehavior != "tray") return false;
                 if (!tray.IsAvailable()) {
                     toast.Show("系统托盘当前不可用，已保留普通最小化");
                     return false;
                 }
-                window.Hide();
+                // 标题栏按钮仍处于 PointerUp 派发中；延后隐藏，避免同步清空
+                // pointer session 后事件收尾继续访问失效迭代器。
+                tasks.Post([window] { window.Hide(); });
                 return true;
             });
 
-            window.OnCloseRequest([tray, window, showCloseConfirmation] {
+            window.OnCloseRequest([tray, window, showCloseConfirmation, tasks] {
                 const std::string& behavior = providerStore().config().closeBehavior;
                 if (behavior == "tray") {
                     // 托盘不可用时不能返回 false，否则原生关闭路径会直接退出
@@ -616,7 +624,7 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(huxerui::WindowHandle window,
                         showCloseConfirmation();
                         return true;
                     }
-                    window.Hide();
+                    tasks.Post([window] { window.Hide(); });
                     return true;
                 }
                 if (behavior == "quit") return false;
