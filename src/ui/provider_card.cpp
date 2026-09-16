@@ -18,14 +18,32 @@ using provider_detail::FetchLatency;
 using provider_detail::FetchUsageText;
 using provider_detail::WriteUsageCache;
 
+// 切换成功后提示重启：仅注册表标记 needsRestart 的工具弹标准对话框；
+// 弹窗经 tasks.Launch 推迟出指针事件路径（同删除确认框的惯用法）。
+void ShowRestartHint(huxerui::TaskScope tasks, huxerui::DialogHandle dialog,
+                     const std::string& tool) {
+    const auto* spec = models::findTool(tool);
+    if (spec == nullptr || !spec->needsRestart) return;
+    const std::string display = std::string(spec->displayName);
+    tasks.Launch([dialog, display]() -> huxerui::Task<void> {
+        dialog.Show("需要重启生效",
+                    std::format("{} 的供应商配置已切换，重启 {} 客户端后生效。",
+                                display, display),
+                    "知道了");
+        co_return;
+    });
+}
+
 // 官方常驻卡：有官方厂商的工具（models::officialVendorName 非空）固定在// 供应商列表第一位；切换 = store.restoreOfficial 还原厂商原生状态（与
-// 普通卡同样的切换语义，无确认框）。active = 组 current 与 detectCurrent
-// 均为空（即当前生效的就是厂商原生状态）。
+// 普通卡同样的切换语义，无确认框；needsRestart 的工具切换成功后弹重启提示）。
+// active = 组 current 与 detectCurrent 均为空（即当前生效的就是厂商原生状态）。
 [[huxerui::composable]] huxerui::View OfficialCard(std::string tool, bool active,
+                                                   huxerui::TaskScope tasks,
                                                    huxerui::ToastHandle toast,
                                                    huxerui::State<int> revision) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     const IslandTheme islands = ResolveIslandTheme(theme);
+    auto dialog = huxerui::UseDialog();
     return Card(huxerui::Row {
         huxerui::Column {
             huxerui::Row {
@@ -56,10 +74,11 @@ using provider_detail::WriteUsageCache;
         // 操作组右对齐：图标 + Tooltip（active 时禁用）。
         huxerui::Row {
             huxerui::IconButton(app::images::swap, "切换")
-                .OnClick([toast, tool, revision] {
+                .OnClick([tasks, dialog, toast, tool, revision] {
                     try {
                         providerStore().restoreOfficial(tool);
                         toast.Show("已切换到官方原生状态");
+                        ShowRestartHint(tasks, dialog, tool);
                     } catch (const std::exception& e) {
                         toast.Show(e.what());
                     }
@@ -204,10 +223,11 @@ using provider_detail::WriteUsageCache;
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Start)),
         huxerui::Row {
             huxerui::IconButton(app::images::swap, "切换")
-                .OnClick([toast, tool, id, name, bump] {
+                .OnClick([tasks, dialog, toast, tool, id, name, bump] {
                     try {
                         providerStore().switchTo(tool, id);
                         toast.Show(std::format("已切换到 {}", name));
+                        ShowRestartHint(tasks, dialog, tool);
                     } catch (const std::exception& e) {
                         toast.Show(e.what());
                     }

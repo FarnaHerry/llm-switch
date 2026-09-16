@@ -222,6 +222,7 @@ void AssembleZcodeProvider(models::Provider& p,
 void AfterSaveZcode(const std::string& savedId, bool enabled);
 
 huxerui::View OfficialCard(std::string tool, bool active,
+                           huxerui::TaskScope tasks,
                            huxerui::ToastHandle toast,
                            huxerui::State<int> revision);
 

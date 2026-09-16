@@ -212,8 +212,8 @@ using provider_detail::WriteUsageCache;
     huxerui::View providerCards = huxerui::Row{};
     if (hasOfficial) {
         providerCards = OfficialCard(
-            tool, currentProvider.empty() && detectedProvider.empty(), toast,
-            revision);
+            tool, currentProvider.empty() && detectedProvider.empty(), tasks,
+            toast, revision);
     }
     if (providerCount > 0) {
         const huxerui::View providerList =

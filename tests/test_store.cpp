@@ -148,6 +148,9 @@ int main() {
         CHECK(models::findTool("claude-code")->hasModelMappings);
         CHECK(models::findTool("claude")->hasModelMappings);
         CHECK(!models::findTool("codex")->hasModelMappings);
+        // 所有注册工具的 live 配置都在进程启动时读取 → 切换后需重启客户端
+        CHECK(std::ranges::all_of(models::toolRegistry(),
+                                  [](const auto& t) { return t.needsRestart; }));
         CHECK(models::findTool("nope") == nullptr);
     }
 

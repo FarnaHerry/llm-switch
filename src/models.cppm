@@ -27,6 +27,9 @@ export struct ToolSpec {
     // 是否有三档模型映射字段 haiku/sonnet/opus（claude-code 写
     // ANTHROPIC_DEFAULT_*_MODEL env；claude desktop 写 inferenceModels 映射条目）
     bool hasModelMappings;
+    // 切换供应商后是否需重启该工具客户端才生效：live 配置只在进程启动时
+    // 读取的工具为 true（当前注册的工具均属此类）。
+    bool needsRestart;
 };
 
 // 注册表顺序即 UI 侧栏/托盘菜单顺序。
@@ -36,31 +39,36 @@ export constexpr std::array<ToolSpec, 8> kToolRegistry{{
              .iconName = "claudecode",
              .needsModel = false,
              .hasApiFormat = false,
-             .hasModelMappings = true},
+             .hasModelMappings = true,
+             .needsRestart = true},
     ToolSpec{.id = "claude",
              .displayName = "Claude Desktop",
              .iconName = "claude",
              .needsModel = false,
              .hasApiFormat = false,
-             .hasModelMappings = true},
+             .hasModelMappings = true,
+             .needsRestart = true},
     ToolSpec{.id = "codex",
              .displayName = "Codex",
              .iconName = "codex",
              .needsModel = false,
              .hasApiFormat = false,
-             .hasModelMappings = false},
+             .hasModelMappings = false,
+             .needsRestart = true},
     ToolSpec{.id = "opencode",
              .displayName = "opencode",
              .iconName = "opencode",
              .needsModel = true,
              .hasApiFormat = true,
-             .hasModelMappings = false},
+             .hasModelMappings = false,
+             .needsRestart = true},
     ToolSpec{.id = "pi",
              .displayName = "Pi",
              .iconName = "pi",
              .needsModel = true,
              .hasApiFormat = true,
-             .hasModelMappings = false},
+             .hasModelMappings = false,
+             .needsRestart = true},
     // gemini-cli 系（Gemini CLI / Qwen Code）：认证与端点走 ~/.<dir>/.env
     // 行级 upsert（GEMINI_API_KEY/GOOGLE_GEMINI_BASE_URL/GEMINI_MODEL 与
     // OPENAI_API_KEY/OPENAI_BASE_URL/OPENAI_MODEL），auth 类型写 settings.json。
@@ -69,13 +77,15 @@ export constexpr std::array<ToolSpec, 8> kToolRegistry{{
              .iconName = "gemini",
              .needsModel = true,
              .hasApiFormat = false,
-             .hasModelMappings = false},
+             .hasModelMappings = false,
+             .needsRestart = true},
     ToolSpec{.id = "qwen",
              .displayName = "Qwen Code",
              .iconName = "qwen",
              .needsModel = true,
              .hasApiFormat = false,
-             .hasModelMappings = false},
+             .hasModelMappings = false,
+             .needsRestart = true},
     // ZCode：provider map（~/.zcode/v2/config.json）upsert 自定义条目并置
     // enabled，apiFormat 决定 provider.kind（anthropic / openai）。
     ToolSpec{.id = "zcode",
@@ -83,7 +93,8 @@ export constexpr std::array<ToolSpec, 8> kToolRegistry{{
              .iconName = "zcode",
              .needsModel = true,
              .hasApiFormat = true,
-             .hasModelMappings = false},
+             .hasModelMappings = false,
+             .needsRestart = true},
 }};
 
 export std::span<const ToolSpec> toolRegistry() { return kToolRegistry; }
