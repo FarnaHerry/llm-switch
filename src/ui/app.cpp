@@ -467,7 +467,10 @@ huxerui::View TitleBarOrnamentArtwork(huxerui::Color color, bool glow) {
         lotus,
     }.With(huxerui::Frame{.height = kTitleBarContentHeight},
               huxerui::Align(huxerui::HorizontalAlignment::Center,
-                             huxerui::VerticalAlignment::Center))
+                             huxerui::VerticalAlignment::Center),
+              // 根级覆盖层不经过 WindowTitleBar 的平台标题区校正。实机标题按钮
+              // 中心比 y=0 起算的 24 DIP 内容框低约 3 DIP，整组下移与其对齐。
+              huxerui::Offset(huxerui::Point{0.0F, 3.0F}))
         .Key("title-nav:ornament");
 }
 
