@@ -112,7 +112,7 @@ commit，不回滚已经验证的修改，并在最终回复中报告失败原�
 | `llmswitch.mcp` | `src/mcp.cppm` + `src/mcp.cpp` | MCP 服务器统一清单（SSOT = dataDir()/mcp.json）；启停 = 写/删工具 live 配置条目：claude-code → ~/.claude.json 顶层 mcpServers 深合并、codex → config.toml 行级 [mcp_servers.*] section 重写、opencode → opencode.json 顶层 mcp；claude/pi 不支持（抛中文错） |
 | `llmswitch.skills` | `src/skills.cppm` + `src/skills.cpp` | Skills 中央库（dataDir()/skills-store/<name>/：SKILL.md + 附带文件）+ create_symlink 同步到 ~/.claude/skills 与 ~/.codex/skills；合并视图（中央库/已链接/仅工具侧） |
 | `llmswitch.sessions` | `src/sessions.cppm` + `src/sessions.cpp` | 历史会话扫描：~/.claude/projects/<项目>/*.jsonl 与 ~/.codex/sessions/<年>/<月>/<日>/*.jsonl；列表 Worker 在一次批次中枚举 mtime/size 并读取每个文件头尾固定大小摘要，VirtualList 行只展示已完成的摘要；删除（限已知 sessions 根之下，越界抛错）/导出/详情从文件尾反向分页读取；摘要 best-effort，详情按需解析 |
-| `llmswitch::ui`（普通 C++） | `src/ui/*.cpp` | app（壳：太极水墨主题 InkDark「玄墨」/InkLight「宣纸」+带对称线条节点与 Hover 辉光的标题栏莲花导航+顶级 8 区块径向导航+IndexedPages+莲花双态托盘+关闭最小化到托盘+路由自启）/ agent_page（薄宿主：持 currentTool State + ProvidersPage .Key(tool) 宿主）/ router_page（路由总开关+逐 Agent 代理开关+已启用接入地址+最近请求日志，含 routerInstance() 单例）/ stats_page（统计汇总）/ mcp_page / skills_page / sessions_page（会话管理：右上角 Agent 图标组与 Agent 管理页同一注册表、无“全部”混合页；Pager 切换独立 Agent 历史，只有当前 Agent 扫描对应历史，单次 Worker 批量读取头尾固定大小摘要并缓存 30 秒，可见行只展示已完成的摘要，切换时丢弃过期结果；扫描/导出/删除/详情分页读取全程 RunWorker 入 worker 线程；详情首次从文件尾读取最近 50 条并定位末条，实际向上滚动接近顶部时才反向加载上一页并保持视口锚点，消息通过 StateList + VirtualList 虚拟化且以文件偏移保持稳定身份，行使用无阴影的不透明轻量表面）/ about_page（关于，顶部莲花 logo 卡）/ common（岛屿原语、页面骨架/卡片/弹窗卡片、providerStore() 全局实例、ToolIcon 图标资源对）/ providers_page（5 工具共用供应商页：工具图标栏在岛屿内部顶部（ToolBar）+ 官方常驻卡首位 + 卡片列表，卡片三段式：左信息列 ｜ 中间状态列（延迟/用量，内容与操作组之间，空则塌缩）｜ 右操作图标组（切换/联通检测/编辑/用量配置/复制/删除为自绘图标 IconButton + Tooltip，swap/activity/edit/gauge/copy/trash.svg，用量刷新 refresh.svg），模型列表/用量/连通检测经 HuxerUI HttpClient；编辑/新增是整页表单 ProviderFormPage（完整 URL switch + 上游格式 Select；关闭 switch 时按格式追加 /anthropic 或 /v1），用量查询配置是独立整页 UsageFormPage（每个供应商独立 usageEnabled switch 与 usageRefreshMinutes，统一配置字段；formTarget 多模式：""/"new"/"usage:"+id/id），新增页内嵌预设区、模型行内 Select 下拉 + 卡片用量显示/轮询）/ settings_page（主题/路径/导入导出/关于）/ ui.h（内部声明） |
+| `llmswitch::ui`（普通 C++） | `src/ui/*.cpp` | app（壳：冷调石板主题 AppDark「深海」/AppLight「晴石」+程序化环境光 AmbientGlow+带对称线条节点与 Hover 辉光的标题栏莲花导航+顶级 8 区块径向导航+IndexedPages+莲花双态托盘+关闭最小化到托盘+路由自启）/ agent_page（薄宿主：持 currentTool State + ProvidersPage .Key(tool) 宿主）/ router_page（路由总开关+逐 Agent 代理开关+已启用接入地址+最近请求日志，含 routerInstance() 单例）/ stats_page（统计汇总）/ mcp_page / skills_page / sessions_page（会话管理：右上角 Agent 图标组与 Agent 管理页同一注册表、无“全部”混合页；Pager 切换独立 Agent 历史，只有当前 Agent 扫描对应历史，单次 Worker 批量读取头尾固定大小摘要并缓存 30 秒，可见行只展示已完成的摘要，切换时丢弃过期结果；扫描/导出/删除/详情分页读取全程 RunWorker 入 worker 线程；详情首次从文件尾读取最近 50 条并定位末条，实际向上滚动接近顶部时才反向加载上一页并保持视口锚点，消息通过 StateList + VirtualList 虚拟化且以文件偏移保持稳定身份，行使用无阴影的不透明轻量表面）/ about_page（关于，顶部莲花 logo 卡）/ common（岛屿原语、页面骨架/卡片/弹窗卡片、providerStore() 全局实例、ToolIcon 图标资源对）/ providers_page（5 工具共用供应商页：工具图标栏在岛屿内部顶部（ToolBar）+ 官方常驻卡首位 + 卡片列表，卡片三段式：左信息列 ｜ 中间状态列（延迟/用量，内容与操作组之间，空则塌缩）｜ 右操作图标组（切换/联通检测/编辑/用量配置/复制/删除为自绘图标 IconButton + Tooltip，swap/activity/edit/gauge/copy/trash.svg，用量刷新 refresh.svg），模型列表/用量/连通检测经 HuxerUI HttpClient；编辑/新增是整页表单 ProviderFormPage（完整 URL switch + 上游格式 Select；关闭 switch 时按格式追加 /anthropic 或 /v1），用量查询配置是独立整页 UsageFormPage（每个供应商独立 usageEnabled switch 与 usageRefreshMinutes，统一配置字段；formTarget 多模式：""/"new"/"usage:"+id/id），新增页内嵌预设区、模型行内 Select 下拉 + 卡片用量显示/轮询）/ settings_page（主题/路径/导入导出/关于）/ ui.h（内部声明） |
 | `src/app.cpp` | 普通 TU | `Application{AppRoot, AppOptions}`（Custom chrome，标题栏 24pt，1080×720 / min 800×600） |
 | 平台入口 | `platform/{linux,windows,macos}/main.cpp` | 薄入口 `huxerui::RunApplication()`（无 CLI 分流；顶层 CMake 按 WIN32/APPLE/Linux 分支选用） |
 
@@ -259,19 +259,23 @@ I/O、解析和 JSON 函数默认保留在 `.cpp` 中。
 6. **全局 revision 计数**：AppRoot 持有 `State<int> revision`，任何写库操作
    （含托盘切换、设置页导入）后 +1，驱动供应商页重读与托盘菜单重建
    （托盘 Lifecycle 以 revision 为依赖）。
-7. **岛屿风**（对齐 Clash-Flux）：太极水墨主题（ui/app.cpp InkDark「玄墨」/
-   InkLight「宣纸」：暖调墨色阶 + 宣纸白/浓墨主色 + 朱砂 error；设置页主题
-   设置页以单个太极选择器循环切换跟随系统/玄墨/宣纸（平衡态/玄墨外环/
-   宣纸外环，悬停持续旋转、移出冻结当前角度），存值仍 system/dark/light）；
-   一级轻岛 10pt / 二级岛 6pt 圆角，半透明表面色经
-   `ResolveIslandTheme(theme)` 语义
+7. **岛屿风**（对齐 Clash-Flux）：冷调石板主题（ui/app.cpp `AppDarkThemeSpec`
+   「深海」= 海军蓝海面 #101923 + 青蓝强调 #38BDF8 / `AppLightThemeSpec`
+   「晴石」= 冷白海面 #FDFDFD + 天蓝强调 #2F7BE6；强调色比参考图实测的亮蓝
+   #4595F7 略深一档，以保住白字在其上的对比度）。**强调色（primary）只用于可交互
+   状态**——按钮/分段选中/开关/标题栏 hover 描边与辉光；分组标题等非交互
+   文字用 on_surface / on_surface_variant，避免整页变蓝。设置页以单个太极
+   选择器循环切换跟随系统/深海/晴石（平衡态/深海外环/晴石外环，悬停持续
+   旋转、移出冻结当前角度），存值仍 system/dark/light；一级轻岛 10pt /
+   二级岛 6pt 圆角，半透明表面色经 `ResolveIslandTheme(theme)` 语义
    层级取，不直接用 surface_container_*。删除确认用内置
    `dialog.Show(title, message, positive, negative, ...)`（DialogStyle 已在
    MinimalThemed 里主题化）。
-   通用 `Card` 使用主题 raised 表面、6pt 圆角和内边距的单层轻量样式，不叠加
-   SVG 边框或裁剪层；弹窗仍保留规则边框以保证浮层识别度。
-8. **水墨图标契约**：所有 24×24 功能 SVG 必须遵守
-   `resources/README.md` 的水墨规范——每个语义只保留一套 `#FFFFFF` 无色
+   通用 `Card` 使用主题 raised 表面、6pt 圆角、1pt `outline_soft` 描边和内边距
+   的单层轻量样式（冷调下卡片与页面色差很小，描边负责划界），不叠加裁剪层；
+   弹窗仍保留规则边框以保证浮层识别度。
+8. **图标契约**：所有 24×24 功能 SVG 必须遵守
+   `resources/README.md` 的规范——每个语义只保留一套 `#FFFFFF` 无色
    alpha-mask，深浅主题由运行时 tint 自适应，选中态由承载底块表达；禁止
    `_selected/_dark/_light` 重复轮廓；品牌图标不得改变官方轮廓。
    CMake 配置期强制校验（无色 mask + 无重复轮廓）。
@@ -511,5 +515,24 @@ I/O、解析和 JSON 函数默认保留在 `.cpp` 中。
   每供应商 `models` 数组；空 = 仅 model 一个）——导入全量读出、切换全量
   写回（默认模型保证在列）、表单「获取模型」拉到的列表整体写入（未拉取
   则保留原清单），多模型条目不再丢模型。
+- ✅ 冷调石板主题重构（2026-09-17）：按参考图把两套主题从暖调水墨换成冷调
+  石板/海军蓝——`AppDarkThemeSpec`「深海」（海面 #101923 + 青蓝 #38BDF8）/
+  `AppLightThemeSpec`「晴石」（海面 #FDFDFD + 天蓝 #2F7BE6），并补齐此前
+  一直沿用 Material 紫色默认值的 `primary_container` / `on_primary_container`
+  / `tertiary_container` / `on_tertiary_container` / `scrim`。强调色语义收紧：
+  `primary` 只用于可交互状态，四处 SectionTitle 从 primary 改到
+  `on_surface_variant`。标题栏莲花本体固定 `on_surface`（浅色深石板/深色冷
+  白），强调色只走悬停圆底 + 描边 + 三层同心环与加宽底描边构成的辉光。
+  水墨身份退役：删除 `src/ui/ink_splash.cpp`（泼墨）与 `ink_backdrop_dark/
+  light.svg`（含早已无引用的 `ink_landscape.svg`），环境层改为程序化
+  `AmbientGlow(dark)`（RadialGradient 冷调光晕）。太极选择器三枚 glyph 重新
+  配色（冷白 #E8F0F8 / 深蓝 #1B2836），主题名改「深海/晴石」（仅悬停提示）。
+  `Card` 增加 1pt `outline_soft` 描边（冷调下卡片与页面色差小，靠描边划界）。
+  资源同步冷调化：托盘 10 张 PNG 重渲染、`platform/windows/app.ico` 与
+  `platform/linux/package/llm-switch.svg` 重新生成、Windows 安装器重复的
+  主题定义同步。实测取值：浅色底 #FDFDFD、hover #E9F0F8、亮蓝 #4595F7；
+  深色底 #101923、卡片 #1A2431、hover #22303F、青蓝辉光 #287AA9~#38BDF8。
+  注：参考图标题栏圆角实测 ≈26px/条高 105px ≈ 0.25，映射到 24 DIP 标题栏
+  就是 ~6pt，即现有 nested_radius——**未放宽** AGENTS.md 的圆角约束。
 - ⬜ 待做：订阅站端点可能随各家调整，升级版本时需复核；无 CLI 分流、
   无单实例/开机自启。

@@ -120,9 +120,10 @@ huxerui::Color StatusColor(int status, const huxerui::ThemeSpec& theme) {
 
 [[huxerui::composable]] huxerui::View SectionTitle(const std::string& title) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    // 分组标签走次要文本色，强调色只留给可交互状态。
     return huxerui::Text(title).Style(huxerui::TextStyle{
         huxerui::Font::System(font_size::kChip).WithWeight(huxerui::FontWeight::Bold),
-        theme.colors.primary});
+        theme.colors.on_surface_variant});
 }
 
 [[huxerui::composable]] huxerui::View HintText(const std::string& text) {

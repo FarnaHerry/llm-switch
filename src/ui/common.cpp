@@ -137,9 +137,13 @@ huxerui::Color IslandColor(const IslandTheme& islands, IslandLevel level) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     const IslandTheme islands = ResolveIslandTheme(theme);
     huxerui::View card = content;
+    // 冷调主题下卡片与页面只差一档冷灰（半透明表面叠在环境光上），单靠底色
+    // 不足以划出卡片边界，补一条 1pt 主题描边——仍是单层轻量样式，不引入
+    // SVG 边框或裁剪层。
     return std::move(card).With(
         huxerui::Background(islands.raised),
         huxerui::CornerRadius(islands.nested_radius),
+        huxerui::Border(islands.outline_soft, 1.0F),
         huxerui::Padding(islands.island_padding));
 }
 

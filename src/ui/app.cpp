@@ -2,9 +2,9 @@
 //   标题栏：应用名与莲花标志在左，五瓣莲花导航锚点精确居中，两侧以圆点、
 //     菱形和细线装饰；悬停时整组高亮，并在屏幕中央展开环形顶级页面图标。
 //     框架在右侧渲染窗口按钮；标题栏
-//     收窄为 24px 高、去背景直接融入窗口底色。主题为太极水墨风：
-//     深色「玄墨」= 暖调近黑底 + 宣纸白主色；浅色「宣纸」= 米白纸面 + 浓墨主色；
-//     状态色仅 error 保留朱砂红。
+//     收窄为 24px 高、去背景直接融入窗口底色。主题为冷调石板风：
+//     深色「深海」= 海军蓝底 + 青蓝强调色；浅色「晴石」= 冷白底 + 天蓝强调色；
+//     环境层是一层程序化环境光，error 为冷调语义红。
 //   下方：内容区独占整行（Agent 管理页内再分二级工具栏 + 页面自己的
 //   一级岛屿——PageScaffold，外壳不再套岛）。根节点刷整窗海面底色
 //   （rootSpec.colors.background——AppRoot 在主题 provider 之上，UseTheme 只能
@@ -52,10 +52,12 @@ enum PageIndex : std::size_t {
 
 namespace {
 
-// 太极水墨风主题：深色「玄墨」= 暖调近黑海面（玄）+ 宣纸白主色；
-// 浅色「宣纸」= 米白纸面 + 浓墨主色。文本/描边只用暖调墨色阶
-// （浓墨/淡墨），状态色仅 error 保留朱砂红（印泥）。
-huxerui::ThemeSpec InkDarkThemeSpec() {
+// 冷调主题：深色「深海」= 海军蓝海面（#101923）+ 青蓝强调色；浅色「晴石」=
+// 冷白纸面（#FDFDFD）+ 天蓝强调色。文本用冷调石板蓝-灰阶，交互态（按钮/
+// 选中/开关/标题栏 hover）统一由 primary 承担；error 保留语义红（冷调）。
+// 强调色比参考图实测的亮蓝（#4595F7）略深一档，换取白字在其上的对比度
+// （≈4.2:1），按钮标签因此仍然可读。
+huxerui::ThemeSpec AppDarkThemeSpec() {
     huxerui::ThemeSpec spec = huxerui::MaterialDarkThemeSpec();
     spec.typography = huxerui::TypographyScheme{
         .body_large = 16.0F,
@@ -65,28 +67,33 @@ huxerui::ThemeSpec InkDarkThemeSpec() {
         .title_large = font_size::kTitle,
         .headline_small = 24.0F,
     };
-    spec.colors.primary = huxerui::Color::Rgb(230, 224, 210);      // 宣纸白主色 #E6E0D2
-    spec.colors.on_primary = huxerui::Color::Rgb(38, 35, 30);      // 主色上翻浓墨
-    spec.colors.secondary = huxerui::Color::Rgb(179, 172, 156);
-    spec.colors.on_secondary = huxerui::Color::Rgb(38, 35, 30);
-    spec.colors.secondary_container = huxerui::Color::Rgb(58, 54, 45);
-    spec.colors.on_secondary_container = huxerui::Color::Rgb(230, 224, 210);
-    spec.colors.background = huxerui::Color::Rgb(22, 20, 17);      // 玄 #161411 暖调近黑（海面）
-    spec.colors.surface = huxerui::Color::Rgb(28, 26, 22);
-    spec.colors.surface_container_low = huxerui::Color::Rgb(33, 30, 26);
-    spec.colors.surface_container = huxerui::Color::Rgb(40, 37, 31);
-    spec.colors.surface_container_high = huxerui::Color::Rgb(47, 44, 37);
-    spec.colors.surface_container_highest = huxerui::Color::Rgb(56, 52, 44);
-    spec.colors.on_surface = huxerui::Color::Rgb(214, 208, 192);   // 宣纸灰正文
-    spec.colors.on_surface_variant = huxerui::Color::Rgb(163, 156, 139); // 淡墨
-    spec.colors.outline = huxerui::Color::Rgb(76, 71, 60);
-    spec.colors.inverse_surface = huxerui::Color::Rgb(214, 208, 192);
-    spec.colors.inverse_on_surface = huxerui::Color::Rgb(38, 35, 30);
-    spec.colors.error = huxerui::Color::Rgb(223, 114, 86);         // 朱砂（浅）#DF7256
+    spec.colors.primary = huxerui::Color::Rgb(56, 189, 248);       // 青蓝强调 #38BDF8
+    spec.colors.on_primary = huxerui::Color::Rgb(6, 34, 49);       // 强调色上翻深墨青
+    spec.colors.primary_container = huxerui::Color::Rgb(27, 58, 80);
+    spec.colors.on_primary_container = huxerui::Color::Rgb(190, 231, 251);
+    spec.colors.secondary = huxerui::Color::Rgb(159, 176, 194);
+    spec.colors.on_secondary = huxerui::Color::Rgb(16, 25, 35);
+    spec.colors.secondary_container = huxerui::Color::Rgb(34, 48, 63);   // hover / 选中底块
+    spec.colors.on_secondary_container = huxerui::Color::Rgb(232, 238, 246);
+    spec.colors.tertiary_container = huxerui::Color::Rgb(30, 58, 74);
+    spec.colors.on_tertiary_container = huxerui::Color::Rgb(185, 217, 232);
+    spec.colors.background = huxerui::Color::Rgb(16, 25, 35);      // 海军蓝海面 #101923
+    spec.colors.surface = huxerui::Color::Rgb(23, 35, 48);
+    spec.colors.surface_container_low = huxerui::Color::Rgb(20, 30, 42);
+    spec.colors.surface_container = huxerui::Color::Rgb(26, 36, 49);      // 二级岛卡片
+    spec.colors.surface_container_high = huxerui::Color::Rgb(32, 43, 57); // hover 面 / 弹窗
+    spec.colors.surface_container_highest = huxerui::Color::Rgb(38, 49, 63);
+    spec.colors.on_surface = huxerui::Color::Rgb(232, 238, 246);   // 石板冷白正文
+    spec.colors.on_surface_variant = huxerui::Color::Rgb(147, 163, 182); // 次要冷灰
+    spec.colors.outline = huxerui::Color::Rgb(44, 58, 73);
+    spec.colors.inverse_surface = huxerui::Color::Rgb(232, 238, 246);
+    spec.colors.inverse_on_surface = huxerui::Color::Rgb(16, 25, 35);
+    spec.colors.scrim = huxerui::Color::Rgb(4, 10, 18, 0.55F);
+    spec.colors.error = huxerui::Color::Rgb(240, 115, 108);        // 语义红 #F0736C
     return spec;
 }
 
-huxerui::ThemeSpec InkLightThemeSpec() {
+huxerui::ThemeSpec AppLightThemeSpec() {
     huxerui::ThemeSpec spec = huxerui::MaterialLightThemeSpec();
     spec.typography = huxerui::TypographyScheme{
         .body_large = 16.0F,
@@ -96,34 +103,39 @@ huxerui::ThemeSpec InkLightThemeSpec() {
         .title_large = font_size::kTitle,
         .headline_small = 24.0F,
     };
-    // 宣纸色：暖调米白纸面（更亮一档，对齐墨韵参考），卡片近白 + 细墨边，
-    // 主色浓墨而非纯黑。
-    spec.colors.primary = huxerui::Color::Rgb(43, 40, 35);         // 浓墨主色 #2B2823
-    spec.colors.on_primary = huxerui::Color::Rgb(246, 243, 234);
-    spec.colors.secondary = huxerui::Color::Rgb(110, 105, 92);     // 淡墨 #6E695C
-    spec.colors.on_secondary = huxerui::Color::Rgb(248, 245, 238);
-    spec.colors.secondary_container = huxerui::Color::Rgb(227, 221, 203);
-    spec.colors.on_secondary_container = huxerui::Color::Rgb(43, 40, 35);
-    spec.colors.background = huxerui::Color::Rgb(239, 234, 224);   // 宣纸海面 #EFEAE0
-    spec.colors.surface = huxerui::Color::Rgb(247, 244, 236);
-    spec.colors.surface_container_low = huxerui::Color::Rgb(242, 238, 228);
-    spec.colors.surface_container = huxerui::Color::Rgb(248, 245, 236);  // 二级岛近白
-    spec.colors.surface_container_high = huxerui::Color::Rgb(230, 225, 211);
-    spec.colors.surface_container_highest = huxerui::Color::Rgb(252, 250, 243);
-    spec.colors.on_surface = huxerui::Color::Rgb(46, 43, 37);      // 浓墨正文 #2E2B25
-    spec.colors.on_surface_variant = huxerui::Color::Rgb(110, 105, 92); // 淡墨
-    spec.colors.outline = huxerui::Color::Rgb(216, 210, 194);      // 细墨边
-    spec.colors.inverse_surface = huxerui::Color::Rgb(46, 43, 37);
-    spec.colors.inverse_on_surface = huxerui::Color::Rgb(246, 243, 234);
-    spec.colors.error = huxerui::Color::Rgb(181, 70, 46);          // 朱砂 #B5462E
+    // 冷白石面：海面近纯白，岛屿与其只差一档冷灰；卡片走浅蓝灰玻璃面 +
+    // 冷灰描边，hover 面提亮为淡蓝。
+    spec.colors.primary = huxerui::Color::Rgb(47, 123, 230);       // 天蓝强调 #2F7BE6
+    spec.colors.on_primary = huxerui::Color::Rgb(255, 255, 255);
+    spec.colors.primary_container = huxerui::Color::Rgb(220, 234, 253);
+    spec.colors.on_primary_container = huxerui::Color::Rgb(18, 58, 107);
+    spec.colors.secondary = huxerui::Color::Rgb(91, 108, 129);     // 石板灰 #5B6C81
+    spec.colors.on_secondary = huxerui::Color::Rgb(255, 255, 255);
+    spec.colors.secondary_container = huxerui::Color::Rgb(233, 240, 248); // hover / 选中底块
+    spec.colors.on_secondary_container = huxerui::Color::Rgb(30, 42, 58);
+    spec.colors.tertiary_container = huxerui::Color::Rgb(228, 236, 245);
+    spec.colors.on_tertiary_container = huxerui::Color::Rgb(43, 59, 78);
+    spec.colors.background = huxerui::Color::Rgb(253, 253, 253);   // 冷白海面 #FDFDFD
+    spec.colors.surface = huxerui::Color::Rgb(246, 249, 252);
+    spec.colors.surface_container_low = huxerui::Color::Rgb(243, 247, 251);
+    spec.colors.surface_container = huxerui::Color::Rgb(241, 245, 250);  // 二级岛卡片
+    spec.colors.surface_container_high = huxerui::Color::Rgb(233, 240, 248); // hover 面 / 弹窗
+    spec.colors.surface_container_highest = huxerui::Color::Rgb(255, 255, 255);
+    spec.colors.on_surface = huxerui::Color::Rgb(30, 42, 58);      // 深石板蓝正文 #1E2A3A
+    spec.colors.on_surface_variant = huxerui::Color::Rgb(85, 103, 125); // 次要冷灰 #55677D
+    spec.colors.outline = huxerui::Color::Rgb(220, 227, 235);      // 冷灰描边 #DCE3EB
+    spec.colors.inverse_surface = huxerui::Color::Rgb(30, 42, 58);
+    spec.colors.inverse_on_surface = huxerui::Color::Rgb(245, 248, 252);
+    spec.colors.scrim = huxerui::Color::Rgb(9, 18, 30, 0.38F);
+    spec.colors.error = huxerui::Color::Rgb(214, 69, 69);          // 语义红 #D64545
     return spec;
 }
 
 // 主题边界：MaterialThemeDefinition(spec) 之上用 typed style 覆盖组件样式——
 // 按钮/分段按钮/菜单圆角统一 8px（M3 默认全圆胶囊），叠加层用 on_surface
 // 半透明（深色下黑叠黑、浅色黑底上白叠加不可见，故不用 M3 ripple）。
-huxerui::View InkThemed(bool dark, huxerui::View content) {
-    const huxerui::ThemeSpec spec = dark ? InkDarkThemeSpec() : InkLightThemeSpec();
+huxerui::View AppThemed(bool dark, huxerui::View content) {
+    const huxerui::ThemeSpec spec = dark ? AppDarkThemeSpec() : AppLightThemeSpec();
     huxerui::ThemeDefinition definition = huxerui::MaterialThemeDefinition(spec);
 
     const auto withAlpha = [](huxerui::Color c, float a) {
@@ -138,7 +150,7 @@ huxerui::View InkThemed(bool dark, huxerui::View content) {
     definition.Set(buttons);
 
     // 功能图标资源只保存白色 alpha-mask；这里是唯一的主题着色入口。
-    // 深色映射宣纸白、浅色映射浓墨，资源本身无需维护主题分叉。
+    // 深色映射冷白、浅色映射深石板蓝，资源本身无需维护主题分叉。
     huxerui::IconButtonStyle iconButtons = huxerui::IconButtonStyle::Default();
     iconButtons.foreground = spec.colors.on_surface;
     iconButtons.disabled_foreground = withAlpha(spec.colors.on_surface_variant, 0.38F);
@@ -355,10 +367,12 @@ huxerui::View TitleBarOrnamentArtwork(huxerui::Color color, bool glow) {
 
         color.alpha = glow ? 0.86F : 0.42F;
         if (glow) {
+            // 悬停横线带一层宽而淡的底色 —— 多层低透明度描边叠加出「发光」
+            // 观感（SDK 无模糊滤镜，辉光一律由分层描边/阴影表达）。
             huxerui::Color halo = color;
-            halo.alpha = 0.12F;
+            halo.alpha = 0.20F;
             const huxerui::StrokeStyle haloStyle{
-                .width = 4.0F,
+                .width = 5.0F,
                 .cap = huxerui::StrokeCap::Round,
                 .join = huxerui::StrokeJoin::Round,
             };
@@ -396,8 +410,9 @@ huxerui::View TitleBarOrnamentArtwork(huxerui::Color color, bool glow) {
                          color);
 
         if (glow) {
+            // 莲花锚点外圈的同心环：由内向外逐层变淡，形成向外的辉光衰减。
             huxerui::Color ring = color;
-            ring.alpha = 0.32F;
+            ring.alpha = 0.42F;
             const huxerui::StrokeStyle ringStyle{
                 .width = 0.8F,
                 .cap = huxerui::StrokeCap::Round,
@@ -405,8 +420,10 @@ huxerui::View TitleBarOrnamentArtwork(huxerui::Color color, bool glow) {
             };
             constexpr float kFullCircle = 6.2831853F;
             paint.DrawArc(center, 14.0F, 0.0F, kFullCircle, ring, ringStyle);
-            ring.alpha = 0.16F;
+            ring.alpha = 0.26F;
             paint.DrawArc(center, 16.0F, 0.0F, kFullCircle, ring, ringStyle);
+            ring.alpha = 0.12F;
+            paint.DrawArc(center, 19.0F, 0.0F, kFullCircle, ring, ringStyle);
         }
     });
 }
@@ -424,14 +441,16 @@ huxerui::View TitleBarOrnamentArtwork(huxerui::Color color, bool glow) {
               .duration = 0.18,
               .easing = huxerui::Easing::EaseOut}};
     huxerui::Color glowShadow = theme.colors.primary;
-    glowShadow.alpha = open ? 0.42F : 0.0F;
+    glowShadow.alpha = open ? 0.50F : 0.0F;
 
     // SVG 的可见轮廓中心比 24×24 viewBox 几何中心高约 0.6 DIP。圆环必须继续
     // 与标题栏严格同心，因此只下移花瓣图形，不偏移锚点的外框与装饰横线。
     huxerui::View lotus =
         huxerui::Stack {
+            // 花瓣本体两种状态都是正文墨色（浅色=深石板蓝、深色=冷白），
+            // 悬停时由承载圆底 + 描边 + 外辉光表达强调，花瓣本身不换成强调色。
             huxerui::Image(app::images::lotus_bloom)
-                .Tint(open ? theme.colors.primary : theme.colors.on_surface)
+                .Tint(theme.colors.on_surface)
                 .With(huxerui::Frame{.width = 18.0F, .height = 18.0F},
                       huxerui::Offset(huxerui::Point{0.0F, 0.6F})),
         }
@@ -445,7 +464,7 @@ huxerui::View TitleBarOrnamentArtwork(huxerui::Color color, bool glow) {
                   huxerui::Border(open ? theme.colors.primary
                                         : islands.outline_soft,
                                    open ? 1.15F : 0.75F),
-                  huxerui::Shadow{glowShadow, {}, open ? 9.0F : 0.0F, 0.0F},
+                  huxerui::Shadow{glowShadow, {}, open ? 14.0F : 0.0F, 0.0F},
                   huxerui::Scale(huxerui::AnimateTo(
                       open ? 1.08F : 1.0F, bloomMotion)),
                   huxerui::Semantics{.role = huxerui::SemanticRole::Image,
@@ -745,6 +764,28 @@ huxerui::View RadialNavigationArtwork(huxerui::Color color) {
     return TopLevelPageHost(navPage, cachedPages);
 }
 
+// 环境光：冷调主题的窗口底纹。深色是海军蓝底上一层柔和青蓝辉光（偏向画面
+// 上方，对齐参考图深色半边的柔和光斑），浅色是冷白底顶部一层极淡天蓝洗色；
+// 两侧背景都保持干净——旧的全景水墨画卷与程序化泼墨已随水墨身份退役。
+// Canvas 直接铺满宿主（不要包 Align/Frame：Align 会把画布按父约束撑满，
+// 画布本就是全幅），光斑按画布尺寸取比例，窗口缩放时不失真。
+huxerui::View AmbientGlow(bool dark) {
+    return huxerui::Canvas(
+        [dark](huxerui::PaintContext& paint, huxerui::Size size) {
+            huxerui::Color inner =
+                dark ? huxerui::Color::Rgb(56, 189, 248, 0.10F)
+                     : huxerui::Color::Rgb(47, 123, 230, 0.06F);
+            huxerui::Color outer = inner;
+            outer.alpha = 0.0F;
+            paint.DrawRect(huxerui::Rect{0.0F, 0.0F, size.width, size.height},
+                           huxerui::RadialGradient{
+                               .center = {0.5F, dark ? 0.30F : 0.10F},
+                               .radius = {0.66F, dark ? 0.60F : 0.45F},
+                               .stops = {{0.0F, inner}, {1.0F, outer}},
+                           });
+        });
+}
+
 } // namespace
 
 [[huxerui::composable]] huxerui::View AppRoot() {
@@ -814,26 +855,12 @@ huxerui::View RadialNavigationArtwork(huxerui::Color color) {
 
     const bool dark =
         themeMode.Get() == 1 || (themeMode.Get() == 0 && cfg::systemPrefersDark());
-    const huxerui::ThemeSpec rootSpec = dark ? InkDarkThemeSpec() : InkLightThemeSpec();
+    const huxerui::ThemeSpec rootSpec = dark ? AppDarkThemeSpec() : AppLightThemeSpec();
 
-    // 叠放根：全景水墨从页脚装饰升级为环境层。深浅主题分别使用低对比度画卷，
-    // Fill 铺满窗口、中央刻意净空；轻岛屿让顶部远山和四角近景隐约透出。
-    // 最外层仍刷海面底色，保证图片加载前和极端宽高比下背景稳定。
+    // 叠放根：环境层只有一层冷调环境光，内容仍以轻岛屿组织并透出环境；
+    // 最外层仍刷海面底色，保证极端宽高比下背景稳定。
     huxerui::View content = huxerui::Stack {
-        huxerui::Image(dark ? app::images::ink_backdrop_dark
-                            : app::images::ink_backdrop_light)
-            // 极窄窗口下 Cover 的浮点裁剪源矩形可能比 SVG viewBox 多出
-            // 极小误差，触发 HuxerUI 的边界校验。背景是装饰层，Fill 使用
-            // 完整源矩形，优先保证窗口缩放始终安全。
-            .Fit(huxerui::ImageFit::Fill)
-            .Align(huxerui::HorizontalAlignment::Center,
-                   huxerui::VerticalAlignment::Center),
-        // Canvas+Path 程序化泼墨伪元素：环境层，叠在水墨画卷与内容之间，
-        // 右上为主、左下淡些呼应；seed 固定，形态恒定不随重组抖动。
-        // 不要包 Align/Frame：Align 节点会把画布按父约束撑满（画布本就是
-        // 全幅），落点由 anchor 在画布内定位。
-        InkSplash(0x51B7U, 1.0F, InkSplashAnchor::TopEnd),
-        InkSplash(0x2F3DU, 0.65F, InkSplashAnchor::BottomStart),
+        AmbientGlow(dark),
         huxerui::Column {
             // 标题栏只负责应用名、拖拽区和系统按钮预留；莲花锚点在下方根级
             // 覆盖层按整窗宽度居中，避免被右侧最小化/最大化/关闭按钮推偏。
@@ -886,7 +913,7 @@ huxerui::View RadialNavigationArtwork(huxerui::Color color) {
     // Stack 的 Stretch 只拉伸子项，不会让 Stack 自身从自然尺寸扩展到窗口。
     // 用一个有 Grow 子项的 Column 把完整窗口约束传入 Stack，保证四边都能
     // 随窗口拉伸，也让内容区获得稳定的有限滚动视口。
-    // DialogHandle 必须在 InkThemed 的子作用域内获取，否则关闭确认框会捕获
+    // DialogHandle 必须在 AppThemed 的子作用域内获取，否则关闭确认框会捕获
     // HuxerUI 默认 Environment，无法使用应用的主体色和对话框样式。
     huxerui::View windowBehavior = huxerui::Scope(
         [application, tray, window, toast] {
@@ -947,7 +974,7 @@ huxerui::View RadialNavigationArtwork(huxerui::Color color) {
     }.With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
            huxerui::Grow(1.0F));
 
-    return InkThemed(dark, std::move(filledContent));
+    return AppThemed(dark, std::move(filledContent));
 }
 
 } // namespace llmswitch::ui

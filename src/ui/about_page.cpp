@@ -16,9 +16,10 @@ const std::string kVersionLine = std::format("llm-switch v{}", LLMSWITCH_VERSION
 
 [[huxerui::composable]] huxerui::View AboutSectionTitle(const std::string& title) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    // 分组标签走次要文本色，强调色只留给可交互状态。
     return huxerui::Text(title).Style(huxerui::TextStyle{
         huxerui::Font::System(font_size::kChip).WithWeight(huxerui::FontWeight::Bold),
-        theme.colors.primary});
+        theme.colors.on_surface_variant});
 }
 
 // 链接行：标签 + 等宽地址（纯文本展示，见文件头注释）。

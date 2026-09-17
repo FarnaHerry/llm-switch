@@ -39,6 +39,8 @@ bool SystemPrefersDark() {
   return result == ERROR_SUCCESS && apps_use_light_theme == 0;
 }
 
+// 与主程序 src/ui/app.cpp 的 AppDarkThemeSpec 保持同一套冷调色板（安装器
+// 不共享源码，只能手工同步；改色时两处必须一起改）。
 ThemeSpec InkDarkThemeSpec() {
   ThemeSpec spec = MaterialDarkThemeSpec();
   spec.typography = TypographyScheme{
@@ -49,24 +51,29 @@ ThemeSpec InkDarkThemeSpec() {
       .title_large = 20.0F,
       .headline_small = 24.0F,
   };
-  spec.colors.primary = Color::Rgb(230, 224, 210);          // 宣纸白
-  spec.colors.on_primary = Color::Rgb(38, 35, 30);           // 浓墨
-  spec.colors.secondary = Color::Rgb(179, 172, 156);         // 淡墨
-  spec.colors.on_secondary = Color::Rgb(38, 35, 30);
-  spec.colors.secondary_container = Color::Rgb(58, 54, 45);
-  spec.colors.on_secondary_container = Color::Rgb(230, 224, 210);
-  spec.colors.background = Color::Rgb(22, 20, 17);            // 玄墨海面
-  spec.colors.surface = Color::Rgb(28, 26, 22);
-  spec.colors.surface_container_low = Color::Rgb(33, 30, 26);
-  spec.colors.surface_container = Color::Rgb(40, 37, 31);
-  spec.colors.surface_container_high = Color::Rgb(47, 44, 37);
-  spec.colors.surface_container_highest = Color::Rgb(56, 52, 44);
-  spec.colors.on_surface = Color::Rgb(214, 208, 192);        // 宣纸灰
-  spec.colors.on_surface_variant = Color::Rgb(163, 156, 139); // 淡墨
-  spec.colors.outline = Color::Rgb(76, 71, 60);
-  spec.colors.inverse_surface = Color::Rgb(214, 208, 192);
-  spec.colors.inverse_on_surface = Color::Rgb(38, 35, 30);
-  spec.colors.error = Color::Rgb(223, 114, 86);               // 朱砂
+  spec.colors.primary = Color::Rgb(56, 189, 248);            // 青蓝强调
+  spec.colors.on_primary = Color::Rgb(6, 34, 49);
+  spec.colors.primary_container = Color::Rgb(27, 58, 80);
+  spec.colors.on_primary_container = Color::Rgb(190, 231, 251);
+  spec.colors.secondary = Color::Rgb(159, 176, 194);
+  spec.colors.on_secondary = Color::Rgb(16, 25, 35);
+  spec.colors.secondary_container = Color::Rgb(34, 48, 63);
+  spec.colors.on_secondary_container = Color::Rgb(232, 238, 246);
+  spec.colors.tertiary_container = Color::Rgb(30, 58, 74);
+  spec.colors.on_tertiary_container = Color::Rgb(185, 217, 232);
+  spec.colors.background = Color::Rgb(16, 25, 35);            // 海军蓝海面
+  spec.colors.surface = Color::Rgb(23, 35, 48);
+  spec.colors.surface_container_low = Color::Rgb(20, 30, 42);
+  spec.colors.surface_container = Color::Rgb(26, 36, 49);
+  spec.colors.surface_container_high = Color::Rgb(32, 43, 57);
+  spec.colors.surface_container_highest = Color::Rgb(38, 49, 63);
+  spec.colors.on_surface = Color::Rgb(232, 238, 246);        // 石板冷白
+  spec.colors.on_surface_variant = Color::Rgb(147, 163, 182);
+  spec.colors.outline = Color::Rgb(44, 58, 73);
+  spec.colors.inverse_surface = Color::Rgb(232, 238, 246);
+  spec.colors.inverse_on_surface = Color::Rgb(16, 25, 35);
+  spec.colors.scrim = Color::Rgb(4, 10, 18, 0.55F);
+  spec.colors.error = Color::Rgb(240, 115, 108);
   return spec;
 }
 
@@ -80,24 +87,29 @@ ThemeSpec InkLightThemeSpec() {
       .title_large = 20.0F,
       .headline_small = 24.0F,
   };
-  spec.colors.primary = Color::Rgb(43, 40, 35);              // 浓墨
-  spec.colors.on_primary = Color::Rgb(246, 243, 234);        // 宣纸白
-  spec.colors.secondary = Color::Rgb(110, 105, 92);          // 淡墨
-  spec.colors.on_secondary = Color::Rgb(248, 245, 238);
-  spec.colors.secondary_container = Color::Rgb(227, 221, 203);
-  spec.colors.on_secondary_container = Color::Rgb(43, 40, 35);
-  spec.colors.background = Color::Rgb(239, 234, 224);         // 宣纸海面
-  spec.colors.surface = Color::Rgb(247, 244, 236);
-  spec.colors.surface_container_low = Color::Rgb(242, 238, 228);
-  spec.colors.surface_container = Color::Rgb(248, 245, 236);
-  spec.colors.surface_container_high = Color::Rgb(230, 225, 211);
-  spec.colors.surface_container_highest = Color::Rgb(252, 250, 243);
-  spec.colors.on_surface = Color::Rgb(46, 43, 37);           // 浓墨正文
-  spec.colors.on_surface_variant = Color::Rgb(110, 105, 92); // 淡墨
-  spec.colors.outline = Color::Rgb(216, 210, 194);
-  spec.colors.inverse_surface = Color::Rgb(46, 43, 37);
-  spec.colors.inverse_on_surface = Color::Rgb(246, 243, 234);
-  spec.colors.error = Color::Rgb(181, 70, 46);                // 朱砂
+  spec.colors.primary = Color::Rgb(47, 123, 230);            // 天蓝强调
+  spec.colors.on_primary = Color::Rgb(255, 255, 255);
+  spec.colors.primary_container = Color::Rgb(220, 234, 253);
+  spec.colors.on_primary_container = Color::Rgb(18, 58, 107);
+  spec.colors.secondary = Color::Rgb(91, 108, 129);
+  spec.colors.on_secondary = Color::Rgb(255, 255, 255);
+  spec.colors.secondary_container = Color::Rgb(233, 240, 248);
+  spec.colors.on_secondary_container = Color::Rgb(30, 42, 58);
+  spec.colors.tertiary_container = Color::Rgb(228, 236, 245);
+  spec.colors.on_tertiary_container = Color::Rgb(43, 59, 78);
+  spec.colors.background = Color::Rgb(253, 253, 253);         // 冷白海面
+  spec.colors.surface = Color::Rgb(246, 249, 252);
+  spec.colors.surface_container_low = Color::Rgb(243, 247, 251);
+  spec.colors.surface_container = Color::Rgb(241, 245, 250);
+  spec.colors.surface_container_high = Color::Rgb(233, 240, 248);
+  spec.colors.surface_container_highest = Color::Rgb(255, 255, 255);
+  spec.colors.on_surface = Color::Rgb(30, 42, 58);           // 深石板蓝正文
+  spec.colors.on_surface_variant = Color::Rgb(85, 103, 125);
+  spec.colors.outline = Color::Rgb(220, 227, 235);
+  spec.colors.inverse_surface = Color::Rgb(30, 42, 58);
+  spec.colors.inverse_on_surface = Color::Rgb(245, 248, 252);
+  spec.colors.scrim = Color::Rgb(9, 18, 30, 0.38F);
+  spec.colors.error = Color::Rgb(214, 69, 69);
   return spec;
 }
 

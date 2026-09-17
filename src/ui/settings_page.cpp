@@ -25,9 +25,10 @@ import llmswitch.store;
 namespace llmswitch::ui {
 namespace {
 
-// 主题显示名：水墨风命名（玄墨=深色、宣纸=浅色），存值仍是 system/dark/light。
-const std::vector<std::string> kThemeNames{"跟随系统", "玄墨（深色）",
-                                           "宣纸（浅色）"};
+// 主题显示名：冷调命名（深海=深色、晴石=浅色），存值仍是 system/dark/light。
+// 仅在悬停提示里出现；选择器本体保持纯图形，不显示文字。
+const std::vector<std::string> kThemeNames{"跟随系统", "深海（深色）",
+                                           "晴石（浅色）"};
 const std::vector<std::string> kThemeModes{"system", "dark", "light"};
 
 std::size_t CloseBehaviorIndex(std::string_view behavior) {
@@ -131,9 +132,11 @@ bool ResolvesToDark(int mode) {
 
 [[huxerui::composable]] huxerui::View SectionTitle(const std::string& title) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    // 分组标签走次要文本色：强调色（primary）只留给可交互状态，
+    // 标题不再随主题变成蓝色。
     return huxerui::Text(title).Style(huxerui::TextStyle{
         huxerui::Font::System(font_size::kChip).WithWeight(huxerui::FontWeight::Bold),
-        theme.colors.primary});
+        theme.colors.on_surface_variant});
 }
 
 // 配置文件路径行（只读展示解析结果，等宽小字）。

@@ -21,7 +21,7 @@ HuxerUI 资源根（`huxerui_add_app` 以 `app` 命名空间注册，codegen 生
 
 - 语义轮廓必须在 16–20px 视觉范围内清楚可辨，水墨化不能牺牲功能识别；
 - 资源统一只使用白色 `#FFFFFF` 与透明度描述墨量，不写死浅色／深色；运行时
-  tint 根据主题映射成宣纸或玄墨颜色；
+  tint 根据主题映射成冷白或深石板蓝（见 `src/ui/app.cpp` 两套 ThemeSpec）；
 - 主笔画使用圆头、圆角连接，允许轻微不对称；避免整齐、等宽、完全闭合的
   Material 几何感；
 - 每个语义图标只保留一个 SVG，禁止新增 `_selected.svg`、`_dark.svg`、
