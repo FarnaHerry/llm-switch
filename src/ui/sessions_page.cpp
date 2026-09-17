@@ -635,8 +635,7 @@ std::string FormatSize(std::uintmax_t bytes) {
                 co_await huxerui::Delay(std::chrono::duration<double>{0});
                 if (!messages.Get()->empty()) {
                     static_cast<void>(scroll.ScrollToItem(
-                        messages.Get()->size() - 1,
-                        huxerui::ScrollAlignment::End));
+                        0, huxerui::ScrollAlignment::Start));
                 }
             } catch (const std::exception& e) {
                 if (requestGeneration.Get() != request) co_return;
