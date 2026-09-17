@@ -394,9 +394,11 @@ std::string FormatSize(std::uintmax_t bytes) {
             }),
         list,
     }.With(huxerui::Spacing(8.0F),
-           huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
-           huxerui::Grow(1.0F)))
-        .With(huxerui::Frame{.width = 220.0F},
+           huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)))
+        // 导航固定窄栏；这里**不能**再给 Grow——它是 Row 的主轴弹性，会与
+        // 内容区各分一份弹量变成左右对半。纵向铺满由父级 CrossAlign(Stretch)
+        // 保证，无需本节点参与主轴分配。
+        .With(huxerui::Frame{.width = 200.0F},
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 }
 

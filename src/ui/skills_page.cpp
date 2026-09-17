@@ -262,7 +262,9 @@ bool InvolvesTool(const skills::SkillInfo& skill, std::string_view toolId) {
                     co_return;
                 });
             }),
-        }.With(huxerui::Spacing(8.0F)),
+            // 操作组靠卡片右缘；卡片内容按 Stretch 排布，主轴靠 MainAlign 收尾。
+        }.With(huxerui::Spacing(8.0F),
+               huxerui::MainAlign(huxerui::MainAxisAlignment::End)),
     }.With(huxerui::Spacing(6.0F),
            huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)))
         .Key(name);
