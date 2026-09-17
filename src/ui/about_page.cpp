@@ -51,7 +51,8 @@ const std::string kVersionLine = std::format("llm-switch v{}", LLMSWITCH_VERSION
         huxerui::ScrollView(
             huxerui::Column {
                 Card(huxerui::Row {
-                    huxerui::Image(app::images::taiji)
+                    huxerui::Image(app::images::lotus_bloom)
+                        .Tint(theme.colors.on_surface)
                         .With(huxerui::Frame{.width = 44.0F, .height = 44.0F}),
                     huxerui::Column {
                         huxerui::Text(kVersionLine).Style(huxerui::TextStyle{

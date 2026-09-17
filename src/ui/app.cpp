@@ -1,6 +1,6 @@
 // app.cpp — 应用壳（岛屿架构 + 自定义标题栏 + 系统托盘，对齐 Clash-Flux 壳风）：
-//   标题栏：应用名在左，太极导航锚点精确居中；悬停时以太极为中心向两侧
-//     展开 8 个顶级页面图标，点击直接切页。框架在右侧渲染窗口按钮；标题栏
+//   标题栏：应用名与莲花标志在左，闭合莲花导航锚点精确居中；悬停时莲花绽放，
+//     并在屏幕中央同步展开环形顶级页面图标，点击直接切页。框架在右侧渲染窗口按钮；标题栏
 //     收窄为 24px 高、去背景直接融入窗口底色。主题为太极水墨风：
 //     深色「玄墨」= 暖调近黑底 + 宣纸白主色；浅色「宣纸」= 米白纸面 + 浓墨主色；
 //     状态色仅 error 保留朱砂红。
@@ -343,11 +343,27 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(huxerui::WindowHandle window,
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     const IslandTheme islands = ResolveIslandTheme(theme);
     const bool open = navigationOpen.Get();
+    const huxerui::AnimationSpec bloomMotion = theme.motion.reduced_motion
+        ? huxerui::AnimationSpec{huxerui::SnapSpec{}}
+        : huxerui::AnimationSpec{huxerui::TweenSpec{
+              .duration = 0.18,
+              .easing = huxerui::Easing::EaseOut}};
 
     return huxerui::Stack {
-        huxerui::Image(app::images::home)
+        huxerui::Image(app::images::lotus_bud)
             .Tint(theme.colors.on_surface)
-            .With(huxerui::Frame{.width = 17.0F, .height = 17.0F}),
+            .With(huxerui::Frame{.width = 17.0F, .height = 17.0F},
+                  huxerui::Opacity(huxerui::AnimateTo(open ? 0.0F : 1.0F,
+                                                       bloomMotion)),
+                  huxerui::Scale(huxerui::AnimateTo(open ? 0.84F : 1.0F,
+                                                     bloomMotion))),
+        huxerui::Image(app::images::lotus_bloom)
+            .Tint(theme.colors.on_surface)
+            .With(huxerui::Frame{.width = 18.0F, .height = 18.0F},
+                  huxerui::Opacity(huxerui::AnimateTo(open ? 1.0F : 0.0F,
+                                                       bloomMotion)),
+                  huxerui::Scale(huxerui::AnimateTo(open ? 1.0F : 0.76F,
+                                                     bloomMotion))),
     }
         .With(huxerui::Frame{.width = kTitleBarContentHeight,
                              .height = kTitleBarContentHeight},
@@ -361,11 +377,7 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(huxerui::WindowHandle window,
                                open ? 1.0F : 0.75F),
               huxerui::Scale(huxerui::AnimateTo(
                   open ? 1.08F : 1.0F,
-                  theme.motion.reduced_motion
-                      ? huxerui::AnimationSpec{huxerui::SnapSpec{}}
-                      : huxerui::AnimationSpec{huxerui::TweenSpec{
-                            .duration = 0.16,
-                            .easing = huxerui::Easing::EaseOut}})),
+                  bloomMotion)),
               huxerui::Semantics{.role = huxerui::SemanticRole::Image,
                                   .label = "页面导航"},
               huxerui::Tooltip("悬停展开页面导航"))
@@ -501,9 +513,20 @@ huxerui::View RadialNavigationArtwork(huxerui::Color color) {
     }
     radialChildren.push_back(
         huxerui::Stack {
-            huxerui::Image(app::images::home)
+            huxerui::Image(app::images::lotus_bud)
                 .Tint(theme.colors.on_surface)
-                .With(huxerui::Frame{.width = 38.0F, .height = 38.0F}),
+                .With(huxerui::Frame{.width = 36.0F, .height = 36.0F},
+                      huxerui::Opacity(huxerui::AnimateTo(
+                          revealed.Get() ? 0.0F : 1.0F, motion)),
+                      huxerui::Scale(huxerui::AnimateTo(
+                          revealed.Get() ? 0.78F : 1.0F, motion))),
+            huxerui::Image(app::images::lotus_bloom)
+                .Tint(theme.colors.on_surface)
+                .With(huxerui::Frame{.width = 40.0F, .height = 40.0F},
+                      huxerui::Opacity(huxerui::AnimateTo(
+                          revealed.Get() ? 1.0F : 0.0F, motion)),
+                      huxerui::Scale(huxerui::AnimateTo(
+                          revealed.Get() ? 1.0F : 0.72F, motion))),
         }
             .With(huxerui::Frame{.width = 82.0F, .height = 82.0F},
                   huxerui::Align(huxerui::HorizontalAlignment::Center,
@@ -567,6 +590,31 @@ huxerui::View RadialNavigationArtwork(huxerui::Color color) {
     }.With(huxerui::Grow(1.0F),
            huxerui::Align(huxerui::HorizontalAlignment::Stretch,
                           huxerui::VerticalAlignment::Stretch));
+}
+
+// 托盘跟随应用展示状态：前台/可见时使用盛放莲花，后台（最小化或隐藏）时
+// 使用闭合花苞。生命周期读取封装在独立组合边界内，避免状态切换重组窗口正文。
+[[huxerui::composable]] huxerui::View SystemTrayPresentation(
+    huxerui::ApplicationHandle application, huxerui::SystemTrayHandle tray,
+    huxerui::WindowHandle window, huxerui::ToastHandle toast,
+    huxerui::State<int> revision) {
+    const bool minimized = application.LifecycleState() ==
+                           huxerui::ApplicationLifecycleState::Background;
+
+    tray.OnActivate([window] { window.Activate(); });
+    huxerui::Lifecycle(
+        [application, tray, window, toast, revision, minimized] {
+            tray.Show(minimized ? app::images::lotus_tray_bud
+                                : app::images::lotus_tray_bloom,
+                      huxerui::SystemTrayOptions{
+                          .tooltip = "llm-switch",
+                          .menu = BuildTrayMenu(window, application, toast,
+                                                revision)});
+            return [tray] { tray.Hide(); };
+        },
+        revision, minimized);
+
+    return huxerui::Row {};
 }
 
 // 页面宿主单独订阅导航状态。IndexedPages 保留全部页面及其局部状态，
@@ -651,20 +699,6 @@ huxerui::View RadialNavigationArtwork(huxerui::Color color) {
     // （Lifecycle 依赖）与页面重读。
     auto revision = huxerui::UseState<int>(0);
 
-    // 托盘：始终提交图标 + 菜单；点击托盘图标激活主窗口。Linux 的托盘宿主
-    // 可能晚于应用出现，HuxerUI 会在不可用期间暂存展示，宿主恢复后自动显示。
-    tray.OnActivate([window] { window.Activate(); });
-    huxerui::Lifecycle(
-        [tray, window, application, toast, revision] {
-            tray.Show(app::images::tray,
-                      huxerui::SystemTrayOptions{
-                          .tooltip = "llm-switch",
-                          .menu = BuildTrayMenu(window, application, toast,
-                                                revision)});
-            return [tray] { tray.Hide(); };
-        },
-        revision);
-
     // 托盘宿主消失时恢复窗口，避免已经隐藏的窗口失去可见入口。
     huxerui::Lifecycle(
         [window, trayAvailable] {
@@ -720,6 +754,9 @@ huxerui::View RadialNavigationArtwork(huxerui::Color color) {
             // 标题栏只负责应用名、拖拽区和系统按钮预留；莲花锚点在下方根级
             // 覆盖层按整窗宽度居中，避免被右侧最小化/最大化/关闭按钮推偏。
             huxerui::WindowTitleBar {
+                huxerui::Image(app::images::lotus_bloom)
+                    .Tint(rootSpec.colors.on_surface)
+                    .With(huxerui::Frame{.width = 16.0F, .height = 16.0F}),
                 huxerui::Text("llm-switch")
                     .Style(huxerui::TextStyle{
                         huxerui::Font::System(font_size::kChip)
@@ -821,6 +858,7 @@ huxerui::View RadialNavigationArtwork(huxerui::Color color) {
         });
 
     huxerui::View filledContent = huxerui::Column {
+        SystemTrayPresentation(application, tray, window, toast, revision),
         std::move(windowBehavior),
         std::move(content).With(huxerui::Grow(1.0F)),
     }.With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
