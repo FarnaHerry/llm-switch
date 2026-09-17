@@ -368,10 +368,14 @@ std::vector<SessionMessage> readSession(std::string_view toolId,
 
     std::vector<SessionMessage> messages;
     std::string line;
+    std::uintmax_t lineOffset = 0;
     while (std::getline(in, line)) {
         if (const auto message = parseMessageLine(toolId, line)) {
-            messages.push_back(*message);
+            auto positionedMessage = *message;
+            positionedMessage.sourceOffset = lineOffset;
+            messages.push_back(std::move(positionedMessage));
         }
+        lineOffset += line.size() + 1;
     }
     if (in.bad()) {
         throw std::runtime_error(std::format("读取会话失败：{}", path.string()));

@@ -185,9 +185,11 @@ int main() {
             CHECK(messages[0].role == "user");
             CHECK(messages[0].text == "帮我修复登录页面的 bug");
             CHECK(messages[0].timestamp == "2026-09-06T00:00:00Z");
+            CHECK(messages[0].sourceOffset > 0);
             CHECK(messages[1].role == "assistant");
             CHECK(messages[1].text == "登录页面已修复");
             CHECK(messages[1].timestamp == "2026-09-06T00:00:01Z");
+            CHECK(messages[0].sourceOffset < messages[1].sourceOffset);
         }
         const auto codexMessages = sessions::readSession("codex", codex1);
         CHECK(codexMessages.size() == 2);

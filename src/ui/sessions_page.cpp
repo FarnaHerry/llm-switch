@@ -92,6 +92,61 @@ std::string FormatMessageTimestamp(std::string_view timestamp) {
     return result;
 }
 
+std::string SingleLineMessagePreview(std::string_view text) {
+    constexpr std::size_t kMaxCodePoints = 16;
+    std::string normalized;
+    normalized.reserve(text.size());
+    for (std::size_t index = 0; index < text.size(); ++index) {
+        if (text[index] == '\r' || text[index] == '\n') {
+            normalized.push_back(' ');
+            if (text[index] == '\r' && index + 1 < text.size() &&
+                text[index + 1] == '\n') {
+                ++index;
+            }
+        } else {
+            normalized.push_back(text[index]);
+        }
+    }
+    if (normalized.empty()) return "—";
+
+    std::size_t codePoints = 0;
+    std::size_t end = 0;
+    while (end < normalized.size() && codePoints < kMaxCodePoints) {
+        const auto byte = static_cast<unsigned char>(normalized[end]);
+        const std::size_t width = byte < 0x80U
+                                      ? 1U
+                                      : (byte & 0xE0U) == 0xC0U
+                                            ? 2U
+                                            : (byte & 0xF0U) == 0xE0U ? 3U : 4U;
+        end = std::min(end + width, normalized.size());
+        ++codePoints;
+    }
+    if (end == normalized.size()) return normalized;
+
+    // 预览文本限制为固定字符数，确保导航栏每项只占一行；按 UTF-8 边界截断。
+    if (codePoints == kMaxCodePoints) {
+        std::size_t shorterEnd = 0;
+        std::size_t count = 0;
+        while (shorterEnd < normalized.size() && count + 1 < kMaxCodePoints) {
+            const auto byte = static_cast<unsigned char>(normalized[shorterEnd]);
+            const std::size_t width = byte < 0x80U
+                                          ? 1U
+                                          : (byte & 0xE0U) == 0xC0U
+                                                ? 2U
+                                                : (byte & 0xF0U) == 0xE0U ? 3U : 4U;
+            shorterEnd = std::min(shorterEnd + width, normalized.size());
+            ++count;
+        }
+        return normalized.substr(0, shorterEnd) + "…";
+    }
+    return normalized;
+}
+
+struct UserMessageNavigationItem {
+    std::size_t messageIndex = 0;
+    std::size_t ordinal = 0;
+};
+
 std::string FormatSize(std::uintmax_t bytes) {
     if (bytes < 1024) return std::format("{} B", bytes);
     if (bytes < 1024 * 1024) return std::format("{:.1f} KB", bytes / 1024.0);
@@ -263,6 +318,87 @@ std::string FormatSize(std::uintmax_t bytes) {
         isUser ? huxerui::View{huxerui::Row{huxerui::Spacer(), messageSlot}}
                : huxerui::View{huxerui::Row{messageSlot, huxerui::Spacer()}};
     return std::move(row).Key("row:" + messageKey);
+}
+
+[[huxerui::composable]] huxerui::View SessionMessageNavigation(
+    std::shared_ptr<const std::vector<sessions::SessionMessage>> snapshot,
+    huxerui::State<huxerui::TextEditingValue> search,
+    huxerui::ScrollController scroll) {
+    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    const std::string query = search.Get().text;
+    std::vector<UserMessageNavigationItem> items;
+    std::size_t ordinal = 0;
+    for (std::size_t index = 0; index < snapshot->size(); ++index) {
+        const auto& message = snapshot->at(index);
+        if (message.role != "user") continue;
+        ++ordinal;
+        if (!query.empty() && message.text.find(query) == std::string::npos) {
+            continue;
+        }
+        items.push_back(UserMessageNavigationItem{index, ordinal});
+    }
+
+    const huxerui::Color navigationNumberColor = theme.colors.on_surface_variant;
+    const huxerui::Color navigationTextColor = theme.colors.on_surface;
+    const auto buildItem = [snapshot, items, scroll, navigationNumberColor,
+                            navigationTextColor](std::size_t index) {
+        const auto item = items.at(index);
+        const auto& message = snapshot->at(item.messageIndex);
+        return huxerui::Row {
+            huxerui::Text(std::to_string(item.ordinal))
+                .Style(huxerui::TextStyle{
+                    huxerui::Font::System(font_size::kCaption)
+                        .WithWeight(huxerui::FontWeight::SemiBold),
+                    navigationNumberColor})
+                .With(huxerui::Frame{.width = 24.0F}),
+            huxerui::Text(SingleLineMessagePreview(message.text))
+                .Style(huxerui::TextStyle{huxerui::Font::System(font_size::kCaption),
+                                          navigationTextColor})
+                .With(huxerui::Grow(1.0F)),
+        }
+            .With(huxerui::Spacing(6.0F),
+                  huxerui::Padding(
+                      huxerui::EdgeInsets::Symmetric(6.0F, 4.0F)),
+                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
+                  huxerui::PointerCursor(huxerui::PointerCursorKind::Hand),
+                  huxerui::Tooltip(message.text))
+            .OnClick([scroll, messageIndex = item.messageIndex] {
+                static_cast<void>(scroll.ScrollToItem(
+                    messageIndex, huxerui::ScrollAlignment::Start));
+            })
+            .Key(std::format("session-nav:{}", item.messageIndex));
+    };
+
+    huxerui::View list = items.empty()
+                             ? huxerui::View{
+                                   huxerui::Text(query.empty()
+                                                     ? "暂无用户输入"
+                                                     : "没有匹配的用户输入")
+                                       .Style(huxerui::TextStyle{
+                                           huxerui::Font::System(font_size::kCaption),
+                                           theme.colors.on_surface_variant})}
+                             : huxerui::View{
+                                   huxerui::VirtualList(items.size(), buildItem)
+                                       .EstimatedItemExtent(32.0F)
+                                       .CacheExtent(64.0F)
+                                       .With(huxerui::Grow(1.0F))};
+    return Card(huxerui::Column {
+        huxerui::Text("用户消息导航", huxerui::TextRole::Label),
+        huxerui::TextField(search.Get())
+            .Label("搜索用户输入")
+            .Placeholder("输入关键词自动筛选")
+            .LeadingIcon(app::images::search)
+            .Variant(huxerui::TextFieldVariant::Outlined)
+            .LineLimits(huxerui::TextFieldLineLimits::SingleLine())
+            .OnChanged([search](const huxerui::TextEditingValue& value) {
+                search = value;
+            }),
+        list,
+    }.With(huxerui::Spacing(8.0F),
+           huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
+           huxerui::Grow(1.0F)))
+        .With(huxerui::Frame{.width = 260.0F},
+              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 }
 
 [[huxerui::composable]] huxerui::View AgentSessionsPanel(
@@ -458,50 +594,43 @@ std::string FormatSize(std::uintmax_t bytes) {
     huxerui::State<sessions::SessionInfo> selectedSession) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto tasks = huxerui::UseTaskScope();
-    // 消息列表用不可变快照承载（与列表页的 sessionsSnapshot 同一模式）：
-    // worker 结果在 UI 线程以一次 O(1) 状态写入生效。长会话逐项
-    // Insert/PushBack 会产生几十次重组失效，每次都让 VirtualList 全量
-    // 重测量、Pango 重排版可见行——这是详情页卡顿的根源。
+    // 完整消息与右侧导航索引在 worker 中一次读取，UI 线程以不可变快照
+    // 一次替换生效；VirtualList 仍只组合可见行，避免长会话逐项写入触发重组。
     auto messages = huxerui::UseState(
         std::make_shared<const std::vector<sessions::SessionMessage>>());
     auto loading = huxerui::UseState(false);
-    auto loadingOlder = huxerui::UseState(false);
     auto loadError = huxerui::UseState(std::string{});
     auto requestGeneration = huxerui::UseState<std::uint64_t>(0);
-    auto beforeOffset = huxerui::UseState<std::uintmax_t>(0);
-    auto hasMore = huxerui::UseState(false);
     auto scroll = huxerui::UseScrollController();
+    auto navigationSearch =
+        huxerui::UseState(huxerui::TextEditingValue{});
 
     const sessions::SessionInfo session = selectedSession.Get();
     const std::string targetKey = session.path.generic_string();
     const std::string tool = session.tool;
     const std::filesystem::path path = session.path;
 
-    auto load = [tasks, messages, loading, loadingOlder, loadError,
-                 requestGeneration, beforeOffset, hasMore, scroll](
+    auto load = [tasks, messages, loading, loadError, requestGeneration,
+                 scroll](
                     std::string targetTool, std::filesystem::path targetPath) {
         const std::uint64_t request = requestGeneration.Get() + 1;
         requestGeneration = request;
         loading = true;
-        loadingOlder = false;
         loadError = std::string{};
-        tasks.Launch([messages, loading, loadError, requestGeneration,
-                      beforeOffset, hasMore, scroll,
+        tasks.Launch([messages, loading, loadError, requestGeneration, scroll,
                       targetTool = std::move(targetTool),
                       targetPath = std::move(targetPath), request]()
                          -> huxerui::Task<void> {
             try {
                 auto result = co_await huxerui::RunWorker(
                     [](std::string selectedTool, std::filesystem::path file) {
-                        return sessions::readSessionPage(selectedTool, file, 0, 50);
+                        return sessions::readSession(selectedTool, file);
                     },
                     targetTool, targetPath);
                 if (requestGeneration.Get() != request) co_return;
                 messages =
                     std::make_shared<const std::vector<sessions::SessionMessage>>(
-                        std::move(result.messages));
-                beforeOffset = result.nextBeforeOffset;
-                hasMore = result.hasMore;
+                        std::move(result));
                 loading = false;
                 co_await huxerui::Delay(std::chrono::duration<double>{0});
                 if (!messages.Get()->empty()) {
@@ -513,55 +642,6 @@ std::string FormatSize(std::uintmax_t bytes) {
                 if (requestGeneration.Get() != request) co_return;
                 loadError = e.what();
                 loading = false;
-            }
-        });
-    };
-    auto loadOlder = [tasks, messages, loading, loadingOlder, loadError,
-                      requestGeneration, beforeOffset, hasMore, scroll,
-                      tool, path] {
-        if (path.empty() || loading.Get() || loadingOlder.Get() ||
-            !hasMore.Get() || !scroll.IsConnected() ||
-            scroll.Offset() > 240.0F) {
-            return;
-        }
-        const std::uint64_t request = requestGeneration.Get();
-        const float oldOffset = scroll.Offset();
-        const auto current = messages.Get();
-        loadingOlder = true;
-        tasks.Launch([messages, loadingOlder, loadError, requestGeneration,
-                      beforeOffset, hasMore, scroll, tool, path, request,
-                      oldOffset, current]() -> huxerui::Task<void> {
-            try {
-                auto page = co_await huxerui::RunWorker(
-                    [](std::string selectedTool, std::filesystem::path file,
-                       std::uintmax_t offset) {
-                        return sessions::readSessionPage(selectedTool, file,
-                                                         offset, 50);
-                    },
-                    tool, path, beforeOffset.Get());
-                if (requestGeneration.Get() != request) co_return;
-                auto next = std::make_shared<std::vector<sessions::SessionMessage>>();
-                next->reserve(page.messages.size() + current->size());
-                for (auto& message : page.messages) {
-                    next->push_back(std::move(message));
-                }
-                next->insert(next->end(), current->begin(), current->end());
-                const std::size_t added = page.messages.size();
-                messages =
-                    std::make_shared<const std::vector<sessions::SessionMessage>>(
-                        std::move(*next));
-                beforeOffset = page.nextBeforeOffset;
-                hasMore = page.hasMore;
-                loadingOlder = false;
-                co_await huxerui::Delay(std::chrono::duration<double>{0});
-                if (added > 0 && scroll.ScrollToItem(
-                                     added, huxerui::ScrollAlignment::Start)) {
-                    static_cast<void>(scroll.ScrollBy(oldOffset));
-                }
-            } catch (const std::exception& e) {
-                if (requestGeneration.Get() != request) co_return;
-                loadError = e.what();
-                loadingOlder = false;
             }
         });
     };
@@ -621,13 +701,11 @@ std::string FormatSize(std::uintmax_t bytes) {
                       .EstimatedItemExtent(300.0F)
                       .CacheExtent(80.0F)
                       .Controller(scroll)
-                      .On<huxerui::ViewEvents::ScrollInput>(
-                          [loadOlder](const huxerui::ScrollInputEvent&) {
-                              loadOlder();
-                              return false;
-                          })
                       .With(huxerui::Spacing(6.0F), huxerui::Grow(1.0F));
     }
+
+    const huxerui::View navigation =
+        SessionMessageNavigation(snapshot, navigationSearch, scroll);
 
     return PageScaffold(
         "会话详情",
@@ -642,7 +720,12 @@ std::string FormatSize(std::uintmax_t bytes) {
                 .Style(huxerui::TextStyle{
                     huxerui::Font::System(font_size::kCaption),
                     theme.colors.on_surface_variant}),
-            content,
+            huxerui::Row {
+                content,
+                navigation,
+            }.With(huxerui::Spacing(12.0F),
+                   huxerui::Grow(1.0F),
+                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)),
         }.With(huxerui::Spacing(8.0F),
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)));
 }
