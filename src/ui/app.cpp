@@ -1,6 +1,7 @@
 // app.cpp — 应用壳（岛屿架构 + 自定义标题栏 + 系统托盘，对齐 Clash-Flux 壳风）：
-//   标题栏：应用名与莲花标志在左，闭合莲花导航锚点精确居中；悬停时莲花绽放，
-//     并在屏幕中央同步展开环形顶级页面图标，点击直接切页。框架在右侧渲染窗口按钮；标题栏
+//   标题栏：应用名与莲花标志在左，五瓣莲花导航锚点精确居中，两侧以圆点、
+//     菱形和细线装饰；悬停时整组高亮，并在屏幕中央展开环形顶级页面图标。
+//     框架在右侧渲染窗口按钮；标题栏
 //     收窄为 24px 高、去背景直接融入窗口底色。主题为太极水墨风：
 //     深色「玄墨」= 暖调近黑底 + 宣纸白主色；浅色「宣纸」= 米白纸面 + 浓墨主色；
 //     状态色仅 error 保留朱砂红。
@@ -17,6 +18,7 @@
 // application.Quit() 绕过关闭处理器正常终止。
 #include <huxerui/huxerui.h>
 
+#include <algorithm>
 #include <array>
 #include <memory>
 #include <string>
@@ -336,8 +338,81 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(huxerui::WindowHandle window,
            huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)));
 }
 
-// 标题栏中央只保留莲花锚点；Hover 进入后由根级浮层在屏幕中央承接导航。
-// 离开事件交给浮层的中轴 Hover 区域处理，避免鼠标从标题栏移向圆盘时提前收起。
+// 标题栏装饰随可用宽度伸缩：莲花左右保持对称细线，圆点和菱形作为节奏节点。
+// 这是纯环境绘制层，不参与命中；Hover 仍只由中央莲花锚点触发。
+huxerui::View TitleBarOrnamentArtwork(huxerui::Color color, bool glow) {
+    return huxerui::Canvas([color, glow](huxerui::PaintContext& paint,
+                                         huxerui::Size size) mutable {
+        const huxerui::Point center{size.width * 0.5F, size.height * 0.5F};
+        const float halfSpan =
+            std::min(360.0F, std::max(44.0F, size.width * 0.34F));
+        const float innerGap = 17.0F;
+        const huxerui::StrokeStyle lineStyle{
+            .width = glow ? 1.15F : 0.7F,
+            .cap = huxerui::StrokeCap::Round,
+            .join = huxerui::StrokeJoin::Round,
+        };
+
+        color.alpha = glow ? 0.86F : 0.42F;
+        if (glow) {
+            huxerui::Color halo = color;
+            halo.alpha = 0.12F;
+            const huxerui::StrokeStyle haloStyle{
+                .width = 4.0F,
+                .cap = huxerui::StrokeCap::Round,
+                .join = huxerui::StrokeJoin::Round,
+            };
+            paint.DrawLine({center.x - halfSpan, center.y},
+                           {center.x - innerGap, center.y}, halo, haloStyle);
+            paint.DrawLine({center.x + innerGap, center.y},
+                           {center.x + halfSpan, center.y}, halo, haloStyle);
+        }
+
+        paint.DrawLine({center.x - halfSpan, center.y},
+                       {center.x - innerGap, center.y}, color, lineStyle);
+        paint.DrawLine({center.x + innerGap, center.y},
+                       {center.x + halfSpan, center.y}, color, lineStyle);
+
+        const auto drawDiamond = [&paint, color](float x, float y, float radius) {
+            huxerui::Path diamond;
+            diamond.MoveTo({x, y - radius})
+                .LineTo({x + radius, y})
+                .LineTo({x, y + radius})
+                .LineTo({x - radius, y})
+                .Close();
+            paint.FillPath(diamond, color);
+        };
+        const float majorNode = halfSpan * 0.42F;
+        const float minorNode = halfSpan * 0.72F;
+        drawDiamond(center.x - majorNode, center.y, glow ? 3.0F : 2.4F);
+        drawDiamond(center.x + majorNode, center.y, glow ? 3.0F : 2.4F);
+        paint.DrawCircle({center.x - minorNode, center.y}, glow ? 1.35F : 1.0F,
+                         color);
+        paint.DrawCircle({center.x + minorNode, center.y}, glow ? 1.35F : 1.0F,
+                         color);
+        paint.DrawCircle({center.x - halfSpan, center.y}, glow ? 1.15F : 0.85F,
+                         color);
+        paint.DrawCircle({center.x + halfSpan, center.y}, glow ? 1.15F : 0.85F,
+                         color);
+
+        if (glow) {
+            huxerui::Color ring = color;
+            ring.alpha = 0.32F;
+            const huxerui::StrokeStyle ringStyle{
+                .width = 0.8F,
+                .cap = huxerui::StrokeCap::Round,
+                .join = huxerui::StrokeJoin::Round,
+            };
+            constexpr float kFullCircle = 6.2831853F;
+            paint.DrawArc(center, 14.0F, 0.0F, kFullCircle, ring, ringStyle);
+            ring.alpha = 0.16F;
+            paint.DrawArc(center, 16.0F, 0.0F, kFullCircle, ring, ringStyle);
+        }
+    });
+}
+
+// Hover 进入后由根级浮层在屏幕中央承接导航。离开事件交给浮层的中轴 Hover
+// 区域处理，避免鼠标从标题栏移向圆盘时提前收起。
 [[huxerui::composable]] huxerui::View TitleBarNavigationTrigger(
     huxerui::State<bool> navigationOpen) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
@@ -348,46 +423,45 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(huxerui::WindowHandle window,
         : huxerui::AnimationSpec{huxerui::TweenSpec{
               .duration = 0.18,
               .easing = huxerui::Easing::EaseOut}};
+    huxerui::Color glowShadow = theme.colors.primary;
+    glowShadow.alpha = open ? 0.42F : 0.0F;
+
+    huxerui::View lotus =
+        huxerui::Image(app::images::lotus_bloom)
+            .Tint(open ? theme.colors.primary : theme.colors.on_surface)
+            .With(huxerui::Frame{.width = kTitleBarContentHeight,
+                                 .height = kTitleBarContentHeight},
+                  huxerui::Padding(3.0F),
+                  huxerui::Background(open ? theme.colors.secondary_container
+                                            : huxerui::Color::Transparent()),
+                  huxerui::CornerRadius(kTitleBarContentHeight * 0.5F),
+                  huxerui::Border(open ? theme.colors.primary
+                                        : islands.outline_soft,
+                                   open ? 1.15F : 0.75F),
+                  huxerui::Shadow{glowShadow, {}, open ? 9.0F : 0.0F, 0.0F},
+                  huxerui::Scale(huxerui::AnimateTo(
+                      open ? 1.08F : 1.0F, bloomMotion)),
+                  huxerui::Semantics{.role = huxerui::SemanticRole::Image,
+                                      .label = "页面导航"},
+                  huxerui::Tooltip("悬停展开页面导航"))
+            .On<huxerui::ViewEvents::Hover>(
+                [navigationOpen](const huxerui::HoverEvent& event) {
+                    if (event.type != huxerui::HoverEventType::Leave) {
+                        navigationOpen = true;
+                    }
+                })
+            .Key("title-nav:lotus-anchor");
 
     return huxerui::Stack {
-        huxerui::Image(app::images::lotus_bud)
-            .Tint(theme.colors.on_surface)
-            .With(huxerui::Frame{.width = 17.0F, .height = 17.0F},
-                  huxerui::Opacity(huxerui::AnimateTo(open ? 0.0F : 1.0F,
-                                                       bloomMotion)),
-                  huxerui::Scale(huxerui::AnimateTo(open ? 0.84F : 1.0F,
-                                                     bloomMotion))),
-        huxerui::Image(app::images::lotus_bloom)
-            .Tint(theme.colors.on_surface)
-            .With(huxerui::Frame{.width = 18.0F, .height = 18.0F},
-                  huxerui::Opacity(huxerui::AnimateTo(open ? 1.0F : 0.0F,
-                                                       bloomMotion)),
-                  huxerui::Scale(huxerui::AnimateTo(open ? 1.0F : 0.76F,
-                                                     bloomMotion))),
-    }
-        .With(huxerui::Frame{.width = kTitleBarContentHeight,
-                             .height = kTitleBarContentHeight},
+        TitleBarOrnamentArtwork(theme.colors.on_surface, false),
+        TitleBarOrnamentArtwork(theme.colors.primary, true)
+            .With(huxerui::Opacity(huxerui::AnimateTo(open ? 1.0F : 0.0F,
+                                                       bloomMotion))),
+        lotus,
+    }.With(huxerui::Frame{.height = kTitleBarContentHeight},
               huxerui::Align(huxerui::HorizontalAlignment::Center,
-                             huxerui::VerticalAlignment::Center),
-              huxerui::Background(open ? theme.colors.secondary_container
-                                        : huxerui::Color::Transparent()),
-              huxerui::CornerRadius(kTitleBarContentHeight * 0.5F),
-              huxerui::Border(open ? theme.colors.primary
-                                    : islands.outline_soft,
-                               open ? 1.0F : 0.75F),
-              huxerui::Scale(huxerui::AnimateTo(
-                  open ? 1.08F : 1.0F,
-                  bloomMotion)),
-              huxerui::Semantics{.role = huxerui::SemanticRole::Image,
-                                  .label = "页面导航"},
-              huxerui::Tooltip("悬停展开页面导航"))
-        .On<huxerui::ViewEvents::Hover>(
-            [navigationOpen](const huxerui::HoverEvent& event) {
-                if (event.type != huxerui::HoverEventType::Leave) {
-                    navigationOpen = true;
-                }
-            })
-        .Key("title-nav:lotus");
+                             huxerui::VerticalAlignment::Center))
+        .Key("title-nav:ornament");
 }
 
 // 中央圆盘的同心环、八向连线与节点均由 Canvas 按主题色绘制；它们只是环境
@@ -779,9 +853,8 @@ huxerui::View RadialNavigationArtwork(huxerui::Color color) {
         // 与整窗而非 WindowTitleBar 的可用内容区对齐，保证莲花位于几何中心。
         huxerui::Column {
             huxerui::Row {
-                huxerui::Spacer(),
-                TitleBarNavigationTrigger(navigationOpen),
-                huxerui::Spacer(),
+                TitleBarNavigationTrigger(navigationOpen)
+                    .With(huxerui::Grow(1.0F)),
             }.With(huxerui::Frame{.height = kTitleBarContentHeight},
                    huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
             huxerui::Spacer(),
