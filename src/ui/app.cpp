@@ -426,12 +426,19 @@ huxerui::View TitleBarOrnamentArtwork(huxerui::Color color, bool glow) {
     huxerui::Color glowShadow = theme.colors.primary;
     glowShadow.alpha = open ? 0.42F : 0.0F;
 
+    // SVG 的可见轮廓中心比 24×24 viewBox 几何中心高约 0.6 DIP。圆环必须继续
+    // 与标题栏严格同心，因此只下移花瓣图形，不偏移锚点的外框与装饰横线。
     huxerui::View lotus =
-        huxerui::Image(app::images::lotus_bloom)
-            .Tint(open ? theme.colors.primary : theme.colors.on_surface)
+        huxerui::Stack {
+            huxerui::Image(app::images::lotus_bloom)
+                .Tint(open ? theme.colors.primary : theme.colors.on_surface)
+                .With(huxerui::Frame{.width = 18.0F, .height = 18.0F},
+                      huxerui::Offset(huxerui::Point{0.0F, 0.6F})),
+        }
             .With(huxerui::Frame{.width = kTitleBarContentHeight,
                                  .height = kTitleBarContentHeight},
-                  huxerui::Padding(3.0F),
+                  huxerui::Align(huxerui::HorizontalAlignment::Center,
+                                 huxerui::VerticalAlignment::Center),
                   huxerui::Background(open ? theme.colors.secondary_container
                                             : huxerui::Color::Transparent()),
                   huxerui::CornerRadius(kTitleBarContentHeight * 0.5F),
