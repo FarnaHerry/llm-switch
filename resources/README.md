@@ -51,7 +51,7 @@ CMake 配置阶段会检查全部 24×24 SVG：包含硬编码颜色（非 `#FFF
 | `success/error/warning/info/loading/more/disabled/processing.svg` | `docs/icon-reference.png` 中的状态提示水墨图标 | 本仓库转换稿 |
 | `user/api_key/link/options/logout.svg` | `docs/icon-reference.png` 中的辅助水墨图标 | 本仓库转换稿 |
 | `about.svg` | 本仓库自绘圆圈 i（顶级「关于」入口） | 同本仓库 |
-| `lotus_bud/lotus_bloom.svg` | 本仓库自绘闭合/盛放莲花；用于导航与应用品牌的两种几何状态 | 同本仓库 |
+| `lotus_bud/lotus_bloom.svg` | 闭合态为本仓库自绘，盛放态按用户提供的界面参考图重绘；用于导航与应用品牌的两种几何状态 | 本仓库转换稿 |
 | `lotus_tray_{bud,bloom}*.png` | 由本仓库莲花图稿生成的托盘多倍率栅格版本 | 同本仓库 |
 | `platform/{linux,windows}` 应用图标 | 由盛放莲花图稿生成的 Linux SVG 与 Windows ICO | 同本仓库 |
 | `back/forward.svg` | 本仓库自绘（墨韵图标库·基础操作） | 同本仓库 |
