@@ -1,12 +1,11 @@
 // app.cpp — 应用壳（岛屿架构 + 自定义标题栏 + 系统托盘，对齐 Clash-Flux 壳风）：
-//   标题栏：太极标 + 应用名 + 拖拽区，框架在其右侧渲染窗口按钮；收窄为 24px 高、
-//     去背景直接融入窗口底色。主题为太极水墨风（InkDark/InkLightThemeSpec）：
+//   标题栏：应用名在左，太极导航锚点精确居中；悬停时以太极为中心向两侧
+//     展开 8 个顶级页面图标，点击直接切页。框架在右侧渲染窗口按钮；标题栏
+//     收窄为 24px 高、去背景直接融入窗口底色。主题为太极水墨风：
 //     深色「玄墨」= 暖调近黑底 + 宣纸白主色；浅色「宣纸」= 米白纸面 + 浓墨主色；
 //     状态色仅 error 保留朱砂红。
-//   下方：左侧顶级图标侧边栏（Agent 管理 / 本地路由 / 使用统计 / MCP 服务器 /
-//   Skills / 会话 / 设置 / 关于，无岛屿包裹，直接落在窗口背景上）｜内容区
-//   （Agent 管理页内再分二级工具栏 + 页面自己的一级岛屿——
-//   PageScaffold，外壳不再套岛）。根节点刷整窗海面底色
+//   下方：内容区独占整行（Agent 管理页内再分二级工具栏 + 页面自己的
+//   一级岛屿——PageScaffold，外壳不再套岛）。根节点刷整窗海面底色
 //   （rootSpec.colors.background——AppRoot 在主题 provider 之上，UseTheme 只能
 //   拿到默认浅色 spec，须按 dark 自选；子树在 provider 之下 UseTheme 正常）。
 //
@@ -337,22 +336,19 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(huxerui::WindowHandle window,
            huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)));
 }
 
-// 左列：图标侧边栏（无岛屿包裹，单套无色图标由主题 tint 自适应；
-// 选中态用承载底块表达，悬停显示文字提示）。导航状态由
-// TopLevelNavigation 持有，因此点击只让本栏和页面宿主订阅者重组。
-[[huxerui::composable]] huxerui::View SideShell(huxerui::State<std::size_t> navPage) {
+// 标题栏中央导航：静止时只显示太极，悬停时以它为中心对称展开
+// 全部 8 个顶级页面图标。图标使用标题栏局部的紧凑 IconButtonStyle，不改变
+// 正文内按钮的 40pt 交互尺寸；选中态仍以语义色承载底块表达。
+[[huxerui::composable]] huxerui::View TitleBarNavigation(
+    huxerui::State<std::size_t> navPage) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
-    // 响应式：Compact(<600) 收窄侧栏宽度与内边距。
-    const bool compact =
-        huxerui::UseViewportClass() == huxerui::ViewportClass::Compact;
     const IslandTheme islands = ResolveIslandTheme(theme);
+    auto expanded = huxerui::UseState(false);
     struct Item {
         huxerui::ImageResource icon;
         const char* tooltip;
         std::size_t page;
     };
-    // 顶级侧栏（8 区块）：Agent 管理（内嵌二级工具栏）/ 本地路由 / 使用统计 /
-    // MCP 服务器 / Skills / 会话 / 设置 / 关于。
     const std::array<Item, 8> items{
         Item{app::images::agents, "Agent 管理", pages::kAgents},
         Item{app::images::router, "本地路由", pages::kRouter},
@@ -364,28 +360,72 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(huxerui::WindowHandle window,
         Item{app::images::about, "关于", pages::kAbout},
     };
 
-    std::vector<huxerui::View> buttons;
-    for (const Item& item : items) {
+    const auto makeButton = [navPage, &islands, &theme](const Item& item) {
         const std::size_t page = item.page;
         huxerui::View button =
             huxerui::IconButton(item.icon, item.tooltip)
                 .OnClick([navPage, page] { navPage = page; })
-                .With(huxerui::Tooltip(item.tooltip));
+                .With(huxerui::Tooltip(item.tooltip))
+                .Key(std::string("title-nav:") + item.tooltip);
         if (navPage.Get() == page) {
             button = std::move(button).With(
-                huxerui::Background(islands.raised),
+                huxerui::Background(theme.colors.secondary_container),
                 huxerui::CornerRadius(islands.nested_radius));
         }
-        buttons.push_back(std::move(button));
+        return button;
+    };
+    huxerui::View taiji = huxerui::Stack {
+        huxerui::Image(app::images::taiji)
+            .With(huxerui::Frame{.width = 16.0F, .height = 16.0F}),
     }
-    // 栏底留白：水墨长卷在整窗背景底部横带上露出（见下方 Background
-    // ImageFill），侧栏不再单独挂装饰。
-    return huxerui::Column(std::move(buttons))
-        .With(huxerui::Padding(compact ? theme.spacing.small
-                                       : theme.spacing.medium),
-              huxerui::Spacing(theme.spacing.small),
-              huxerui::Frame{.width = compact ? 44.0F : 56.0F},
-              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
+        .With(huxerui::Frame{.width = kTitleBarContentHeight,
+                             .height = kTitleBarContentHeight},
+              huxerui::Align(huxerui::HorizontalAlignment::Center,
+                             huxerui::VerticalAlignment::Center),
+              huxerui::Semantics{.role = huxerui::SemanticRole::Image,
+                                  .label = "页面导航"},
+              huxerui::Tooltip("悬停展开页面导航"))
+        .Key("title-nav:taiji");
+
+    std::vector<huxerui::View> children;
+    children.reserve(expanded.Get() ? items.size() + 1 : 1);
+    if (expanded.Get()) {
+        for (std::size_t i = 0; i < items.size() / 2; ++i) {
+            children.push_back(makeButton(items[i]));
+        }
+    }
+    children.push_back(taiji);
+    if (expanded.Get()) {
+        for (std::size_t i = items.size() / 2; i < items.size(); ++i) {
+            children.push_back(makeButton(items[i]));
+        }
+    }
+
+    huxerui::View navigation = huxerui::Row(std::move(children))
+        .With(huxerui::Frame{.height = kTitleBarContentHeight},
+              huxerui::Spacing(2.0F),
+              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center))
+        .On<huxerui::ViewEvents::Hover>(
+            [expanded](const huxerui::HoverEvent& event) {
+                expanded = event.type != huxerui::HoverEventType::Leave;
+            });
+    if (expanded.Get()) {
+        navigation = std::move(navigation).With(
+            huxerui::Background(islands.overlay),
+            huxerui::CornerRadius(kTitleBarContentHeight * 0.5F),
+            huxerui::Border(islands.outline_soft, 0.75F));
+    }
+
+    huxerui::IconButtonStyle titleIcons = huxerui::IconButtonStyle::Default();
+    titleIcons.foreground = theme.colors.on_surface;
+    titleIcons.disabled_foreground = theme.colors.on_surface_variant;
+    titleIcons.icon_size = 16.0F;
+    titleIcons.minimum_interactive_size = kTitleBarContentHeight;
+    titleIcons.state_layer_size = 22.0F;
+    titleIcons.corner_radius = islands.nested_radius;
+    huxerui::ThemeDefinition overrides;
+    overrides.Set(titleIcons);
+    return huxerui::Theme(std::move(overrides), navigation);
 }
 
 // 页面宿主单独订阅导航状态。IndexedPages 保留全部页面及其局部状态，
@@ -397,12 +437,11 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(huxerui::WindowHandle window,
         .With(huxerui::Grow(1.0F));
 }
 
-// 顶级导航自己的作用域：这里只创建一次固定的页面声明缓存，并把状态
-// 传给两个独立子作用域（SideShell / TopLevelPageHost）。本作用域不读取
-// navPage，所以侧栏切换不会向上冒泡到 AppRoot 或重新生成背景与标题栏。
+// 顶级页面宿主作用域：只创建一次固定的页面声明缓存。标题栏导航与
+// TopLevelPageHost 各自订阅 navPage，切页不会向上冒泡到 AppRoot 或重建背景。
 [[huxerui::composable]] huxerui::View TopLevelNavigation(
-    huxerui::State<int> revision, huxerui::State<int> themeMode) {
-    auto navPage = huxerui::UseState<std::size_t>(pages::kAgents);
+    huxerui::State<std::size_t> navPage, huxerui::State<int> revision,
+    huxerui::State<int> themeMode) {
     auto pageCache =
         huxerui::UseState<std::shared_ptr<std::vector<huxerui::View>>>({});
     std::shared_ptr<std::vector<huxerui::View>> cachedPages = pageCache.Get();
@@ -430,10 +469,7 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(huxerui::WindowHandle window,
         cachedPages = std::move(nextPages);
     }
 
-    return huxerui::Row {
-        SideShell(navPage),
-        TopLevelPageHost(navPage, cachedPages),
-    }.With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
+    return TopLevelPageHost(navPage, cachedPages);
 }
 
 } // namespace
@@ -464,6 +500,9 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(huxerui::WindowHandle window,
         if (saved == "light") initialThemeMode = 2;
     }
     auto themeMode = huxerui::UseState<int>(std::move(initialThemeMode));
+    // 顶级页面状态同时供标题栏导航与保持挂载的 IndexedPages 宿主订阅。
+    // AppRoot 本身不读取它，切页只重组这两个局部子树。
+    auto navPage = huxerui::UseState<std::size_t>(pages::kAgents);
     // 全局变更计数：任何写库操作（含托盘切换）后 +1，驱动托盘菜单重建
     // （Lifecycle 依赖）与页面重读。
     auto revision = huxerui::UseState<int>(0);
@@ -514,7 +553,6 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(huxerui::WindowHandle window,
     const bool dark =
         themeMode.Get() == 1 || (themeMode.Get() == 0 && cfg::systemPrefersDark());
     const huxerui::ThemeSpec rootSpec = dark ? InkDarkThemeSpec() : InkLightThemeSpec();
-    const IslandTheme rootIslands = ResolveIslandTheme(rootSpec);
 
     // 叠放根：全景水墨从页脚装饰升级为环境层。深浅主题分别使用低对比度画卷，
     // Fill 铺满窗口、中央刻意净空；轻岛屿让顶部远山和四角近景隐约透出。
@@ -535,33 +573,35 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(huxerui::WindowHandle window,
         InkSplash(0x51B7U, 1.0F, InkSplashAnchor::TopEnd),
         InkSplash(0x2F3DU, 0.65F, InkSplashAnchor::BottomStart),
         huxerui::Column {
-            // 自定义标题栏：太极标 + 应用名 + 拖拽区（框架在其右侧渲染窗口
-            // 按钮）。收窄 + 去背景：直接融入窗口海面底色；垂直零内边距，
-            // 内容本身 24pt 高，与 title_bar_height 对齐。
+            // Stack 把左侧应用名与精确居中的太极导航叠放，避免
+            // 应用名宽度把太极推离中心；窗口按钮仍由框架在右侧渲染。
             huxerui::WindowTitleBar {
-                huxerui::Image(app::images::taiji)
-                    .With(huxerui::Frame{.width = 16.0F, .height = 16.0F},
-                          huxerui::WindowDragRegion{}),
-                huxerui::Text("llm-switch")
-                    .Style(huxerui::TextStyle{
-                        huxerui::Font::System(font_size::kChip)
-                            .WithWeight(huxerui::FontWeight::Bold),
-                        rootSpec.colors.on_surface})
-                    .With(huxerui::WindowDragRegion{}),
-                huxerui::Spacer{}.With(huxerui::Grow(1.0F),
-                                       huxerui::WindowDragRegion{}),
+                huxerui::Stack {
+                    huxerui::Row {
+                        huxerui::Text("llm-switch")
+                            .Style(huxerui::TextStyle{
+                                huxerui::Font::System(font_size::kChip)
+                                    .WithWeight(huxerui::FontWeight::Bold),
+                                rootSpec.colors.on_surface}),
+                        huxerui::Spacer(),
+                    }.With(huxerui::CrossAlign(
+                        huxerui::CrossAxisAlignment::Center)),
+                    huxerui::Row {
+                        huxerui::Spacer(),
+                        TitleBarNavigation(navPage),
+                        huxerui::Spacer(),
+                    }.With(huxerui::CrossAlign(
+                        huxerui::CrossAxisAlignment::Center)),
+                }.With(huxerui::Grow(1.0F),
+                       huxerui::Align(huxerui::HorizontalAlignment::Stretch,
+                                      huxerui::VerticalAlignment::Stretch)),
             }
                 .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(
+                          rootSpec.spacing.small, 0.0F))),
+            // 内容区独占标题栏之外的整行，不再为左侧顶级导航预留宽度。
+            TopLevelNavigation(navPage, revision, themeMode)
+                .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(
                           rootSpec.spacing.small, 0.0F)),
-                      huxerui::Spacing(rootSpec.spacing.small)),
-            // 主行：图标侧栏（无岛屿包裹）+ 内容区；Grow 吃满标题栏之外剩余
-            // 高度。内容区不再套外壳岛：区域划分由各页面自己的一级岛承担。
-            huxerui::Row {
-                TopLevelNavigation(revision, themeMode)
-                    .With(huxerui::Grow(1.0F)),
-            }
-                .With(huxerui::Spacing(rootIslands.page_gap),
-                      huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
                       huxerui::Grow(1.0F)),
         }
             .With(huxerui::Spacing(rootSpec.spacing.extra_small),

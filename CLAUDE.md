@@ -116,6 +116,10 @@ commit，不回滚已经验证的修改，并在最终回复中报告失败原�
 | `src/app.cpp` | 普通 TU | `Application{AppRoot, AppOptions}`（Custom chrome，标题栏 24pt，1080×720 / min 800×600） |
 | 平台入口 | `platform/{linux,windows,macos}/main.cpp` | 薄入口 `huxerui::RunApplication()`（无 CLI 分流；顶层 CMake 按 WIN32/APPLE/Linux 分支选用） |
 
+顶级页面导航已从左侧图标栏收拢到自定义标题栏：太极锚点在标题栏正中，
+hover 时以太极为中心向两侧展开全部 8 个顶级页面图标，点击更新共享的
+`navPage` 并由 `IndexedPages` 切换页面；主内容区不再为侧栏预留宽度。
+
 ## 领域层设计要点
 
 - **live 文件**（被切换工具实际读取的文件）：claude-code 切换 = 深合并
