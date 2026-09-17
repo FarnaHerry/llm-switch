@@ -93,7 +93,7 @@ std::string FormatMessageTimestamp(std::string_view timestamp) {
 }
 
 std::string SingleLineMessagePreview(std::string_view text) {
-    constexpr std::size_t kMaxCodePoints = 16;
+    constexpr std::size_t kMaxCodePoints = 12;
     std::string normalized;
     normalized.reserve(text.size());
     for (std::size_t index = 0; index < text.size(); ++index) {
@@ -247,11 +247,11 @@ std::string FormatSize(std::uintmax_t bytes) {
 }
 
 [[huxerui::composable]] huxerui::View SessionMessageRow(
-    const sessions::SessionMessage& message) {
+    const sessions::SessionMessage& message,
+    std::shared_ptr<huxerui::Clipboard> clipboard,
+    huxerui::ToastHandle toast) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     const IslandTheme islands = ResolveIslandTheme(theme);
-    const auto clipboard = huxerui::UseApplication().Clipboard();
-    auto toast = huxerui::UseToast();
     auto hovered = huxerui::UseState(false);
     const bool isUser = message.role == "user";
     const std::string role = isUser ? "用户" : "助手";
@@ -305,8 +305,7 @@ std::string FormatSize(std::uintmax_t bytes) {
                       huxerui::EdgeInsets::Symmetric(10.0F, 8.0F)),
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
                   huxerui::Background(theme.colors.surface_container),
-                  huxerui::CornerRadius(islands.nested_radius),
-                  huxerui::Border(islands.outline_soft, 0.75F))
+                  huxerui::CornerRadius(islands.nested_radius))
             .On<huxerui::ViewEvents::Hover>(onHover)
             .Key(messageKey);
     huxerui::View messageSlot =
@@ -379,7 +378,7 @@ std::string FormatSize(std::uintmax_t bytes) {
                                            theme.colors.on_surface_variant})}
                              : huxerui::View{
                                    huxerui::VirtualList(items.size(), buildItem)
-                                       .EstimatedItemExtent(32.0F)
+                                       .ItemExtent(32.0F)
                                        .CacheExtent(64.0F)
                                        .With(huxerui::Grow(1.0F))};
     return Card(huxerui::Column {
@@ -397,7 +396,7 @@ std::string FormatSize(std::uintmax_t bytes) {
     }.With(huxerui::Spacing(8.0F),
            huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
            huxerui::Grow(1.0F)))
-        .With(huxerui::Frame{.width = 260.0F},
+        .With(huxerui::Frame{.width = 220.0F},
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 }
 
@@ -594,6 +593,8 @@ std::string FormatSize(std::uintmax_t bytes) {
     huxerui::State<sessions::SessionInfo> selectedSession) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto tasks = huxerui::UseTaskScope();
+    const auto clipboard = huxerui::UseApplication().Clipboard();
+    auto toast = huxerui::UseToast();
     // 完整消息与右侧导航索引在 worker 中一次读取，UI 线程以不可变快照
     // 一次替换生效；VirtualList 仍只组合可见行，避免长会话逐项写入触发重组。
     auto messages = huxerui::UseState(
@@ -658,8 +659,8 @@ std::string FormatSize(std::uintmax_t bytes) {
     // 本轮组合绑定当前快照：快照不可变，行构建期间数据恒定；新快照写入
     // 触发一次重组后整体切换。
     const auto snapshot = messages.Get();
-    const auto buildMessageRow = [snapshot](std::size_t index) {
-        return SessionMessageRow((*snapshot)[index]);
+    const auto buildMessageRow = [snapshot, clipboard, toast](std::size_t index) {
+        return SessionMessageRow((*snapshot)[index], clipboard, toast);
     };
 
     huxerui::View content;
@@ -697,8 +698,8 @@ std::string FormatSize(std::uintmax_t bytes) {
         // 可视区外的行每次测量同样会重新组合并重新经 Pango 排版，预 realize
         // 越多每帧开销越大。
         content = huxerui::VirtualList(snapshot->size(), buildMessageRow)
-                      .EstimatedItemExtent(300.0F)
-                      .CacheExtent(80.0F)
+                      .EstimatedItemExtent(240.0F)
+                      .CacheExtent(64.0F)
                       .Controller(scroll)
                       .With(huxerui::Spacing(6.0F), huxerui::Grow(1.0F));
     }
