@@ -336,14 +336,108 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(huxerui::WindowHandle window,
            huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)));
 }
 
-// 标题栏中央导航：静止时只显示太极，悬停时以它为中心对称展开
-// 全部 8 个顶级页面图标。图标使用标题栏局部的紧凑 IconButtonStyle，不改变
-// 正文内按钮的 40pt 交互尺寸；选中态仍以语义色承载底块表达。
-[[huxerui::composable]] huxerui::View TitleBarNavigation(
-    huxerui::State<std::size_t> navPage) {
+// 标题栏中央只保留莲花锚点；Hover 进入后由根级浮层在屏幕中央承接导航。
+// 离开事件交给浮层的中轴 Hover 区域处理，避免鼠标从标题栏移向圆盘时提前收起。
+[[huxerui::composable]] huxerui::View TitleBarNavigationTrigger(
+    huxerui::State<bool> navigationOpen) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     const IslandTheme islands = ResolveIslandTheme(theme);
-    auto expanded = huxerui::UseState(false);
+    const bool open = navigationOpen.Get();
+
+    return huxerui::Stack {
+        huxerui::Image(app::images::home)
+            .Tint(theme.colors.on_surface)
+            .With(huxerui::Frame{.width = 17.0F, .height = 17.0F}),
+    }
+        .With(huxerui::Frame{.width = kTitleBarContentHeight,
+                             .height = kTitleBarContentHeight},
+              huxerui::Align(huxerui::HorizontalAlignment::Center,
+                             huxerui::VerticalAlignment::Center),
+              huxerui::Background(open ? theme.colors.secondary_container
+                                        : huxerui::Color::Transparent()),
+              huxerui::CornerRadius(kTitleBarContentHeight * 0.5F),
+              huxerui::Border(open ? theme.colors.primary
+                                    : islands.outline_soft,
+                               open ? 1.0F : 0.75F),
+              huxerui::Scale(huxerui::AnimateTo(
+                  open ? 1.08F : 1.0F,
+                  theme.motion.reduced_motion
+                      ? huxerui::AnimationSpec{huxerui::SnapSpec{}}
+                      : huxerui::AnimationSpec{huxerui::TweenSpec{
+                            .duration = 0.16,
+                            .easing = huxerui::Easing::EaseOut}})),
+              huxerui::Semantics{.role = huxerui::SemanticRole::Image,
+                                  .label = "页面导航"},
+              huxerui::Tooltip("悬停展开页面导航"))
+        .On<huxerui::ViewEvents::Hover>(
+            [navigationOpen](const huxerui::HoverEvent& event) {
+                if (event.type != huxerui::HoverEventType::Leave) {
+                    navigationOpen = true;
+                }
+            })
+        .Key("title-nav:lotus");
+}
+
+// 中央圆盘的同心环、八向连线与节点均由 Canvas 按主题色绘制；它们只是环境
+// 装饰，不参与命中，页面动作仍由标准 IconButton 承担。
+huxerui::View RadialNavigationArtwork(huxerui::Color color) {
+    color.alpha = 0.34F;
+    return huxerui::Canvas([color](huxerui::PaintContext& paint,
+                                   huxerui::Size size) {
+        const huxerui::Point center{size.width * 0.5F, size.height * 0.5F};
+        const huxerui::StrokeStyle fine{
+            .width = 0.8F,
+            .cap = huxerui::StrokeCap::Round,
+            .join = huxerui::StrokeJoin::Round,
+        };
+        const huxerui::StrokeStyle strong{
+            .width = 1.15F,
+            .cap = huxerui::StrokeCap::Round,
+            .join = huxerui::StrokeJoin::Round,
+        };
+
+        paint.DrawArc(center, 78.0F, 0.0F, 360.0F, color, fine);
+        paint.DrawArc(center, 112.0F, 0.0F, 360.0F, color, fine);
+        paint.DrawArc(center, 144.0F, 0.0F, 360.0F, color, strong);
+
+        constexpr std::array<huxerui::Point, 8> directions{
+            huxerui::Point{0.0F, -1.0F}, huxerui::Point{0.707F, -0.707F},
+            huxerui::Point{1.0F, 0.0F}, huxerui::Point{0.707F, 0.707F},
+            huxerui::Point{0.0F, 1.0F}, huxerui::Point{-0.707F, 0.707F},
+            huxerui::Point{-1.0F, 0.0F}, huxerui::Point{-0.707F, -0.707F},
+        };
+        for (const auto& direction : directions) {
+            const huxerui::Point start{center.x + direction.x * 52.0F,
+                                        center.y + direction.y * 52.0F};
+            const huxerui::Point end{center.x + direction.x * 146.0F,
+                                      center.y + direction.y * 146.0F};
+            paint.DrawLine(start, end, color, fine);
+            paint.DrawCircle(huxerui::Point{center.x + direction.x * 112.0F,
+                                             center.y + direction.y * 112.0F},
+                             2.2F, color);
+        }
+    }).With(huxerui::Frame{.width = 360.0F, .height = 360.0F});
+}
+
+// 根级径向导航：中轴区域贯穿标题栏到圆盘，保证 Hover 能平滑交接；圆盘本身
+// 保持 8 个既有顶级页面，按顺时针方向均匀排布并复用 navPage。
+[[huxerui::composable]] huxerui::View RadialNavigationOverlay(
+    huxerui::State<std::size_t> navPage,
+    huxerui::State<bool> navigationOpen) {
+    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    const IslandTheme islands = ResolveIslandTheme(theme);
+    const bool open = navigationOpen.Get();
+    auto revealed = huxerui::UseState(false);
+
+    huxerui::Lifecycle(
+        [revealed, open] {
+            revealed = open;
+            return [] {};
+        },
+        open);
+
+    if (!open) return huxerui::Row {};
+
     struct Item {
         huxerui::ImageResource icon;
         const char* tooltip;
@@ -360,72 +454,119 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(huxerui::WindowHandle window,
         Item{app::images::about, "关于", pages::kAbout},
     };
 
-    const auto makeButton = [navPage, &islands, &theme](const Item& item) {
+    constexpr std::array<huxerui::Point, 8> positions{
+        huxerui::Point{0.0F, -144.0F}, huxerui::Point{102.0F, -102.0F},
+        huxerui::Point{144.0F, 0.0F}, huxerui::Point{102.0F, 102.0F},
+        huxerui::Point{0.0F, 144.0F}, huxerui::Point{-102.0F, 102.0F},
+        huxerui::Point{-144.0F, 0.0F}, huxerui::Point{-102.0F, -102.0F},
+    };
+    const huxerui::AnimationSpec motion = theme.motion.reduced_motion
+        ? huxerui::AnimationSpec{huxerui::SnapSpec{}}
+        : huxerui::AnimationSpec{huxerui::TweenSpec{
+              .duration = 0.22,
+              .easing = huxerui::Easing::EaseOut}};
+
+    const auto makeButton = [navPage, revealed, &islands, &theme, &motion](
+                                const Item& item, huxerui::Point position) {
         const std::size_t page = item.page;
         huxerui::View button =
             huxerui::IconButton(item.icon, item.tooltip)
                 .OnClick([navPage, page] { navPage = page; })
-                .With(huxerui::Tooltip(item.tooltip))
-                .Key(std::string("title-nav:") + item.tooltip);
+                .With(huxerui::Tooltip(item.tooltip),
+                      huxerui::Background(islands.overlay),
+                      huxerui::CornerRadius(26.0F),
+                      huxerui::Border(islands.outline_soft, 0.8F),
+                      huxerui::Shadow{huxerui::Color::Rgb(0, 0, 0, 0.18F),
+                                      {}, 12.0F, 0.0F},
+                      huxerui::Offset(huxerui::AnimateTo(
+                          revealed.Get() ? position : huxerui::Point{}, motion)),
+                      huxerui::Opacity(huxerui::AnimateTo(
+                          revealed.Get() ? 1.0F : 0.0F, motion)),
+                      huxerui::Scale(huxerui::AnimateTo(
+                          revealed.Get() ? 1.0F : 0.72F, motion)))
+                .Key(std::string("radial-nav:") + item.tooltip);
         if (navPage.Get() == page) {
             button = std::move(button).With(
                 huxerui::Background(theme.colors.secondary_container),
-                huxerui::CornerRadius(islands.nested_radius));
+                huxerui::Border(theme.colors.primary, 1.2F));
         }
         return button;
     };
-    huxerui::View taiji = huxerui::Stack {
-        huxerui::Image(app::images::taiji)
-            .With(huxerui::Frame{.width = 16.0F, .height = 16.0F}),
+
+    std::vector<huxerui::View> radialChildren;
+    radialChildren.reserve(items.size() + 2);
+    radialChildren.push_back(RadialNavigationArtwork(theme.colors.primary));
+    for (std::size_t i = 0; i < items.size(); ++i) {
+        radialChildren.push_back(makeButton(items[i], positions[i]));
     }
-        .With(huxerui::Frame{.width = kTitleBarContentHeight,
-                             .height = kTitleBarContentHeight},
+    radialChildren.push_back(
+        huxerui::Stack {
+            huxerui::Image(app::images::home)
+                .Tint(theme.colors.on_surface)
+                .With(huxerui::Frame{.width = 38.0F, .height = 38.0F}),
+        }
+            .With(huxerui::Frame{.width = 82.0F, .height = 82.0F},
+                  huxerui::Align(huxerui::HorizontalAlignment::Center,
+                                 huxerui::VerticalAlignment::Center),
+                  huxerui::Background(islands.overlay),
+                  huxerui::CornerRadius(41.0F),
+                  huxerui::Border(theme.colors.primary, 1.5F),
+                  huxerui::Shadow{theme.colors.primary, {}, 18.0F, 0.0F},
+                  huxerui::Scale(huxerui::AnimateTo(
+                      revealed.Get() ? 1.0F : 0.82F, motion)),
+                  huxerui::Opacity(huxerui::AnimateTo(
+                      revealed.Get() ? 1.0F : 0.0F, motion)),
+                  huxerui::Semantics{.role = huxerui::SemanticRole::Image,
+                                      .label = "页面导航中心"})
+            .Key("radial-nav:lotus"));
+
+    huxerui::View radial = huxerui::Stack(std::move(radialChildren))
+        .With(huxerui::Frame{.width = 420.0F, .height = 420.0F},
               huxerui::Align(huxerui::HorizontalAlignment::Center,
-                             huxerui::VerticalAlignment::Center),
-              huxerui::Semantics{.role = huxerui::SemanticRole::Image,
-                                  .label = "页面导航"},
-              huxerui::Tooltip("悬停展开页面导航"))
-        .Key("title-nav:taiji");
+                             huxerui::VerticalAlignment::Center));
 
-    std::vector<huxerui::View> children;
-    children.reserve(expanded.Get() ? items.size() + 1 : 1);
-    if (expanded.Get()) {
-        for (std::size_t i = 0; i < items.size() / 2; ++i) {
-            children.push_back(makeButton(items[i]));
-        }
+    huxerui::View hoverCorridor = huxerui::Column {
+        huxerui::Spacer(),
+        std::move(radial),
+        huxerui::Spacer(),
     }
-    children.push_back(taiji);
-    if (expanded.Get()) {
-        for (std::size_t i = items.size() / 2; i < items.size(); ++i) {
-            children.push_back(makeButton(items[i]));
-        }
-    }
-
-    huxerui::View navigation = huxerui::Row(std::move(children))
-        .With(huxerui::Frame{.height = kTitleBarContentHeight},
-              huxerui::Spacing(2.0F),
+        .With(huxerui::Frame{.width = 420.0F},
+              huxerui::Grow(1.0F),
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center))
         .On<huxerui::ViewEvents::Hover>(
-            [expanded](const huxerui::HoverEvent& event) {
-                expanded = event.type != huxerui::HoverEventType::Leave;
+            [navigationOpen](const huxerui::HoverEvent& event) {
+                navigationOpen = event.type != huxerui::HoverEventType::Leave;
             });
-    if (expanded.Get()) {
-        navigation = std::move(navigation).With(
-            huxerui::Background(islands.overlay),
-            huxerui::CornerRadius(kTitleBarContentHeight * 0.5F),
-            huxerui::Border(islands.outline_soft, 0.75F));
-    }
 
-    huxerui::IconButtonStyle titleIcons = huxerui::IconButtonStyle::Default();
-    titleIcons.foreground = theme.colors.on_surface;
-    titleIcons.disabled_foreground = theme.colors.on_surface_variant;
-    titleIcons.icon_size = 16.0F;
-    titleIcons.minimum_interactive_size = kTitleBarContentHeight;
-    titleIcons.state_layer_size = 22.0F;
-    titleIcons.corner_radius = islands.nested_radius;
+    huxerui::IconButtonStyle radialIcons = huxerui::IconButtonStyle::Default();
+    radialIcons.foreground = theme.colors.on_surface;
+    radialIcons.disabled_foreground = theme.colors.on_surface_variant;
+    radialIcons.icon_size = 24.0F;
+    radialIcons.minimum_interactive_size = 52.0F;
+    radialIcons.state_layer_size = 48.0F;
+    radialIcons.corner_radius = 26.0F;
     huxerui::ThemeDefinition overrides;
-    overrides.Set(titleIcons);
-    return huxerui::Theme(std::move(overrides), navigation);
+    overrides.Set(radialIcons);
+
+    huxerui::View navigation = huxerui::Theme(
+        std::move(overrides),
+        huxerui::Row {
+            huxerui::Spacer(),
+            std::move(hoverCorridor),
+            huxerui::Spacer(),
+        }.With(huxerui::Grow(1.0F),
+               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)));
+
+    return huxerui::Stack {
+        huxerui::Row {}.With(
+            huxerui::Grow(1.0F),
+            huxerui::Background(huxerui::Color::Rgb(12, 18, 24, 0.46F)),
+            huxerui::Opacity(huxerui::AnimateTo(
+                revealed.Get() ? 1.0F : 0.0F, motion))),
+        std::move(navigation),
+    }.With(huxerui::Grow(1.0F),
+           huxerui::Align(huxerui::HorizontalAlignment::Stretch,
+                          huxerui::VerticalAlignment::Stretch));
 }
 
 // 页面宿主单独订阅导航状态。IndexedPages 保留全部页面及其局部状态，
@@ -503,6 +644,9 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(huxerui::WindowHandle window,
     // 顶级页面状态同时供标题栏导航与保持挂载的 IndexedPages 宿主订阅。
     // AppRoot 本身不读取它，切页只重组这两个局部子树。
     auto navPage = huxerui::UseState<std::size_t>(pages::kAgents);
+    // 标题栏莲花与根级径向浮层共享开合状态；AppRoot 不读取它，避免 Hover
+    // 让整套窗口内容重组。
+    auto navigationOpen = huxerui::UseState(false);
     // 全局变更计数：任何写库操作（含托盘切换）后 +1，驱动托盘菜单重建
     // （Lifecycle 依赖）与页面重读。
     auto revision = huxerui::UseState<int>(0);
@@ -573,28 +717,15 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(huxerui::WindowHandle window,
         InkSplash(0x51B7U, 1.0F, InkSplashAnchor::TopEnd),
         InkSplash(0x2F3DU, 0.65F, InkSplashAnchor::BottomStart),
         huxerui::Column {
-            // Stack 把左侧应用名与精确居中的太极导航叠放，避免
-            // 应用名宽度把太极推离中心；窗口按钮仍由框架在右侧渲染。
+            // 标题栏只负责应用名、拖拽区和系统按钮预留；莲花锚点在下方根级
+            // 覆盖层按整窗宽度居中，避免被右侧最小化/最大化/关闭按钮推偏。
             huxerui::WindowTitleBar {
-                huxerui::Stack {
-                    huxerui::Row {
-                        huxerui::Text("llm-switch")
-                            .Style(huxerui::TextStyle{
-                                huxerui::Font::System(font_size::kChip)
-                                    .WithWeight(huxerui::FontWeight::Bold),
-                                rootSpec.colors.on_surface}),
-                        huxerui::Spacer(),
-                    }.With(huxerui::CrossAlign(
-                        huxerui::CrossAxisAlignment::Center)),
-                    huxerui::Row {
-                        huxerui::Spacer(),
-                        TitleBarNavigation(navPage),
-                        huxerui::Spacer(),
-                    }.With(huxerui::CrossAlign(
-                        huxerui::CrossAxisAlignment::Center)),
-                }.With(huxerui::Grow(1.0F),
-                       huxerui::Align(huxerui::HorizontalAlignment::Stretch,
-                                      huxerui::VerticalAlignment::Stretch)),
+                huxerui::Text("llm-switch")
+                    .Style(huxerui::TextStyle{
+                        huxerui::Font::System(font_size::kChip)
+                            .WithWeight(huxerui::FontWeight::Bold),
+                        rootSpec.colors.on_surface}),
+                huxerui::Spacer(),
             }
                 .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(
                           rootSpec.spacing.small, 0.0F))),
@@ -608,6 +739,18 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(huxerui::WindowHandle window,
                   huxerui::Padding(huxerui::EdgeInsets{.bottom =
                                                            rootSpec.spacing.small}),
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)),
+        // 与整窗而非 WindowTitleBar 的可用内容区对齐，保证莲花位于几何中心。
+        huxerui::Column {
+            huxerui::Row {
+                huxerui::Spacer(),
+                TitleBarNavigationTrigger(navigationOpen),
+                huxerui::Spacer(),
+            }.With(huxerui::Frame{.height = kTitleBarContentHeight},
+                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
+            huxerui::Spacer(),
+        }.With(huxerui::Grow(1.0F),
+               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)),
+        RadialNavigationOverlay(navPage, navigationOpen),
     }
         .With(// 窗口整体海面底色刷满根节点：岛间缝隙透出底色与环境画卷。
               huxerui::Background(rootSpec.colors.background),
