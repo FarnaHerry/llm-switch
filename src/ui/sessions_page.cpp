@@ -38,12 +38,6 @@ std::int64_t CurrentTimeMillis() {
 }
 
 constexpr std::size_t kStateListCommitBatchSize = 64;
-constexpr std::size_t kMessageCollapseThresholdBytes = 3'000;
-// 折叠预览长度：VirtualList 的行每次测量都会重新经 Pango 全量排版（SDK 无
-// 跨帧布局缓存），预览越长每帧排版开销越大。320 字符（约 5 行）足够预览
-// 判断内容，展开仍可看全量（≤16KB，见 sessions.cpp 的存储上限）。
-constexpr std::size_t kMessageCollapsedBytes = 100;
-
 
 // StateList 的每次写入都会使观察它的组合失效。大列表若在一个 UI 回调里一次性
 // 逐项提交，会把 worker 中省下来的时间又变成主线程长任务。分批提交并在批次间
@@ -72,16 +66,6 @@ huxerui::Task<void> ReplaceStateListInBatches(
     }
 }
 
-std::string CollapseMessageText(std::string_view text) {
-    if (text.size() <= kMessageCollapsedBytes) return std::string(text);
-    std::size_t end = kMessageCollapsedBytes;
-    while (end > 0 &&
-           (static_cast<unsigned char>(text[end]) & 0xC0U) == 0x80U) {
-        --end;
-    }
-    return std::string(text.substr(0, end)) + "…";
-}
-
 // 简单相对时间：刚刚 / N 分钟前 / N 小时前 / N 天前 / N 个月前 / N 年前。
 std::string RelativeTime(std::int64_t mtimeMillis) {
     const auto now = std::chrono::system_clock::now();
@@ -99,6 +83,13 @@ std::string RelativeTime(std::int64_t mtimeMillis) {
     const auto months = days / 30;
     if (months < 12) return std::format("{} 个月前", months);
     return std::format("{} 年前", months / 12);
+}
+
+std::string FormatMessageTimestamp(std::string_view timestamp) {
+    if (timestamp.empty()) return "时间未知";
+    std::string result(timestamp);
+    if (result.size() > 10 && result[10] == 'T') result[10] = ' ';
+    return result;
 }
 
 std::string FormatSize(std::uintmax_t bytes) {
@@ -204,39 +195,56 @@ std::string FormatSize(std::uintmax_t bytes) {
     const sessions::SessionMessage& message) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     const IslandTheme islands = ResolveIslandTheme(theme);
-    auto expanded = huxerui::UseState(false);
+    const auto clipboard = huxerui::UseApplication().Clipboard();
+    auto toast = huxerui::UseToast();
+    auto hovered = huxerui::UseState(false);
     const bool isUser = message.role == "user";
-    const bool isLong = message.text.size() > kMessageCollapseThresholdBytes;
     const std::string role = isUser ? "用户" : "助手";
-    const std::string displayText = isLong && !expanded.Get()
-                                        ? CollapseMessageText(message.text)
-                                        : message.text;
+    const std::string copiedText = message.text;
+    const std::string timestamp = FormatMessageTimestamp(message.timestamp);
 
-    std::vector<huxerui::View> cardChildren;
-    cardChildren.reserve(isLong ? 3U : 2U);
-    cardChildren.push_back(
-        huxerui::Text(role)
-            .Align(isUser ? huxerui::TextAlign::Trailing
-                          : huxerui::TextAlign::Leading)
-            .Style(huxerui::TextStyle{
-                huxerui::Font::System(font_size::kChip)
-                    .WithWeight(huxerui::FontWeight::SemiBold),
-                theme.colors.on_surface_variant}));
-    cardChildren.push_back(
-        huxerui::Text(displayText)
-            .Align(huxerui::TextAlign::Leading)
-            .Style(huxerui::TextStyle{huxerui::Font::System(font_size::kBody),
-                                      theme.colors.on_surface}));
-    if (isLong) {
-        cardChildren.push_back(
-            huxerui::Button(expanded.Get() ? "收起" : "展开完整内容")
-                .OnClick([expanded] { expanded = !expanded.Get(); }));
-    }
+    const auto onHover = [hovered](const huxerui::HoverEvent& event) {
+        if (event.type == huxerui::HoverEventType::Leave) {
+            hovered = false;
+        } else if (event.type == huxerui::HoverEventType::Enter) {
+            hovered = true;
+        }
+    };
+    const auto copy = huxerui::IconButton(app::images::copy, "复制消息")
+                          .OnClick([clipboard, toast, copiedText] {
+                              if (!clipboard->IsAvailable() ||
+                                  !clipboard->WriteText(copiedText)) {
+                                  toast.Show("剪贴板不可用，复制失败");
+                                  return;
+                              }
+                              toast.Show("已复制当前消息");
+                          })
+                          .With(huxerui::Opacity(hovered.Get()),
+                                huxerui::Tooltip("复制消息"));
 
     const std::string messageKey = std::format(
         "message:{}:{}", message.sourceOffset, message.role);
     const huxerui::View messageCard =
-        huxerui::Column(std::move(cardChildren))
+        huxerui::Column {
+            huxerui::Row {
+                huxerui::Text(role)
+                    .Style(huxerui::TextStyle{
+                        huxerui::Font::System(font_size::kChip)
+                            .WithWeight(huxerui::FontWeight::SemiBold),
+                        theme.colors.on_surface_variant}),
+                huxerui::Spacer(),
+                huxerui::Text(timestamp)
+                    .Style(huxerui::TextStyle{
+                        huxerui::Font::System(font_size::kCaption),
+                        theme.colors.on_surface_variant}),
+                copy,
+            }.With(huxerui::Spacing(4.0F),
+                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
+            huxerui::Text(message.text)
+                .Align(huxerui::TextAlign::Leading)
+                .Style(huxerui::TextStyle{huxerui::Font::System(font_size::kBody),
+                                          theme.colors.on_surface}),
+        }
             .With(huxerui::Spacing(6.0F),
                   huxerui::Padding(
                       huxerui::EdgeInsets::Symmetric(10.0F, 8.0F)),
@@ -244,6 +252,7 @@ std::string FormatSize(std::uintmax_t bytes) {
                   huxerui::Background(theme.colors.surface_container),
                   huxerui::CornerRadius(islands.nested_radius),
                   huxerui::Border(islands.outline_soft, 0.75F))
+            .On<huxerui::ViewEvents::Hover>(onHover)
             .Key(messageKey);
     huxerui::View messageSlot =
         huxerui::Column {messageCard}.With(
@@ -605,10 +614,9 @@ std::string FormatSize(std::uintmax_t bytes) {
                huxerui::MainAlign(huxerui::MainAxisAlignment::Center),
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
     } else {
-        // 行高估算与缓存范围按聊天消息的实际形态调过：行高方差大（折叠后
-        // 5~15 行），估算贴近实际可减少测量的 refine 轮次；缓存范围刻意
-        // 很小——可视区外的行每次测量同样会重新组合并重新经 Pango 排版，
-        // 预 realize 越多每帧开销越大。
+        // 行高估算与缓存范围按聊天消息的实际形态调过；缓存范围刻意很小——
+        // 可视区外的行每次测量同样会重新组合并重新经 Pango 排版，预 realize
+        // 越多每帧开销越大。
         content = huxerui::VirtualList(snapshot->size(), buildMessageRow)
                       .EstimatedItemExtent(300.0F)
                       .CacheExtent(80.0F)

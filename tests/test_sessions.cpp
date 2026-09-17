@@ -70,8 +70,8 @@ int main() {
     const fs::path claude1 = claudeProjects / "proj-x" / "sess-a.jsonl";
     writeFile(claude1,
               "{\"type\":\"summary\",\"summary\":\"旧摘要\"}\n"
-              "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"帮我修复登录页面的 bug\"}]}}\n"
-              "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"登录页面已修复\"}]}}\n");
+              "{\"timestamp\":\"2026-09-06T00:00:00Z\",\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"帮我修复登录页面的 bug\"}]}}\n"
+              "{\"timestamp\":\"2026-09-06T00:00:01Z\",\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"登录页面已修复\"}]}}\n");
     // claude：首条 user 是命令样文本，应跳过取第二条；content 为纯字符串
     const fs::path claude2 = claudeProjects / "proj-x" / "sess-b.jsonl";
     writeFile(claude2,
@@ -184,14 +184,18 @@ int main() {
         if (messages.size() == 2) {
             CHECK(messages[0].role == "user");
             CHECK(messages[0].text == "帮我修复登录页面的 bug");
+            CHECK(messages[0].timestamp == "2026-09-06T00:00:00Z");
             CHECK(messages[1].role == "assistant");
             CHECK(messages[1].text == "登录页面已修复");
+            CHECK(messages[1].timestamp == "2026-09-06T00:00:01Z");
         }
         const auto codexMessages = sessions::readSession("codex", codex1);
         CHECK(codexMessages.size() == 2);
         if (codexMessages.size() == 2) {
+            CHECK(codexMessages[0].timestamp == "2026-09-06T01:00:00Z");
             CHECK(codexMessages[1].role == "assistant");
             CHECK(codexMessages[1].text == "PR 审查完成");
+            CHECK(codexMessages[1].timestamp == "2026-09-06T01:00:01Z");
         }
 
         const auto newest = sessions::readSessionPage("codex", codex1, 0, 1);

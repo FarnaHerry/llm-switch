@@ -32,6 +32,7 @@ export struct SessionSummary {
 export struct SessionMessage {
     std::string role;            // "user" / "assistant"
     std::string text;
+    std::string timestamp;       // JSONL 记录时间戳（通常为 ISO 8601）
     std::uintmax_t sourceOffset = 0; // JSONL 中的稳定字节位置（分页读取时提供）
     bool operator==(const SessionMessage&) const = default;
 };

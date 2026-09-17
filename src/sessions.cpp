@@ -134,6 +134,18 @@ std::string contentText(const nlohmann::json& content) {
     return "";
 }
 
+std::string messageTimestamp(const nlohmann::json& record,
+                             const nlohmann::json* message) {
+    if (record.contains("timestamp") && record["timestamp"].is_string()) {
+        return record["timestamp"].get<std::string>();
+    }
+    if (message != nullptr && message->contains("timestamp") &&
+        (*message)["timestamp"].is_string()) {
+        return (*message)["timestamp"].get<std::string>();
+    }
+    return {};
+}
+
 std::optional<SessionMessage> parseMessageLine(std::string_view tool,
                                                 std::string_view line) {
     if (line.empty() || !mayContainDisplayMessage(tool, line)) return std::nullopt;
@@ -184,7 +196,8 @@ std::optional<SessionMessage> parseMessageLine(std::string_view tool,
         text.resize(end);
         text += "\n……（内容过长已截断，完整内容请导出后查看）";
     }
-    return SessionMessage{std::move(role), std::move(text)};
+    return SessionMessage{std::move(role), std::move(text),
+                          messageTimestamp(j, message)};
 }
 
 template <class Callback>
