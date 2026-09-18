@@ -217,6 +217,9 @@ export struct AppConfig {
     std::string themeMode = "system";  // system / dark / light
     // 窗口关闭行为：ask（询问）/ tray（最小化到托盘）/ quit（直接关闭）。
     std::string closeBehavior = "ask";
+    // 标题栏中心莲花阵（径向页面导航）：点击切换页面后是否立即收起导航盘。
+    // true = 点完就消失；false = 保持展开，指针移出才收起。
+    bool radialNavAutoClose = true;
     // 本地路由（llmswitch.router）设置：
     bool routerEnabled = false;    // 启动应用时自动开启本地路由
     int routerPort = 15731;        // 监听 127.0.0.1:<port>
@@ -395,6 +398,7 @@ export nlohmann::json toJson(const AppConfig& c) {
     }
     j["themeMode"] = c.themeMode;
     j["closeBehavior"] = c.closeBehavior;
+    j["radialNavAutoClose"] = c.radialNavAutoClose;
     j["routerEnabled"] = c.routerEnabled;
     j["routerPort"] = c.routerPort;
     j["routerFailover"] = c.routerFailover;
@@ -434,6 +438,7 @@ export AppConfig fromJson(const nlohmann::json& j) {
         c.closeBehavior != "quit") {
         c.closeBehavior = "ask";
     }
+    c.radialNavAutoClose = j.value("radialNavAutoClose", true);
     c.routerEnabled = j.value("routerEnabled", false);
     c.routerPort = j.value("routerPort", 15731);
     c.routerFailover = j.value("routerFailover", true);

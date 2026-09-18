@@ -355,10 +355,19 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(huxerui::WindowHandle window,
 huxerui::View TitleBarOrnamentArtwork(huxerui::Color color, bool glow) {
     return huxerui::Canvas([color, glow](huxerui::PaintContext& paint,
                                          huxerui::Size size) mutable {
+        // 画布没有固有尺寸（NodeKind::Canvas 不产生内容尺寸），由外层 Stack 居中，
+        // 因此画布局部原点就是莲花中心：几何一律用固定常量推导，不再读 size。
         const huxerui::Point center{size.width * 0.5F, size.height * 0.5F};
-        const float halfSpan =
-            std::min(360.0F, std::max(44.0F, size.width * 0.34F));
-        const float innerGap = 17.0F;
+
+        // 自莲花中心量起：第一等分点 = 菱形，第二等分点 = 圆点（即最外点），
+        // 之后向两侧延伸一小段尾线，用 alpha 渐隐收尾。相比参考图去掉了最外
+        // 那一段（左右各少一段），菱形与圆点是原第一、第二等分点的位置。
+        constexpr float kDiamondAt = 30.0F;
+        constexpr float kEndDotAt = 60.0F;
+        constexpr float kTail = 22.0F;
+        // 第一段（0 .. 30）被莲花锚点覆盖：线从锚点外缘起画，不画到中心。
+        constexpr float kBadgeRadius = 12.0F;
+
         const huxerui::StrokeStyle lineStyle{
             .width = glow ? 1.15F : 0.7F,
             .cap = huxerui::StrokeCap::Round,
@@ -366,27 +375,6 @@ huxerui::View TitleBarOrnamentArtwork(huxerui::Color color, bool glow) {
         };
 
         color.alpha = glow ? 0.86F : 0.42F;
-        if (glow) {
-            // 悬停横线带一层宽而淡的底色 —— 多层低透明度描边叠加出「发光」
-            // 观感（SDK 无模糊滤镜，辉光一律由分层描边/阴影表达）。
-            huxerui::Color halo = color;
-            halo.alpha = 0.20F;
-            const huxerui::StrokeStyle haloStyle{
-                .width = 5.0F,
-                .cap = huxerui::StrokeCap::Round,
-                .join = huxerui::StrokeJoin::Round,
-            };
-            paint.DrawLine({center.x - halfSpan, center.y},
-                           {center.x - innerGap, center.y}, halo, haloStyle);
-            paint.DrawLine({center.x + innerGap, center.y},
-                           {center.x + halfSpan, center.y}, halo, haloStyle);
-        }
-
-        paint.DrawLine({center.x - halfSpan, center.y},
-                       {center.x - innerGap, center.y}, color, lineStyle);
-        paint.DrawLine({center.x + innerGap, center.y},
-                       {center.x + halfSpan, center.y}, color, lineStyle);
-
         const auto drawDiamond = [&paint, color](float x, float y, float radius) {
             huxerui::Path diamond;
             diamond.MoveTo({x, y - radius})
@@ -396,35 +384,71 @@ huxerui::View TitleBarOrnamentArtwork(huxerui::Color color, bool glow) {
                 .Close();
             paint.FillPath(diamond, color);
         };
-        const float majorNode = halfSpan * 0.42F;
-        const float minorNode = halfSpan * 0.72F;
-        drawDiamond(center.x - majorNode, center.y, glow ? 3.0F : 2.4F);
-        drawDiamond(center.x + majorNode, center.y, glow ? 3.0F : 2.4F);
-        paint.DrawCircle({center.x - minorNode, center.y}, glow ? 1.35F : 1.0F,
-                         color);
-        paint.DrawCircle({center.x + minorNode, center.y}, glow ? 1.35F : 1.0F,
-                         color);
-        paint.DrawCircle({center.x - halfSpan, center.y}, glow ? 1.15F : 0.85F,
-                         color);
-        paint.DrawCircle({center.x + halfSpan, center.y}, glow ? 1.15F : 0.85F,
-                         color);
 
-        if (glow) {
-            // 莲花锚点外圈的同心环：由内向外逐层变淡，形成向外的辉光衰减。
-            huxerui::Color ring = color;
-            ring.alpha = 0.42F;
-            const huxerui::StrokeStyle ringStyle{
-                .width = 0.8F,
-                .cap = huxerui::StrokeCap::Round,
-                .join = huxerui::StrokeJoin::Round,
-            };
-            constexpr float kFullCircle = 6.2831853F;
-            paint.DrawArc(center, 14.0F, 0.0F, kFullCircle, ring, ringStyle);
-            ring.alpha = 0.26F;
-            paint.DrawArc(center, 16.0F, 0.0F, kFullCircle, ring, ringStyle);
-            ring.alpha = 0.12F;
-            paint.DrawArc(center, 19.0F, 0.0F, kFullCircle, ring, ringStyle);
-        }
+        const auto drawSide = [&](float sign) {
+            const float from = center.x + sign * kBadgeRadius;
+            const float to = center.x + sign * kEndDotAt;
+
+            if (glow) {
+                // 悬停横线带一层宽而淡的底色 —— 多层低透明度描边叠加出「发光」
+                // 观感（SDK 无模糊滤镜，辉光一律由分层描边/阴影表达）。
+                huxerui::Color halo = color;
+                halo.alpha = 0.20F;
+                const huxerui::StrokeStyle haloStyle{
+                    .width = 5.0F,
+                    .cap = huxerui::StrokeCap::Round,
+                    .join = huxerui::StrokeJoin::Round,
+                };
+                paint.DrawLine({from, center.y}, {to, center.y}, halo, haloStyle);
+            }
+            paint.DrawLine({from, center.y}, {to, center.y}, color, lineStyle);
+
+            // 尾线：只改可见度不改颜色，用同色 alpha 渐变从有线渐隐到全透明。
+            huxerui::Color tailStart = color;
+            tailStart.alpha *= 0.9F;
+            huxerui::Color tailEnd = color;
+            tailEnd.alpha = 0.0F;
+            const float tailFrom = to;
+            const float tailTo = center.x + sign * (kEndDotAt + kTail);
+            huxerui::Path tail;
+            tail.MoveTo({tailFrom, center.y}).LineTo({tailTo, center.y});
+            const bool rightward = sign > 0.0F;
+            paint.StrokePath(
+                tail,
+                huxerui::LinearGradient{
+                    .start = rightward ? huxerui::Point{0.0F, 0.5F}
+                                       : huxerui::Point{1.0F, 0.5F},
+                    .end = rightward ? huxerui::Point{1.0F, 0.5F}
+                                     : huxerui::Point{0.0F, 0.5F},
+                    .stops = {{0.0F, tailStart}, {1.0F, tailEnd}},
+                },
+                huxerui::Rect{std::min(tailFrom, tailTo), center.y - 1.0F, kTail,
+                              2.0F},
+                lineStyle);
+
+            drawDiamond(center.x + sign * kDiamondAt, center.y,
+                        glow ? 3.2F : 2.6F);
+            paint.DrawCircle({center.x + sign * kEndDotAt, center.y},
+                             glow ? 1.5F : 1.1F, color);
+        };
+        drawSide(-1.0F);
+        drawSide(1.0F);
+
+        // 莲花外侧的一圈线：两层细环由内向外变淡，得到轻微虚化的外扩感；
+        // 悬停时整体加强，与横线的辉光呼应。
+        constexpr float kFullCircle = 6.2831853F;
+        huxerui::Color ring = color;
+        ring.alpha = glow ? 0.34F : 0.16F;
+        const huxerui::StrokeStyle ringStyle{
+            .width = glow ? 0.8F : 0.6F,
+            .cap = huxerui::StrokeCap::Round,
+            .join = huxerui::StrokeJoin::Round,
+        };
+        paint.DrawArc(center, kBadgeRadius + 2.5F, 0.0F, kFullCircle, ring,
+                      ringStyle);
+        ring.alpha = glow ? 0.18F : 0.09F;
+        paint.DrawArc(center, kBadgeRadius + 4.5F, 0.0F, kFullCircle, ring,
+                      ringStyle);
     });
 }
 
@@ -543,6 +567,7 @@ huxerui::View RadialNavigationArtwork(huxerui::Color color) {
     const IslandTheme islands = ResolveIslandTheme(theme);
     const bool open = navigationOpen.Get();
     auto revealed = huxerui::UseState(false);
+    auto tasks = huxerui::UseTaskScope();
 
     huxerui::Lifecycle(
         [revealed, open] {
@@ -581,12 +606,25 @@ huxerui::View RadialNavigationArtwork(huxerui::Color color) {
               .duration = 0.22,
               .easing = huxerui::Easing::EaseOut}};
 
-    const auto makeButton = [navPage, revealed, &islands, &theme, &motion](
-                                const Item& item, huxerui::Point position) {
+    const auto makeButton = [navPage, navigationOpen, tasks, revealed, &islands,
+                             &theme, &motion](const Item& item,
+                                              huxerui::Point position) {
         const std::size_t page = item.page;
         huxerui::View button =
             huxerui::IconButton(item.icon, item.tooltip)
-                .OnClick([navPage, page] { navPage = page; })
+                .OnClick([navPage, navigationOpen, tasks, page] {
+                    navPage = page;
+                    // 收起导航盘会卸载被点击的图标本身，必须推迟到事件派发之后
+                    // （见 CLAUDE.md 线程契约）。开关在点击时现读配置，避免捕获
+                    // 组合期读到的旧值。
+                    if (providerStore().config().radialNavAutoClose) {
+                        tasks.Launch([navigationOpen]()
+                                         -> huxerui::Task<void> {
+                            navigationOpen = false;
+                            co_return;
+                        });
+                    }
+                })
                 .With(huxerui::Tooltip(item.tooltip),
                       huxerui::Background(islands.overlay),
                       huxerui::CornerRadius(26.0F),

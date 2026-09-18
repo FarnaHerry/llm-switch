@@ -362,8 +362,14 @@ std::string FormatSize(std::uintmax_t bytes) {
                   huxerui::PointerCursor(huxerui::PointerCursorKind::Hand),
                   huxerui::Tooltip(message.text))
             .OnClick([scroll, messageIndex = item.messageIndex] {
+                // ScrollToItem 先把视口瞬时跳到目标（变高列表此刻仍是估算落点），
+                // 随后挂一个 pending 请求逐帧收敛：每帧只测量视口 ± CacheExtent
+                // 的窗口，跳得越远要啃的估算误差越多，表现为可见的慢速爬行。
+                // 紧跟一次 ScrollTo 即可终止它——SDK 的 ScrollTo 会先
+                // CancelPending()（scroll.cpp），视口就停在瞬时落点上。
                 static_cast<void>(scroll.ScrollToItem(
                     messageIndex, huxerui::ScrollAlignment::Start));
+                static_cast<void>(scroll.ScrollTo(scroll.Offset()));
             })
             .Key(std::format("session-nav:{}", item.messageIndex));
     };
@@ -637,8 +643,10 @@ std::string FormatSize(std::uintmax_t bytes) {
                 loading = false;
                 co_await huxerui::Delay(std::chrono::duration<double>{0});
                 if (!messages.Get()->empty()) {
-                    static_cast<void>(scroll.ScrollToItem(
-                        0, huxerui::ScrollAlignment::Start));
+                    // 详情页停在会话第一条消息。第一条的内容偏移恒为 0，
+                    // 不需要经 ScrollToItem 的估算/收敛路径：直接 ScrollTo(0)
+                    // 瞬时精确到位，并顺带取消可能存在的 pending 收敛请求。
+                    static_cast<void>(scroll.ScrollTo(0.0F));
                 }
             } catch (const std::exception& e) {
                 if (requestGeneration.Get() != request) co_return;

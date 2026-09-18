@@ -44,6 +44,9 @@ public:
     // 窗口关闭行为（ask / tray / quit），立即落盘。
     void setCloseBehavior(std::string behavior);
 
+    // 标题栏中心莲花阵：点击切换页面后是否立即收起导航盘，立即落盘。
+    void setRadialNavAutoClose(bool enabled);
+
     // Claude Code 安装检查：写入/移除 settings.json env.DISABLE_INSTALLATION_CHECKS。
     bool claudeCodeSkipInstallationChecks() const;
     void setClaudeCodeSkipInstallationChecks(bool enabled);

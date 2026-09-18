@@ -277,6 +277,11 @@ void ProviderStore::setCloseBehavior(std::string behavior) {
     save();
 }
 
+void ProviderStore::setRadialNavAutoClose(bool enabled) {
+    config_.radialNavAutoClose = enabled;
+    save();
+}
+
 bool ProviderStore::claudeCodeSkipInstallationChecks() const {
     const auto settings = readJsonPassive(cfg::claudeSettingsFile());
     const std::string value =

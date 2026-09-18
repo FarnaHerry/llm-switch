@@ -167,6 +167,8 @@ bool ResolvesToDark(int mode) {
         CloseBehaviorIndex(providerStore().config().closeBehavior));
     auto claudeCodeSkipInstallationChecks =
         huxerui::UseState(providerStore().claudeCodeSkipInstallationChecks());
+    auto radialNavAutoClose =
+        huxerui::UseState(providerStore().config().radialNavAutoClose);
 
     const bool canSave = picker && picker->CanSaveFiles();
     const bool canOpen = picker && picker->CanOpenFiles();
@@ -256,6 +258,19 @@ bool ResolvesToDark(int mode) {
                     SettingRow(
                         "主题", "",
                         TaijiThemeSelector(themeMode)),
+                    SettingRow(
+                        "点击页面后收起导航盘",
+                        "标题栏中心莲花阵：点选顶级页面后立即收起；关闭则保持展开，指针移出才收起",
+                        huxerui::Switch(radialNavAutoClose.Get())
+                            .OnChanged([radialNavAutoClose, revision, toast](bool on) {
+                                try {
+                                    providerStore().setRadialNavAutoClose(on);
+                                    radialNavAutoClose = on;
+                                    revision = revision.Get() + 1;
+                                } catch (const std::exception& e) {
+                                    toast.Show(e.what());
+                                }
+                            })),
                     SettingRow(
                         "关闭行为",
                         "系统关闭按钮和标题栏关闭按钮均使用此行为",
