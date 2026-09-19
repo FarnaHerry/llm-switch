@@ -66,3 +66,33 @@ CMake 配置阶段会检查全部 24×24 SVG：包含硬编码颜色（非 `#FFF
 | `group/message/bell/star/heart.svg` | 本仓库自绘（墨韵图标库·用户相关） | 同本仓库 |
 | `help/lock/unlock.svg` | 本仓库自绘（墨韵图标库·状态提示） | 同本仓库 |
 | `calendar/clock/location/filter/sort/menu.svg` | 本仓库自绘（墨韵图标库·其他常用） | 同本仓库 |
+
+## 换图标后的生效范围（任务栏／托盘为什么不跟着变）
+
+仓库里的 `resources/images/` 只决定**构建目录**里跑的应用（`./run.sh`）。装了包之后，
+另外两处来源各自独立，改图标必须重新发布到它们才会生效：
+
+- **任务栏／程序坞图标**：HuxerUI 目前没有窗口图标 API，Linux 下应用无法自报图标，
+  只能由桌面条目解析——`StartupWMClass=llm-switch` 匹配
+  `/usr/share/applications/llm-switch.desktop`，其 `Icon=llm-switch` 再指向
+  `/usr/share/icons/hicolor/scalable/apps/llm-switch.svg`。这一份来自打包安装
+  （`platform/linux/package/llm-switch.svg`），构建目录里改它是碰不到的。
+- **应用内标题栏莲花与托盘图标**：来自已安装的 `llm-switch.resources` 资源包，
+  同样要重装才更新。
+
+因此改完图标后按需二选一：
+
+```bash
+# 只让任务栏立刻跟上（最小改动）
+sudo install -m 644 platform/linux/package/llm-switch.svg \
+     /usr/share/icons/hicolor/scalable/apps/llm-switch.svg
+
+# 走正常发布渠道（同时更新二进制、资源包、桌面条目与图标）
+cmake -S . -B build-rpm -G Ninja -DCMAKE_BUILD_TYPE=Release -DHUXERUI_PACKAGE=ON
+cmake --build build-rpm --parallel 4
+cpack --config build-rpm/CPackConfig.cmake -G RPM -B build-rpm
+sudo rpm -Uvh --replacepkgs build-rpm/llm-switch-*.rpm   # 版本号未变时必须 --replacepkgs
+```
+
+图标主题有缓存时再补一条 `sudo gtk-update-icon-cache -f -t /usr/share/icons/hicolor`；
+部分桌面环境仍需重新登录或重启 dock 才会重读图标。
