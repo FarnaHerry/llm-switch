@@ -25,9 +25,9 @@ import llmswitch.store;
 namespace llmswitch::ui {
 namespace {
 
-// 主题显示名：冷调命名（深海=深色、晴石=浅色），存值仍是 system/dark/light。
+// 主题显示名：冷调命名（石墨=深色、晴石=浅色），存值仍是 system/dark/light。
 // 仅在悬停提示里出现；选择器本体保持纯图形，不显示文字。
-const std::vector<std::string> kThemeNames{"跟随系统", "深海（深色）",
+const std::vector<std::string> kThemeNames{"跟随系统", "石墨（深色）",
                                            "晴石（浅色）"};
 const std::vector<std::string> kThemeModes{"system", "dark", "light"};
 

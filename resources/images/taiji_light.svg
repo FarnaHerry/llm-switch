@@ -1,8 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
   <!-- 晴石突出：宽冷白外环由细深蓝线收口，内部仍保留完整阴阳关系。 -->
-  <circle cx="12" cy="12" r="11.2" fill="#E8F0F8" stroke="#1B2836" stroke-width=".8"/>
-  <circle cx="12" cy="12" r="8.7" fill="#E8F0F8"/>
-  <path d="M12 3.3 A8.7 8.7 0 0 1 12 20.7 A4.35 4.35 0 0 0 12 12 A4.35 4.35 0 0 1 12 3.3Z" fill="#1B2836"/>
-  <circle cx="12" cy="7.65" r="1.45" fill="#E8F0F8"/>
-  <circle cx="12" cy="16.35" r="1.45" fill="#1B2836"/>
+  <circle cx="12" cy="12" r="11.2" fill="#E9ECEE" stroke="#1D222B" stroke-width=".8"/>
+  <circle cx="12" cy="12" r="8.7" fill="#E9ECEE"/>
+  <path d="M12 3.3 A8.7 8.7 0 0 1 12 20.7 A4.35 4.35 0 0 0 12 12 A4.35 4.35 0 0 1 12 3.3Z" fill="#1D222B"/>
+  <circle cx="12" cy="7.65" r="1.45" fill="#E9ECEE"/>
+  <circle cx="12" cy="16.35" r="1.45" fill="#1D222B"/>
 </svg>

@@ -3,7 +3,7 @@
 //     菱形和细线装饰；悬停时整组高亮，并在屏幕中央展开环形顶级页面图标。
 //     框架在右侧渲染窗口按钮；标题栏
 //     收窄为 24px 高、去背景直接融入窗口底色。主题为冷调石板风：
-//     深色「深海」= 海军蓝底 + 青蓝强调色；浅色「晴石」= 冷白底 + 天蓝强调色；
+//     深色「石墨」= 中性石墨底 + 青蓝强调色；浅色「晴石」= 冷白底 + 天蓝强调色；
 //     环境层是一层程序化环境光，error 为冷调语义红。
 //   下方：内容区独占整行（Agent 管理页内再分二级工具栏 + 页面自己的
 //   一级岛屿——PageScaffold，外壳不再套岛）。根节点刷整窗海面底色
@@ -52,11 +52,13 @@ enum PageIndex : std::size_t {
 
 namespace {
 
-// 冷调主题：深色「深海」= 海军蓝海面（#101923）+ 青蓝强调色；浅色「晴石」=
-// 冷白纸面（#FDFDFD）+ 天蓝强调色。文本用冷调石板蓝-灰阶，交互态（按钮/
+// 冷调主题：深色「石墨」= 中性石墨海面（#101214）+ 青蓝强调色；浅色「晴石」=
+// 冷白纸面（#FDFDFD）+ 天蓝强调色。文本用冷灰-石板阶，交互态（按钮/
 // 选中/开关/标题栏 hover）统一由 primary 承担；error 保留语义红（冷调）。
 // 浅色强调色比参考图实测的亮蓝（#4595F7）深一档到 #2870D6：白字对比度
 // ≈4.8:1、作描边 ≈4.6:1，双双过 AA 正文线（#2F7BE6 时白字仅 4.12:1）。
+// 石墨主题（中性冷灰阶）：表面不再发蓝，青蓝强调色成为唯一彩色源，在
+// 石墨底上更跳。对比度全项过 AA 且余量优于旧海军蓝（正文 15.3:1）。
 huxerui::ThemeSpec AppDarkThemeSpec() {
     huxerui::ThemeSpec spec = huxerui::MaterialDarkThemeSpec();
     spec.typography = huxerui::TypographyScheme{
@@ -71,24 +73,24 @@ huxerui::ThemeSpec AppDarkThemeSpec() {
     spec.colors.on_primary = huxerui::Color::Rgb(6, 34, 49);       // 强调色上翻深墨青
     spec.colors.primary_container = huxerui::Color::Rgb(27, 58, 80);
     spec.colors.on_primary_container = huxerui::Color::Rgb(190, 231, 251);
-    spec.colors.secondary = huxerui::Color::Rgb(159, 176, 194);
-    spec.colors.on_secondary = huxerui::Color::Rgb(16, 25, 35);
-    spec.colors.secondary_container = huxerui::Color::Rgb(34, 48, 63);   // hover / 选中底块
-    spec.colors.on_secondary_container = huxerui::Color::Rgb(232, 238, 246);
-    spec.colors.tertiary_container = huxerui::Color::Rgb(30, 58, 74);
-    spec.colors.on_tertiary_container = huxerui::Color::Rgb(185, 217, 232);
-    spec.colors.background = huxerui::Color::Rgb(16, 25, 35);      // 海军蓝海面 #101923
-    spec.colors.surface = huxerui::Color::Rgb(23, 35, 48);
-    spec.colors.surface_container_low = huxerui::Color::Rgb(20, 30, 42);
-    spec.colors.surface_container = huxerui::Color::Rgb(26, 36, 49);      // 二级岛卡片
-    spec.colors.surface_container_high = huxerui::Color::Rgb(32, 43, 57); // hover 面 / 弹窗
-    spec.colors.surface_container_highest = huxerui::Color::Rgb(38, 49, 63);
-    spec.colors.on_surface = huxerui::Color::Rgb(232, 238, 246);   // 石板冷白正文
-    spec.colors.on_surface_variant = huxerui::Color::Rgb(147, 163, 182); // 次要冷灰
-    spec.colors.outline = huxerui::Color::Rgb(44, 58, 73);
-    spec.colors.inverse_surface = huxerui::Color::Rgb(232, 238, 246);
-    spec.colors.inverse_on_surface = huxerui::Color::Rgb(16, 25, 35);
-    spec.colors.scrim = huxerui::Color::Rgb(4, 10, 18, 0.55F);
+    spec.colors.secondary = huxerui::Color::Rgb(154, 161, 170);    // 中性石板 #9AA1AA
+    spec.colors.on_secondary = huxerui::Color::Rgb(16, 18, 20);
+    spec.colors.secondary_container = huxerui::Color::Rgb(35, 40, 46);   // hover / 选中底块
+    spec.colors.on_secondary_container = huxerui::Color::Rgb(232, 234, 237);
+    spec.colors.tertiary_container = huxerui::Color::Rgb(33, 38, 45);
+    spec.colors.on_tertiary_container = huxerui::Color::Rgb(190, 199, 208);
+    spec.colors.background = huxerui::Color::Rgb(16, 18, 20);      // 石墨海面 #101214
+    spec.colors.surface = huxerui::Color::Rgb(23, 26, 29);
+    spec.colors.surface_container_low = huxerui::Color::Rgb(20, 23, 26);
+    spec.colors.surface_container = huxerui::Color::Rgb(26, 30, 34);      // 二级岛卡片
+    spec.colors.surface_container_high = huxerui::Color::Rgb(33, 37, 41); // hover 面 / 弹窗
+    spec.colors.surface_container_highest = huxerui::Color::Rgb(39, 44, 49);
+    spec.colors.on_surface = huxerui::Color::Rgb(232, 234, 237);   // 冷白正文 #E8EAED
+    spec.colors.on_surface_variant = huxerui::Color::Rgb(154, 161, 170); // 次要冷灰
+    spec.colors.outline = huxerui::Color::Rgb(45, 51, 58);         // 石墨描边 #2D333A
+    spec.colors.inverse_surface = huxerui::Color::Rgb(232, 234, 237);
+    spec.colors.inverse_on_surface = huxerui::Color::Rgb(16, 18, 20);
+    spec.colors.scrim = huxerui::Color::Rgb(5, 7, 10, 0.55F);
     spec.colors.error = huxerui::Color::Rgb(240, 115, 108);        // 语义红 #F0736C
     return spec;
 }
@@ -886,7 +888,7 @@ constexpr double kCollapseSeconds = 0.18;
     return TopLevelPageHost(navPage, cachedPages, pageReveal);
 }
 
-// 环境光：冷调主题的窗口底纹。深色是海军蓝底上一层柔和青蓝辉光（偏向画面
+// 环境光：冷调主题的窗口底纹。深色是石墨底上一层柔和青蓝辉光（偏向画面
 // 上方，对齐参考图深色半边的柔和光斑），浅色是冷白底顶部一层极淡天蓝洗色；
 // 两侧背景都保持干净——旧的全景水墨画卷与程序化泼墨已随水墨身份退役。
 // Canvas 直接铺满宿主（不要包 Align/Frame：Align 会把画布按父约束撑满，
