@@ -44,10 +44,11 @@ Claude、Codex、Gemini、Copilot、Cursor、Windsurf 及其他自动化 agent �
   只用于少数需要强调的独立块；弹窗保留更强描边与阴影以保证浮层识别度。
 - 一级轻岛圆角 10pt、二级岛 6pt；颜色必须来自 `ResolveIslandTheme(theme)` 等
   语义主题层，不在页面中散落硬编码明暗色。
-- 莲花「标签颈」连接：页面岛顶边描边在中央 `kTabNeckHalfWidth` 内留缺口，
-  根级 `TabNeckStem` 颈柱从窗口顶边经莲花锚点接到缺口两端（Chrome 活动
-  标签式的一体观感）。颈柱只画填充与肩线、顶边不封口；岛顶边 y = 标题栏
-  24 + 岛间缝隙 4，改动布局常量时须同步 `TabNeckStem` 与
+- 莲花「标签」包裹：页面岛顶边描边在中央 `kTabNeckHalfWidth` 内留缺口，
+  根级 `TabNeckStem` 从缺口两端向上收拢、圆角封顶，把莲花整个包进卡片
+  边界——Chrome 活动标签式：标签是卡片本身的突起轮廓，不是独立色块。
+  填充与岛面同色；底边不封口，与岛顶边描边连成连续轮廓；岛顶边 y =
+  标题栏 24 + 岛间缝隙 4，改动布局常量时须同步 `TabNeckStem` 与
   `IslandBorderCanvas` 两侧。
 - 强调色（`primary`）只用于可交互状态（按钮 / 选中 / 开关 / hover 描边与辉光）；
   分组标题、正文等非交互文字用 `on_surface` / `on_surface_variant`，不随主题变蓝。
