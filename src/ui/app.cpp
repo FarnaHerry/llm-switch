@@ -920,64 +920,6 @@ huxerui::View AmbientGlow(bool dark) {
         });
 }
 
-// 莲花「标签」包裹：页面岛的描边从顶边缺口两端向上收拢、圆角封顶，把标题
-// 栏中央的莲花整个包进卡片边界——Chrome 活动标签式：标签是内容卡片本身
-// 的突起轮廓，而不是一块独立的颈柱色块。填充与页面岛同为 base 半透明面，
-// 衔接处颜色一致；底边不封口，描边在缺口两端（±kTabNeckHalfWidth）与岛
-// 顶边描边连成一条连续轮廓。纯环境装饰层，不参与命中。
-huxerui::View TabNeckStem(const huxerui::ThemeSpec& spec) {
-    const IslandTheme islands = ResolveIslandTheme(spec);
-    const huxerui::Color fill = islands.base;
-    const huxerui::Color line = islands.outline_soft;
-    return huxerui::Canvas(
-        [fill, line](huxerui::PaintContext& paint, huxerui::Size size) {
-            const float cx = size.width * 0.5F;
-            // 页面岛顶边 = 标题栏（24）+ 岛间缝隙（spacing.extra_small）；
-            // 描边线在岛内缩 0.5pt 处。
-            constexpr float kIslandTop = kTitleBarContentHeight + 4.0F;
-            const float bottom = kIslandTop + 0.5F;
-            // 标签几何：底部与岛缺口同宽，向上收窄、圆角封顶，顶边留 2.5pt
-            // 贴窗口边；莲花锚点（±12、y 3..27）完整落在标签内。
-            constexpr float kTopY = 2.5F;
-            constexpr float kHalfTop = 20.0F;
-            constexpr float kCorner = 5.5F;
-            const float shoulderY = kTopY + kCorner;   // 肩线与圆弧衔接处
-            const float cornerX = kHalfTop - kCorner;
-            const float cornerMid = kCorner * 0.7071F;  // 45° 弧中点偏移
-
-            // 填充：梯形 + 圆角中点近似（弧中点入多边形，缝隙被描边覆盖）。
-            huxerui::Path shape;
-            shape.MoveTo({cx - kTabNeckHalfWidth, bottom})
-                .LineTo({cx - kHalfTop, shoulderY})
-                .LineTo({cx - cornerX - cornerMid, shoulderY - cornerMid})
-                .LineTo({cx - cornerX, kTopY})
-                .LineTo({cx + cornerX, kTopY})
-                .LineTo({cx + cornerX + cornerMid, shoulderY - cornerMid})
-                .LineTo({cx + kHalfTop, shoulderY})
-                .LineTo({cx + kTabNeckHalfWidth, bottom})
-                .Close();
-            paint.FillPath(shape, fill);
-
-            const huxerui::StrokeStyle style{
-                .width = 0.75F,
-                .cap = huxerui::StrokeCap::Round,
-                .join = huxerui::StrokeJoin::Round,
-            };
-            // 两侧肩线：从岛描边缺口端点向上收拢。
-            paint.DrawLine({cx - kTabNeckHalfWidth, bottom},
-                           {cx - kHalfTop, shoulderY}, line, style);
-            paint.DrawLine({cx + kHalfTop, shoulderY},
-                           {cx + kTabNeckHalfWidth, bottom}, line, style);
-            // 顶部圆角 + 平顶。
-            paint.DrawArc({cx - cornerX, shoulderY}, kCorner, 180.0F, 90.0F,
-                          line, style);
-            paint.DrawLine({cx - cornerX, kTopY}, {cx + cornerX, kTopY}, line,
-                           style);
-            paint.DrawArc({cx + cornerX, shoulderY}, kCorner, 270.0F, 90.0F,
-                          line, style);
-        });
-}
-
 } // namespace
 
 [[huxerui::composable]] huxerui::View AppRoot() {
@@ -1083,9 +1025,6 @@ huxerui::View TabNeckStem(const huxerui::ThemeSpec& spec) {
                   huxerui::Padding(huxerui::EdgeInsets{.bottom =
                                                            rootSpec.spacing.small}),
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)),
-        // 莲花标签：卡片边界向上包裹莲花（描边从岛顶缺口两端收拢封顶），
-        // 莲花锚点浮层在其上。
-        TabNeckStem(rootSpec),
         // 与整窗而非 WindowTitleBar 的可用内容区对齐，保证莲花位于几何中心。
         huxerui::Column {
             huxerui::Row {

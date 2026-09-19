@@ -26,11 +26,6 @@ inline constexpr float kTitle = 20.0F;    // 页面/弹窗标题
 // 标题栏内容统一高度（= AppOptions.window.title_bar_height）。
 inline constexpr float kTitleBarContentHeight = 24.0F;
 
-// 莲花「标签颈」半宽（DIP）：页面岛顶边描边在此宽度内留缺口，颈柱肩部接到
-// 缺口两端——Chrome 活动标签式的莲花→页面一体连接（app.cpp TabNeckStem
-// 与 common.cpp 的页面岛描边共用，改动需两侧同步）。
-inline constexpr float kTabNeckHalfWidth = 44.0F;
-
 // ---- 状态管理 ----
 // 全局唯一 ProviderStore（UI 线程独占：store 无内部锁，所有读写都发生在
 // UI 线程的组合/回调里；live 文件读写是微秒级本地 IO，不需要任务线程）。
