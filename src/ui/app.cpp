@@ -693,7 +693,15 @@ constexpr double kCollapseSeconds = 0.18;
 
     std::vector<huxerui::View> radialChildren;
     radialChildren.reserve(items.size() + 2);
-    radialChildren.push_back(RadialNavigationArtwork(theme.colors.primary));
+    // 同心环与八向连线也随盘收放：它们是纯环境装饰（不参与命中、没有逐件
+    // 布局），整组向中心缩放不会带来交互件「连同间距一起塌缩」的问题，读
+    // 起来正是线条被收进莲花——与图标各自沿半径飞回同走一条时间线。
+    radialChildren.push_back(
+        RadialNavigationArtwork(theme.colors.primary)
+            .With(huxerui::Opacity(huxerui::AnimateTo(
+                      revealed.Get() ? 1.0F : 0.0F, motion)),
+                  huxerui::Scale(huxerui::AnimateTo(
+                      revealed.Get() ? 1.0F : 0.55F, motion))));
     for (std::size_t i = 0; i < items.size(); ++i) {
         radialChildren.push_back(makeButton(items[i], positions[i]));
     }
