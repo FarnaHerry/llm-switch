@@ -253,8 +253,8 @@ bool ResolvesToDark(int mode) {
         huxerui::Row{},
         huxerui::ScrollView(
             huxerui::Column {
-                Card(huxerui::Column {
-                    SectionTitle("通用"),
+                PageSection(SectionTitle("通用"),
+                            huxerui::Column {
                     SettingRow(
                         "主题", "",
                         TaijiThemeSelector(themeMode)),
@@ -292,8 +292,10 @@ bool ResolvesToDark(int mode) {
                 }.With(huxerui::Spacing(10.0F),
                        huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))),
 
-                Card(huxerui::Column {
-                    SectionTitle("Claude Code"),
+                SectionDivider(),
+
+                PageSection(SectionTitle("Claude Code"),
+                            huxerui::Column {
                     SettingRow(
                         "跳过初次安装检查",
                         "跳过 Claude Code 的安装位置检查提示（仅适合手动管理安装）",
@@ -310,8 +312,10 @@ bool ResolvesToDark(int mode) {
                 }.With(huxerui::Spacing(10.0F),
                        huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))),
 
-                Card(huxerui::Column {
-                    SectionTitle("配置"),
+                SectionDivider(),
+
+                PageSection(SectionTitle("配置"),
+                            huxerui::Column {
                     PathRow("Claude Code 设置（live）",
                             cfg::claudeSettingsFile().string()),
                     PathRow("Codex 凭据（live）", cfg::codexAuthFile().string()),

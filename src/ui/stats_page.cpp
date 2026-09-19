@@ -209,8 +209,8 @@ void ApplySnapshot(const router::StatsSnapshot& snapshot,
         }.With(huxerui::Spacing(8.0F)),
         huxerui::ScrollView(
             huxerui::Column {
-                Card(huxerui::Column {
-                    SectionTitle("汇总"),
+                PageSection(SectionTitle("汇总"),
+                            huxerui::Column {
                     huxerui::Row {
                         StatCell("今日请求", std::to_string(s.todayRequests)),
                         StatCell("总请求", std::to_string(s.totalRequests)),
@@ -230,8 +230,10 @@ void ApplySnapshot(const router::StatsSnapshot& snapshot,
                 }.With(huxerui::Spacing(10.0F),
                        huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))),
 
-                Card(huxerui::Column {
-                    SectionTitle("按供应商"),
+                SectionDivider(),
+
+                PageSection(SectionTitle("按供应商"),
+                            huxerui::Column {
                     providerCount == 0
                         ? huxerui::View{HintText("暂无数据")}
                         : huxerui::View{

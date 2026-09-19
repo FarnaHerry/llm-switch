@@ -235,7 +235,7 @@ bool InvolvesTool(const skills::SkillInfo& skill, std::string_view toolId) {
             {});
     };
 
-    return Card(huxerui::Column {
+    return QuietCard(huxerui::Column {
         huxerui::Row {
             huxerui::Text(name).Style(huxerui::TextStyle{
                 huxerui::Font::System(font_size::kBody)

@@ -502,7 +502,7 @@ std::string FormatSize(std::uintmax_t bytes) {
         const auto open = [selectedSession](sessions::SessionInfo session) {
             selectedSession = std::move(session);
         };
-        return Card(huxerui::Column {
+        return QuietCard(huxerui::Column {
             projectHeader,
             SessionRow(session, toast, open, [reload] { reload(); }),
         }.With(huxerui::Spacing(firstInProject ? 6.0F : 0.0F),

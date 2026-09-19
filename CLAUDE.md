@@ -272,9 +272,12 @@ I/O、解析和 JSON 函数默认保留在 `.cpp` 中。
    层级取，不直接用 surface_container_*。删除确认用内置
    `dialog.Show(title, message, positive, negative, ...)`（DialogStyle 已在
    MinimalThemed 里主题化）。
-   通用 `Card` 使用主题 raised 表面、6pt 圆角、1pt `outline_soft` 描边和内边距
-   的单层轻量样式（冷调下卡片与页面色差很小，描边负责划界），不叠加裁剪层；
-   弹窗仍保留规则边框以保证浮层识别度。
+   卡片克制使用：页面常规分区用 `PageSection`（标题 + 内容平铺）+
+   `SectionDivider` 发丝线划分；重复列表条目（供应商/技能/MCP/会话行）用
+   无边框 `QuietCard`（同 raised 表面/6pt 圆角/内边距）靠表面色差分层；
+   通用 `Card`（raised 表面、6pt 圆角、1pt `outline_soft` 描边、内边距的
+   单层轻量样式）只用于少数强调块（如关于页头部），不叠加裁剪层；弹窗
+   仍保留规则边框以保证浮层识别度。
 8. **图标契约**：所有 24×24 功能 SVG 必须遵守
    `resources/README.md` 的规范——每个语义只保留一套 `#FFFFFF` 无色
    alpha-mask，深浅主题由运行时 tint 自适应，选中态由承载底块表达；禁止
@@ -559,5 +562,10 @@ I/O、解析和 JSON 函数默认保留在 `.cpp` 中。
   渐变按裁剪矩形归一化、在裁剪线上恰好衰减到 0），削减每帧最大单件光栅
   面积。根治（cairo 批次按 PaintSequence revision 缓存为 GSK 纹理）待上游
   PR。切页时序常量：`kCollapseSeconds`（app.cpp）。
+- ✅ 卡片减负（2026-09-19）：诊断是卡片滥用而非线宽——描边保持 1pt/
+  0.62α 不动。新增 `PageSection`（标题+内容平铺）+ `SectionDivider`（主题
+  Divider 发丝线），router（4）/settings（3）/stats（2）/about（3，头部
+  英雄卡保留）分区卡全部拍平；重复列表条目换无边框 `QuietCard`：供应商
+  卡 ×2、Skills 行、MCP 行、会话行。
 - ⬜ 待做：订阅站端点可能随各家调整，升级版本时需复核；无 CLI 分流、
   无单实例/开机自启。

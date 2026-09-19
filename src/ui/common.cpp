@@ -152,18 +152,53 @@ huxerui::Color IslandColor(const IslandTheme& islands, IslandLevel level) {
            huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 }
 
+// 卡片容器（二级岛）：raised 表面 + 6pt 圆角 + 1pt 语义描边 + 内边距。
+// 保持单层绘制，避免滚动时产生逐卡片矢量叠层和裁剪合成。用于页面里少数
+// 独立分区/浮层内容；重复列表条目用无边框 QuietCard，常规分区优先拍平成
+// 标题 + 内容 + 分隔线的分组（PageSection），避免整页串成一列盒子。
 [[huxerui::composable]] huxerui::View Card(huxerui::View content) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     const IslandTheme islands = ResolveIslandTheme(theme);
     huxerui::View card = content;
-    // 冷调主题下卡片与页面只差一档冷灰（半透明表面叠在环境光上），单靠底色
-    // 不足以划出卡片边界，补一条 1pt 主题描边——仍是单层轻量样式，不引入
-    // SVG 边框或裁剪层。
     return std::move(card).With(
         huxerui::Background(islands.raised),
         huxerui::CornerRadius(islands.nested_radius),
         huxerui::Border(islands.outline_soft, 1.0F),
         huxerui::Padding(islands.island_padding));
+}
+
+// 列表条目卡：与 Card 同为 raised 表面 + 6pt 圆角，但去掉描边——列表里
+// 逐项画框会退成「一串格子」，条目间靠表面色差与缝隙分层即可。用于
+// 供应商/技能/MCP/会话等重复条目；独立分区仍用 Card。
+[[huxerui::composable]] huxerui::View QuietCard(huxerui::View content) {
+    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    const IslandTheme islands = ResolveIslandTheme(theme);
+    huxerui::View card = content;
+    return std::move(card).With(
+        huxerui::Background(islands.raised),
+        huxerui::CornerRadius(islands.nested_radius),
+        huxerui::Padding(islands.island_padding));
+}
+
+// 平铺分区：标题 + 内容直接落在一级岛表面，不包 raised 卡——一页连排多张
+// 盒子正是「卡片滥用」的来源；分区之间由 SectionDivider 的发丝线 + 页面
+// 缝隙划分。仅需要强调的独立块（如关于页头部）保留 Card。
+[[huxerui::composable]] huxerui::View PageSection(huxerui::View title,
+                                                  huxerui::View content) {
+    huxerui::View section_title = title;
+    huxerui::View section_content = content;
+    return huxerui::Column {
+        std::move(section_title),
+        std::move(section_content),
+    }.With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
+}
+
+// 分区之间的发丝分隔线（主题 Divider 样式），上下留小缝呼吸。
+[[huxerui::composable]] huxerui::View SectionDivider() {
+    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    return huxerui::Divider()
+        .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(
+                  theme.spacing.small, 0.0F)));
 }
 
 [[huxerui::composable]] huxerui::View DialogCard(huxerui::View content) {

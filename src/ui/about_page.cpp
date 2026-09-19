@@ -70,8 +70,10 @@ const std::string kVersionLine = std::format("llm-switch v{}", LLMSWITCH_VERSION
                 }.With(huxerui::Spacing(14.0F),
                        huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center))),
 
-                Card(huxerui::Column {
-                    AboutSectionTitle("链接"),
+                SectionDivider(),
+
+                PageSection(AboutSectionTitle("链接"),
+                            huxerui::Column {
                     LinkRow("GitHub 仓库",
                             "https://github.com/FarnaHerry/llm-switch"),
                     LinkRow("上游参考 cc-switch",
@@ -80,15 +82,19 @@ const std::string kVersionLine = std::format("llm-switch v{}", LLMSWITCH_VERSION
                 }.With(huxerui::Spacing(8.0F),
                        huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))),
 
-                Card(huxerui::Column {
-                    AboutSectionTitle("技术栈"),
+                SectionDivider(),
+
+                PageSection(AboutSectionTitle("技术栈"),
+                            huxerui::Column {
                     BodyLine("C++23 modules · HuxerUI 0.3.0 · cpp-httplib · "
                              "nlohmann::json"),
                 }.With(huxerui::Spacing(8.0F),
                        huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))),
 
-                Card(huxerui::Column {
-                    AboutSectionTitle("许可与致谢"),
+                SectionDivider(),
+
+                PageSection(AboutSectionTitle("许可与致谢"),
+                            huxerui::Column {
                     BodyLine("nlohmann::json — MIT License"),
                     BodyLine("cpp-httplib — MIT License"),
                     BodyLine("simple-icons（Claude / Codex / opencode 图标）— CC0 1.0"),

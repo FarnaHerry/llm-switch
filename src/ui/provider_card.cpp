@@ -33,7 +33,7 @@ std::string RestartHintSuffix(const std::string& tool) {
                                                    huxerui::State<int> revision) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     const IslandTheme islands = ResolveIslandTheme(theme);
-    return Card(huxerui::Row {
+    return QuietCard(huxerui::Row {
         huxerui::Column {
             huxerui::Row {
                 huxerui::Text(std::string(models::officialVendorName(tool)))
@@ -142,7 +142,7 @@ std::string RestartHintSuffix(const std::string& tool) {
     // 三段式：左信息列（Grow 吃满剩余宽度）｜ 中间状态行（延迟 + 用量
     // 横向排列，垂直居中落在内容与操作组之间）｜ 右侧操作图标组（自绘
     // 图标 + Tooltip）。
-    return Card(huxerui::Row {
+    return QuietCard(huxerui::Row {
         huxerui::Column {
             huxerui::Row {
                 huxerui::Text(name).Style(huxerui::TextStyle{

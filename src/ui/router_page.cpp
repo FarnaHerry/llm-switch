@@ -352,8 +352,8 @@ huxerui::Color StatusColor(int status, const huxerui::ThemeSpec& theme) {
         huxerui::Row{},
         huxerui::ScrollView(
             huxerui::Column {
-                Card(huxerui::Column {
-                    SectionTitle("状态"),
+                PageSection(SectionTitle("状态"),
+                            huxerui::Column {
                     huxerui::Row {
                         huxerui::Text("运行状态")
                             .Style(huxerui::TextStyle{
@@ -388,8 +388,10 @@ huxerui::Color StatusColor(int status, const huxerui::ThemeSpec& theme) {
                 }.With(huxerui::Spacing(10.0F),
                        huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))),
 
-                Card(huxerui::Column {
-                    SectionTitle("Agent 代理"),
+                SectionDivider(),
+
+                PageSection(SectionTitle("Agent 代理"),
+                            huxerui::Column {
                     HintText("选择允许通过本地端口转发的 Agent；运行中修改即时生效。"),
                     huxerui::Column(std::move(toolToggles))
                         .With(huxerui::Spacing(8.0F),
@@ -398,8 +400,10 @@ huxerui::Color StatusColor(int status, const huxerui::ThemeSpec& theme) {
                 }.With(huxerui::Spacing(8.0F),
                        huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))),
 
-                Card(huxerui::Column {
-                    SectionTitle("接入地址"),
+                SectionDivider(),
+
+                PageSection(SectionTitle("接入地址"),
+                            huxerui::Column {
                     HintText("把各工具的 base URL 指到对应地址，例如 Claude Code "
                              "设置环境变量 ANTHROPIC_BASE_URL 为下方地址。"),
                     endpoints.empty()
@@ -412,8 +416,10 @@ huxerui::Color StatusColor(int status, const huxerui::ThemeSpec& theme) {
                 }.With(huxerui::Spacing(8.0F),
                        huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))),
 
-                Card(huxerui::Column {
-                    SectionTitle("最近请求"),
+                SectionDivider(),
+
+                PageSection(SectionTitle("最近请求"),
+                            huxerui::Column {
                     logCount == 0
                         ? huxerui::View{HintText("暂无请求")}
                         : huxerui::View{huxerui::VirtualList(logCount, buildLogRow)
