@@ -123,6 +123,51 @@ huxerui::Color IslandColor(const IslandTheme& islands, IslandLevel level) {
                                    huxerui::Padding(islands.island_padding));
 }
 
+namespace {
+
+// 一级岛描边：顶边中央按「标签颈」宽度留缺口，让标题栏莲花经颈柱与页面
+// 岛连成 Chrome 活动标签式的一体；其余三边 + 四角与原 Border 修饰符一致
+// （0.75pt、圆角 = island_radius）。描边由 Canvas 手绘并内缩 0.5pt，避免
+// 被 ClipChildren 裁半——替换掉整圈 Border 修饰符才能得到缺口。
+huxerui::View IslandBorderCanvas(const IslandTheme& islands) {
+    const huxerui::Color line = islands.outline_soft;
+    const float radius = islands.island_radius;
+    return huxerui::Canvas([line, radius](huxerui::PaintContext& paint,
+                                         huxerui::Size size) {
+        constexpr float kInset = 0.5F;
+        const float w = size.width - kInset * 2.0F;
+        const float h = size.height - kInset * 2.0F;
+        const float cx = w * 0.5F;
+        const float r = radius - kInset;
+        const huxerui::StrokeStyle style{
+            .width = 0.75F,
+            .cap = huxerui::StrokeCap::Round,
+            .join = huxerui::StrokeJoin::Round,
+        };
+        // 左右边 + 底边。
+        paint.DrawLine({kInset, kInset + r}, {kInset, kInset + h - r}, line, style);
+        paint.DrawLine({kInset + w, kInset + r}, {kInset + w, kInset + h - r},
+                       line, style);
+        paint.DrawLine({kInset + r, kInset + h}, {kInset + w - r, kInset + h},
+                       line, style);
+        // 顶边两段，中央为莲花标签颈留缺口。
+        paint.DrawLine({kInset + r, kInset},
+                       {kInset + cx - kTabNeckHalfWidth, kInset}, line, style);
+        paint.DrawLine({kInset + cx + kTabNeckHalfWidth, kInset},
+                       {kInset + w - r, kInset}, line, style);
+        // 四角圆弧（0°=+x，顺时针）。
+        paint.DrawArc({kInset + r, kInset + r}, r, 180.0F, 90.0F, line, style);
+        paint.DrawArc({kInset + w - r, kInset + r}, r, 270.0F, 90.0F, line,
+                      style);
+        paint.DrawArc({kInset + w - r, kInset + h - r}, r, 0.0F, 90.0F, line,
+                      style);
+        paint.DrawArc({kInset + r, kInset + h - r}, r, 90.0F, 90.0F, line,
+                      style);
+    });
+}
+
+} // namespace
+
 [[huxerui::composable]] huxerui::View PageScaffold(const std::string& title,
                                                    huxerui::View actions,
                                                    huxerui::View content) {
@@ -132,24 +177,29 @@ huxerui::Color IslandColor(const IslandTheme& islands, IslandLevel level) {
     const bool compact =
         huxerui::UseViewportClass() == huxerui::ViewportClass::Compact;
     // 一级轻岛：Grow + Stretch 占满页面区块，低对比半透明表面让环境水墨
-    // 隐约透出；内容在岛内部滚动。
+    // 隐约透出；内容在岛内部滚动。描边走 IslandBorderCanvas（顶边留缺口）。
     huxerui::View body = content;
-    return huxerui::Column {
+    huxerui::View island = huxerui::Column {
         huxerui::Row {
             huxerui::Text(title, huxerui::TextRole::Title),
             huxerui::Spacer(),
             std::move(actions),
         }.With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
         std::move(body).With(huxerui::Grow(1.0F)),
-    }.With(huxerui::Padding(compact ? theme.spacing.medium
-                                    : theme.spacing.large),
-           huxerui::Spacing(theme.spacing.medium),
-           huxerui::Background(islands.base),
-           huxerui::CornerRadius(islands.island_radius),
-           huxerui::Border(islands.outline_soft, 0.75F),
-           huxerui::ClipChildren(),
-           huxerui::Grow(1.0F),
-           huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
+    }
+        .With(huxerui::Padding(compact ? theme.spacing.medium
+                                        : theme.spacing.large),
+              huxerui::Spacing(theme.spacing.medium),
+              huxerui::Background(islands.base),
+              huxerui::CornerRadius(islands.island_radius),
+              huxerui::ClipChildren(),
+              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
+    return huxerui::Stack {
+        std::move(island),
+        IslandBorderCanvas(islands),
+    }.With(huxerui::Grow(1.0F),
+           huxerui::Align(huxerui::HorizontalAlignment::Stretch,
+                          huxerui::VerticalAlignment::Stretch));
 }
 
 // 卡片容器（二级岛）：raised 表面 + 6pt 圆角 + 1pt 语义描边 + 内边距。

@@ -567,5 +567,12 @@ I/O、解析和 JSON 函数默认保留在 `.cpp` 中。
   Divider 发丝线），router（4）/settings（3）/stats（2）/about（3，头部
   英雄卡保留）分区卡全部拍平；重复列表条目换无边框 `QuietCard`：供应商
   卡 ×2、Skills 行、MCP 行、会话行。
+- ✅ 莲花「标签颈」连接（2026-09-19）：页面与标题栏莲花此前视觉断裂——
+  按用户要求做成 Chrome 活动标签式一体：`PageScaffold` 的整圈 Border 修饰符
+  换成 `IslandBorderCanvas`（Canvas 手绘 4 边 + 4 角、顶边中央
+  `kTabNeckHalfWidth`=44 留缺口、内缩 0.5pt 防 ClipChildren 裁半），根级新增
+  `TabNeckStem`（颈柱填充 = base 半透明 + 肩线，从窗口顶边经莲花锚点接到
+  缺口两端，顶边不封口）。岛顶边 y=28（标题栏 24 + 缝隙 4）为两侧共用的
+  布局契约。
 - ⬜ 待做：订阅站端点可能随各家调整，升级版本时需复核；无 CLI 分流、
   无单实例/开机自启。

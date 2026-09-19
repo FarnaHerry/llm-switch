@@ -920,6 +920,51 @@ huxerui::View AmbientGlow(bool dark) {
         });
 }
 
+// 莲花「标签颈」：把标题栏中央的莲花与页面岛顶边连成 Chrome 活动标签式的
+// 一体——颈柱（莲花锚点同宽）从窗口顶边垂下，经外扩肩部接到页面岛描边
+// 缺口（kTabNeckHalfWidth）两端，页面读起来就是由莲花直接发出。填充与
+// 页面岛同为 base 半透明面叠在环境光上，衔接处颜色一致；肩线在莲花锚点
+// 下缘起笔，不与锚点圆描边平行相撞，顶边不封口（贴窗口顶边）。纯环境
+// 装饰层，不参与命中。
+huxerui::View TabNeckStem(const huxerui::ThemeSpec& spec) {
+    const IslandTheme islands = ResolveIslandTheme(spec);
+    const huxerui::Color fill = islands.base;
+    const huxerui::Color line = islands.outline_soft;
+    return huxerui::Canvas(
+        [fill, line](huxerui::PaintContext& paint, huxerui::Size size) {
+            const float cx = size.width * 0.5F;
+            // 页面岛顶边 = 标题栏（24）+ 岛间缝隙（spacing.extra_small）。
+            constexpr float kIslandTop = kTitleBarContentHeight + 4.0F;
+            constexpr float kHalfNarrow = 13.0F;   // 颈柱半宽，包住莲花锚点
+            constexpr float kStraightUntil = 17.0F;
+            const float bottom = kIslandTop + 0.5F;  // 与岛描边内缩线齐平
+
+            huxerui::Path shape;
+            shape.MoveTo({cx - kHalfNarrow, 0.0F})
+                .LineTo({cx - kHalfNarrow, kStraightUntil})
+                .LineTo({cx - kTabNeckHalfWidth, bottom})
+                .LineTo({cx + kTabNeckHalfWidth, bottom})
+                .LineTo({cx + kHalfNarrow, kStraightUntil})
+                .LineTo({cx + kHalfNarrow, 0.0F})
+                .Close();
+            paint.FillPath(shape, fill);
+
+            const huxerui::StrokeStyle style{
+                .width = 0.75F,
+                .cap = huxerui::StrokeCap::Round,
+                .join = huxerui::StrokeJoin::Round,
+            };
+            huxerui::Path shoulderLeft;
+            shoulderLeft.MoveTo({cx - kHalfNarrow, kStraightUntil})
+                .LineTo({cx - kTabNeckHalfWidth, bottom});
+            paint.StrokePath(shoulderLeft, line, style);
+            huxerui::Path shoulderRight;
+            shoulderRight.MoveTo({cx + kHalfNarrow, kStraightUntil})
+                .LineTo({cx + kTabNeckHalfWidth, bottom});
+            paint.StrokePath(shoulderRight, line, style);
+        });
+}
+
 } // namespace
 
 [[huxerui::composable]] huxerui::View AppRoot() {
@@ -1025,6 +1070,9 @@ huxerui::View AmbientGlow(bool dark) {
                   huxerui::Padding(huxerui::EdgeInsets{.bottom =
                                                            rootSpec.spacing.small}),
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)),
+        // 莲花标签颈：盖在标题栏与页面岛衔接处之上、莲花锚点之下，把两者
+        // 连成 Chrome 活动标签式的一体（页面岛顶边描边留了同宽缺口）。
+        TabNeckStem(rootSpec),
         // 与整窗而非 WindowTitleBar 的可用内容区对齐，保证莲花位于几何中心。
         huxerui::Column {
             huxerui::Row {
