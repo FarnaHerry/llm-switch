@@ -261,8 +261,8 @@ I/O、解析和 JSON 函数默认保留在 `.cpp` 中。
    （托盘 Lifecycle 以 revision 为依赖）。
 7. **岛屿风**（对齐 Clash-Flux）：冷调石板主题（ui/app.cpp `AppDarkThemeSpec`
    「深海」= 海军蓝海面 #101923 + 青蓝强调 #38BDF8 / `AppLightThemeSpec`
-   「晴石」= 冷白海面 #FDFDFD + 天蓝强调 #2F7BE6；强调色比参考图实测的亮蓝
-   #4595F7 略深一档，以保住白字在其上的对比度）。**强调色（primary）只用于可交互
+   「晴石」= 冷白海面 #FDFDFD + 天蓝强调 #2870D6；强调色比参考图实测的亮蓝
+   #4595F7 深一档，白字与描边对比度双双过 AA 正文线）。**强调色（primary）只用于可交互
    状态**——按钮/分段选中/开关/标题栏 hover 描边与辉光；分组标题等非交互
    文字用 on_surface / on_surface_variant，避免整页变蓝。设置页以单个太极
    选择器循环切换跟随系统/深海/晴石（平衡态/深海外环/晴石外环，悬停持续
@@ -534,5 +534,15 @@ I/O、解析和 JSON 函数默认保留在 `.cpp` 中。
   深色底 #101923、卡片 #1A2431、hover #22303F、青蓝辉光 #287AA9~#38BDF8。
   注：参考图标题栏圆角实测 ≈26px/条高 105px ≈ 0.25，映射到 24 DIP 标题栏
   就是 ~6pt，即现有 nested_radius——**未放宽** AGENTS.md 的圆角约束。
+- ✅ 主体配色对比度达标（2026-09-19）：量化评估两套主题（岛屿表面按 alpha
+  合成到海面后算 WCAG 对比度）后收紧浅色「晴石」——primary #2F7BE6→#2870D6
+  （白字 4.12→4.80:1、作描边 3.94→4.58:1，过 AA 正文线）、error
+  #D64545→#C63A3A（4.18→4.93:1）；AmbientGlow 浅色洗色与 Windows 安装器
+  重复主题定义同步。语义状态色进 `IslandTheme`（success/on_success/warning，
+  按 `ResolveIslandTheme` 内海面亮度分深浅取值）：router 页 `StatusColor`
+  与「运行中」徽章改走语义层，删除硬编码绿/黄（浅色下警告黄仅 2.81:1、
+  徽章白字绿底 3.3:1，深色徽章改翻墨青字 4.97:1）。内置确认框底色
+  surface_container_high→highest，与 `DialogCard` overlay 同源，两套弹窗底色
+  一致。深色「深海」全项 ≥6:1，未改动。
 - ⬜ 待做：订阅站端点可能随各家调整，升级版本时需复核；无 CLI 分流、
   无单实例/开机自启。

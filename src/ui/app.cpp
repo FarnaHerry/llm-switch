@@ -55,8 +55,8 @@ namespace {
 // 冷调主题：深色「深海」= 海军蓝海面（#101923）+ 青蓝强调色；浅色「晴石」=
 // 冷白纸面（#FDFDFD）+ 天蓝强调色。文本用冷调石板蓝-灰阶，交互态（按钮/
 // 选中/开关/标题栏 hover）统一由 primary 承担；error 保留语义红（冷调）。
-// 强调色比参考图实测的亮蓝（#4595F7）略深一档，换取白字在其上的对比度
-// （≈4.2:1），按钮标签因此仍然可读。
+// 浅色强调色比参考图实测的亮蓝（#4595F7）深一档到 #2870D6：白字对比度
+// ≈4.8:1、作描边 ≈4.6:1，双双过 AA 正文线（#2F7BE6 时白字仅 4.12:1）。
 huxerui::ThemeSpec AppDarkThemeSpec() {
     huxerui::ThemeSpec spec = huxerui::MaterialDarkThemeSpec();
     spec.typography = huxerui::TypographyScheme{
@@ -105,7 +105,7 @@ huxerui::ThemeSpec AppLightThemeSpec() {
     };
     // 冷白石面：海面近纯白，岛屿与其只差一档冷灰；卡片走浅蓝灰玻璃面 +
     // 冷灰描边，hover 面提亮为淡蓝。
-    spec.colors.primary = huxerui::Color::Rgb(47, 123, 230);       // 天蓝强调 #2F7BE6
+    spec.colors.primary = huxerui::Color::Rgb(40, 112, 214);       // 天蓝强调 #2870D6
     spec.colors.on_primary = huxerui::Color::Rgb(255, 255, 255);
     spec.colors.primary_container = huxerui::Color::Rgb(220, 234, 253);
     spec.colors.on_primary_container = huxerui::Color::Rgb(18, 58, 107);
@@ -127,7 +127,7 @@ huxerui::ThemeSpec AppLightThemeSpec() {
     spec.colors.inverse_surface = huxerui::Color::Rgb(30, 42, 58);
     spec.colors.inverse_on_surface = huxerui::Color::Rgb(245, 248, 252);
     spec.colors.scrim = huxerui::Color::Rgb(9, 18, 30, 0.38F);
-    spec.colors.error = huxerui::Color::Rgb(214, 69, 69);          // 语义红 #D64545
+    spec.colors.error = huxerui::Color::Rgb(198, 58, 58);          // 语义红 #C63A3A（作文字 ≈4.9:1 过 AA）
     return spec;
 }
 
@@ -167,9 +167,10 @@ huxerui::View AppThemed(bool dark, huxerui::View content) {
     definition.Set(segments);
 
     // 内置确认框跟随主题（DialogStyle 是 Environment 值，经 ThemeDefinition::Set
-    // 全局覆盖）；Default() 基线是白底浅色配色，逐字段换色。
+    // 全局覆盖）；Default() 基线是白底浅色配色，逐字段换色。底色取
+    // surface_container_highest——与 DialogCard 的 overlay 同源，两套弹窗底色一致。
     huxerui::DialogStyle dialogs = huxerui::DialogStyle::Default();
-    dialogs.background = spec.colors.surface_container_high;
+    dialogs.background = spec.colors.surface_container_highest;
     dialogs.title_style = huxerui::TextStyle{
         huxerui::Font::System(font_size::kTitle).WithWeight(huxerui::FontWeight::Bold),
         spec.colors.on_surface};
@@ -887,7 +888,7 @@ huxerui::View AmbientGlow(bool dark) {
         [dark](huxerui::PaintContext& paint, huxerui::Size size) {
             huxerui::Color inner =
                 dark ? huxerui::Color::Rgb(56, 189, 248, 0.10F)
-                     : huxerui::Color::Rgb(47, 123, 230, 0.06F);
+                     : huxerui::Color::Rgb(40, 112, 214, 0.06F);
             huxerui::Color outer = inner;
             outer.alpha = 0.0F;
             paint.DrawRect(huxerui::Rect{0.0F, 0.0F, size.width, size.height},

@@ -87,7 +87,7 @@ ThemeSpec InkLightThemeSpec() {
       .title_large = 20.0F,
       .headline_small = 24.0F,
   };
-  spec.colors.primary = Color::Rgb(47, 123, 230);            // 天蓝强调
+  spec.colors.primary = Color::Rgb(40, 112, 214);            // 天蓝强调 #2870D6
   spec.colors.on_primary = Color::Rgb(255, 255, 255);
   spec.colors.primary_container = Color::Rgb(220, 234, 253);
   spec.colors.on_primary_container = Color::Rgb(18, 58, 107);
@@ -109,7 +109,7 @@ ThemeSpec InkLightThemeSpec() {
   spec.colors.inverse_surface = Color::Rgb(30, 42, 58);
   spec.colors.inverse_on_surface = Color::Rgb(245, 248, 252);
   spec.colors.scrim = Color::Rgb(9, 18, 30, 0.38F);
-  spec.colors.error = Color::Rgb(214, 69, 69);
+  spec.colors.error = Color::Rgb(198, 58, 58);  // 语义红 #C63A3A
   return spec;
 }
 

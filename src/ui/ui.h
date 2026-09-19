@@ -57,6 +57,12 @@ struct IslandTheme {
     huxerui::Color raised;  // 二级岛表面
     huxerui::Color overlay; // 浮动面
     huxerui::Color outline_soft;
+    // 语义状态色：ThemeSpec 没有 success/warning 槽位，由 ResolveIslandTheme
+    // 按海面亮度分深浅取值（作正文文字时两套主题都过 AA）。success 兼作状态
+    // 文字与徽章底；on_success 是徽章底上的文字（浅色翻白、深色翻墨青）。
+    huxerui::Color success;
+    huxerui::Color on_success;
+    huxerui::Color warning;
 };
 
 IslandTheme ResolveIslandTheme(const huxerui::ThemeSpec& theme);

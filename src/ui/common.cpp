@@ -2,6 +2,7 @@
 // 卡片（二级岛）/ 弹窗卡片等跨页通用部件，以及全局 ProviderStore 持有点。
 #include <huxerui/huxerui.h>
 
+#include <cmath>
 #include <string>
 #include <string_view>
 
@@ -67,6 +68,18 @@ IslandTheme ResolveIslandTheme(const huxerui::ThemeSpec& theme) {
         c.alpha = a;
         return c;
     };
+    // 状态色深浅分档：ThemeSpec 无 success/warning 槽位，按海面亮度（WCAG
+    // 相对亮度）选一组——浅色用深一档的绿/琥珀保证作文字 ≥4.5:1，深色维持
+    // 在深底上对比度本就充足的亮色。
+    const auto luminance = [](huxerui::Color c) {
+        const auto channel = [](float v) {
+            return v <= 0.04045F ? v / 12.92F
+                                 : std::pow((v + 0.055F) / 1.055F, 2.4F);
+        };
+        return 0.2126F * channel(c.red) + 0.7152F * channel(c.green) +
+               0.0722F * channel(c.blue);
+    };
+    const bool dark = luminance(theme.colors.background) < 0.5F;
     return IslandTheme{
         .page_gap = theme.spacing.extra_small,
         .island_padding = theme.spacing.medium,
@@ -77,6 +90,12 @@ IslandTheme ResolveIslandTheme(const huxerui::ThemeSpec& theme) {
         .raised = translucent(theme.colors.surface_container, 0.78F),
         .overlay = translucent(theme.colors.surface_container_highest, 0.95F),
         .outline_soft = translucent(theme.colors.outline, 0.62F),
+        .success = dark ? huxerui::Color::Rgb(22, 163, 74)   // #16A34A
+                        : huxerui::Color::Rgb(21, 128, 61),  // #15803D
+        .on_success = dark ? huxerui::Color::Rgb(6, 34, 49)  // 白字仅 3.3:1，翻墨青
+                           : huxerui::Color::Rgb(255, 255, 255),
+        .warning = dark ? huxerui::Color::Rgb(202, 138, 4)   // #CA8A04
+                        : huxerui::Color::Rgb(180, 84, 10),  // #B4540A
     };
 }
 

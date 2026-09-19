@@ -112,8 +112,9 @@ std::string FormatTokens(std::int64_t prompt, std::int64_t completion) {
 }
 
 huxerui::Color StatusColor(int status, const huxerui::ThemeSpec& theme) {
-    if (status >= 200 && status < 300) return huxerui::Color::Rgb(22, 163, 74);
-    if (status >= 400 && status < 500) return huxerui::Color::Rgb(202, 138, 4);
+    const IslandTheme islands = ResolveIslandTheme(theme);
+    if (status >= 200 && status < 300) return islands.success;
+    if (status >= 400 && status < 500) return islands.warning;
     if (status == 0 || status >= 500) return theme.colors.error;  // 0 = 上游失败
     return theme.colors.on_surface_variant;
 }
@@ -330,13 +331,14 @@ huxerui::Color StatusColor(int status, const huxerui::ThemeSpec& theme) {
                               log.method, log.path));
     };
 
+    const IslandTheme islands = ResolveIslandTheme(theme);
     const huxerui::View badge =
         running.Get()
             ? huxerui::View{huxerui::Text("运行中").Style(huxerui::TextStyle{
                   huxerui::Font::System(font_size::kCaption),
-                  huxerui::Color::White()})}
+                  islands.on_success})}
                   .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(8.0F, 2.0F)),
-                        huxerui::Background(huxerui::Color::Rgb(22, 163, 74)),
+                        huxerui::Background(islands.success),
                         huxerui::CornerRadius(8.0F))
             : huxerui::View{huxerui::Text("已停止").Style(huxerui::TextStyle{
                   huxerui::Font::System(font_size::kCaption),
