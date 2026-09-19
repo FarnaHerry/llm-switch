@@ -570,8 +570,9 @@ huxerui::View RadialNavigationArtwork(huxerui::Color color) {
 // 切页时序：轮盘与旧页面**一同**缩回屏幕中心那颗莲花 → 在不可见时换页 →
 // 新页面从同一中心展开。收起段的时长不能省：AnimateTo 是从当前值补间，
 // 目标必须真正走到收起态再换页，否则新页面只会从 ~1.0 抖一下，看不出展开。
-// 收起比展开快一档。
-constexpr double kCollapseSeconds = 0.18;
+// 收起比展开快一档。GTK 后端动画期间全窗内容逐帧重光栅化（无跨帧缓存），
+// 时序每缩短 1ms 就少一帧昂贵重绘——收合 0.12s / 展开 0.18s 是当前折中。
+constexpr double kCollapseSeconds = 0.12;
 
 // 根级径向导航：中轴区域贯穿标题栏到圆盘，保证 Hover 能平滑交接；圆盘本身
 // 保持 8 个既有顶级页面，按顺时针方向均匀排布并复用 navPage。
@@ -834,7 +835,7 @@ constexpr double kCollapseSeconds = 0.18;
     const huxerui::AnimationSpec motion = theme.motion.reduced_motion
         ? huxerui::AnimationSpec{huxerui::SnapSpec{}}
         : huxerui::AnimationSpec{huxerui::TweenSpec{
-              .duration = revealed ? 0.30 : kCollapseSeconds,
+              .duration = revealed ? 0.18 : kCollapseSeconds,
               .easing = huxerui::Easing::EaseOut}};
     const std::size_t current = navPage.Get();
     // 切页变换只套在**当前可见页**上。宿主里 8 个页面全部保持挂载（各自保留
@@ -892,7 +893,11 @@ constexpr double kCollapseSeconds = 0.18;
 // 上方，对齐参考图深色半边的柔和光斑），浅色是冷白底顶部一层极淡天蓝洗色；
 // 两侧背景都保持干净——旧的全景水墨画卷与程序化泼墨已随水墨身份退役。
 // Canvas 直接铺满宿主（不要包 Align/Frame：Align 会把画布按父约束撑满，
-// 画布本就是全幅），光斑按画布尺寸取比例，窗口缩放时不失真。
+// 画布本就是全幅），光斑按画布尺寸取比例，窗口缩放时不失真。只把光斑
+// 实际覆盖的顶部画进 cairo 批次（深 72% / 浅 56% 窗高；渐变中心/半径按
+// 裁剪矩形归一化，且纵向半径恰好在裁剪线上衰减到 0，无接缝）——GTK
+// 后端动画期间全窗内容逐帧重光栅化，环境光是最大的单件，裁掉恒为零的
+// 尾部直接减少每帧光栅面积。
 huxerui::View AmbientGlow(bool dark) {
     return huxerui::Canvas(
         [dark](huxerui::PaintContext& paint, huxerui::Size size) {
@@ -901,10 +906,15 @@ huxerui::View AmbientGlow(bool dark) {
                      : huxerui::Color::Rgb(40, 112, 214, 0.06F);
             huxerui::Color outer = inner;
             outer.alpha = 0.0F;
-            paint.DrawRect(huxerui::Rect{0.0F, 0.0F, size.width, size.height},
+            // 光斑中心按窗口高度定位（深色 0.30 / 浅色 0.10），换算进裁剪
+            // 矩形；纵向半径取「到裁剪线的剩余高度」保证边缘 alpha=0。
+            const float crop = dark ? 0.72F : 0.56F;
+            const float centerY = (dark ? 0.30F : 0.10F) / crop;
+            paint.DrawRect(huxerui::Rect{0.0F, 0.0F, size.width,
+                                         size.height * crop},
                            huxerui::RadialGradient{
-                               .center = {0.5F, dark ? 0.30F : 0.10F},
-                               .radius = {0.66F, dark ? 0.60F : 0.45F},
+                               .center = {0.5F, centerY},
+                               .radius = {0.66F, 1.0F - centerY},
                                .stops = {{0.0F, inner}, {1.0F, outer}},
                            });
         });
