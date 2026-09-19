@@ -57,9 +57,10 @@ CMake 配置阶段会检查全部 24×24 SVG：包含硬编码颜色（非 `#FFF
 | `success/error/warning/info/loading/more/disabled/processing.svg` | Icon Set v1.0 中的状态提示图标 | 本仓库转换稿 |
 | `user/api_key/link/options/logout.svg` | Icon Set v1.0 中的辅助图标 | 本仓库转换稿 |
 | `about.svg` | 本仓库自绘圆圈 i（顶级「关于」入口） | 同本仓库 |
-| `lotus_bud/lotus_bloom.svg` | 闭合态为本仓库自绘，盛放态按用户提供的界面参考图重绘；用于导航与应用品牌的两种几何状态 | 本仓库转换稿 |
-| `lotus_tray_{bud,bloom}*.png` | 由本仓库莲花图稿生成的托盘多倍率栅格版本 | 同本仓库 |
-| `platform/{linux,windows}` 应用图标 | 由盛放莲花图稿生成的 Linux SVG 与 Windows ICO | 同本仓库 |
+| `lotus_bloom.svg` | 品牌莲花·盛开，直接采用 Icon Set v1.0 的莲花轮廓（与 `images/home.svg` 同一造型，仅 viewBox 表达不同）；用于标题栏、导航中心与关于页 | 本仓库转换稿 |
+| `lotus_bud.svg` | 品牌莲花·含苞，按同一造型收拢绘制（中心花苞 + 底部叶托 + 茎尖），与盛开态成对用于托盘与导航展开/收起 | 本仓库转换稿 |
+| `lotus_tray_{bud,bloom}*.png` | 由上述两态图稿生成的托盘多倍率栅格版本（深色圆底 `#14202E` + 冷白莲花，1x/2x/3x/4x/8x） | 同本仓库 |
+| `platform/{linux,windows}` 应用图标 | 由盛放莲花图稿生成的 Linux SVG 与 Windows ICO（品牌底色 `#14202E` / 莲花 `#E8F0F8` 保持不变，仅换莲花造型） | 同本仓库 |
 | `back/forward.svg` | 本仓库自绘（墨韵图标库·基础操作） | 同本仓库 |
 | `file/folder/image/video/audio.svg` | 本仓库自绘（墨韵图标库·内容相关） | 同本仓库 |
 | `group/message/bell/star/heart.svg` | 本仓库自绘（墨韵图标库·用户相关） | 同本仓库 |
