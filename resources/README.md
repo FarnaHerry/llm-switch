@@ -34,8 +34,14 @@ CMake 配置阶段会检查全部 24×24 SVG：包含硬编码颜色（非 `#FFF
 
 ## 图标来源与许可
 
-本次图标系统以仓库内的 `docs/icon-reference.png` 作为水墨图形参考，转换后的
-24×24 SVG 只保留白色 alpha-mask；参考图本身不属于运行时资源，也不会随应用打包。
+功能图标于 2026-09-19 整体换版：以用户提供的 **llm-switch Icon Set v1.0** 参考图
+为准逐枚矢量化，转换后的 24×24 SVG 只保留白色 alpha-mask；参考图与转换稿本身
+不属于运行时资源，也不会随应用打包。
+
+被换下的旧图标（34 枚，`docs/icon-reference.png` 时期的转换稿）**原样留档在仓库
+根目录 `old/`**，只作对照与回滚，不参与构建、不随应用打包。独立交付的完整图标集
+（35 枚，含尚未接入运行时的实心莲花 `home_active.svg`，以及浅/深两套预览图）见
+仓库根目录 `icon-set/`。
 
 | 文件 | 来源 | 许可 |
 |------|------|------|
@@ -46,10 +52,10 @@ CMake 配置阶段会检查全部 24×24 SVG：包含硬编码颜色（非 `#FFF
 | `pi.svg` | pi-mono 官方 logo，[pi.dev](https://pi.dev) `logo-auto.svg`（等比缩到 24×24，官方轮廓不变） | MIT（[pi-mono 仓库](https://github.com/badlogic/pi-mono)） |
 | `dsh.svg` | 本仓库自绘束带扣（DeepSeek Harness 的 harness 意象） | 同本仓库 |
 | `hermes.svg` | 本仓库自绘飞翼（Hermes 的神使飞翼意象） | 同本仓库 |
-| `home/agents/providers/models/router/skills/mcp/sessions/stats/settings.svg` | `docs/icon-reference.png` 中的核心导航水墨图标（对应首页、Agent、供应商、模型、本地路由、Skills、MCP、会话、用量、设置） | 本仓库转换稿 |
-| `trash/download/upload/search/refresh/add/edit/import/export/backup/restore.svg` | `docs/icon-reference.png` 中的常用操作水墨图标 | 本仓库转换稿 |
-| `success/error/warning/info/loading/more/disabled/processing.svg` | `docs/icon-reference.png` 中的状态提示水墨图标 | 本仓库转换稿 |
-| `user/api_key/link/options/logout.svg` | `docs/icon-reference.png` 中的辅助水墨图标 | 本仓库转换稿 |
+| `home/home_active/agents/providers/models/router/skills/mcp/sessions/stats/settings.svg` | 用户提供的 **llm-switch Icon Set v1.0** 参考图中的核心导航图标（首页未选中／选中、Agent 管理、供应商、模型、本地路由、Skills、MCP、会话、用量、设置；`home_active.svg` 为实心莲花，当前未接入运行时，选中态仍由承载底块表达） | 本仓库转换稿 |
+| `trash/download/upload/search/refresh/add/edit/import/export/backup/restore.svg` | Icon Set v1.0 中的常用操作图标（删除、下载、上传、搜索、刷新、新增、编辑、导入、导出、备份、恢复） | 本仓库转换稿 |
+| `success/error/warning/info/loading/more/disabled/processing.svg` | Icon Set v1.0 中的状态提示图标 | 本仓库转换稿 |
+| `user/api_key/link/options/logout.svg` | Icon Set v1.0 中的辅助图标 | 本仓库转换稿 |
 | `about.svg` | 本仓库自绘圆圈 i（顶级「关于」入口） | 同本仓库 |
 | `lotus_bud/lotus_bloom.svg` | 闭合态为本仓库自绘，盛放态按用户提供的界面参考图重绘；用于导航与应用品牌的两种几何状态 | 本仓库转换稿 |
 | `lotus_tray_{bud,bloom}*.png` | 由本仓库莲花图稿生成的托盘多倍率栅格版本 | 同本仓库 |
