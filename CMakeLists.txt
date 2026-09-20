@@ -241,6 +241,7 @@ set(LLMSWITCH_MODULE_UNITS
     src/mcp.cppm
     src/skills.cppm
     src/sessions.cppm
+    src/usage.cppm
 )
 
 # 24×24 界面图标必须是单套无色 alpha-mask 水墨资源。深浅与交互状态全部由
@@ -532,6 +533,17 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
         target_compile_features(test_sessions PRIVATE cxx_std_23)
         target_link_libraries(test_sessions PRIVATE llmswitch_json Threads::Threads)
         add_test(NAME sessions COMMAND test_sessions)
+
+        # 用量导入测试：五种会话日志的解析、去重取值、增量幂等与当天口径。
+        add_executable(test_usage tests/test_usage.cpp src/usage.cpp)
+        target_sources(test_usage PRIVATE FILE_SET llmswitch_modules TYPE CXX_MODULES
+            BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+            FILES src/usage.cppm src/config.cppm)
+        set_target_properties(test_usage PROPERTIES CXX_MODULE_STD ON CXX_SCAN_FOR_MODULES ON)
+        target_compile_features(test_usage PRIVATE cxx_std_23)
+        target_link_libraries(test_usage PRIVATE llmswitch_json Threads::Threads)
+        add_test(NAME usage COMMAND test_usage)
+
 
         if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
             add_executable(test_single_instance tests/test_single_instance.cpp

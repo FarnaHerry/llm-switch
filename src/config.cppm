@@ -363,6 +363,15 @@ export std::filesystem::path statsFile() {
     return dir / "requests.jsonl";
 }
 
+// 用量导入账本目录（dataDir()/usage/）：各 agent 会话日志解析出的 token 记录
+// 与增量扫描状态都放这里，与路由请求日志分开，互不影响。
+export inline std::filesystem::path usageDir() {
+    const std::filesystem::path dir = dataDir() / "usage";
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec);
+    return dir;
+}
+
 // ---- MCP 管理（llmswitch.mcp）----
 
 // Claude Code 全局用户配置（顶层 mcpServers map 写这里；**不是** settings.json）。
@@ -423,5 +432,37 @@ export std::filesystem::path codexSessionsDir() {
     }
     return homeDir() / ".codex" / "sessions";
 }
+
+// ---- 用量导入（llmswitch.usage）的会话/账本根 ------------------------------
+// 各 agent 记录的 token 用量位置不同：Qwen 有专门的月度账本，pi / zcode 藏在
+// 会话或模型调用记录里，Claude / Codex 复用上面的会话根。全部可被 LLMSWITCH_*
+// 覆盖，测试可隔离到临时目录。
+
+// Qwen Code 用量账本目录（token-usage-<年>-<月>.jsonl）。
+export std::filesystem::path qwenUsageDir() {
+    if (const char* e = std::getenv("LLMSWITCH_QWEN_USAGE"); e && *e) {
+        return std::filesystem::path(e);
+    }
+    return homeDir() / ".qwen" / "usage";
+}
+
+// pi 会话根（~/.pi/agent/sessions/<项目>/*.jsonl）。
+export std::filesystem::path piSessionsDir() {
+    if (const char* e = std::getenv("LLMSWITCH_PI_SESSIONS"); e && *e) {
+        return std::filesystem::path(e);
+    }
+    return homeDir() / ".pi" / "agent" / "sessions";
+}
+
+// zcode 模型调用记录根（~/.zcode/cli/rollout/model-io-sess-*.jsonl）。
+export std::filesystem::path zcodeRolloutDir() {
+    if (const char* e = std::getenv("LLMSWITCH_ZCODE_ROLLOUT"); e && *e) {
+        return std::filesystem::path(e);
+    }
+    return homeDir() / ".zcode" / "cli" / "rollout";
+}
+
+// 用量账本目录（dataDir()/usage/）：usage.jsonl 与 scan-state.json。
+// 定义在上方 statsFile() 之后（同文件内已可见）。
 
 } // namespace cfg

@@ -19,6 +19,7 @@
 #include "ui.h"
 
 import llmswitch.router;
+import llmswitch.usage;
 
 namespace llmswitch::ui {
 namespace {
@@ -185,6 +186,46 @@ void ApplySnapshot(const router::StatsSnapshot& snapshot,
         });
     };
 
+    // 会话日志导入：与代理统计是两个独立来源（对齐 cc-switch v3.13 的双数据源）。
+    // sync() 要读几百个会话文件，必须走 RunWorker 离开 UI 线程；代次用于丢弃
+    // 上一次延迟返回的结果。
+    auto importedUsage = huxerui::UseState(usage::UsageSnapshot{});
+    auto usageSyncing = huxerui::UseState(false);
+    auto usageGeneration = huxerui::UseState(0);
+    const bool statsVisible = navPage.Get() == 2;
+
+    auto syncUsage = [=] {
+        const int request = usageGeneration.Get() + 1;
+        usageGeneration = request;
+        usageSyncing = true;
+        tasks.Launch([=]() -> huxerui::Task<void> {
+            try {
+                co_await huxerui::RunWorker([] {
+                    usageStore().sync();
+                    return 0;
+                });
+            } catch (const std::exception& e) {
+                if (usageGeneration.Get() != request) co_return;
+                usageSyncing = false;
+                toast.Show(std::format("同步会话用量失败：{}", e.what()));
+                co_return;
+            }
+            if (usageGeneration.Get() != request) co_return;
+            importedUsage = usageStore().snapshot();
+            usageSyncing = false;
+        });
+    };
+
+    // 进入统计页时增量同步一次（scan-state 记住每个文件读到的偏移，没变的文件
+    // 只 stat 不读，代价很小）。
+    huxerui::Lifecycle(
+        [=] {
+            if (navPage.Get() != 2) return std::function<void()>{[] {}};
+            syncUsage();
+            return std::function<void()>{[] {}};
+        },
+        statsVisible);
+
     const StatsSummary s = summary.Get();
     const double successRate =
         s.totalRequests > 0
@@ -202,19 +243,46 @@ void ApplySnapshot(const router::StatsSnapshot& snapshot,
             .Key(provider.name);
     };
 
+    // 会话日志导入的按 Agent 分布（占比按归一化 token 总量算）。
+    const usage::UsageSnapshot imported = importedUsage.Get();
+    const std::size_t importedAgents = imported.byAgent.size();
+    const float importedListHeight =
+        std::min(320.0F, static_cast<float>(importedAgents) * 64.0F);
+    const auto buildAgentRow = [imported](std::size_t index) {
+        const auto& entry = imported.byAgent[index];
+        const double share =
+            imported.total.TotalTokens() > 0
+                ? 100.0 *
+                      static_cast<double>(entry.totals.TotalTokens()) /
+                      static_cast<double>(imported.total.TotalTokens())
+                : 0.0;
+        return ProviderStatRow(std::string(ToolName(entry.agent)),
+                               entry.totals.requests, share)
+            .Key(entry.agent);
+    };
+
     return PageScaffold(
         "使用统计",
         huxerui::Row {
             huxerui::Button("刷新").OnClick([=] {
                 ApplySnapshot(routerInstance().snapshot(), summary,
                               providerStats);
+                importedUsage = usageStore().snapshot();
             }),
+            huxerui::Button("同步会话用量").OnClick([syncUsage] { syncUsage(); })
+                .With(huxerui::Enabled(!usageSyncing.Get())),
             huxerui::Button("清空统计").OnClick([=] { confirmClear(); }),
         }.With(huxerui::Spacing(8.0F)),
         huxerui::ScrollView(
             huxerui::Column {
-                PageSection(SectionTitle("汇总"),
+                PageSection(SectionTitle("本地路由请求 · 汇总"),
                             huxerui::Column {
+                    s.totalRequests == 0
+                        ? huxerui::View{HintText(
+                              "这里只统计经过本地路由的请求。到「本地路由」页开启总开关与"
+                              "逐 Agent 开关，再把 CLI 的 base URL 指向接入地址即可；"
+                              "不想过路由的用量见下方「会话日志导入」。")}
+                        : huxerui::View{huxerui::Row{}},
                     huxerui::Row {
                         StatCell("今日请求", std::to_string(s.todayRequests)),
                         StatCell("总请求", std::to_string(s.totalRequests)),
@@ -236,7 +304,7 @@ void ApplySnapshot(const router::StatsSnapshot& snapshot,
 
                 SectionDivider(),
 
-                PageSection(SectionTitle("按供应商"),
+                PageSection(SectionTitle("本地路由请求 · 按供应商"),
                             huxerui::Column {
                     providerCount == 0
                         ? huxerui::View{HintText("暂无数据")}
@@ -245,6 +313,55 @@ void ApplySnapshot(const router::StatsSnapshot& snapshot,
                                   .EstimatedItemExtent(64.0F)
                                   .CacheExtent(192.0F)
                                   .With(huxerui::Frame{.height = providerListHeight})},
+                }.With(huxerui::Spacing(8.0F),
+                       huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))),
+
+                SectionDivider(),
+
+                // 第二个数据源：从各 agent 自己的会话日志导入，不需要开代理。
+                PageSection(SectionTitle("会话日志导入 · 汇总"),
+                            huxerui::Column {
+                    imported.records == 0
+                        ? huxerui::View{HintText(
+                              usageSyncing.Get()
+                                  ? "正在扫描会话日志…"
+                                  : "还没有导入到用量。各 Agent 会把自己每次调用的 "
+                                    "token 写进会话日志，用过对应 Agent 后点右上角"
+                                    "「同步会话用量」即可（不需要开本地路由）。")}
+                        : huxerui::View{huxerui::Column {
+                              huxerui::Row {
+                                  StatCell("请求",
+                                           std::to_string(imported.total.requests)),
+                                  StatCell("输入 Token",
+                                           std::to_string(imported.total.inputTokens)),
+                                  StatCell("输出 Token",
+                                           std::to_string(imported.total.outputTokens)),
+                                  StatCell("缓存读",
+                                           std::to_string(imported.total.cacheReadTokens)),
+                              }.With(huxerui::Spacing(8.0F)),
+                              huxerui::Row {
+                                  StatCell("真实消耗",
+                                           std::to_string(imported.total.TotalTokens())),
+                                  StatCell("今日请求",
+                                           std::to_string(imported.todayRequests)),
+                                  StatCell("今日 Token",
+                                           std::to_string(imported.todayTokens)),
+                              }.With(huxerui::Spacing(8.0F)),
+                          }.With(huxerui::Spacing(10.0F),
+                                 huxerui::CrossAlign(
+                                     huxerui::CrossAxisAlignment::Stretch))},
+                }.With(huxerui::Spacing(8.0F),
+                       huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))),
+
+                PageSection(SectionTitle("会话日志导入 · 按 Agent"),
+                            huxerui::Column {
+                    importedAgents == 0
+                        ? huxerui::View{HintText("暂无数据")}
+                        : huxerui::View{
+                              huxerui::VirtualList(importedAgents, buildAgentRow)
+                                  .EstimatedItemExtent(64.0F)
+                                  .CacheExtent(192.0F)
+                                  .With(huxerui::Frame{.height = importedListHeight})},
                 }.With(huxerui::Spacing(8.0F),
                        huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))),
             }.With(huxerui::Spacing(12.0F),
