@@ -64,14 +64,17 @@ using provider_detail::WriteUsageCache;
     auto tasks = huxerui::UseTaskScope();
     auto toast = huxerui::UseToast();
     const auto http = huxerui::UseService<huxerui::HttpClient>();
-    // 首组合时探测 live 文件命中（本地文件读，UI 线程直接跑）。
+    // 探测 live 文件命中（只读本地文件，UI 线程直接跑）。依赖 revision 而不只是
+    // 首组合：切换 / 恢复官方 / 删除都会改写（或撤掉）live 配置，只有重算
+    // detected 才能让「使用中」跟着走——否则组 current 已经指向新供应商，而
+    // detected 仍停在旧命中项，两张卡会同时带上徽章，直到页面重新挂载。
     auto detected = huxerui::UseState<std::string>({});
     huxerui::Lifecycle(
         [tool, detected] {
             detected = providerStore().detectCurrent(tool);
             return [] {};
         },
-        0);
+        revision.Get());
     // 列表/表单多模式："" = 列表；"new" = 新增；"usage:" + id = 用量查询
     // 配置页；否则 = 编辑的 provider id。子页以 .Key 组合，换目标即重建状态。
     auto formTarget = huxerui::UseState<std::string>({});
