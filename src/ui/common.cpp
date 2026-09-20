@@ -139,6 +139,9 @@ huxerui::Color IslandColor(const IslandTheme& islands, IslandLevel level) {
         huxerui::UseViewportClass() == huxerui::ViewportClass::Compact;
     // 一级轻岛：Grow + Stretch 占满页面区块，低对比半透明表面让环境水墨
     // 隐约透出；内容在岛内部滚动。
+    // 最外围不画描边：页面级岛屿靠表面色差与环境光分层即可，四边一圈细线
+    // 在冷调主题下只会多出一层「窗口套窗口」的框感。二级岛（Card）仍保留
+    // 1pt 描边用于区分卡片边界。
     huxerui::View body = content;
     return huxerui::Column {
         huxerui::Row {
@@ -152,7 +155,6 @@ huxerui::Color IslandColor(const IslandTheme& islands, IslandLevel level) {
            huxerui::Spacing(theme.spacing.medium),
            huxerui::Background(islands.base),
            huxerui::CornerRadius(islands.island_radius),
-           huxerui::Border(islands.outline_soft, 0.75F),
            huxerui::ClipChildren(),
            huxerui::Grow(1.0F),
            huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
