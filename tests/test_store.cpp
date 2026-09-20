@@ -1746,7 +1746,40 @@ int main() {
         CHECK(corruptMoved);
     }
 
-    // 18. 清理临时目录
+    // 18. 本地环境检查：findExecutable 只在 PATH / 已知目录里找可执行文件，
+    //     同名但没有可执行位的普通文件不算「已安装」。
+    {
+        const fs::path bin = root / "probe-bin";
+        std::error_code ec;
+        fs::create_directories(bin, ec);
+#ifdef _WIN32
+        // Windows 走 PATHEXT：探 llmswitch-probe-cli 命中同名 .cmd。
+        const fs::path cli = bin / "llmswitch-probe-cli.cmd";
+#else
+        const fs::path cli = bin / "llmswitch-probe-cli";
+#endif
+        writeFile(cli, "#!/bin/sh\nexit 0\n");
+#ifndef _WIN32
+        fs::permissions(cli, fs::perms::owner_all, ec);
+#endif
+        const char* oldPath = std::getenv("PATH");
+        const std::string savedPath = oldPath != nullptr ? oldPath : "";
+        testenv::setenv("PATH", bin.string().c_str());
+        const auto found = cfg::findExecutable("llmswitch-probe-cli");
+        CHECK(!found.empty());
+        if (!found.empty()) CHECK(fs::equivalent(found, cli));
+        CHECK(cfg::findExecutable("llmswitch-definitely-missing").empty());
+        CHECK(cfg::findExecutable("").empty());
+#ifndef _WIN32
+        const fs::path plain = bin / "llmswitch-not-exec";
+        writeFile(plain, "not a program");
+        fs::permissions(plain, fs::perms::owner_read | fs::perms::owner_write, ec);
+        CHECK(cfg::findExecutable("llmswitch-not-exec").empty());
+#endif
+        testenv::setenv("PATH", savedPath.c_str());
+    }
+
+    // 19. 清理临时目录
     {
         std::error_code ec;
         fs::remove_all(root, ec);

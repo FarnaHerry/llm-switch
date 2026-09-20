@@ -465,4 +465,87 @@ export std::filesystem::path zcodeRolloutDir() {
 // 用量账本目录（dataDir()/usage/）：usage.jsonl 与 scan-state.json。
 // 定义在上方 statsFile() 之后（同文件内已可见）。
 
+// ---- 本地环境检查（设置页）-------------------------------------------------
+
+// 在 PATH 与几个已知安装目录里查找可执行文件；命中返回绝对路径，找不到返回空。
+// 纯文件系统查询，不起子进程（HuxerUI 也没有子进程 API），所以只判断「装没装」
+// 与装在哪，不判断版本。
+//
+// 除 PATH 外补的回落目录都是实测见过的装法：官方安装脚本的 ~/.local/bin
+// （claude / codex）、opencode 自有的 ~/.opencode/bin、pnpm 全局的
+// ~/.local/share/pnpm/bin（dsh / qwen）。从桌面启动的应用 PATH 常常比登录 shell
+// 窄，只查 PATH 会误报未安装。
+export std::filesystem::path findExecutable(std::string_view name) {
+    if (name.empty()) return {};
+    const auto probe = [&name](const std::filesystem::path& dir)
+        -> std::filesystem::path {
+        if (dir.empty()) return {};
+        std::error_code ec;
+        std::filesystem::path candidate = dir / std::string(name);
+#ifdef _WIN32
+        // Windows 下可执行是 .exe/.cmd/.bat：按 PATHEXT 依次试。
+        const char* pathext = std::getenv("PATHEXT");
+        const std::string exts =
+            (pathext != nullptr && *pathext != '\0') ? pathext
+                                                     : ".COM;.EXE;.BAT;.CMD";
+        std::size_t pos = 0;
+        while (pos <= exts.size()) {
+            const auto semi = exts.find(';', pos);
+            const std::string ext =
+                exts.substr(pos, semi == std::string::npos ? std::string::npos
+                                                           : semi - pos);
+            if (!ext.empty()) {
+                std::filesystem::path withExt =
+                    candidate.string() + ext;
+                if (std::filesystem::is_regular_file(withExt, ec) && !ec) {
+                    return withExt;
+                }
+            }
+            if (semi == std::string::npos) break;
+            pos = semi + 1;
+        }
+        return {};
+#else
+        if (!std::filesystem::is_regular_file(candidate, ec) || ec) return {};
+        // POSIX 还要有可执行位，避免把同名数据文件当成 CLI。
+        const auto perms = std::filesystem::status(candidate, ec).permissions();
+        if (ec) return {};
+        if ((perms & (std::filesystem::perms::owner_exec |
+                      std::filesystem::perms::group_exec |
+                      std::filesystem::perms::others_exec)) ==
+            std::filesystem::perms::none) {
+            return {};
+        }
+        return candidate;
+#endif
+    };
+
+    if (const char* pathEnv = std::getenv("PATH"); pathEnv != nullptr && *pathEnv) {
+#ifdef _WIN32
+        constexpr char kSep = ';';
+#else
+        constexpr char kSep = ':';
+#endif
+        std::string_view paths(pathEnv);
+        while (!paths.empty()) {
+            const auto sep = paths.find(kSep);
+            const std::string_view dir =
+                sep == std::string_view::npos ? paths : paths.substr(0, sep);
+            if (!dir.empty()) {
+                if (auto hit = probe(std::filesystem::path(dir)); !hit.empty()) {
+                    return hit;
+                }
+            }
+            if (sep == std::string_view::npos) break;
+            paths.remove_prefix(sep + 1);
+        }
+    }
+    for (const auto& fallback :
+         {homeDir() / ".local" / "bin", homeDir() / ".opencode" / "bin",
+          homeDir() / ".local" / "share" / "pnpm" / "bin"}) {
+        if (auto hit = probe(fallback); !hit.empty()) return hit;
+    }
+    return {};
+}
+
 } // namespace cfg

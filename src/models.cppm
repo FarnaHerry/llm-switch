@@ -30,9 +30,28 @@ export struct ToolSpec {
     // 读取的工具为 true（codex / zcode 等）；claude-code 运行中会重读
     // settings.json，切换后直接使用，无需重启。
     bool needsRestart;
+    // ---- 本地环境检查（设置页）----
+    // CLI 可执行名（在 PATH 与已知目录里查找）；空 = 没有可检测的 CLI
+    // （Claude Desktop 是桌面应用，不是命令行工具）。
+    std::string_view binary;
+    // 官方安装/升级命令（供「复制」按钮用）；空 = 没有能安全给出的统一命令
+    // （zcode 由发行版系统包提供，装法随平台而异）。
+    // 包名在写入时逐个对 npm registry / PyPI 核实过，见下方注册表注释。
+    std::string_view installCommand;
 };
 
 // 注册表顺序即 UI 侧栏/托盘菜单顺序。
+//
+// installCommand 的核实来源（2026-09-20 逐条对 registry 查过，不照抄文档）：
+//   npm ：@anthropic-ai/claude-code / @openai/codex / @google/gemini-cli /
+//         @qwen-code/qwen-code / @deepseek-ai/dsh /
+//         @earendil-works/pi-coding-agent / opencode-ai
+//         —— 均在 registry.npmjs.org/<包名> 上有 latest 标签。
+//   PyPI：hermes-agent（pypi.org/pypi/hermes-agent）。
+//   zcode 没有统一命令：实测由发行版系统包提供（/opt/ZCode/zcode，rpm zcode-*），
+//   装法随平台而异，故留空。
+// 参考：上游 cc-switch 的「手动安装命令」只列了 claude/codex/gemini/opencode/
+// openclaw/hermes；本项目另有 pi/dsh/qwen/zcode，不能照抄。
 export constexpr std::array<ToolSpec, 10> kToolRegistry{{
     ToolSpec{.id = "claude-code",
              .displayName = "Claude Code",
@@ -40,35 +59,45 @@ export constexpr std::array<ToolSpec, 10> kToolRegistry{{
              .needsModel = false,
              .hasApiFormat = false,
              .hasModelMappings = true,
-             .needsRestart = false},
+             .needsRestart = false,
+             .binary = "claude",
+             .installCommand = "npm i -g @anthropic-ai/claude-code@latest"},
     ToolSpec{.id = "claude",
              .displayName = "Claude Desktop",
              .iconName = "claude",
              .needsModel = false,
              .hasApiFormat = false,
              .hasModelMappings = true,
-             .needsRestart = true},
+             .needsRestart = true,
+             .binary = "",
+             .installCommand = ""},
     ToolSpec{.id = "codex",
              .displayName = "Codex",
              .iconName = "codex",
              .needsModel = false,
              .hasApiFormat = false,
              .hasModelMappings = false,
-             .needsRestart = true},
+             .needsRestart = true,
+             .binary = "codex",
+             .installCommand = "npm i -g @openai/codex@latest"},
     ToolSpec{.id = "opencode",
              .displayName = "opencode",
              .iconName = "opencode",
              .needsModel = true,
              .hasApiFormat = true,
              .hasModelMappings = false,
-             .needsRestart = true},
+             .needsRestart = true,
+             .binary = "opencode",
+             .installCommand = "npm i -g opencode-ai@latest"},
     ToolSpec{.id = "pi",
              .displayName = "Pi",
              .iconName = "pi",
              .needsModel = true,
              .hasApiFormat = true,
              .hasModelMappings = false,
-             .needsRestart = true},
+             .needsRestart = true,
+             .binary = "pi",
+             .installCommand = "npm i -g @earendil-works/pi-coding-agent@latest"},
     // Harness（DeepSeek 出品，CLI 命令 dsh）：~/.dsh/settings.yaml 的
     // llm-pi-ai.providers 手写 YAML upsert + agent-default-model 指向；密钥
     // 只写 ~/.dsh/.credentials.yaml（apiKeyEnv 引用，热监听即时生效），
@@ -79,7 +108,9 @@ export constexpr std::array<ToolSpec, 10> kToolRegistry{{
              .needsModel = true,
              .hasApiFormat = true,
              .hasModelMappings = false,
-             .needsRestart = false},
+             .needsRestart = false,
+             .binary = "dsh",
+             .installCommand = "npm i -g @deepseek-ai/dsh@latest"},
     // Hermes Agent：~/.hermes/config.yaml 的 custom_providers 列表 upsert
     // llmswitch-<id> 条目 + 顶层 model 节指向（api_mode 与 apiFormat 三档
     // 映射：chat_completions / anthropic_messages / codex_responses）；
@@ -90,7 +121,9 @@ export constexpr std::array<ToolSpec, 10> kToolRegistry{{
              .needsModel = true,
              .hasApiFormat = true,
              .hasModelMappings = false,
-             .needsRestart = true},
+             .needsRestart = true,
+             .binary = "hermes",
+             .installCommand = "python3 -m pip install --upgrade hermes-agent"},
     // gemini-cli 系（Gemini CLI / Qwen Code）：认证与端点走 ~/.<dir>/.env
     // 行级 upsert（GEMINI_API_KEY/GOOGLE_GEMINI_BASE_URL/GEMINI_MODEL 与
     // OPENAI_API_KEY/OPENAI_BASE_URL/OPENAI_MODEL），auth 类型写 settings.json。
@@ -100,14 +133,18 @@ export constexpr std::array<ToolSpec, 10> kToolRegistry{{
              .needsModel = true,
              .hasApiFormat = false,
              .hasModelMappings = false,
-             .needsRestart = true},
+             .needsRestart = true,
+             .binary = "gemini",
+             .installCommand = "npm i -g @google/gemini-cli@latest"},
     ToolSpec{.id = "qwen",
              .displayName = "Qwen Code",
              .iconName = "qwen",
              .needsModel = true,
              .hasApiFormat = false,
              .hasModelMappings = false,
-             .needsRestart = true},
+             .needsRestart = true,
+             .binary = "qwen",
+             .installCommand = "npm i -g @qwen-code/qwen-code@latest"},
     // ZCode：provider map（~/.zcode/v2/config.json）upsert 自定义条目并置
     // enabled，apiFormat 决定 provider.kind（anthropic / openai）。
     ToolSpec{.id = "zcode",
@@ -116,7 +153,9 @@ export constexpr std::array<ToolSpec, 10> kToolRegistry{{
              .needsModel = true,
              .hasApiFormat = true,
              .hasModelMappings = false,
-             .needsRestart = true},
+             .needsRestart = true,
+             .binary = "zcode",
+             .installCommand = ""},
 }};
 
 export std::span<const ToolSpec> toolRegistry() { return kToolRegistry; }

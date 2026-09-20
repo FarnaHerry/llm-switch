@@ -130,6 +130,52 @@ bool ResolvesToDark(int mode) {
            huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
 }
 
+// 本地环境检查的一行：工具图标 + 名称 + 检测结果。未检测到且该工具有可核实的
+// 官方安装命令时，给一个「复制安装命令」按钮（走应用剪贴板服务）。
+[[huxerui::composable]] huxerui::View ToolStatusRow(
+    const models::ToolSpec& spec, const std::string& detectedPath,
+    std::shared_ptr<huxerui::Clipboard> clipboard, huxerui::ToastHandle toast) {
+    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    const bool installed = !detectedPath.empty();
+    const std::string command(spec.installCommand);
+    return huxerui::Row {
+        huxerui::Image(ToolIcon(spec.iconName))
+            .Tint(theme.colors.on_surface_variant)
+            .With(huxerui::Frame{.width = 18.0F, .height = 18.0F}),
+        huxerui::Column {
+            huxerui::Text(std::string(spec.displayName))
+                .Style(huxerui::TextStyle{
+                    huxerui::Font::System(font_size::kBody),
+                    theme.colors.on_surface}),
+            huxerui::Text(installed ? detectedPath
+                                    : (command.empty()
+                                           ? "未检测到（由系统包管理器提供）"
+                                           : "未检测到"))
+                .Style(huxerui::TextStyle{
+                    huxerui::Font::Monospace(font_size::kCaption),
+                    theme.colors.on_surface_variant}),
+        }.With(huxerui::Spacing(2.0F), huxerui::Grow(1.0F)),
+        (installed || command.empty())
+            ? huxerui::View{huxerui::Row{}}
+            : huxerui::View{
+                  huxerui::Button("复制安装命令")
+                      .OnClick([clipboard, toast, command] {
+                          if (!clipboard || !clipboard->IsAvailable()) {
+                              toast.Show(std::format("剪贴板不可用，请手动执行：{}",
+                                                     command));
+                              return;
+                          }
+                          if (clipboard->WriteText(command)) {
+                              toast.Show("安装命令已复制到剪贴板");
+                          } else {
+                              toast.Show(std::format("复制失败，请手动执行：{}",
+                                                     command));
+                          }
+                      })},
+    }.With(huxerui::Spacing(10.0F),
+           huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
+}
+
 [[huxerui::composable]] huxerui::View SectionTitle(const std::string& title) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     // 分组标签走次要文本色：强调色（primary）只留给可交互状态，
@@ -169,6 +215,44 @@ bool ResolvesToDark(int mode) {
         huxerui::UseState(providerStore().claudeCodeSkipInstallationChecks());
     auto radialNavAutoClose =
         huxerui::UseState(providerStore().config().radialNavAutoClose);
+
+    // ---- 本地环境检查 ----
+    // 只做存在性检测：在 PATH 与几个已知安装目录里找可执行文件（纯文件系统，
+    // 不起子进程），所以报「装没装 / 装在哪」，不报版本。进页面检测一次，
+    // 「重新检测」按钮手动重跑。
+    const auto clipboard = huxerui::UseApplication().Clipboard();
+    using DetectionMap = std::map<std::string, std::string>;
+    auto detectedTools = huxerui::UseState(DetectionMap{});
+    auto detectTools = [detectedTools] {
+        DetectionMap found;
+        for (const auto& spec : models::toolRegistry()) {
+            if (spec.binary.empty()) continue;  // 无 CLI 的工具（Claude Desktop）
+            std::error_code ec;
+            const auto path = cfg::findExecutable(spec.binary);
+            if (!path.empty()) {
+                found.emplace(std::string(spec.id), path.string());
+            }
+        }
+        detectedTools = std::move(found);
+    };
+    huxerui::Lifecycle([detectTools] {
+        detectTools();
+        return [] {};
+    });
+
+    // 检查行先在这里拼好（列表必须在返回语句之前构造，不能在 View 树里塞
+    // lambda）；跳过检查时留空，整段不渲染。
+    std::vector<huxerui::View> installRows;
+    if (!claudeCodeSkipInstallationChecks.Get()) {
+        const DetectionMap& found = detectedTools.Get();
+        for (const auto& spec : models::toolRegistry()) {
+            if (spec.binary.empty()) continue;  // 无 CLI（Claude Desktop）
+            const auto it = found.find(std::string(spec.id));
+            installRows.push_back(ToolStatusRow(
+                spec, it == found.end() ? std::string{} : it->second, clipboard,
+                toast));
+        }
+    }
 
     const bool canSave = picker && picker->CanSaveFiles();
     const bool canOpen = picker && picker->CanOpenFiles();
@@ -294,11 +378,15 @@ bool ResolvesToDark(int mode) {
 
                 SectionDivider(),
 
-                PageSection(SectionTitle("Claude Code"),
+                // 本地环境检查（对齐 cc-switch 设置页的同名分区）：只做存在性
+                // 检测 + 复制官方安装命令，不执行安装/升级——HuxerUI 没有子进程
+                // API，跑不了 `claude --version` 这类探测，装/升留给用户自己跑。
+                // 上方「跳过安装检查」打开时整段收起。
+                PageSection(SectionTitle("本地环境检查"),
                             huxerui::Column {
                     SettingRow(
-                        "跳过初次安装检查",
-                        "跳过 Claude Code 的安装位置检查提示（仅适合手动管理安装）",
+                        "跳过安装检查",
+                        "不再列出各 CLI 的安装位置（仅适合自己管理安装）",
                         huxerui::Switch(claudeCodeSkipInstallationChecks.Get())
                             .OnChanged([claudeCodeSkipInstallationChecks, revision, toast](bool on) {
                                 try {
@@ -309,6 +397,21 @@ bool ResolvesToDark(int mode) {
                                     toast.Show(e.what());
                                 }
                             })),
+                    claudeCodeSkipInstallationChecks.Get()
+                        ? huxerui::View{huxerui::Row{}}
+                        : huxerui::View{huxerui::Column {
+                              huxerui::Text("检测到的可直接用；未检测到的给出可复制的官方安装命令。"
+                                            "只查本机 PATH 与常见安装目录，不联网、不执行安装。")
+                                  .Style(huxerui::TextStyle{
+                                      huxerui::Font::System(font_size::kCaption),
+                                      theme.colors.on_surface_variant}),
+                              huxerui::Column(std::move(installRows))
+                                  .With(huxerui::Spacing(10.0F),
+                                        huxerui::CrossAlign(
+                                            huxerui::CrossAxisAlignment::Stretch)),
+                          }.With(huxerui::Spacing(10.0F),
+                                 huxerui::CrossAlign(
+                                     huxerui::CrossAxisAlignment::Stretch))},
                 }.With(huxerui::Spacing(10.0F),
                        huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))),
 
