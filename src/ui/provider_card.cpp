@@ -100,6 +100,8 @@ std::string RestartHintSuffix(const std::string& tool) {
     // State 经 .Key(id) 随卡片保活，revision 重读不丢。
     auto checking = huxerui::UseState(false);
     auto latency = huxerui::UseState<std::string>({});
+    // 用量查询进行中：为真时刷新图标自转（同样随 .Key(id) 保活）。
+    auto usageRefreshing = huxerui::UseState(false);
 
     // 用量展示：启用开关打开且 usageUrl 非空才显示；缓存未命中显示占位。
     std::string usageText;
@@ -138,6 +140,16 @@ std::string RestartHintSuffix(const std::string& tool) {
             },
             {});
     };
+
+    // 用量刷新按钮的悬停状态层。IconButton 只接受 ImageVariant、没有暴露图标级
+    // 修饰符，直接在按钮节点上加 Rotation 会把 32×32 的悬停状态层一起转起来，
+    // 所以下面自己拼一个等价按钮：外层持有状态层/语义/光标/提示，内层是共享的
+    // SpinningRefreshIcon（只转图标自己）。几何沿用 IconButton 的默认值
+    // （state layer 32×32、圆角 shapes.extra_small），与同一排其它操作图标一致。
+    huxerui::Indication refreshIndication = theme.interactions.indication;
+    refreshIndication.geometry.layer_size = huxerui::Size{32.0F, 32.0F};
+    refreshIndication.geometry.clip_corner_radii =
+        huxerui::CornerRadii{theme.shapes.extra_small};
 
     // 三段式：左信息列（Grow 吃满剩余宽度）｜ 中间状态行（延迟 + 用量
     // 横向排列，垂直居中落在内容与操作组之间）｜ 右侧操作图标组（自绘
@@ -201,16 +213,35 @@ std::string RestartHintSuffix(const std::string& tool) {
             !usageConfigured
                 ? huxerui::View{huxerui::Row{}}
                 : huxerui::View{
-                      huxerui::IconButton(app::images::refresh, "刷新")
-                          .OnClick([tasks, usageCache, provider, http] {
+                      huxerui::Stack {
+                          SpinningRefreshIcon(20.0F, theme.colors.on_surface,
+                                              usageRefreshing.Get()),
+                      }
+                          .OnClick([tasks, usageCache, provider, http,
+                                    usageRefreshing] {
+                              // 已在查询中就不再叠加请求，避免图标重启一轮。
+                              if (usageRefreshing.Get()) return;
+                              usageRefreshing = true;
                               // HuxerUI HTTP 异步请求完成后回 UI 线程写缓存 State。
-                              tasks.Launch([usageCache, provider,
-                                            http]() -> huxerui::Task<void> {
+                              tasks.Launch([usageCache, provider, http,
+                                            usageRefreshing]() -> huxerui::Task<void> {
                                   WriteUsageCache(usageCache, provider.id,
                                                   co_await FetchUsageText(http, provider));
+                                  usageRefreshing = false;
                               });
                           })
-                          .With(huxerui::Tooltip("重新查询用量"))},
+                          .With(huxerui::Frame{.width = 40.0F, .height = 40.0F},
+                                huxerui::Align(
+                                    huxerui::HorizontalAlignment::Center,
+                                    huxerui::VerticalAlignment::Center),
+                                huxerui::Focusable{true},
+                                refreshIndication,
+                                huxerui::Semantics{
+                                    .role = huxerui::SemanticRole::Button,
+                                    .label = "刷新"},
+                                huxerui::Tooltip("重新查询用量"),
+                                huxerui::PointerCursor(
+                                    huxerui::PointerCursorKind::Hand))},
         }.With(huxerui::Spacing(8.0F),
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
         huxerui::Row {

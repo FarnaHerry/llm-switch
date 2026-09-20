@@ -521,16 +521,8 @@ std::string FormatSize(std::uintmax_t bytes) {
                               theme.colors.on_surface_variant})}
                 : loading.Get()
                 ? huxerui::View{
-                      huxerui::Image(app::images::refresh)
-                          .Tint(theme.colors.on_surface_variant)
-                          .With(huxerui::Frame{.width = 24.0F,
-                                               .height = 24.0F},
-                                huxerui::Rotation(huxerui::AnimateTo(
-                                    360.0F,
-                                    huxerui::TweenSpec{1.0,
-                                                       huxerui::Easing::Linear},
-                                    huxerui::AnimationPlayback{
-                                        .iterations = std::nullopt}))) }
+                      SpinningRefreshIcon(24.0F, theme.colors.on_surface_variant,
+                                          true) }
                 : huxerui::View{
                       huxerui::Text(loadError.Get().empty()
                                         ? "暂无历史会话"
@@ -676,13 +668,8 @@ std::string FormatSize(std::uintmax_t bytes) {
     huxerui::View content;
     if (loading.Get()) {
         content = huxerui::Column {
-            huxerui::Image(app::images::refresh)
-                .Tint(theme.colors.on_surface_variant)
-                .With(huxerui::Frame{.width = 24.0F, .height = 24.0F},
-                      huxerui::Rotation(huxerui::AnimateTo(
-                          360.0F,
-                          huxerui::TweenSpec{1.0, huxerui::Easing::Linear},
-                          huxerui::AnimationPlayback{.iterations = std::nullopt}))),
+            SpinningRefreshIcon(24.0F, theme.colors.on_surface_variant,
+                                true),
         }.With(huxerui::Grow(1.0F),
                huxerui::MainAlign(huxerui::MainAxisAlignment::Center),
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));

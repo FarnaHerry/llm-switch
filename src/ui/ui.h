@@ -109,6 +109,13 @@ huxerui::View QuietCard(huxerui::View content);
 huxerui::View PageSection(huxerui::View title, huxerui::View content);
 huxerui::View SectionDivider();
 
+// 加载/刷新指示：无限自转的刷新图标（HuxerUI 推荐的声明式旋转）。
+// active 为真时按 -360°、线性、无限迭代自转；reduced_motion 下保持静止。
+// 内部留了「挂载后翻转一次修饰符」这一步：Rotation 扩展挂载时把值直接 Set 到
+// 目标，之后只有修饰符再变化才会 AnimateTo，少了这步图标会停在 360°（看起来
+// 就是不动）。
+huxerui::View SpinningRefreshIcon(float size, huxerui::Color tint, bool active);
+
 // 自定义内容弹窗的卡片包裹：SDK 的 dialog.Show(ViewFactory/DialogFactory) 不给
 // 内容加底板（只有标题+消息的内置形态才有 DialogStyle），统一包一层：
 // overlay 表面 + 阴影 + 描边 + 16pt 圆角 + 内边距。

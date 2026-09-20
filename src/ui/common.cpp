@@ -201,6 +201,31 @@ huxerui::Color IslandColor(const IslandTheme& islands, IslandLevel level) {
                   theme.spacing.small, 0.0F)));
 }
 
+// 加载/刷新指示：无限自转的刷新图标。写法照 HuxerUI 自带示例
+// examples/ui_gallery 的 OrbitCanvasPreview——先用 SnapSpec 落在 0°，挂载后
+// 再翻到 AnimateTo(-360°) + 无限线性迭代。这一步不能省：Rotation 扩展在挂载
+// 时是把值直接 Set 到目标的，之后只有修饰符再次变化才会走 AnimateTo，直接写
+// 死 AnimateTo(-360°) 的结果是停在 360°（视觉上完全不动）。
+// reduced_motion 下保持静止（示例同款判断），不自作主张强行转。
+[[huxerui::composable]] huxerui::View SpinningRefreshIcon(float size,
+                                                          huxerui::Color tint,
+                                                          bool active) {
+    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    auto started = huxerui::UseState(false);
+    huxerui::Lifecycle([started] { started = true; });
+    const bool spinning = active && started.Get() && !theme.motion.reduced_motion;
+    return huxerui::Image(app::images::refresh)
+        .Tint(tint)
+        .With(huxerui::Frame{.width = size, .height = size},
+              huxerui::Rotation(
+                  spinning
+                      ? huxerui::AnimateTo(
+                            -360.0F,
+                            huxerui::TweenSpec{1.0, huxerui::Easing::Linear},
+                            huxerui::AnimationPlayback{.iterations = std::nullopt})
+                      : huxerui::AnimateTo(0.0F, huxerui::SnapSpec{})));
+}
+
 [[huxerui::composable]] huxerui::View DialogCard(huxerui::View content) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     const IslandTheme islands = ResolveIslandTheme(theme);
