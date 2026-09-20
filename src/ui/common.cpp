@@ -1,4 +1,4 @@
-// common.cpp — 轻岛屿原语（ResolveIslandTheme/IslandSurface）、页面骨架（一级岛）/
+// common.cpp — 岛屿语义层（ResolveIslandTheme）、页面骨架/
 // 卡片（二级岛）/ 弹窗卡片等跨页通用部件，以及全局 ProviderStore 持有点。
 #include <huxerui/huxerui.h>
 
@@ -105,43 +105,17 @@ IslandTheme ResolveIslandTheme(const huxerui::ThemeSpec& theme) {
     };
 }
 
-namespace {
-
-huxerui::Color IslandColor(const IslandTheme& islands, IslandLevel level) {
-    switch (level) {
-        case IslandLevel::Base: return islands.base;
-        case IslandLevel::Raised: return islands.raised;
-        case IslandLevel::Overlay: return islands.overlay;
-    }
-    return islands.base;
-}
-
-} // namespace
-
-[[huxerui::composable]] huxerui::View IslandSurface(huxerui::View content,
-                                                    IslandLevel level) {
-    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
-    const IslandTheme islands = ResolveIslandTheme(theme);
-    // composable 形参被 codegen 固定为 const：拷贝到局部再走右值 With 链。
-    huxerui::View surface = content;
-    return std::move(surface).With(huxerui::Background(IslandColor(islands, level)),
-                                   huxerui::CornerRadius(islands.island_radius),
-                                   huxerui::Padding(islands.island_padding));
-}
-
 [[huxerui::composable]] huxerui::View PageScaffold(const std::string& title,
                                                    huxerui::View actions,
                                                    huxerui::View content) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
-    const IslandTheme islands = ResolveIslandTheme(theme);
-    // 响应式：Compact(<600) 收窄一级岛内边距。
+    // 响应式：Compact(<600) 收窄页面内边距。
     const bool compact =
         huxerui::UseViewportClass() == huxerui::ViewportClass::Compact;
-    // 一级轻岛：Grow + Stretch 占满页面区块，低对比半透明表面让环境水墨
-    // 隐约透出；内容在岛内部滚动。
-    // 最外围不画描边：页面级岛屿靠表面色差与环境光分层即可，四边一圈细线
-    // 在冷调主题下只会多出一层「窗口套窗口」的框感。二级岛（Card）仍保留
-    // 1pt 描边用于区分卡片边界。
+    // 顶级页面不再有自己的卡片：页面与标题栏是同一块窗口表面，靠 AmbientGlow
+    // 的环境光与下面分层的内容（PageSection / Card / QuietCard）组织信息。
+    // 页面只负责内边距与滚动；这个边距值同时也是壳层标题栏的左右边距
+    // （app.cpp 的 shellInset），应用名与页面标题因此共享同一条左边线。
     huxerui::View body = content;
     return huxerui::Column {
         huxerui::Row {
@@ -153,17 +127,11 @@ huxerui::Color IslandColor(const IslandTheme& islands, IslandLevel level) {
     }.With(huxerui::Padding(compact ? theme.spacing.medium
                                     : theme.spacing.large),
            huxerui::Spacing(theme.spacing.medium),
-           huxerui::Background(islands.base),
-           huxerui::CornerRadius(islands.island_radius),
            huxerui::ClipChildren(),
            huxerui::Grow(1.0F),
            huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 }
 
-// 卡片容器（二级岛）：raised 表面 + 6pt 圆角 + 1pt 语义描边 + 内边距。
-// 保持单层绘制，避免滚动时产生逐卡片矢量叠层和裁剪合成。用于页面里少数
-// 独立分区/浮层内容；重复列表条目用无边框 QuietCard，常规分区优先拍平成
-// 标题 + 内容 + 分隔线的分组（PageSection），避免整页串成一列盒子。
 [[huxerui::composable]] huxerui::View Card(huxerui::View content) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     const IslandTheme islands = ResolveIslandTheme(theme);

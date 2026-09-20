@@ -994,6 +994,14 @@ huxerui::View AmbientGlow(bool dark) {
         themeMode.Get() == 1 || (themeMode.Get() == 0 && cfg::systemPrefersDark());
     const huxerui::ThemeSpec rootSpec = dark ? AppDarkThemeSpec() : AppLightThemeSpec();
 
+    // 顶级页面不再有自己的卡片，页面与标题栏共用窗口表面；两者的左右边距
+    // 必须取同一个值，否则应用名和页面标题会差出一段缩进，看起来仍是两层。
+    // 该值必须与 PageScaffold / AgentPage 的内边距保持一致。
+    const bool compactShell =
+        huxerui::UseViewportClass() == huxerui::ViewportClass::Compact;
+    const float shellInset =
+        compactShell ? rootSpec.spacing.medium : rootSpec.spacing.large;
+
     // 叠放根：环境层只有一层冷调环境光，内容仍以轻岛屿组织并透出环境；
     // 最外层仍刷海面底色，保证极端宽高比下背景稳定。
     huxerui::View content = huxerui::Stack {
@@ -1012,14 +1020,14 @@ huxerui::View AmbientGlow(bool dark) {
                         rootSpec.colors.on_surface}),
                 huxerui::Spacer(),
             }
-                .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(
-                          rootSpec.spacing.small, 0.0F))),
+                .With(huxerui::Padding(
+                    huxerui::EdgeInsets::Symmetric(shellInset, 0.0F))),
             // 内容区独占标题栏之外的整行，不再为左侧顶级导航预留宽度。
+            // 左右边距由页面自身（PageScaffold / AgentPage）提供，这里不再
+            // 额外缩进——页面卡片已去掉，外面再套一层就会与标题栏错位。
             // 页面容器承担切页展开：缩放轴心取容器中心，配合淡入即"从中心展开"。
             TopLevelNavigation(navPage, revision, themeMode, pageReveal)
-                .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(
-                          rootSpec.spacing.small, 0.0F)),
-                      huxerui::Grow(1.0F)),
+                .With(huxerui::Grow(1.0F)),
         }
             .With(huxerui::Spacing(rootSpec.spacing.extra_small),
                   huxerui::Padding(huxerui::EdgeInsets{.bottom =

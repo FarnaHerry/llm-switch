@@ -110,8 +110,6 @@ namespace llmswitch::ui {
     }.With(huxerui::Padding(compact ? theme.spacing.medium
                                     : theme.spacing.large),
            huxerui::Spacing(theme.spacing.medium),
-           huxerui::Background(islands.base),
-           huxerui::CornerRadius(islands.island_radius),
            huxerui::ClipChildren(),
            huxerui::Grow(1.0F),
            huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));

@@ -45,21 +45,17 @@ std::string_view ToolName(std::string_view tool);
 huxerui::ImageResource ToolIcon(std::string_view iconName);
 
 // ---- 岛屿结构（对齐 Clash-Flux island 模型）----
-// 语义层级：页面通过层级选表面，不直接依赖 Material 的 surface_container_* 命名；
-// 颜色仍由当前 ThemeSpec 派生，深浅主题共用组件。
-enum class IslandLevel {
-    Base,    // 一级岛（页面根）
-    Raised,  // 二级岛（卡片/分组）
-    Overlay, // 浮动面（弹层、徽章）
-};
-
+// 语义层级：颜色由当前 ThemeSpec 派生，深浅主题共用组件，页面不直接依赖
+// Material 的 surface_container_* 命名。
+// 注：顶级页面已不再有自己的一级岛表面（页面与标题栏共用窗口表面），
+// 这里的 raised / overlay 供二级岛（Card/QuietCard）与浮层使用。
 struct IslandTheme {
     float page_gap;        // 岛间缝隙（透出窗口底色「海面」）
-    float island_padding;  // 一级岛内边距
-    float island_radius;   // 一级轻岛圆角（当前 10pt）
+    float island_padding;  // 岛内边距（页面/卡片共用）
+    float island_radius;   // 一级岛圆角（浮层卡片仍在用）
     float nested_radius;   // 二级岛/浮动菜单圆角（当前 6pt）
     huxerui::Color ocean;   // 海面（窗口背景）
-    huxerui::Color base;    // 一级岛表面
+    huxerui::Color base;    // 一级岛表面（顶级页面已不用；保留给未来的整面区块）
     huxerui::Color raised;  // 二级岛表面
     huxerui::Color overlay; // 浮动面
     huxerui::Color outline_soft;
@@ -72,9 +68,6 @@ struct IslandTheme {
 };
 
 IslandTheme ResolveIslandTheme(const huxerui::ThemeSpec& theme);
-
-// 岛屿原语：Surface 负责语义表面/圆角/内边距；Section 在其上提供标题+内容排版。
-huxerui::View IslandSurface(huxerui::View content, IslandLevel level = IslandLevel::Base);
 
 // ---- 页面（定义在各自 .cpp，均为 [[huxerui::composable]]）----
 // Agent 管理页：持有 Agent 工具栏/Pager 的受控选中索引，并让各工具页保持

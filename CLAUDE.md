@@ -267,9 +267,12 @@ I/O、解析和 JSON 函数默认保留在 `.cpp` 中。
    状态**——按钮/分段选中/开关/标题栏 hover 描边与辉光；分组标题等非交互
    文字用 on_surface / on_surface_variant，避免整页变蓝。设置页以单个太极
    选择器循环切换跟随系统/石墨/晴石（平衡态/石墨外环/晴石外环，悬停持续
-   旋转、移出冻结当前角度），存值仍 system/dark/light；一级轻岛 10pt /
-   二级岛 6pt 圆角，半透明表面色经 `ResolveIslandTheme(theme)` 语义
-   层级取，不直接用 surface_container_*。删除确认用内置
+   旋转、移出冻结当前角度），存值仍 system/dark/light。**顶级页面没有自己的
+   卡片**：`PageScaffold` / `AgentPage` 只做内边距与滚动，页面与标题栏共用同一块
+   窗口表面，两者的左右边距取同一个 `shellInset`（app.cpp），应用名与页面标题因此
+   对齐；层次感靠 AmbientGlow + 下面分层的分区/卡片表达。浮层/弹窗 10pt、
+   二级岛 6pt 圆角，表面色经 `ResolveIslandTheme(theme)` 语义层级取，
+   不直接用 surface_container_*。删除确认用内置
    `dialog.Show(title, message, positive, negative, ...)`（DialogStyle 已在
    MinimalThemed 里主题化）。
    卡片克制使用：页面常规分区用 `PageSection`（标题 + 内容平铺）+
@@ -283,8 +286,9 @@ I/O、解析和 JSON 函数默认保留在 `.cpp` 中。
    alpha-mask，深浅主题由运行时 tint 自适应，选中态由承载底块表达；禁止
    `_selected/_dark/_light` 重复轮廓；品牌图标不得改变官方轮廓。
    CMake 配置期强制校验（无色 mask + 无重复轮廓）。
-9. **响应式**：`UseViewportClass()` Compact(<600) 收窄侧栏(44pt)/一级岛内边距
-   （PageScaffold）；窗口最小 800×600。
+9. **响应式**：`UseViewportClass()` Compact(<600) 收窄页面内边距
+   （`PageScaffold` / `AgentPage` 的 medium↔large）与壳层 `shellInset`
+   （app.cpp，必须同值）；窗口最小 800×600。
 
 ## 已知取舍（读代码遇到别当 bug 修）
 
