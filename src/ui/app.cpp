@@ -1025,12 +1025,16 @@ huxerui::View AmbientGlow(bool dark) {
             // 内容区独占标题栏之外的整行，不再为左侧顶级导航预留宽度。
             // 左右边距由页面自身（PageScaffold / AgentPage）提供，这里不再
             // 额外缩进——页面卡片已去掉，外面再套一层就会与标题栏错位。
+            // 纵向同理：这里不声明 Spacing（默认 0），页面顶部也不留内边距，
+            // 页面内容紧接标题栏下沿。标题栏的实际高度由平台解析（Linux 把
+            // 声明的 24 抬到 32 的最小值，Windows 取 max(24, 系统标题高度)），
+            // WindowTitleBar 按解析值测量，页面排在它后面自然贴合——这正是
+            // 不能用硬编码高度去"对齐"的原因。
             // 页面容器承担切页展开：缩放轴心取容器中心，配合淡入即"从中心展开"。
             TopLevelNavigation(navPage, revision, themeMode, pageReveal)
                 .With(huxerui::Grow(1.0F)),
         }
-            .With(huxerui::Spacing(rootSpec.spacing.extra_small),
-                  huxerui::Padding(huxerui::EdgeInsets{.bottom =
+            .With(huxerui::Padding(huxerui::EdgeInsets{.bottom =
                                                            rootSpec.spacing.small}),
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)),
         // 与整窗而非 WindowTitleBar 的可用内容区对齐，保证莲花位于几何中心。

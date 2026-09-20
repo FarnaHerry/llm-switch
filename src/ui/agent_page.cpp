@@ -89,6 +89,10 @@ namespace llmswitch::ui {
            huxerui::ClipChildren(),
            huxerui::MainAlign(huxerui::MainAxisAlignment::Start),
            huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
+    // 与 PageScaffold 同一套壳层约束：顶部不留内边距（top = 0，壳层也不留
+    // Spacing），Agent 工具栏紧接标题栏下沿；左右边距是壳层标题栏的同一个
+    // shellInset，应用名与工具栏左对齐。
+    const float inset = compact ? theme.spacing.medium : theme.spacing.large;
     return huxerui::Column {
         huxerui::Row {
             std::move(navigationContainer),
@@ -107,8 +111,10 @@ namespace llmswitch::ui {
             .DragEnabled(false)
             .OnChanged(selectTool)
             .With(huxerui::Grow(1.0F)),
-    }.With(huxerui::Padding(compact ? theme.spacing.medium
-                                    : theme.spacing.large),
+    }.With(huxerui::Padding(huxerui::EdgeInsets{.top = 0.0F,
+                                               .right = inset,
+                                               .bottom = inset,
+                                               .left = inset}),
            huxerui::Spacing(theme.spacing.medium),
            huxerui::ClipChildren(),
            huxerui::Grow(1.0F),

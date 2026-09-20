@@ -270,7 +270,11 @@ I/O、解析和 JSON 函数默认保留在 `.cpp` 中。
    旋转、移出冻结当前角度），存值仍 system/dark/light。**顶级页面没有自己的
    卡片**：`PageScaffold` / `AgentPage` 只做内边距与滚动，页面与标题栏共用同一块
    窗口表面，两者的左右边距取同一个 `shellInset`（app.cpp），应用名与页面标题因此
-   对齐；层次感靠 AmbientGlow + 下面分层的分区/卡片表达。浮层/弹窗 10pt、
+   对齐；纵向同样不留缝隙——页面顶部内边距为 0、壳层标题栏与页面之间不声明
+   `Spacing`，页面内容紧接标题栏下沿（标题栏高度由平台解析：Linux 把声明的 24
+   抬到 32 最小高度，Windows 取 max(24, 系统标题高度)，`WindowTitleBar` 自己按
+   解析值测量，页面排在它之后自然贴合，不要用硬编码高度去对齐）；层次感靠
+   AmbientGlow + 下面分层的分区/卡片表达。浮层/弹窗 10pt、
    二级岛 6pt 圆角，表面色经 `ResolveIslandTheme(theme)` 语义层级取，
    不直接用 surface_container_*。删除确认用内置
    `dialog.Show(title, message, positive, negative, ...)`（DialogStyle 已在
@@ -287,8 +291,8 @@ I/O、解析和 JSON 函数默认保留在 `.cpp` 中。
    `_selected/_dark/_light` 重复轮廓；品牌图标不得改变官方轮廓。
    CMake 配置期强制校验（无色 mask + 无重复轮廓）。
 9. **响应式**：`UseViewportClass()` Compact(<600) 收窄页面内边距
-   （`PageScaffold` / `AgentPage` 的 medium↔large）与壳层 `shellInset`
-   （app.cpp，必须同值）；窗口最小 800×600。
+   （`PageScaffold` / `AgentPage` 的 medium↔large，顶部恒为 0）与壳层
+   `shellInset`（app.cpp，必须同值）；窗口最小 800×600。
 
 ## 已知取舍（读代码遇到别当 bug 修）
 

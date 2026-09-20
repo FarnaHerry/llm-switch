@@ -114,8 +114,11 @@ IslandTheme ResolveIslandTheme(const huxerui::ThemeSpec& theme) {
         huxerui::UseViewportClass() == huxerui::ViewportClass::Compact;
     // 顶级页面不再有自己的卡片：页面与标题栏是同一块窗口表面，靠 AmbientGlow
     // 的环境光与下面分层的内容（PageSection / Card / QuietCard）组织信息。
-    // 页面只负责内边距与滚动；这个边距值同时也是壳层标题栏的左右边距
+    // 页面只负责内边距与滚动；左右边距同时是壳层标题栏的左右边距
     // （app.cpp 的 shellInset），应用名与页面标题因此共享同一条左边线。
+    // 顶部不留内边距（top = 0）且壳层也不留 Spacing：页面标题紧接标题栏下沿，
+    // 两者之间没有额外高度；标题栏自身的高度由平台解析，页面排在它之后贴合。
+    const float inset = compact ? theme.spacing.medium : theme.spacing.large;
     huxerui::View body = content;
     return huxerui::Column {
         huxerui::Row {
@@ -124,8 +127,10 @@ IslandTheme ResolveIslandTheme(const huxerui::ThemeSpec& theme) {
             std::move(actions),
         }.With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
         std::move(body).With(huxerui::Grow(1.0F)),
-    }.With(huxerui::Padding(compact ? theme.spacing.medium
-                                    : theme.spacing.large),
+    }.With(huxerui::Padding(huxerui::EdgeInsets{.top = 0.0F,
+                                                .right = inset,
+                                                .bottom = inset,
+                                                .left = inset}),
            huxerui::Spacing(theme.spacing.medium),
            huxerui::ClipChildren(),
            huxerui::Grow(1.0F),
