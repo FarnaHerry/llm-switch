@@ -11,7 +11,7 @@
 //   * snapshot 的 today 口径与 byAgent 汇总。
 #include <cstdio>  // stderr（std 模块不导出 stdout/stderr 宏）
 
-#include "test_env.h"  // setenv/unsetenv 可移植封装
+#include "test_env.h"  // testenv::setenv/unsetenv：MSVC 无 setenv，路径直传版处理宽窄字符
 
 import std;
 import llmswitch.config;
@@ -52,7 +52,7 @@ void useDataDir(std::string_view name) {
     const auto dir = g_base / name;
     std::error_code ec;
     std::filesystem::create_directories(dir, ec);
-    setenv("LLMSWITCH_DATA_DIR", dir.string().c_str(), 1);
+    testenv::setenv("LLMSWITCH_DATA_DIR", dir);
 }
 
 const UsageRecord* find(const std::vector<UsageRecord>& v, std::string_view key) {
@@ -194,14 +194,14 @@ void testZcode() {
 void testSyncIncremental() {
     useDataDir("sync");
     const auto root = std::filesystem::temp_directory_path() /
-                      ("llmswitch-usage-sync-" + std::to_string(getpid()));
+                      ("llmswitch-usage-sync-" + std::to_string(testenv::getpid()));
     std::error_code ec;
     std::filesystem::remove_all(root, ec);
-    setenv("LLMSWITCH_CLAUDE_PROJECTS", (root / "claude").string().c_str(), 1);
-    setenv("LLMSWITCH_CODEX_SESSIONS", (root / "codex").string().c_str(), 1);
-    setenv("LLMSWITCH_QWEN_USAGE", (root / "qwen").string().c_str(), 1);
-    setenv("LLMSWITCH_PI_SESSIONS", (root / "pi").string().c_str(), 1);
-    setenv("LLMSWITCH_ZCODE_ROLLOUT", (root / "zcode").string().c_str(), 1);
+    testenv::setenv("LLMSWITCH_CLAUDE_PROJECTS", (root / "claude"));
+    testenv::setenv("LLMSWITCH_CODEX_SESSIONS", (root / "codex"));
+    testenv::setenv("LLMSWITCH_QWEN_USAGE", (root / "qwen"));
+    testenv::setenv("LLMSWITCH_PI_SESSIONS", (root / "pi"));
+    testenv::setenv("LLMSWITCH_ZCODE_ROLLOUT", (root / "zcode"));
 
     const auto claudeFile = root / "claude" / "proj" / "s1.jsonl";
     const std::string lineA =
@@ -266,24 +266,24 @@ void testSyncIncremental() {
     }
 
     std::filesystem::remove_all(root, ec);
-    unsetenv("LLMSWITCH_CLAUDE_PROJECTS");
-    unsetenv("LLMSWITCH_CODEX_SESSIONS");
-    unsetenv("LLMSWITCH_QWEN_USAGE");
-    unsetenv("LLMSWITCH_PI_SESSIONS");
-    unsetenv("LLMSWITCH_ZCODE_ROLLOUT");
+    testenv::unsetenv("LLMSWITCH_CLAUDE_PROJECTS");
+    testenv::unsetenv("LLMSWITCH_CODEX_SESSIONS");
+    testenv::unsetenv("LLMSWITCH_QWEN_USAGE");
+    testenv::unsetenv("LLMSWITCH_PI_SESSIONS");
+    testenv::unsetenv("LLMSWITCH_ZCODE_ROLLOUT");
 }
 
 void testSnapshotAggregation() {
     useDataDir("agg");
     const auto root = std::filesystem::temp_directory_path() /
-                      ("llmswitch-usage-agg-" + std::to_string(getpid()));
+                      ("llmswitch-usage-agg-" + std::to_string(testenv::getpid()));
     std::error_code ec;
     std::filesystem::remove_all(root, ec);
-    setenv("LLMSWITCH_CLAUDE_PROJECTS", (root / "claude").string().c_str(), 1);
-    setenv("LLMSWITCH_CODEX_SESSIONS", (root / "codex").string().c_str(), 1);
-    setenv("LLMSWITCH_QWEN_USAGE", (root / "qwen").string().c_str(), 1);
-    setenv("LLMSWITCH_PI_SESSIONS", (root / "pi").string().c_str(), 1);
-    setenv("LLMSWITCH_ZCODE_ROLLOUT", (root / "zcode").string().c_str(), 1);
+    testenv::setenv("LLMSWITCH_CLAUDE_PROJECTS", (root / "claude"));
+    testenv::setenv("LLMSWITCH_CODEX_SESSIONS", (root / "codex"));
+    testenv::setenv("LLMSWITCH_QWEN_USAGE", (root / "qwen"));
+    testenv::setenv("LLMSWITCH_PI_SESSIONS", (root / "pi"));
+    testenv::setenv("LLMSWITCH_ZCODE_ROLLOUT", (root / "zcode"));
 
     // 两个 agent，各一条；再放一条极早时间戳的记录验证 today 划分不会把它算进来。
     writeFile(root / "claude" / "p" / "a.jsonl",
@@ -315,18 +315,18 @@ void testSnapshotAggregation() {
     CHECK(store.snapshot().total.requests == 0);
 
     std::filesystem::remove_all(root, ec);
-    unsetenv("LLMSWITCH_CLAUDE_PROJECTS");
-    unsetenv("LLMSWITCH_CODEX_SESSIONS");
-    unsetenv("LLMSWITCH_QWEN_USAGE");
-    unsetenv("LLMSWITCH_PI_SESSIONS");
-    unsetenv("LLMSWITCH_ZCODE_ROLLOUT");
+    testenv::unsetenv("LLMSWITCH_CLAUDE_PROJECTS");
+    testenv::unsetenv("LLMSWITCH_CODEX_SESSIONS");
+    testenv::unsetenv("LLMSWITCH_QWEN_USAGE");
+    testenv::unsetenv("LLMSWITCH_PI_SESSIONS");
+    testenv::unsetenv("LLMSWITCH_ZCODE_ROLLOUT");
 }
 
 }  // namespace
 
 int main() {
     g_base = std::filesystem::temp_directory_path() /
-             ("llmswitch-test-usage-" + std::to_string(getpid()));
+             ("llmswitch-test-usage-" + std::to_string(testenv::getpid()));
     std::error_code ec;
     std::filesystem::remove_all(g_base, ec);
     std::filesystem::create_directories(g_base, ec);
@@ -343,7 +343,7 @@ int main() {
     testSnapshotAggregation();
 
     std::filesystem::remove_all(g_base, ec);
-    unsetenv("LLMSWITCH_DATA_DIR");
+    testenv::unsetenv("LLMSWITCH_DATA_DIR");
     if (g_failures != 0) {
         std::println(stderr, "test_usage: {} check(s) failed", g_failures);
         return 1;

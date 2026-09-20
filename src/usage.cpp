@@ -246,15 +246,18 @@ std::vector<std::filesystem::path> CollectJsonl(const std::filesystem::path& roo
     std::vector<std::filesystem::path> files;
     std::error_code ec;
     if (!std::filesystem::is_directory(root, ec)) return files;
-    for (std::filesystem::recursive_directory_iterator it(
-             root, std::filesystem::directory_options::skip_permission_denied, ec),
-         end;
-         it != end; it.increment(ec)) {
+    // libc++ 21 起 recursive_directory_iterator 只剩 default_sentinel 比较
+    // （迭代器对 != 已移除，range-for 编不过）；显式迭代 + 哨兵比较三标准库通吃。
+    // 与 sessions.cpp 的 scanCodex 同一写法。
+    for (auto it = std::filesystem::recursive_directory_iterator(
+             root, std::filesystem::directory_options::skip_permission_denied, ec);
+         it != std::default_sentinel; it.increment(ec)) {
         if (ec) break;
+        const auto& entry = *it;
         std::error_code entryEc;
-        if (!it->is_regular_file(entryEc) || entryEc) continue;
-        if (it->path().extension() != ".jsonl") continue;
-        files.push_back(it->path());
+        if (!entry.is_regular_file(entryEc) || entryEc) continue;
+        if (entry.path().extension() != ".jsonl") continue;
+        files.push_back(entry.path());
     }
     std::sort(files.begin(), files.end());
     return files;
