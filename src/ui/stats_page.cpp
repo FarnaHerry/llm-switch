@@ -167,6 +167,9 @@ void ApplySnapshot(const router::StatsSnapshot& snapshot,
 
     // 清空统计：弹窗会卸载点击路径上的节点，经事件队列推迟出指针事件
     // 路径再弹（不走帧调度）。
+    // 注意 lambda 必须有 co_return：返回类型是协程 Task，没有 co_ 关键字的
+    // 普通函数会「有返回值却没有 return」直接流出函数尾（UB），Launch 拿到
+    // 的是未初始化的 Task —— 点一下「清空统计」就是段错误。
     auto confirmClear = [=] {
         tasks.Launch([=]() -> huxerui::Task<void> {
             dialog.Show(
@@ -178,6 +181,7 @@ void ApplySnapshot(const router::StatsSnapshot& snapshot,
                                   providerStats);
                     toast.Show("统计已清空");
                 });
+            co_return;
         });
     };
 
