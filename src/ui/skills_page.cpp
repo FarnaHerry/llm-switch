@@ -418,10 +418,9 @@ bool InvolvesTool(const skills::SkillInfo& skill, std::string_view toolId) {
         }
     }
 
+    // Agent 过滤行只留图标组：不再给「Agent」文字标签，图标本身已经说清楚
+    // 是哪几个 Agent（无障碍名称仍在 SegmentedButtonItem 的语义标签里）。
     const huxerui::View filterRow = huxerui::Row {
-        huxerui::Text("Agent").Style(huxerui::TextStyle{
-            huxerui::Font::System(font_size::kCaption),
-            theme.colors.on_surface_variant}),
         huxerui::SegmentedButton(std::move(filterItems), agentFilter)
             .OnChanged([agentFilter](std::size_t index) { agentFilter = index; }),
         huxerui::Spacer(),
