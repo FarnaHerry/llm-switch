@@ -1,20 +1,8 @@
-<?xml version="1.0" standalone="no"?>
-<svg version="1.0" xmlns="http://www.w3.org/2000/svg"
- width="24" height="24" viewBox="0 0 100.000000 100.000000"
- preserveAspectRatio="xMidYMid meet">
-<metadata>
-Created by potrace 1.16, written by Peter Selinger 2001-2019
-</metadata>
-<g transform="translate(0.000000,100.000000) scale(0.100000,-0.100000)"
-fill="#FFFFFF" stroke="none">
-<path d="M349 921 c-21 -16 -25 -31 -29 -98 l-5 -78 -45 -3 c-25 -1 -56 -8
--68 -14 -49 -25 -52 -47 -52 -337 l0 -269 26 -31 26 -31 237 0 c286 0 281 -2
-281 96 0 61 -1 64 -25 64 -25 0 -31 -10 -37 -70 l-3 -25 -191 -3 c-110 -1
--203 2 -218 8 l-26 10 0 259 c0 197 3 262 13 268 6 4 34 8 60 9 68 1 81 18 87
-112 l5 77 140 0 140 0 3 -72 c2 -62 6 -73 23 -78 40 -13 51 12 47 101 -5 125
--4 124 -203 124 -145 0 -165 -2 -186 -19z"/>
-<path d="M652 617 c-6 -7 -12 -37 -14 -67 l-3 -55 -55 -5 c-53 -5 -55 -6 -55
--35 0 -29 2 -30 55 -35 l55 -5 5 -60 c5 -59 6 -60 35 -60 30 0 30 0 33 62 l3
-62 62 3 c62 3 62 3 62 33 0 30 0 30 -62 33 l-63 3 0 57 c0 72 -28 105 -58 69z"/>
-</g>
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+  <!-- 新建：简单通用加号。原来的卷宗加号在 16–20px 下笔画糊成一团，
+       换成单一圆头十字，任意尺寸都清楚。 -->
+  <g fill="none" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round">
+    <path d="M12 6v12"/>
+    <path d="M6 12h12"/>
+  </g>
 </svg>
