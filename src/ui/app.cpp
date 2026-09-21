@@ -708,20 +708,13 @@ constexpr double kCollapseSeconds = 0.12;
     for (std::size_t i = 0; i < items.size(); ++i) {
         radialChildren.push_back(makeButton(items[i], positions[i]));
     }
+    // 盘心只有盛放莲花一种形态（含苞态已整体废弃）：盘收合时它随盘一起
+    // 淡出、缩到 0.72，展开时放大回 1.0——"莲花开、线条长出来"的读法不变。
     radialChildren.push_back(
         huxerui::Stack {
-            huxerui::Image(app::images::lotus_bud)
-                .Tint(theme.colors.on_surface)
-                .With(huxerui::Frame{.width = 36.0F, .height = 36.0F},
-                      huxerui::Opacity(huxerui::AnimateTo(
-                          revealed.Get() ? 0.0F : 1.0F, motion)),
-                      huxerui::Scale(huxerui::AnimateTo(
-                          revealed.Get() ? 0.78F : 1.0F, motion))),
             huxerui::Image(app::images::lotus_bloom)
                 .Tint(theme.colors.on_surface)
                 .With(huxerui::Frame{.width = 40.0F, .height = 40.0F},
-                      huxerui::Opacity(huxerui::AnimateTo(
-                          revealed.Get() ? 1.0F : 0.0F, motion)),
                       huxerui::Scale(huxerui::AnimateTo(
                           revealed.Get() ? 1.0F : 0.72F, motion))),
         }
@@ -799,27 +792,24 @@ constexpr double kCollapseSeconds = 0.12;
                           huxerui::VerticalAlignment::Stretch));
 }
 
-// 托盘跟随应用展示状态：前台/可见时使用盛放莲花，后台（最小化或隐藏）时
-// 使用闭合花苞。生命周期读取封装在独立组合边界内，避免状态切换重组窗口正文。
+// 托盘图标固定使用盛放莲花：曾经按应用展示状态在前台用盛放、后台（最小化或
+// 隐藏）用含苞，双态已整体废弃，所以这里也不再订阅生命周期状态。
+// 生命周期读取封装在独立组合边界内，避免状态切换重组窗口正文。
 [[huxerui::composable]] huxerui::View SystemTrayPresentation(
     huxerui::ApplicationHandle application, huxerui::SystemTrayHandle tray,
     huxerui::WindowHandle window, huxerui::ToastHandle toast,
     huxerui::State<int> revision) {
-    const bool minimized = application.LifecycleState() ==
-                           huxerui::ApplicationLifecycleState::Background;
-
     tray.OnActivate([window] { window.Activate(); });
     huxerui::Lifecycle(
-        [application, tray, window, toast, revision, minimized] {
-            tray.Show(minimized ? app::images::lotus_tray_bud
-                                : app::images::lotus_tray_bloom,
+        [application, tray, window, toast, revision] {
+            tray.Show(app::images::lotus_tray_bloom,
                       huxerui::SystemTrayOptions{
                           .tooltip = "llm-switch",
                           .menu = BuildTrayMenu(window, application, toast,
                                                 revision)});
             return [tray] { tray.Hide(); };
         },
-        revision, minimized);
+        revision);
 
     return huxerui::Row {};
 }
