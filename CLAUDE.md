@@ -326,6 +326,11 @@ I/O、解析和 JSON 函数默认保留在 `.cpp` 中。
   零开销（函数内 `if (NOT HUXERUI_PACKAGE) return()`）。需要含
   `huxerui_add_windows_installer` 的 HuxerUI 源码/SDK（0.2.0 之后；当前 CI
   固定的 `64264cb` 已满足）。
+- **触发策略：只有推 `v*` tag（发布）才自动构建**——main 分支推送与 PR 都不再
+  触发（每次 push 要在三平台各跑一遍完整依赖编译+测试+打包+上传，带宽与额度
+  代价高）；日常验证靠本地完整编译 + `ctest`，CI 只守发布这道门。需要手动验证
+  流水线本身时用 `workflow_dispatch`（release job 自带
+  `startsWith(github.ref, 'refs/tags/v')` 判断，手动触发只构建、不发布）。
 - `.github/workflows/build.yml`（蓝本 Clash-Flux 同名文件，按其已跑通配方
   适配）：三个桌面 job + release。build-linux（ubuntu:26.04 容器 + clang-21/
   libc++-21 + pip cmake==4.4.2 + libc++.modules.json 路径改写 + gtk4/epoxy/
