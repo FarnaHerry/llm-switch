@@ -326,11 +326,16 @@ I/O、解析和 JSON 函数默认保留在 `.cpp` 中。
   零开销（函数内 `if (NOT HUXERUI_PACKAGE) return()`）。需要含
   `huxerui_add_windows_installer` 的 HuxerUI 源码/SDK（0.2.0 之后；当前 CI
   固定的 `64264cb` 已满足）。
-- **触发策略：只有推 `v*` tag（发布）才自动构建**——main 分支推送与 PR 都不再
-  触发（每次 push 要在三平台各跑一遍完整依赖编译+测试+打包+上传，带宽与额度
-  代价高）；日常验证靠本地完整编译 + `ctest`，CI 只守发布这道门。需要手动验证
-  流水线本身时用 `workflow_dispatch`（release job 自带
-  `startsWith(github.ref, 'refs/tags/v')` 判断，手动触发只构建、不发布）。
+- **触发策略：推 main、开 PR、推 `v*` tag 都构建**（tag 额外触发 release job）。
+  不要为"省额度"把 main 的构建收掉——本仓库是 public，**标准 GitHub-hosted
+  runner 的 Actions 用量对 public 仓库免费**（计费文档：*usage is free for
+  self-hosted runners and for public repositories that use standard
+  GitHub-hosted runners*；额度表里的 500MB artifact / 2000 minutes 是 private
+  仓库的 plan 配额），收费的是 **larger runners**（4-core 起，*not free for
+  public repositories*）——本仓库只用标准 runner。所以每次 push 构建的边际成本
+  是 0，换来 main 上每笔提交的三平台回执；只有 `docs/**`、`**.md` 走
+  `paths-ignore` 跳过。`workflow_dispatch` 手动触发只构建（release job 自带
+  `startsWith(github.ref, 'refs/tags/v')` 判断，不会因为手动跑而发布）。
 - `.github/workflows/build.yml`（蓝本 Clash-Flux 同名文件，按其已跑通配方
   适配）：三个桌面 job + release。build-linux（ubuntu:26.04 容器 + clang-21/
   libc++-21 + pip cmake==4.4.2 + libc++.modules.json 路径改写 + gtk4/epoxy/

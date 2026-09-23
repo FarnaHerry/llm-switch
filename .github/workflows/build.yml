@@ -35,20 +35,27 @@
 
 name: build
 
-# 自动触发只有一件事：推 v* tag（= 发布）。main 分支推送与 PR 都不再构建——
-# 每次 push 都会在三个平台各跑一遍完整依赖编译、测试、打包并上传产物，代价
-# 很高；日常验证走本地 `cmake --build build && ctest`，CI 只守发布这道门。
-# release job 自身另有 startsWith(github.ref, 'refs/tags/v') 判断，所以非 tag
-# 的手动触发（workflow_dispatch）只做构建校验，不会创建 Release。
-# 想在推 main 时也构建，把下面 push.branches 打开即可（会恢复成 5 个 job 全跑）：
-#   on:
-#     push:
-#       branches: [main]
-#       tags: ['v*']
+# 触发策略：推 main、开 PR、推 v* tag 都构建（tag 额外触发 release job）。
+# 不做"只在发布时构建"的收敛——本仓库是 public，标准 GitHub-hosted runner 的
+# Actions 用量对 public 仓库免费（计费文档：usage is free for public
+# repositories that use standard GitHub-hosted runners；额度表里的
+# 500MB/2000min 是 private 仓库的 plan 配额）。收费的是 larger runners，
+# 本仓库只用标准 runner。所以每次 push 构建的边际成本是 0，换来 main 上每次
+# 提交都有三平台回执这道安全网。仅 docs/**、**.md 的提交走 paths-ignore 跳过。
+# 手动触发（workflow_dispatch）只构建校验：release job 自身有
+# startsWith(github.ref, 'refs/tags/v') 判断，不会因为手动跑而创建 Release。
 on:
   push:
+    branches: [main]
     tags: ['v*']
-  # 手动触发：不发布任何东西，只用于在真正打 tag 之前验证流水线本身还能跑通。
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
   workflow_dispatch:
 
 permissions:
