@@ -1,5 +1,5 @@
 // agent_page.cpp — Agent 管理页：顶部 Agent 工具栏与 action group 共用一行，
-// Pager 只切换下方 page；切换工具不会销毁供应商页的表单、列表和卡片局部状态。
+// Pager 支持左右拖动切换下方 page；切换工具不会销毁供应商页的表单、列表和卡片局部状态。
 #include <huxerui/huxerui.h>
 
 #include <cstddef>
@@ -108,7 +108,7 @@ namespace llmswitch::ui {
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
         huxerui::Pager(*cachedPages, selectedTool)
             .ScrollAxis(huxerui::Axis::Horizontal)
-            .DragEnabled(false)
+            .DragEnabled(true)
             .OnChanged(selectTool)
             .With(huxerui::Grow(1.0F)),
     }.With(huxerui::Padding(huxerui::EdgeInsets{.top = 0.0F,

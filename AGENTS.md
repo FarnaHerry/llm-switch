@@ -18,6 +18,11 @@ Claude、Codex、Gemini、Copilot、Cursor、Windsurf 及其他自动化 agent �
   需结合编译器、LTO/IPO 和反汇编验证。
 - 开始修改前先读与任务相关的现有代码和文档。HuxerUI 开发细节、架构和已知取舍
   见 `CLAUDE.md`；图标资源规则与来源许可见 `resources/README.md`。
+- 修改 HuxerUI 应用 UI 前，必须读取当前实际使用版本的
+  `huxerui-app-development` skill 主文档，并按任务查阅其 `references/`；源码模式
+  优先读取 `third_party/huxerui/skills/huxerui-app-development/SKILL.md`，SDK 模式
+  读取当前 SDK 的 `share/huxerui/skills/huxerui-app-development/SKILL.md`，实现以该
+  版本的公开 API 约定为准。
 - 保持用户已有改动，不顺手重排、格式化或重写无关代码。领域行为改变必须补充或
   更新相应测试。
 - HuxerUI 源码优先来自 `third_party/huxerui`，CI 固定版本见
