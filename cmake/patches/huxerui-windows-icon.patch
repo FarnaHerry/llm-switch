@@ -1,11 +1,8 @@
 diff --git a/platform/windows/win32_adapter.cpp b/platform/windows/win32_adapter.cpp
-index a4d0231..48a0969 100644
+index 41bcc9e..d6e61d3 100644
 --- a/platform/windows/win32_adapter.cpp
 +++ b/platform/windows/win32_adapter.cpp
-@@ -57,6 +57,23 @@ enum class MouseTrackingArea {
-   NonClient,
- };
- 
+@@ -59,0 +60,17 @@ enum class MouseTrackingArea {
 +#ifndef HUXERUI_WINDOWS_APPLICATION_ICON_RESOURCE_ID
 +#define HUXERUI_WINDOWS_APPLICATION_ICON_RESOURCE_ID 0
 +#endif
@@ -23,13 +20,7 @@ index a4d0231..48a0969 100644
 +#endif
 +}
 +
- LPCWSTR Win32PointerCursorResource(PointerCursorKind kind) noexcept {
-   switch (kind) {
-   case PointerCursorKind::Default:
-@@ -712,6 +729,20 @@ private:
- 
-   void RegisterWindowClass() {
-     instance_ = GetModuleHandleW(nullptr);
+@@ -810,0 +828,14 @@ private:
 +    const HICON icon = LoadApplicationIcon(instance_, GetSystemMetrics(SM_CXICON), GetSystemMetrics(SM_CYICON));
 +    const HICON small_icon =
 +        LoadApplicationIcon(instance_, GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON));
@@ -44,54 +35,30 @@ index a4d0231..48a0969 100644
 +      throw std::runtime_error("HuxerUI could not load its Windows application icon resource");
 +    }
 +#endif
-     WNDCLASSEXW window_class{
-         sizeof(WNDCLASSEXW),
-         CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS,
-@@ -719,17 +750,25 @@ private:
-         0,
-         0,
-         instance_,
+@@ -818 +849 @@ private:
 -        nullptr,
 +        icon,
-         LoadCursorW(nullptr, IDC_ARROW),
-         nullptr,
-         nullptr,
-         window_class_name_.c_str(),
+@@ -823 +854 @@ private:
 -        nullptr,
 +        small_icon,
-     };
-     class_atom_ = RegisterClassExW(&window_class);
-     if (class_atom_ == 0) {
+@@ -826,0 +858,6 @@ private:
 +      if (icon != nullptr) {
 +        DestroyIcon(icon);
 +      }
 +      if (small_icon != nullptr) {
 +        DestroyIcon(small_icon);
 +      }
-       throw std::runtime_error("HuxerUI could not register its Windows window class");
-     }
+@@ -828,0 +866,2 @@ private:
 +    window_icon_ = icon;
 +    window_small_icon_ = small_icon;
-   }
- 
-   void CreateApplicationWindow(const WindowOptions& options) {
-@@ -768,6 +807,12 @@ private:
-     if (window_ == nullptr) {
-       throw std::runtime_error("HuxerUI could not create its Windows application window");
-     }
+@@ -866,0 +906,6 @@ private:
 +    if (window_icon_ != nullptr) {
 +      SendMessageW(window_, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(window_icon_));
 +    }
 +    if (window_small_icon_ != nullptr) {
 +      SendMessageW(window_, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(window_small_icon_));
 +    }
-     platform_views_ =
-         std::make_unique<Win32PlatformViews>(instance_, window_, PlatformRegistry(), *runtime_,
-                                              [this](HWND source, UINT message, WPARAM w_param, LPARAM l_param) {
-@@ -812,6 +857,14 @@ private:
-       UnregisterClassW(window_class_name_.c_str(), instance_);
-       class_atom_ = 0;
-     }
+@@ -915,0 +961,8 @@ private:
 +    if (window_icon_ != nullptr) {
 +      DestroyIcon(window_icon_);
 +      window_icon_ = nullptr;
@@ -100,15 +67,6 @@ index a4d0231..48a0969 100644
 +      DestroyIcon(window_small_icon_);
 +      window_small_icon_ = nullptr;
 +    }
-     instance_ = nullptr;
-   }
- 
-@@ -1560,6 +1613,8 @@ private:
-   huxerui::Runtime* runtime_ = nullptr;
-   HINSTANCE instance_ = nullptr;
-   ATOM class_atom_ = 0;
+@@ -1645,0 +1699,2 @@ private:
 +  HICON window_icon_ = nullptr;
 +  HICON window_small_icon_ = nullptr;
-   HWND window_ = nullptr;
-   float dpi_ = kDipsPerInch;
-   bool custom_chrome_ = false;

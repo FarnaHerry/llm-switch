@@ -1,0 +1,118 @@
+diff --git a/platform/linux/linux_adapter.cpp b/platform/linux/linux_adapter.cpp
+index 4564443..e3f75dd 100644
+--- a/platform/linux/linux_adapter.cpp
++++ b/platform/linux/linux_adapter.cpp
+@@ -18,0 +19,2 @@
++#include <cstdio>
++#include <cstdlib>
+@@ -24,0 +27 @@
++#include <ranges>
+@@ -27,0 +31 @@
++#include <thread>
+@@ -56,0 +61,8 @@ constexpr float kResizeBorderDips = 6.0F;
++inline double LsProbeNow() noexcept {
++  return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
++}
++inline double LsProbeOrigin() noexcept {
++  static const double origin = LsProbeNow();
++  return origin;
++}
++
+@@ -662,0 +675,43 @@ public:
++      // Optional synthetic input for the UI performance probe.
++      // LLMSWITCH_PROBE_CLICK="x,y@delayms;mX,y@delayms" (logical coordinates).
++      if (const char* probe = std::getenv("LLMSWITCH_PROBE_CLICK"); probe && *probe) {
++        std::thread([probe, this] {
++          const std::chrono::milliseconds dwell{60};
++          std::string probe_text(probe);
++          for (const std::string& entry : std::views::split(probe_text, ';')
++                                             | std::views::transform([](auto&& range) {
++                                                 return std::string(range.begin(), range.end());
++                                               })) {
++            const auto at = entry.find('@');
++            const auto comma = entry.find(',');
++            if (at == std::string::npos || comma == std::string::npos) {
++              continue;
++            }
++            const bool move = entry.front() == 'm';
++            const std::size_t head = move ? 1U : 0U;
++            const int delay_ms = std::atoi(entry.substr(at + 1).c_str());
++            const float x = static_cast<float>(std::atof(entry.substr(head, comma - head).c_str()));
++            const float y = static_cast<float>(std::atof(entry.substr(comma + 1, at - comma - 1).c_str()));
++            std::this_thread::sleep_for(std::chrono::milliseconds(delay_ms));
++            const auto send = [this](PointerEventType type, float x, float y) {
++              ui_dispatcher_->Bind()([this, type, x, y] {
++                UiWindow::HandlePointerEvent({type, 0, {x, y}, PointerDeviceKind::Mouse,
++                                              PointerButton::Primary, PointerButton::Primary, {}});
++              });
++            };
++            if (move) {
++              std::fprintf(stderr, "[lsprobe %+.3f] synthetic move (%.0f,%.0f)\n",
++                           LsProbeNow() - LsProbeOrigin(), x, y);
++              send(PointerEventType::Move, x, y);
++              continue;
++            }
++            std::fprintf(stderr, "[lsprobe %+.3f] synthetic click (%.0f,%.0f)\n",
++                         LsProbeNow() - LsProbeOrigin(), x, y);
++            send(PointerEventType::Move, x, y);
++            std::this_thread::sleep_for(dwell);
++            send(PointerEventType::Down, x, y);
++            std::this_thread::sleep_for(dwell);
++            send(PointerEventType::Up, x, y);
++          }
++        }).detach();
++      }
+@@ -679,0 +735 @@ public:
++    const double request_now = Now();
+@@ -681 +737,3 @@ public:
+-            frame_state_.Request(deadline, Now(), drawing_area_ != nullptr && running_)) {
++            frame_state_.Request(deadline, request_now, drawing_area_ != nullptr && running_)) {
++      std::fprintf(stderr, "[lsprobe %+.3f] RequestFrameAt deadline=%+.3f -> ScheduleFrame\n",
++                   request_now - LsProbeOrigin(), *scheduled - LsProbeOrigin());
+@@ -682,0 +741,3 @@ public:
++    } else {
++      std::fprintf(stderr, "[lsprobe %+.3f] RequestFrameAt deadline=%+.3f DEFERRED (paint pending)\n",
++                   request_now - LsProbeOrigin(), deadline - LsProbeOrigin());
+@@ -847,0 +909,3 @@ private:
++    const double schedule_now = Now();
++    std::fprintf(stderr, "[lsprobe %+.3f] ScheduleFrame delay=%.1fms deadline=%+.3f\n",
++                 schedule_now - LsProbeOrigin(), milliseconds, deadline - LsProbeOrigin());
+@@ -857,0 +922 @@ private:
++    const double commit_start = Now();
+@@ -858,0 +924,2 @@ private:
++      std::fprintf(stderr, "[lsprobe %+.3f] CommitFrame skipped (build not pending)\n",
++                   commit_start - LsProbeOrigin());
+@@ -860,0 +928 @@ private:
++    std::fprintf(stderr, "[lsprobe %+.3f] CommitFrame begin\n", commit_start - LsProbeOrigin());
+@@ -861,0 +930,2 @@ private:
++    std::fprintf(stderr, "[lsprobe %+.3f] CommitFrame built in %.1fms\n",
++                 Now() - LsProbeOrigin(), (Now() - commit_start) * 1000.0);
+@@ -872,0 +943 @@ private:
++      std::fprintf(stderr, "[lsprobe %+.3f] FlushDeferredFrame -> ScheduleFrame\n", Now() - LsProbeOrigin());
+@@ -880,0 +952 @@ private:
++    const double paint_start = Now();
+@@ -889,0 +962,2 @@ private:
++    std::fprintf(stderr, "[lsprobe %+.3f] DrawFrame painted in %.1fms\n",
++                 Now() - LsProbeOrigin(), (Now() - paint_start) * 1000.0);
+@@ -1148,0 +1223,2 @@ private:
++    std::fprintf(stderr, "[lsprobe %+.3f] pointer down btn=%u pos=(%.0f,%.0f)\n",
++                 Now() - LsProbeOrigin(), platform_button, position.x, position.y);
+@@ -1163,0 +1240,2 @@ private:
++    std::fprintf(stderr, "[lsprobe %+.3f] pointer up btn=%u pos=(%.0f,%.0f)\n",
++                 Now() - LsProbeOrigin(), platform_button, position.x, position.y);
+@@ -1230,0 +1309,2 @@ private:
++    std::fprintf(stderr, "[lsprobe %+.3f] pointer enter (%.0f,%.0f)\n",
++                 LsProbeNow() - LsProbeOrigin(), x, y);
+@@ -1237,0 +1318,2 @@ private:
++    std::fprintf(stderr, "[lsprobe %+.3f] pointer move (%.0f,%.0f)\n",
++                 LsProbeNow() - LsProbeOrigin(), x, y);
+diff --git a/src/runtime/task.cpp b/src/runtime/task.cpp
+index afa4861..86bd776 100644
+--- a/src/runtime/task.cpp
++++ b/src/runtime/task.cpp
+@@ -8,0 +9 @@
++#include <cstdio>
+@@ -358,0 +360 @@ void TaskExecution::Start() {
++  std::fprintf(stderr, "[lsprobe] task Start: dispatching resume to UI queue\n");
+@@ -360,0 +363 @@ void TaskExecution::Start() {
++      std::fprintf(stderr, "[lsprobe] task resume: running coroutine body on UI thread\n");

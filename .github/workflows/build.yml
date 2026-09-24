@@ -16,7 +16,7 @@
 #     为 job artifact；build-windows 与 build-windows-installer 下载并复用这份 SDK，
 #     两个消费者再并行编译应用/安装器，避免重复编译整个 HuxerUI 框架。
 #   * 宿主工具 hcg/hrc 用上游源码内预置（tools/prebuilt/linux/x86_64）：
-#     钉住的 commit 区间内 387f315 已刷新预置宿主工具，预置与源码同步；
+#     钉住的 commit 区间内 b1657dc 已刷新预置宿主工具，预置与源码同步；
 #     若未来升级 commit 后出现 hrc 报 "unknown path operation"，即预置落后，
 #     需在 job 内从 tools/codegen + tools/resource_compiler 重编宿主工具。
 #   * 仓库自带离线 tarball（third_party/tarballs/huxerui-sdk-0.2.0-linux-x86_64）
@@ -25,7 +25,7 @@
 #
 # 三个平台均作为发布门禁：Linux、Windows 和 macOS 必须完成编译、测试和打包。
 # 工具链沿用 Clash-Flux 实证配方（Windows=MSVC + choco ninja；
-# macOS=brew llvm/libc++ + 手写 libc++.modules.json + 内联 P0960 补丁）。
+# macOS=brew llvm/libc++ + 手写 libc++.modules.json + 仓库跟踪的 P0960 补丁）。
 #
 # 已知风险：
 #   * ubuntu:26.04 是滚动预发布容器，clang-21/libc++-21 包名若随发布调整需同步改。
@@ -68,11 +68,10 @@ concurrency:
 env:
   HUXERUI_REPO: 'https://github.com/HuxerUI/HuxerUI.git'
   # 该目录 gitignore，不入库，CI 必须自行 clone 并钉 commit，保证可复现。
-  # 64264cb 位于 HuxerUI v0.3.0 发布线之后：在 d1d2daa/445488a（ApplicationHandle
-  # 的 Clipboard/Directories API、TreeView、模板 manifest CRLF 修复、Windows
-  # GUI 子系统启动修复）之上新增 Linux 有界 LRU 文本布局缓存（上游 PR #137）。
-  # Windows 主窗口图标仍需本地补丁 cmake/patches/huxerui-windows-icon.patch。
-  HUXERUI_COMMIT: '64264cba79d78ee0aed3d46b71550e66bffe7710'
+  # 0c51262 包含 Application/Window 所有权重构与跨平台 HTTP 流式请求修复，
+  # 并保留 64264cb 的 Linux 有界 LRU 文本布局缓存（上游 PR #137）。项目专属
+  # Windows 图标与 macOS P0960 兼容修改以补丁形式单独应用。
+  HUXERUI_COMMIT: '0c5126235d43c2b703166bcc00781b850f2d1c39'
 
 jobs:
   # ------------------------------------------------------------------ Linux
@@ -211,7 +210,7 @@ jobs:
           git clone --filter=blob:none "$HUXERUI_REPO" third_party/huxerui
           git -C third_party/huxerui checkout "$HUXERUI_COMMIT"
           # SDK 中预编译的 Win32 框架也必须保留应用窗口图标支持。
-          git -C third_party/huxerui apply "$GITHUB_WORKSPACE/cmake/patches/huxerui-windows-icon.patch"
+          git -C third_party/huxerui apply --unidiff-zero "$GITHUB_WORKSPACE/cmake/patches/huxerui-windows-icon.patch"
 
       - name: Ensure CMake >= 4.4 and Ninja
         shell: pwsh
@@ -445,8 +444,7 @@ jobs:
   # clang 编，std 类型贯穿 .mm/.cpp 接口必须单一标准库；AppleClang 不被
   # CMake 的 C++20 模块扫描支持）。brew llvm 不带 libc++.modules.json，按
   # 上游 schema 生成。上游 window.h 的 CrossAlign(...) 函数式转型依赖
-  # P0960（clang 的 ObjC++ 模式未实现），CI 内联打补丁（仓库不持有
-  # cmake/patches）。
+  # P0960（clang 的 ObjC++ 模式未实现），CI 应用 cmake/patches 中的项目补丁。
   build-macos:
     name: build-macos-arm64
     runs-on: macos-15
@@ -454,33 +452,12 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
 
-      - name: Fetch HuxerUI source (pinned) + P0960 patch
+      - name: Fetch HuxerUI source (pinned) + macOS compatibility patches
         run: |
           set -euo pipefail
           git clone --filter=blob:none "$HUXERUI_REPO" third_party/huxerui
           git -C third_party/huxerui checkout "$HUXERUI_COMMIT"
-          # P0960 聚合函数式转型 → 花括号初始化（clang ObjC++ 不支持 P0960；
-          # 上游 window.h 在钉住的 commit 仍未修）。
-          git -C third_party/huxerui apply <<'PATCH'
-          diff --git a/include/huxerui/window.h b/include/huxerui/window.h
-          index f172894..72c6476 100644
-          --- a/include/huxerui/window.h
-          +++ b/include/huxerui/window.h
-          @@ -249,7 +249,12 @@ class WindowTitleBar final : public Layout<WindowTitleBar> {
-           public:
-             /// Constructs a title bar from an existing child collection.
-             explicit WindowTitleBar(std::vector<View> children) : Layout(std::move(children)) {
-          -    this->ApplyModifiers(WindowDragRegion{}, CrossAlign(CrossAxisAlignment::Center));
-          +    // NOTE(llm-switch CI patch): functional-style cast to the CrossAlign
-          +    // aggregate relies on P0960, which clang does not implement in Objective-C++
-          +    // mode — every appkit *.mm TU failed to compile on macOS ("no matching
-          +    // conversion for functional-style cast"). Brace initialization works in all
-          +    // languages/compilers. Suggest upstream adopt CrossAlign{...} here.
-          +    this->ApplyModifiers(WindowDragRegion{}, CrossAlign{CrossAxisAlignment::Center});
-             }
-           
-             /// Constructs a title bar from ordinary View children.
-          PATCH
+          git -C third_party/huxerui apply --unidiff-zero "$GITHUB_WORKSPACE/cmake/patches/huxerui-macos-p0960.patch"
 
       - name: Install dependencies (brew llvm)
         run: |

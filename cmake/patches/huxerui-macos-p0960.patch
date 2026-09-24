@@ -1,0 +1,10 @@
+diff --git a/include/huxerui/window.h b/include/huxerui/window.h
+index f79126b..cf5ec60 100644
+--- a/include/huxerui/window.h
++++ b/include/huxerui/window.h
+@@ -332 +332,4 @@ public:
+-    this->ApplyModifiers(WindowDragRegion{}, CrossAlign(CrossAxisAlignment::Center));
++    // NOTE(llm-switch CI patch): functional-style cast to the CrossAlign
++    // aggregate relies on P0960, which clang does not implement in Objective-C++
++    // mode. Brace initialization is supported by all configured compilers.
++    this->ApplyModifiers(WindowDragRegion{}, CrossAlign{CrossAxisAlignment::Center});

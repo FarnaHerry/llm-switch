@@ -3,15 +3,18 @@
 nlohmann::json 以 single header 直接提交在 `json/`；cpp-httplib 以 single
 header 提交在 `httplib/`；HuxerUI 0.2.0 的 Linux 离线 SDK 包提交在
 `tarballs/` 兜底。日常源码构建跟随 HuxerUI v0.3.0 发布线之后的主干，CI 固定到
-已验证的 commit `64264cba79d78ee0aed3d46b71550e66bffe7710`。构建
+已验证的 commit `0c5126235d43c2b703166bcc00781b850f2d1c39`。构建
 离线、可复现；清单与姊妹项目 Clash-Flux 对齐（无 IXWebSocket / SQLiteCpp）。
 网络（模型列表/用量/连通检测/本地路由出站）统一走 HuxerUI 平台 HttpClient
 （Linux libsoup / Windows WinHTTP / macOS NSURLSession，TLS 由平台栈负责），
 不 vendor curl/OpenSSL。
 
-项目对 Windows 主窗口图标保留一个独立补丁
-`cmake/patches/huxerui-windows-icon.patch`，由 Windows CI 在检出 HuxerUI
-后应用；不要把这个项目补丁直接提交到第三方仓库。Linux 文本布局缓存
+项目保留独立的 HuxerUI 补丁：Windows 主窗口图标
+`cmake/patches/huxerui-windows-icon.patch`、macOS Objective-C++ 的 P0960
+兼容修正 `cmake/patches/huxerui-macos-p0960.patch`，都由对应 CI job 在检出后应用；
+不要把项目补丁直接提交到第三方仓库。可选的 Linux UI 性能探针补丁
+`cmake/patches/huxerui-ui-perf-probe.patch` 只在人工诊断时应用，不参与正常构建。
+Linux 文本布局缓存
 （有界 LRU，修 VirtualList 每帧全量重排版）已由上游合入
 （HuxerUI/HuxerUI#137），不再需要本地补丁。
 

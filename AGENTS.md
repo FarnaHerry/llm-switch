@@ -26,9 +26,9 @@ Claude、Codex、Gemini、Copilot、Cursor、Windsurf 及其他自动化 agent �
 - 保持用户已有改动，不顺手重排、格式化或重写无关代码。领域行为改变必须补充或
   更新相应测试。
 - HuxerUI 源码优先来自 `third_party/huxerui`，CI 固定版本见
-  `.github/workflows/build.yml`。当前基线 `64264cb` 在 d1d2daa/`445488a`
-  （ApplicationHandle 的 Clipboard/Directories 服务、TreeView、Windows GUI
-  子系统启动修复）之上新增 Linux 有界 LRU 文本布局缓存（上游 PR #137）；
+  `.github/workflows/build.yml`。当前基线 `0c51262` 包含 `64264cb` 的 Linux 有界
+  LRU 文本布局缓存，以及上游 Application/Window 所有权重构和跨平台 HTTP
+  流式请求修复；
   剪贴板只在 UI 线程通过
   `UseApplication().Clipboard()` 使用，TreeView
   必须位于有界垂直视口。
