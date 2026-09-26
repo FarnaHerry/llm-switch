@@ -406,21 +406,6 @@ void ApplySnapshot(const router::StatsSnapshot& snapshot,
     // 注意 lambda 必须有 co_return：返回类型是协程 Task，没有 co_ 关键字的
     // 普通函数会「有返回值却没有 return」直接流出函数尾（UB），Launch 拿到
     // 的是未初始化的 Task —— 点一下「清空统计」就是段错误。
-    auto confirmClear = [=] {
-        tasks.Launch([=]() -> huxerui::Task<void> {
-            dialog.Show(
-                "清空统计", "确定清空全部请求统计与日志？此操作不可撤销。",
-                "清空", "取消",
-                [=] {
-                    routerInstance().clearStats();
-                    ApplySnapshot(routerInstance().snapshot(), summary,
-                                  providerStats);
-                    toast.Show("统计已清空");
-                });
-            co_return;
-        });
-    };
-
     // 会话日志导入：与代理统计是两个独立来源（对齐 cc-switch v3.13 的双数据源）。
     // 扫描读几百个会话文件（走 RunWorker），账本落 SQLite（走库的串行 worker），
     // 两者都不占 UI 线程；代次用于丢弃上一次延迟返回的结果。
@@ -480,6 +465,37 @@ void ApplySnapshot(const router::StatsSnapshot& snapshot,
                 co_return;
             }
             importedUsage = *snapshot;
+        });
+    };
+
+    // 「清空统计」同时清两个数据源：本地路由的内存统计 + JSONL 日志，以及会话
+    // 日志导入的用量账本（usage.db 的两张表）。用量可从会话日志幂等重建
+    // （scan_state 一并清空 → 下轮全量重扫），所以清掉是可恢复的。
+    auto confirmClear = [=] {
+        tasks.Launch([=]() -> huxerui::Task<void> {
+            dialog.Show(
+                "清空统计", "确定清空全部请求统计与日志？此操作不可撤销。",
+                "清空", "取消",
+                [=] {
+                    routerInstance().clearStats();
+                    ApplySnapshot(routerInstance().snapshot(), summary,
+                                  providerStats);
+                    tasks.Launch([=]() -> huxerui::Task<void> {
+                        if (!co_await ensureUsageDatabase(usageDatabase, toast)) {
+                            co_return;
+                        }
+                        auto cleared =
+                            co_await ClearUsageDatabase(*usageDatabase.Get());
+                        if (!cleared) {
+                            toast.Show(std::format("清空用量账本失败：{}",
+                                                   cleared.Error().Message()));
+                            co_return;
+                        }
+                        importedUsage = *cleared;
+                        toast.Show("统计已清空");
+                    });
+                });
+            co_return;
         });
     };
 

@@ -665,5 +665,17 @@ I/O、解析和 JSON 函数默认保留在 `.cpp` 中。
   Divider 发丝线），router（4）/settings（3）/stats（2）/about（3，头部
   英雄卡保留）分区卡全部拍平；重复列表条目换无边框 `QuietCard`：供应商
   卡 ×2、Skills 行、MCP 行、会话行。
+- ✅ 0.2.0 用量账本迁 SQLite（2026-09-26）：会话用量账本从 append-only 的
+  `usage.jsonl` + `scan-state.json` 换成 SQLite，经 `huxerui_use_library` 引入
+  **HuxerUI/Lib-SQLite**（独立仓库，不在主仓也不在 SDK 里；钉 commit
+  `5e3d040`，FetchContent 在 configure 期拉取，CI 无需改动）。因为 Lib-SQLite
+  的公开 API 只有异步（`Database::*Async` 返回 `Task`，同步入口只在
+  `Transaction` 回调内），而 `llmswitch.usage` 是只 `import std` 的纯模块，
+  所以切分成：域模块只留解析/`ScanUsageLogs`/聚合口径，`usage.db`
+  （`usage_records` 主键 key + `(agent,ts)` 索引、`scan_state` 表）与异步编排
+  放在 `stats_page.cpp`。跨轮次合并靠 `ON CONFLICT(key) DO UPDATE SET
+  x=max(x,excluded.x)`，与原「字段级取 max」一致；**不兼容旧数据**（旧 JSONL
+  不再读）。代价实测：二进制 5.32→7.43MB（raw +2.0MB，对已发布产物压缩后
+  +1.36MB）。同时定下「高频日志直接写文件、不进 SQLite」的载体规则（见该节）。
 - ⬜ 待做：订阅站端点可能随各家调整，升级版本时需复核；无 CLI 分流、
-  无单实例/开机自启。
+  无单实例/开机自启；`usage.db` 的 WAL 一致性备份（当前不在 `backups/` 覆盖内）。
