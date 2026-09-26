@@ -14,8 +14,9 @@ dist/
 dist-src/
 llm-switch-v*
 
-# 会话目录
+# AI agent 工具的本地会话/规划目录（各工具自己的工作区，不入库）
 .claude/
+.zcode/
 
 # HuxerUI 上游源码 clone（存在时优先于 third_party/tarballs 的预编译 SDK）
 third_party/huxerui/
