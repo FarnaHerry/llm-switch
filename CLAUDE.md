@@ -100,7 +100,9 @@ commit，不回滚已经验证的修改，并在最终回复中报告失败原�
   `third_party/httplib/`（INTERFACE 目标 `llmswitch_httplib`，仅
   llmswitch.router 用）；HuxerUI 0.2.0 走双通道（见上）。
   网络（模型列表/用量/连通检测/路由出站转发）统一走 HuxerUI 平台
-  HttpClient，不 vendor curl/OpenSSL。无 SQLite/IXWebSocket。
+  HttpClient，不 vendor curl/OpenSSL。持久化用 HuxerUI 的 SQLite 扩展
+  （HuxerUI/Lib-SQLite，独立仓库，经 `huxerui_use_library` 钉 commit 引入；
+  自带 SQLite 3.53.4 amalgamation）；无 IXWebSocket。
 - 测试目标独立（7 个，均无框架、断言失败计数非零即败）：`test_smoke`
   （编译+运行冒烟）、`test_store`（领域层；全程 setenv 隔离到临时目录）、
   `test_net`（parseModelIds / extractByPath 纯函数；不测真实网络）、

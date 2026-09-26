@@ -32,11 +32,6 @@ inline constexpr float kTitleBarContentHeight = 24.0F;
 // UI 线程的组合/回调里；live 文件读写是微秒级本地 IO，不需要任务线程）。
 store::ProviderStore& providerStore();
 
-// 全局唯一用量账本（llmswitch.usage）：从各 agent 会话日志导入的 token 记录。
-// sync() 会读大量文件，只在 worker 线程调用（统计页经 RunWorker）；snapshot()
-// 内部有锁，可在 UI 线程随时读。
-usage::UsageStore& usageStore();
-
 // 工具显示名（侧边栏提示 / 托盘菜单分组标题 / 页面标题）。
 std::string_view ToolName(std::string_view tool);
 

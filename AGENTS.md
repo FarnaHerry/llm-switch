@@ -47,7 +47,7 @@ Claude、Codex、Gemini、Copilot、Cursor、Windsurf 及其他自动化 agent �
   HuxerUI 的 `TaskScope` / 订阅 / 动画句柄。
 - **裸 `new` / `delete` / `malloc` / `free` 一律禁止**：用 `std::unique_ptr` /
   `std::shared_ptr` / 标准容器；Pimpl 用 `std::unique_ptr<Impl>`（见
-  `LocalRouter`、`UsageStore`）。
+  `LocalRouter`、用量账本的 UI 层封装）。
 - **锁只用 `std::lock_guard` / `std::unique_lock` / `std::scoped_lock`**，不手写
   `lock()` / `unlock()`；需要条件变量时用 `std::unique_lock` + `wait*`。
 - **平台 API 用带自定义 deleter 的 `std::unique_ptr` 或一个极小的 Guard 类**，

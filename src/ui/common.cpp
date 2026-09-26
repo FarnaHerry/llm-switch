@@ -21,12 +21,6 @@ store::ProviderStore& providerStore() {
     return store;
 }
 
-usage::UsageStore& usageStore() {
-    // 进程内唯一：统计页的 worker 同步与 UI 读取必须是同一份账本。
-    static usage::UsageStore store;
-    return store;
-}
-
 huxerui::ImageResource ToolIcon(std::string_view iconName) {
     if (iconName == "claudecode") {
         return app::images::claudecode;

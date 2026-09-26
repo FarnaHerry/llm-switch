@@ -34,25 +34,6 @@ import llmswitch.config;
 namespace usage {
 namespace {
 
-// 原子写的半成品清理：析构即删除 <file>.tmp。成功 rename 后调 Release()
-// 解除——提前 return 或改名失败都不留孤儿 .tmp。
-class TempFileGuard final {
-public:
-    explicit TempFileGuard(std::filesystem::path path) : path_(std::move(path)) {}
-    ~TempFileGuard() {
-        if (!armed_) return;
-        std::error_code ec;
-        std::filesystem::remove(path_, ec);
-    }
-    TempFileGuard(const TempFileGuard&) = delete;
-    TempFileGuard& operator=(const TempFileGuard&) = delete;
-    void Release() noexcept { armed_ = false; }
-
-private:
-    std::filesystem::path path_;
-    bool armed_ = true;
-};
-
 constexpr std::string_view kClaude = "claude-code";
 constexpr std::string_view kCodex = "codex";
 constexpr std::string_view kQwen = "qwen";
@@ -129,14 +110,8 @@ std::int64_t ParseIso(std::string_view s) {
     return ((days * 24 + hour) * 60 + minute) * 60 * 1000 + second * 1000 + millis;
 }
 
-std::int64_t NowMillis() {
-    return std::chrono::duration_cast<std::chrono::milliseconds>(
-               std::chrono::system_clock::now().time_since_epoch())
-        .count();
-}
-
 // 本地当天 0 点（与 router 的 today 口径一致）。
-std::int64_t TodayStartMillis() {
+std::int64_t TodayStartLocal() {
     const std::time_t t = std::time(nullptr);
     std::tm tm{};
 #ifdef _WIN32
@@ -196,58 +171,8 @@ nlohmann::json ParseLine(std::string_view line) {
     return nlohmann::json::parse(line, nullptr, false);
 }
 
-// ---- 扫描状态：每个文件已消费到的字节偏移 ----
-
-struct FileState {
-    std::uintmax_t offset = 0;
-    std::uintmax_t size = 0;
-    bool operator==(const FileState&) const = default;
-};
-
-using ScanState = std::map<std::string, FileState>;
-
-ScanState ReadScanState(const std::filesystem::path& file) {
-    ScanState state;
-    std::ifstream in(file, std::ios::binary);
-    if (!in) return state;
-    const auto j = nlohmann::json::parse(in, nullptr, false);
-    if (j.is_discarded() || !j.is_object()) return state;
-    const auto* files = JObj(j, "files");
-    if (files == nullptr) return state;
-    for (auto it = files->begin(); it != files->end(); ++it) {
-        if (!it.value().is_object()) continue;
-        FileState fs;
-        fs.offset = static_cast<std::uintmax_t>(JInt(it.value(), "offset"));
-        fs.size = static_cast<std::uintmax_t>(JInt(it.value(), "size"));
-        state.emplace(it.key(), fs);
-    }
-    return state;
-}
-
-void WriteScanState(const std::filesystem::path& file, const ScanState& state) {
-    nlohmann::json j;
-    j["files"] = nlohmann::json::object();
-    for (const auto& [path, fs] : state) {
-        j["files"][path] = {{"offset", fs.offset}, {"size", fs.size}};
-    }
-    const auto tmp = file.string() + ".tmp";
-    TempFileGuard tmp_guard(tmp);
-    {
-        std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
-        if (!out) return;
-        out << j.dump();
-    }
-    std::error_code ec;
-    std::filesystem::rename(tmp, file, ec);
-    if (ec) {
-        ec.clear();
-        std::filesystem::remove(file, ec);
-        ec.clear();
-        std::filesystem::rename(tmp, file, ec);
-        if (ec) return;
-    }
-    tmp_guard.Release();
-}
+// ---- 扫描位点：每个文件已消费到的字节偏移（FileState/ScanState 见 usage.cppm，
+// 由调用方从 SQLite 的 scan_state 表读出后传进来）----
 
 // 读 [offset, size) 的字节；失败返回空。
 std::string ReadRange(const std::filesystem::path& file, std::uintmax_t offset,
@@ -286,11 +211,11 @@ std::vector<std::filesystem::path> CollectJsonl(const std::filesystem::path& roo
 }
 
 std::vector<UsageRecord> ParseFor(std::string_view agent, std::string_view chunk) {
-    if (agent == kClaude) return UsageStore::ParseClaude(chunk);
-    if (agent == kCodex) return UsageStore::ParseCodex(chunk);
-    if (agent == kQwen) return UsageStore::ParseQwen(chunk);
-    if (agent == kPi) return UsageStore::ParsePi(chunk);
-    if (agent == kZcode) return UsageStore::ParseZcode(chunk);
+    if (agent == kClaude) return ParseClaude(chunk);
+    if (agent == kCodex) return ParseCodex(chunk);
+    if (agent == kQwen) return ParseQwen(chunk);
+    if (agent == kPi) return ParsePi(chunk);
+    if (agent == kZcode) return ParseZcode(chunk);
     return {};
 }
 
@@ -298,7 +223,7 @@ std::vector<UsageRecord> ParseFor(std::string_view agent, std::string_view chunk
 
 // ---- 各 agent 的解析器 -------------------------------------------------------
 
-std::vector<UsageRecord> UsageStore::ParseClaude(std::string_view jsonl) {
+std::vector<UsageRecord> ParseClaude(std::string_view jsonl) {
     RecordMap out;
     ForEachLine(jsonl, [&out](std::string_view line) {
         const auto j = ParseLine(line);
@@ -325,7 +250,7 @@ std::vector<UsageRecord> UsageStore::ParseClaude(std::string_view jsonl) {
     return ToVector(out);
 }
 
-std::vector<UsageRecord> UsageStore::ParseCodex(std::string_view jsonl) {
+std::vector<UsageRecord> ParseCodex(std::string_view jsonl) {
     RecordMap out;
     ForEachLine(jsonl, [&out](std::string_view line) {
         const auto j = ParseLine(line);
@@ -357,7 +282,7 @@ std::vector<UsageRecord> UsageStore::ParseCodex(std::string_view jsonl) {
     return ToVector(out);
 }
 
-std::vector<UsageRecord> UsageStore::ParseQwen(std::string_view jsonl) {
+std::vector<UsageRecord> ParseQwen(std::string_view jsonl) {
     RecordMap out;
     ForEachLine(jsonl, [&out](std::string_view line) {
         const auto j = ParseLine(line);
@@ -380,7 +305,7 @@ std::vector<UsageRecord> UsageStore::ParseQwen(std::string_view jsonl) {
     return ToVector(out);
 }
 
-std::vector<UsageRecord> UsageStore::ParsePi(std::string_view jsonl) {
+std::vector<UsageRecord> ParsePi(std::string_view jsonl) {
     RecordMap out;
     ForEachLine(jsonl, [&out](std::string_view line) {
         const auto j = ParseLine(line);
@@ -408,7 +333,7 @@ std::vector<UsageRecord> UsageStore::ParsePi(std::string_view jsonl) {
     return ToVector(out);
 }
 
-std::vector<UsageRecord> UsageStore::ParseZcode(std::string_view jsonl) {
+std::vector<UsageRecord> ParseZcode(std::string_view jsonl) {
     RecordMap out;
     ForEachLine(jsonl, [&out](std::string_view line) {
         const auto j = ParseLine(line);
@@ -437,81 +362,15 @@ std::vector<UsageRecord> UsageStore::ParseZcode(std::string_view jsonl) {
     return ToVector(out);
 }
 
-std::int64_t UsageStore::IsoToMillis(std::string_view iso) { return ParseIso(iso); }
+std::int64_t IsoToMillis(std::string_view iso) { return ParseIso(iso); }
 
-// ---- UsageStore -------------------------------------------------------------
+std::int64_t TodayStartMillis() { return TodayStartLocal(); }
 
-struct UsageStore::Impl {
-    // mu 只保护 records：文件 IO 与解析都在锁外做，否则一轮全量扫描会把
-    // UI 线程的 snapshot() 卡住（统计页每 5s 读一次）。
-    mutable std::mutex mu;
-    // syncMu 保证同一时刻只有一轮扫描在跑（状态文件不是并发安全的）。
-    std::mutex syncMu;
-    std::map<std::string, UsageRecord> records;
-    bool loaded = false;
-};
+// ---- 纯扫描：读各 agent 日志的新增片段 ---------------------------------------
 
-UsageStore::UsageStore() : impl_(std::make_unique<Impl>()) {}
-UsageStore::~UsageStore() = default;
-
-std::filesystem::path UsageStore::ledgerPath() const {
-    return cfg::usageDir() / "usage.jsonl";
-}
-
-namespace {
-
-std::filesystem::path ScanStatePath() { return cfg::usageDir() / "scan-state.json"; }
-
-nlohmann::json RecordToJson(const UsageRecord& r) {
-    return nlohmann::json{{"k", r.key},   {"a", r.agent},   {"m", r.model},
-                          {"t", r.tsMillis}, {"i", r.inputTokens},
-                          {"o", r.outputTokens}, {"cr", r.cacheReadTokens},
-                          {"cw", r.cacheWriteTokens}};
-}
-
-UsageRecord RecordFromJson(const nlohmann::json& j) {
-    UsageRecord r;
-    r.key = JStr(j, "k");
-    r.agent = JStr(j, "a");
-    r.model = JStr(j, "m");
-    r.tsMillis = JInt(j, "t");
-    r.inputTokens = JInt(j, "i");
-    r.outputTokens = JInt(j, "o");
-    r.cacheReadTokens = JInt(j, "cr");
-    r.cacheWriteTokens = JInt(j, "cw");
-    return r;
-}
-
-} // namespace
-
-void UsageStore::load() {
-    std::lock_guard lk(impl_->mu);
-    if (impl_->loaded) return;
-    impl_->loaded = true;
-    impl_->records.clear();
-    std::ifstream in(ledgerPath(), std::ios::binary);
-    if (!in) return;
-    std::string line;
-    while (std::getline(in, line)) {
-        if (line.empty()) continue;
-        const auto j = nlohmann::json::parse(line, nullptr, false);
-        if (j.is_discarded() || !j.is_object()) continue;
-        auto rec = RecordFromJson(j);
-        if (rec.key.empty()) continue;
-        const auto it = impl_->records.find(rec.key);
-        if (it == impl_->records.end()) {
-            impl_->records.emplace(rec.key, std::move(rec));
-        } else {
-            MergeMax(it->second, rec);
-        }
-    }
-}
-
-SyncReport UsageStore::sync() {
-    load();
-    // 一轮扫描串行：状态文件与"已见记录"的推进不能并发。
-    std::lock_guard syncLock(impl_->syncMu);
-    SyncReport report;
+UsageScan ScanUsageLogs(const ScanState& state) {
+    UsageScan scan;
+    SyncReport& report = scan.report;
 
     // agent → 根目录（每个根递归找 *.jsonl）。
     const std::vector<std::pair<std::string, std::filesystem::path>> roots{
@@ -522,9 +381,9 @@ SyncReport UsageStore::sync() {
         {std::string(kZcode), cfg::zcodeRolloutDir()},
     };
 
-    ScanState state = ReadScanState(ScanStatePath());
-    // 每轮的 (文件, 解析结果) —— 解析在锁外做，合并才进锁。
-    std::vector<std::pair<std::string, std::vector<UsageRecord>>> perFile;
+    // 同一去重键可能来自多个文件/多个片段，先在本轮内按字段 max 合并；
+    // 跨轮次的合并由账本落库时的 upsert（ON CONFLICT ... max）保证。
+    std::map<std::string, UsageRecord> merged;
 
     for (const auto& [agent, root] : roots) {
         for (const auto& path : CollectJsonl(root)) {
@@ -546,7 +405,7 @@ SyncReport UsageStore::sync() {
 
             const std::string chunk = ReadRange(path, offset, size);
             if (chunk.empty()) {
-                state[key] = FileState{offset, size};
+                scan.advances.emplace_back(key, FileState{offset, size});
                 continue;
             }
             // 只消费到最后一个换行：末尾半行留给下一轮，避免解析到写入中的行。
@@ -557,98 +416,30 @@ SyncReport UsageStore::sync() {
             auto parsed =
                 ParseFor(agent, std::string_view(chunk).substr(0, consumed));
             report.parsedRecords += parsed.size();
-            perFile.emplace_back(key, std::move(parsed));
-            state[key] = FileState{offset + consumed, size};
-        }
-    }
-
-    std::vector<UsageRecord> fresh;
-    {
-        std::lock_guard lk(impl_->mu);
-        for (auto& [key, parsed] : perFile) {
-            for (const auto& rec : parsed) {
+            for (auto& rec : parsed) {
                 if (rec.key.empty()) continue;
-                const auto it = impl_->records.find(rec.key);
-                if (it == impl_->records.end()) {
-                    impl_->records.emplace(rec.key, rec);
-                    fresh.push_back(rec);
-                    continue;
+                const auto it = merged.find(rec.key);
+                if (it == merged.end()) {
+                    merged.emplace(rec.key, std::move(rec));
+                } else {
+                    MergeMax(it->second, rec);
                 }
-                const UsageRecord before = it->second;
-                MergeMax(it->second, rec);
-                if (!(it->second == before)) fresh.push_back(it->second);
             }
+            scan.advances.emplace_back(key, FileState{offset + consumed, size});
         }
     }
 
-    if (!fresh.empty()) {
-        std::ofstream out(ledgerPath(), std::ios::binary | std::ios::app);
-        if (out) {
-            for (const auto& rec : fresh) out << RecordToJson(rec).dump() << '\n';
-        }
-    }
-    report.storedRecords = fresh.size();
+    scan.records.reserve(merged.size());
+    for (auto& [key, rec] : merged) scan.records.push_back(std::move(rec));
 
-    // 掉队的文件（被删/改名）从状态里清掉，状态文件不无限膨胀。
+    // 掉队的文件（被删/改名）从位点里清掉，scan_state 表不无限膨胀。
     if (report.scannedFiles > 0) {
-        std::erase_if(state, [](const auto& entry) {
+        for (const auto& [key, fileState] : state) {
             std::error_code e;
-            return !std::filesystem::exists(entry.first, e) || e;
-        });
-    }
-    WriteScanState(ScanStatePath(), state);
-    return report;
-}
-
-void UsageStore::clear() {
-    std::lock_guard lk(impl_->mu);
-    impl_->records.clear();
-    impl_->loaded = true;
-    std::error_code ec;
-    std::filesystem::remove(ledgerPath(), ec);
-    ec.clear();
-    std::filesystem::remove(ScanStatePath(), ec);
-}
-
-std::int64_t UsageStore::recordCount() const {
-    std::lock_guard lk(impl_->mu);
-    return static_cast<std::int64_t>(impl_->records.size());
-}
-
-UsageSnapshot UsageStore::snapshot() const {
-    std::lock_guard lk(impl_->mu);
-    UsageSnapshot snap;
-    const std::int64_t todayStart = TodayStartMillis();
-    std::map<std::string, UsageTotals> perAgent;
-    for (const auto& [key, rec] : impl_->records) {
-        const auto accumulate = [&rec](UsageTotals& t) {
-            ++t.requests;
-            t.inputTokens += rec.inputTokens;
-            t.outputTokens += rec.outputTokens;
-            t.cacheReadTokens += rec.cacheReadTokens;
-            t.cacheWriteTokens += rec.cacheWriteTokens;
-        };
-        accumulate(snap.total);
-        accumulate(perAgent[rec.agent]);
-        if (rec.tsMillis >= todayStart && rec.tsMillis > 0) {
-            ++snap.todayRequests;
-            snap.todayTokens += rec.inputTokens + rec.outputTokens +
-                                rec.cacheReadTokens + rec.cacheWriteTokens;
+            if (!std::filesystem::exists(key, e) || e) scan.removed.push_back(key);
         }
     }
-    snap.records = static_cast<std::int64_t>(impl_->records.size());
-    snap.byAgent.reserve(perAgent.size());
-    for (const auto& [agent, totals] : perAgent) {
-        snap.byAgent.push_back(AgentUsage{agent, totals});
-    }
-    std::sort(snap.byAgent.begin(), snap.byAgent.end(),
-              [](const AgentUsage& a, const AgentUsage& b) {
-                  if (a.totals.TotalTokens() != b.totals.TotalTokens()) {
-                      return a.totals.TotalTokens() > b.totals.TotalTokens();
-                  }
-                  return a.agent < b.agent;
-              });
-    return snap;
+    return scan;
 }
 
 } // namespace usage

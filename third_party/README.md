@@ -4,7 +4,8 @@ nlohmann::json 以 single header 直接提交在 `json/`；cpp-httplib 以 singl
 header 提交在 `httplib/`；HuxerUI 0.2.0 的 Linux 离线 SDK 包提交在
 `tarballs/` 兜底。日常源码构建跟随 HuxerUI v0.3.0 发布线之后的主干，CI 固定到
 已验证的 commit `0c5126235d43c2b703166bcc00781b850f2d1c39`。构建
-离线、可复现；清单与姊妹项目 Clash-Flux 对齐（无 IXWebSocket / SQLiteCpp）。
+离线、可复现；清单与姊妹项目 Clash-Flux 对齐（无 IXWebSocket）；SQLite 只经由 HuxerUI 的
+Lib-SQLite 扩展引入（见顶层 CMakeLists 的 huxerui_use_library），不额外 vendor。
 网络（模型列表/用量/连通检测/本地路由出站）统一走 HuxerUI 平台 HttpClient
 （Linux libsoup / Windows WinHTTP / macOS NSURLSession，TLS 由平台栈负责），
 不 vendor curl/OpenSSL。

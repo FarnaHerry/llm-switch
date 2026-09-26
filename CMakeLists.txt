@@ -274,6 +274,17 @@ huxerui_add_app(llm-switch
     BUNDLE_IDENTIFIER "dev.farna.llmswitch"
 )
 
+# ---- HuxerUI SQLite 扩展（HuxerUI/Lib-SQLite）-----------------------------
+# 用量账本的持久化层。注意它是**独立仓库**，不在 huxerui 主仓、也不在 SDK 里，
+# 只能经 huxerui_use_library 取；URL 形式由 FetchContent 在 configure 期拉取，
+# 钉完整 commit 保证可复现（换 commit 等于换版本，需重跑三平台）。
+# 它的公开 API 是显式包含的：#include <huxerui/sqlite.h>（不在 huxerui.h 里）。
+huxerui_use_library(llm-switch
+    TARGET HuxerUI::SQLite
+    URL "https://github.com/HuxerUI/Lib-SQLite.git"
+    COMMIT "5e3d040079629e698ca2f456ad79042cbbcd6aba"
+)
+
 if (WIN32 AND TARGET huxerui_core_objects)
     # HuxerUI owns the Win32 window class; keep this project-specific icon binding
     # as a compile-time patch instead of changing the third-party checkout.

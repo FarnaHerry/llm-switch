@@ -8,21 +8,256 @@
 //   页面可见期间每 5s 自动刷新（Lifecycle + TaskScope 轮询，卸载自动取消；
 //   State 只在 UI 线程写）。
 #include <huxerui/huxerui.h>
+#include <huxerui/sqlite.h>
 
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
+#include <filesystem>
 #include <format>
 #include <string>
+#include <string_view>
 #include <utility>
 
 #include "ui.h"
 
+import llmswitch.config;
 import llmswitch.router;
 import llmswitch.usage;
 
 namespace llmswitch::ui {
 namespace {
+
+// ---- 用量账本：SQLite（HuxerUI/Lib-SQLite）----------------------------------
+//
+// 会话日志导入的记录落在 cfg::usageDir()/usage.db，表结构见下面的 kUsageRecords
+// / kUsageScanState。老的 usage.jsonl + scan-state.json 已废弃、不再读取（不兼容
+// 旧数据，首次运行从空库开始）。
+//
+// 为什么账本在 UI 层而不是 llmswitch.usage 里：Lib-SQLite 的公开 API 只有异步
+// （Database::*Async 返回 Task，同步入口只存在于 Transaction 回调内），而
+// llmswitch.usage 是无 huxerui 依赖的纯模块（只 import std）。让域模块持有数据库
+// 就得把 huxerui 头文件塞进它的全局模块片段，跨 GCC/Clang/MSVC 不稳。所以域模块
+// 只负责解析/扫描/口径，异步编排与持久化留在这里。
+const huxerui::sqlite::Table<usage::UsageRecord> kUsageRecords{
+    "usage_records",
+    huxerui::sqlite::Column<&usage::UsageRecord::key>{"key",
+                                                      huxerui::sqlite::PrimaryKey{}},
+    huxerui::sqlite::Column<&usage::UsageRecord::agent>{"agent"},
+    huxerui::sqlite::Column<&usage::UsageRecord::model>{"model"},
+    huxerui::sqlite::Column<&usage::UsageRecord::tsMillis>{"ts_millis"},
+    huxerui::sqlite::Column<&usage::UsageRecord::inputTokens>{"input_tokens"},
+    huxerui::sqlite::Column<&usage::UsageRecord::outputTokens>{"output_tokens"},
+    huxerui::sqlite::Column<&usage::UsageRecord::cacheReadTokens>{"cache_read_tokens"},
+    huxerui::sqlite::Column<&usage::UsageRecord::cacheWriteTokens>{"cache_write_tokens"},
+    huxerui::sqlite::Index<&usage::UsageRecord::agent, &usage::UsageRecord::tsMillis>{
+        "idx_usage_records_agent_ts"},
+};
+
+// 扫描位点：每个源文件已消费到的字节偏移（取代原来的 scan-state.json）。
+// 列名用 byte_offset/byte_size，避开 SQL 的 OFFSET 关键字。
+struct ScanStateRow {
+    std::string file;
+    std::int64_t byteOffset = 0;
+    std::int64_t byteSize = 0;
+};
+const huxerui::sqlite::Table<ScanStateRow> kUsageScanState{
+    "scan_state",
+    huxerui::sqlite::Column<&ScanStateRow::file>{"file", huxerui::sqlite::PrimaryKey{}},
+    huxerui::sqlite::Column<&ScanStateRow::byteOffset>{"byte_offset"},
+    huxerui::sqlite::Column<&ScanStateRow::byteSize>{"byte_size"},
+};
+
+const huxerui::sqlite::Schema kUsageSchema{1, kUsageRecords, kUsageScanState};
+const huxerui::sqlite::Migrations kUsageMigrations{};  // v1：新库直接建到当前版本
+
+huxerui::Task<huxerui::sqlite::Result<huxerui::sqlite::Database>> OpenUsageDatabase() {
+    const std::filesystem::path file = cfg::usageDir() / "usage.db";
+    huxerui::sqlite::OpenOptions options{
+        .journal_mode = huxerui::sqlite::JournalMode::Wal,
+        .busy_timeout = std::chrono::seconds{5},
+        .create_parent_directories = true,
+    };
+    co_return co_await huxerui::sqlite::Database::OpenAsync(
+        huxerui::File(file.string()), kUsageSchema, kUsageMigrations, options);
+}
+
+// 一条记录一行；命中主键时**逐字段取 max**——流式追加会把同一次调用写多行，
+// 且实测「最后一次覆盖」会少算（见 usage.cppm 的说明），取 max 永不漏。
+constexpr std::string_view kUpsertRecord =
+    "INSERT INTO usage_records(key,agent,model,ts_millis,input_tokens,output_tokens,"
+    "cache_read_tokens,cache_write_tokens) VALUES(?,?,?,?,?,?,?,?) "
+    "ON CONFLICT(key) DO UPDATE SET "
+    "agent=excluded.agent, model=excluded.model, "
+    "ts_millis=max(ts_millis,excluded.ts_millis), "
+    "input_tokens=max(input_tokens,excluded.input_tokens), "
+    "output_tokens=max(output_tokens,excluded.output_tokens), "
+    "cache_read_tokens=max(cache_read_tokens,excluded.cache_read_tokens), "
+    "cache_write_tokens=max(cache_write_tokens,excluded.cache_write_tokens)";
+
+constexpr std::string_view kUpsertScanState =
+    "INSERT INTO scan_state(file,byte_offset,byte_size) VALUES(?,?,?) "
+    "ON CONFLICT(file) DO UPDATE SET byte_offset=excluded.byte_offset, "
+    "byte_size=excluded.byte_size";
+
+// 汇总查询：总量 + 今日。今日阈值由 usage::TodayStartMillis() 传入，口径与重建前
+// 的 C++ 聚合一致（只算 tsMillis > 0 且 >= 当天 0 点的记录）。
+constexpr std::string_view kSnapshotTotal =
+    "SELECT COUNT(*),"
+    " COALESCE(SUM(input_tokens),0), COALESCE(SUM(output_tokens),0),"
+    " COALESCE(SUM(cache_read_tokens),0), COALESCE(SUM(cache_write_tokens),0),"
+    " COALESCE(SUM(CASE WHEN ts_millis>0 AND ts_millis>=? THEN 1 ELSE 0 END),0),"
+    " COALESCE(SUM(CASE WHEN ts_millis>0 AND ts_millis>=? THEN"
+    "   input_tokens+output_tokens+cache_read_tokens+cache_write_tokens"
+    "   ELSE 0 END),0) "
+    "FROM usage_records";
+
+constexpr std::string_view kSnapshotByAgent =
+    "SELECT agent, COUNT(*),"
+    " COALESCE(SUM(input_tokens),0), COALESCE(SUM(output_tokens),0),"
+    " COALESCE(SUM(cache_read_tokens),0), COALESCE(SUM(cache_write_tokens),0) "
+    "FROM usage_records GROUP BY agent";
+
+huxerui::Task<huxerui::sqlite::Result<usage::UsageSnapshot>> QueryUsageSnapshot(
+    huxerui::sqlite::Database database) {
+    using huxerui::sqlite::Result;
+    using huxerui::sqlite::RowView;
+
+    const std::int64_t todayStart = usage::TodayStartMillis();
+    auto totals = co_await database.QueryAsync<std::int64_t>(
+        std::string(kSnapshotTotal),
+        [](const RowView& row) -> Result<std::int64_t> {
+            return row.Get<std::int64_t>(0);
+        },
+        todayStart, todayStart);
+    if (!totals) co_return totals.Error();
+
+    usage::UsageSnapshot snapshot;
+    if (!totals->empty()) {
+        const auto& row = *totals;
+        snapshot.records = row[0];
+        snapshot.total.requests = row[0];
+        snapshot.total.inputTokens = row[1];
+        snapshot.total.outputTokens = row[2];
+        snapshot.total.cacheReadTokens = row[3];
+        snapshot.total.cacheWriteTokens = row[4];
+        snapshot.todayRequests = row[5];
+        snapshot.todayTokens = row[6];
+    }
+
+    struct AgentRow {
+        std::string agent;
+        std::int64_t requests = 0;
+        std::int64_t input = 0;
+        std::int64_t output = 0;
+        std::int64_t cacheRead = 0;
+        std::int64_t cacheWrite = 0;
+    };
+    auto agents = co_await database.QueryAsync<AgentRow>(
+        std::string(kSnapshotByAgent),
+        [](const RowView& row) -> Result<AgentRow> {
+            auto agent = row.Get<std::string>(0);
+            if (!agent) return agent.Error();
+            AgentRow out;
+            out.agent = *agent;
+            const auto read = [&row](std::size_t index,
+                                     std::int64_t& target) -> Result<void> {
+                auto value = row.Get<std::int64_t>(index);
+                if (!value) return value.Error();
+                target = *value;
+                return {};
+            };
+            if (auto ok = read(1, out.requests); !ok) return ok.Error();
+            if (auto ok = read(2, out.input); !ok) return ok.Error();
+            if (auto ok = read(3, out.output); !ok) return ok.Error();
+            if (auto ok = read(4, out.cacheRead); !ok) return ok.Error();
+            if (auto ok = read(5, out.cacheWrite); !ok) return ok.Error();
+            return out;
+        });
+    if (!agents) co_return agents.Error();
+
+    snapshot.byAgent.reserve(agents->size());
+    for (const auto& row : *agents) {
+        usage::UsageTotals totalsForAgent;
+        totalsForAgent.requests = row.requests;
+        totalsForAgent.inputTokens = row.input;
+        totalsForAgent.outputTokens = row.output;
+        totalsForAgent.cacheReadTokens = row.cacheRead;
+        totalsForAgent.cacheWriteTokens = row.cacheWrite;
+        snapshot.byAgent.push_back(usage::AgentUsage{row.agent, totalsForAgent});
+    }
+    std::sort(snapshot.byAgent.begin(), snapshot.byAgent.end(),
+              [](const usage::AgentUsage& a, const usage::AgentUsage& b) {
+                  if (a.totals.TotalTokens() != b.totals.TotalTokens()) {
+                      return a.totals.TotalTokens() > b.totals.TotalTokens();
+                  }
+                  return a.agent < b.agent;
+              });
+    co_return snapshot;
+}
+
+// 一轮同步：读位点 → worker 线程扫文件 → 一次事务里 upsert 记录/位点 → 查快照。
+huxerui::Task<huxerui::sqlite::Result<usage::UsageSnapshot>> SyncUsageDatabase(
+    huxerui::sqlite::Database database) {
+    // 位点很小（几十 KB），直接查出来交给 worker。
+    auto rows = co_await database.Select(kUsageScanState).AllAsync();
+    if (!rows) co_return rows.Error();
+    usage::ScanState state;
+    for (const auto& row : *rows) {
+        if (row.byteOffset < 0 || row.byteSize < 0) continue;
+        state.emplace(row.file,
+                      usage::FileState{static_cast<std::uintmax_t>(row.byteOffset),
+                                       static_cast<std::uintmax_t>(row.byteSize)});
+    }
+
+    // 文件 IO + 解析全程在 worker 线程。
+    usage::UsageScan scan = co_await huxerui::RunWorker(
+        [state = std::move(state)] { return usage::ScanUsageLogs(state); });
+
+    auto applied = co_await database.TransactionAsync(
+        [&scan](huxerui::sqlite::Transaction& transaction)
+            -> huxerui::sqlite::Result<void> {
+            for (const auto& record : scan.records) {
+                auto result = transaction.Execute(
+                    std::string(kUpsertRecord), record.key, record.agent,
+                    record.model, record.tsMillis, record.inputTokens,
+                    record.outputTokens, record.cacheReadTokens,
+                    record.cacheWriteTokens);
+                if (!result) return result.Error();
+            }
+            for (const auto& [file, fileState] : scan.advances) {
+                auto result = transaction.Execute(
+                    std::string(kUpsertScanState), file,
+                    static_cast<std::int64_t>(fileState.offset),
+                    static_cast<std::int64_t>(fileState.size));
+                if (!result) return result.Error();
+            }
+            for (const auto& file : scan.removed) {
+                auto result = transaction.Execute(
+                    "DELETE FROM scan_state WHERE file = ?", file);
+                if (!result) return result.Error();
+            }
+            return {};
+        });
+    if (!applied) co_return applied.Error();
+
+    co_return co_await QueryUsageSnapshot(database);
+}
+
+huxerui::Task<huxerui::sqlite::Result<usage::UsageSnapshot>> ClearUsageDatabase(
+    huxerui::sqlite::Database database) {
+    auto cleared = co_await database.TransactionAsync(
+        [](huxerui::sqlite::Transaction& transaction)
+            -> huxerui::sqlite::Result<void> {
+            auto records = transaction.Execute("DELETE FROM usage_records");
+            if (!records) return records.Error();
+            auto state = transaction.Execute("DELETE FROM scan_state");
+            if (!state) return state.Error();
+            return {};
+        });
+    if (!cleared) co_return cleared.Error();
+    co_return co_await QueryUsageSnapshot(database);
+}
 
 [[huxerui::composable]] huxerui::View SectionTitle(const std::string& title) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
@@ -187,32 +422,64 @@ void ApplySnapshot(const router::StatsSnapshot& snapshot,
     };
 
     // 会话日志导入：与代理统计是两个独立来源（对齐 cc-switch v3.13 的双数据源）。
-    // sync() 要读几百个会话文件，必须走 RunWorker 离开 UI 线程；代次用于丢弃
-    // 上一次延迟返回的结果。
+    // 扫描读几百个会话文件（走 RunWorker），账本落 SQLite（走库的串行 worker），
+    // 两者都不占 UI 线程；代次用于丢弃上一次延迟返回的结果。
     auto importedUsage = huxerui::UseState(usage::UsageSnapshot{});
     auto usageSyncing = huxerui::UseState(false);
     auto usageGeneration = huxerui::UseState(0);
+    // 数据库句柄跟着本组合的生命周期（库是可拷贝句柄，共享一个连接与 worker）。
+    auto usageDatabase =
+        huxerui::UseState(std::optional<huxerui::sqlite::Database>{});
     const bool statsVisible = navPage.Get() == 2;
+
+    // 打开库（首次）→ 返回句柄；失败时已经把错误交给调用方处理。
+    auto ensureUsageDatabase =
+        [](huxerui::State<std::optional<huxerui::sqlite::Database>> databaseState,
+           huxerui::ToastHandle toastHandle) -> huxerui::Task<bool> {
+        if (databaseState.Get().has_value()) co_return true;
+        auto opened = co_await OpenUsageDatabase();
+        if (!opened) {
+            toastHandle.Show(std::format("打开用量账本失败：{}", opened.Error().Message()));
+            co_return false;
+        }
+        databaseState = *opened;
+        co_return true;
+    };
 
     auto syncUsage = [=] {
         const int request = usageGeneration.Get() + 1;
         usageGeneration = request;
         usageSyncing = true;
         tasks.Launch([=]() -> huxerui::Task<void> {
-            try {
-                co_await huxerui::RunWorker([] {
-                    usageStore().sync();
-                    return 0;
-                });
-            } catch (const std::exception& e) {
+            if (!co_await ensureUsageDatabase(usageDatabase, toast)) {
                 if (usageGeneration.Get() != request) co_return;
                 usageSyncing = false;
-                toast.Show(std::format("同步会话用量失败：{}", e.what()));
                 co_return;
             }
+            auto synced = co_await SyncUsageDatabase(*usageDatabase.Get());
             if (usageGeneration.Get() != request) co_return;
-            importedUsage = usageStore().snapshot();
             usageSyncing = false;
+            if (!synced) {
+                toast.Show(std::format("同步会话用量失败：{}", synced.Error().Message()));
+                co_return;
+            }
+            importedUsage = *synced;
+        });
+    };
+
+    // 「刷新」只重查快照（不重扫文件）。
+    auto refreshUsage = [=] {
+        const int request = usageGeneration.Get() + 1;
+        usageGeneration = request;
+        tasks.Launch([=]() -> huxerui::Task<void> {
+            if (!co_await ensureUsageDatabase(usageDatabase, toast)) co_return;
+            auto snapshot = co_await QueryUsageSnapshot(*usageDatabase.Get());
+            if (usageGeneration.Get() != request) co_return;
+            if (!snapshot) {
+                toast.Show(std::format("读取用量账本失败：{}", snapshot.Error().Message()));
+                co_return;
+            }
+            importedUsage = *snapshot;
         });
     };
 
@@ -267,7 +534,7 @@ void ApplySnapshot(const router::StatsSnapshot& snapshot,
             huxerui::Button("刷新").OnClick([=] {
                 ApplySnapshot(routerInstance().snapshot(), summary,
                               providerStats);
-                importedUsage = usageStore().snapshot();
+                refreshUsage();
             }),
             huxerui::Button("同步会话用量").OnClick([syncUsage] { syncUsage(); })
                 .With(huxerui::Enabled(!usageSyncing.Get())),
