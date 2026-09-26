@@ -799,7 +799,15 @@ constexpr double kCollapseSeconds = 0.12;
     huxerui::ApplicationHandle application, huxerui::SystemTrayHandle tray,
     huxerui::WindowHandle window, huxerui::ToastHandle toast,
     huxerui::State<int> revision) {
-    tray.OnActivate([window] { window.Activate(); });
+    // OnActivate 已在 InstallApplication 的 ApplicationHook 里注册过一次；
+    // 这里只负责把当前窗口绑进应用级目标（卸载时解绑）。Show/Hide 仍是组合
+    // 生命周期：菜单要跟着 revision 重建，重组时由 Show 替换共享呈现。
+    const std::shared_ptr<TrayActivationTarget> activation =
+        huxerui::UseService<TrayActivationTarget>();
+    huxerui::Lifecycle([activation, window] {
+        activation->Bind(window);
+        return [activation] { activation->Unbind(); };
+    });
     huxerui::Lifecycle(
         [application, tray, window, toast, revision] {
             tray.Show(app::images::lotus_tray_bloom,
@@ -911,6 +919,22 @@ huxerui::View AmbientGlow(bool dark) {
 }
 
 } // namespace
+
+void TrayActivationTarget::Activate() const {
+    if (window_) window_->Activate();
+}
+
+void InstallApplication(huxerui::ApplicationContext& context) {
+    // 托盘激活处理器是 Runtime 生命周期的一次性注册：新运行时明确拒绝重复
+    // 注册（std::logic_error "system tray activation handler is already
+    // connected"），所以只能在 ApplicationHook 里装一次，不能放在会随状态
+    // 重组的 composable 里。激活落到 TrayActivationTarget 上，由组合期绑定
+    // 当前窗口。
+    auto activation = std::make_shared<TrayActivationTarget>();
+    context.Provide(activation);
+    const huxerui::ApplicationHandle application = huxerui::UseApplication();
+    application.SystemTray().OnActivate([activation] { activation->Activate(); });
+}
 
 [[huxerui::composable]] huxerui::View AppRoot() {
     const huxerui::ApplicationHandle application = huxerui::UseApplication();

@@ -14,5 +14,9 @@ const huxerui::Application application{
             .minimum_size = huxerui::Size{800.0F, 600.0F},
             .chrome_mode = huxerui::WindowChromeMode::Custom,
             .title_bar_height = 24.0F,
-        }},
+        },
+        // 应用级安装：托盘激活处理器等 Runtime 生命周期的一次性注册走这里
+        // （见 llmswitch::ui::InstallApplication）。
+        .application_hooks = {llmswitch::ui::InstallApplication},
+    },
 };

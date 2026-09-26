@@ -64,6 +64,16 @@ UI 工作先读 skill：`.claude/skills/huxerui-app-development/SKILL.md`（refe
   写回时编译失败。注意 `router::RequestLog` **没有** operator==（领域层刻意
   不加），`State<std::vector<RequestLog>>` 编译不过——页面要包一层自定义
   包装/只存标量快照（router_page 的处理方式可作参考）。
+- **Runtime 生命周期的一次性注册只能放 `AppOptions::application_hooks`，不能放
+  composable**：0c51262 的 `08acc36 refactor(runtime): separate application and
+  window ownership` 之后，`SystemTrayHandle::OnActivate` 保留单个处理器直到
+  Runtime 关闭并**拒绝重复注册**（`std::logic_error "system tray activation
+  handler is already connected"`），`ApplicationContext::Provide` 同样按类型
+  拒绝重复。composable 体会随订阅的 State 重组，放进去必然第二次注册并
+  直接 terminate。托盘激活的落点是 `TrayActivationTarget`（`src/ui/app.h`）：
+  ApplicationHook 里 `Provide` + 注册一次，`SystemTrayPresentation` 用
+  `UseService` 取回并在 Lifecycle 里绑定/解绑当前 `WindowHandle`——这也是
+  skill `navigation-and-window.md` 要求的「不要捕获组合期窗口上下文」。
 
 ## 构建 / 运行 / 测试
 
