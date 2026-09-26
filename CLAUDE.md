@@ -675,7 +675,9 @@ I/O、解析和 JSON 函数默认保留在 `.cpp` 中。
   （`usage_records` 主键 key + `(agent,ts)` 索引、`scan_state` 表）与异步编排
   放在 `stats_page.cpp`。跨轮次合并靠 `ON CONFLICT(key) DO UPDATE SET
   x=max(x,excluded.x)`，与原「字段级取 max」一致；**不兼容旧数据**（旧 JSONL
-  不再读）。代价实测：二进制 5.32→7.43MB（raw +2.0MB，对已发布产物压缩后
-  +1.36MB）。同时定下「高频日志直接写文件、不进 SQLite」的载体规则（见该节）。
+  不再读）。代价（v0.1.38 → v0.2.0 同工具链实测）：Linux tar.gz/deb +19.8%/
+  +19.6%（+832/+823KB）、rpm +22.3%、Windows zip +15.2%、setup.exe +7.7%、
+  macOS tar.gz +47.8%（基数仅 1.53MB）。同时定下「高频日志直接写文件、
+  不进 SQLite」的载体规则（见该节）。
 - ⬜ 待做：订阅站端点可能随各家调整，升级版本时需复核；无 CLI 分流、
   无单实例/开机自启；`usage.db` 的 WAL 一致性备份（当前不在 `backups/` 覆盖内）。
