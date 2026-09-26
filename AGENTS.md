@@ -53,6 +53,12 @@ Claude、Codex、Gemini、Copilot、Cursor、Windsurf 及其他自动化 agent �
 - **平台 API 用带自定义 deleter 的 `std::unique_ptr` 或一个极小的 Guard 类**，
   例如 `config.cppm` 的 `UniquePipe`（`popen` → `pclose`）与 `UniqueRegKey`
   （`RegOpenKeyExA` → `RegCloseKey`）；不要为它们引入堆分配以外的运行时开销。
+- **平台专用符号必须连 RAII 包装一起关在对应平台分支内编译**：把调用
+  POSIX `popen`/`pclose` 的 closer 提到 `#if` 之外会让 MSVC 直接
+  `C3861: 'pclose': identifier not found`（它的全局命名空间没有这两个名字），
+  而 Linux/macOS 本地编译发现不了——`config.cppm` 的 `UniquePipe` 只在
+  `!defined(_WIN32)` 编译就是这个原因。改动跨平台代码后至少确认每个
+  `#if` 分支里出现的符号在该平台都存在。
 - **获取失败与异常路径都不能泄漏**：先构造所有者，再用 `Valid()` / `operator bool`
   判断；错误分支直接 `return`，由析构负责释放（`src/single_instance.cpp` 的
   `UniqueFd` 是范本）。

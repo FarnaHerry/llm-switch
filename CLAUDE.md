@@ -320,6 +320,12 @@ I/O、解析和 JSON 函数默认保留在 `.cpp` 中。
   真正需要守卫的是它们的**副作用残留**（`.tmp` 半成品、备份、锁文件）。
 - 平台句柄优先「带自定义 deleter 的 `unique_ptr`」，只有需要 `Out()` 参数风格
   （如 `RegOpenKeyExA` 的 `HKEY*`）才写极小 Guard 类；不要引入堆分配以外开销。
+- **平台专用 closer 必须和它的 `#if` 分支绑在一起**：`UniquePipe` 调用的
+  `popen`/`pclose` 是 POSIX，MSVC 全局命名空间里没有这两个名字。0.1.37 首轮
+  CI 就是把 `PipeCloser` 提到 `#if` 之外，导致 `config.cppm` 在
+  `test_store` 里编译失败（`C2039` / `C3861`），两个 Windows job 全挂而
+  Linux/macOS 全绿——本地是 Linux 时这类错误只能靠 CI 暴露，改动跨平台
+  代码后要人工核对每个 `#if` 分支里的符号在目标平台是否存在。
 - 线程创建本身可能抛（资源耗尽）：`LocalRouter::Impl::start` 在 catch 里复位
   `isRunning` / `boundPort` 并 `server.stop()`，避免「报错但端口已占」的假运行态。
 - `UniqueFd::Reset(int fd = -1)` 先关旧的再接管新的，`StartOrActivate` 重入安全由此保证。
