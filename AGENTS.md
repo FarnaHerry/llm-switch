@@ -10,6 +10,14 @@ Claude、Codex、Gemini、Copilot、Cursor、Windsurf 及其他自动化 agent �
 - 项目是 C++23 modules + HuxerUI 桌面应用；UI 普通源在 `src/ui/*.cpp`，领域模块
   在 `src/*.cppm` 与对应实现文件。不要引入 Electron、数据库或新的大型依赖来
   绕过现有架构。
+- **高频日志直接写文件，不进 SQLite**：逐事件、只追加的日志（本地路由的
+  `router/requests.jsonl`）保持 `std::ofstream(..., ios::app)` + 自带保留策略
+  （内存环形缓冲 1000 条、文件超 5000 行压到 2500 行）。HuxerUI/Lib-SQLite 的
+  `Database` 是**单连接串行 worker**，逐请求写库会和用量账本的同步/查询抢同
+  一条队，把两边都拖慢。
+  持久化载体按三条判据选，不要默认上 SQLite：写入频率是「每请求」还是「每轮
+  同步 / 每次用户操作」；是否真的需要索引或 GROUP BY；能否批量进一次事务。
+  SQLite 目前只承载用量账本——它每轮同步攒一批、一次事务落库、查询走 SQL 聚合。
 - C++23 命名模块约定：`.cppm` 命名模块 purview 中定义在 class 体内的成员函数
   不继承 `#include` 头文件在全局模块中的隐式 `inline` 规则；如果成员函数定义
   保留在模块接口中且希望作为接口内联函数使用，必须显式声明 `inline`
@@ -69,8 +77,7 @@ Claude、Codex、Gemini、Copilot、Cursor、Windsurf 及其他自动化 agent �
   （见 `LocalRouter::Impl::start`），不留「已运行但无人监听」的假象。
 - **临时文件用守卫**：`<file>.tmp` 这类半成品在成功 `rename` 后显式 `Release()`，
   失败/提前返回/抛异常时由析构删除，不在用户目录留孤儿（`TempFileGuard`，
-  见 `src/store.cpp`、`src/mcp.cpp`、`src/skills.cpp`、`src/router.cpp`、
-  `src/usage.cpp`）。
+  见 `src/store.cpp`、`src/mcp.cpp`、`src/skills.cpp`、`src/router.cpp`）。
 - **不要用「文档里写着记得关」代替 RAII**：漏掉一条错误分支就是泄漏；新增资源
   类型时先写所有者，再写使用它的代码。
 

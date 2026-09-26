@@ -18,7 +18,8 @@ MCP 服务器统一清单、Skills 中央库同步、历史会话管理。用 **
 声明 UI）做桌面壳，全程 C++；供应商页面的模型列表、用量查询和连通检测使用
 HuxerUI HttpClient（按平台使用 WinHTTP/libsoup/Foundation），本地路由服务器
 用 cpp-httplib 监听 127.0.0.1、出站转发同样走平台 HttpClient（UpstreamSession
-桥接），无数据库。
+桥接）。持久化：app 自己的数据（config.json / mcp.json / backups/）是文件，
+会话用量账本是 SQLite（HuxerUI/Lib-SQLite），详见「持久化载体的选择」。
 构建系统 CMake（脚手架与姊妹项目 `../Clash-Flux` 同源）。分层：
 UI（src/ui/*.cpp 普通源走 hcg codegen）/ 领域层（llmswitch.config/models/store/
 net/router/mcp/skills/sessions 八个 C++23 模块）。
@@ -321,7 +322,8 @@ I/O、解析和 JSON 函数默认保留在 `.cpp` 中。
 | POSIX fd（open/socket/accept/connect） | `UniqueFd`（析构 `close`，可移动、禁拷贝；`Valid()` 判失败） | `src/single_instance.cpp` |
 | `popen` 管道 | `UniquePipe = unique_ptr<FILE, PipeCloser>`（析构 `pclose`） | `src/config.cppm` 的 `systemPrefersDark()` |
 | Windows 注册表键 | `UniqueRegKey`（析构 `RegCloseKey`） | `src/config.cppm`、`platform/windows/package/src/app.cpp` |
-| 临时文件 `<file>.tmp` | `TempFileGuard`（成功 rename 后 `Release()`，否则析构删除） | `src/store.cpp`、`src/mcp.cpp`、`src/skills.cpp`、`src/router.cpp`、`src/usage.cpp` |
+| 临时文件 `<file>.tmp` | `TempFileGuard`（成功 rename 后 `Release()`，否则析构删除） | `src/store.cpp`、`src/mcp.cpp`、`src/skills.cpp`、`src/router.cpp` |
+| SQLite 连接 | `huxerui::sqlite::Database`（可拷贝句柄，单连接串行 worker；持有在统计页组合的 `State` 里，随组合卸载关闭） | `src/ui/stats_page.cpp` |
 | 线程 | 持有者析构 `stop()` + `join()`；创建失败回滚绑定状态 | `LocalRouter::Impl`（`src/router.cpp`）、`single_instance::Coordinator`、测试 `FakeUpstream` |
 | 锁 / 条件变量 | `std::lock_guard` / `std::unique_lock`（永不手写 lock/unlock） | `router.cpp`、`usage.cpp`、`ui/router_transport.cpp`、`single_instance.cpp` |
 | HuxerUI 句柄 / 任务 / 订阅 | SDK 的 `TaskScope`、`ApplicationHandle`、`WindowHandle`、`SystemTrayHandle` 与 `Lifecycle` 返回的 disposer；composable 卸载自动取消 | `src/ui/*.cpp`（`UseTaskScope`、`Lifecycle`、`UseApplication().Clipboard()`） |
@@ -344,6 +346,31 @@ I/O、解析和 JSON 函数默认保留在 `.cpp` 中。
 - 已知的有意例外：`window.OnCloseRequest` 消费关闭、`Lifecycle` 返回清理闭包这类
   回调注册，必须返回可逆的 disposer（如 `single_instance::ClearActivationHandler`），
   不得注册后无人撤销。
+
+## 持久化载体的选择
+
+规则见 `AGENTS.md` 的「高频日志直接写文件，不进 SQLite」。这里的取舍细节：
+
+| 数据 | 载体 | 写入频率 | 理由 |
+|------|------|----------|------|
+| 供应商配置 / 主题 / 路由设置 | `config.json` | 每次用户操作 | 要能 `cat` 和手改；整文件原子写 + 备份 |
+| MCP 清单 | `mcp.json` | 每次用户操作 | 同上 |
+| live 快照 | `backups/<tool>/*.bak` | 每次改写前 | 单文件副本，每文件留 10 份 |
+| **本地路由请求日志** | `router/requests.jsonl` | **每请求** | **不进 SQLite**：httplib worker 逐请求触发，写库要排队抢 SQLite 单连接 |
+| 用量账本 | `usage/usage.db`（SQLite） | 每轮同步一批 | 需要索引与 GROUP BY 聚合；一次事务批量落库，天然低频 |
+| 扫描位点 | 同上，`scan_state` 表 | 同上 | 与账本同事务提交，位点推进和记录写入原子 |
+
+判据（新增持久化时先过一遍）：**写入频率**是「每请求 / 每事件」还是「每轮同步 /
+每次用户操作」；**是否真的需要索引或聚合查询**；**能否批量进一次事务**。
+三条都偏后者才考虑 SQLite，否则直接写文件。
+
+`router/requests.jsonl` 的保留策略保持不变：内存环形缓冲最多 1000 条，
+文件超 `kMaxJsonlLines`(5000) 行时压到 `kJsonlLinesAfterCompact`(2500) 行
+（`src/router.cpp`）。这条策略与 SQLite 无关，不要因为「有数据库了」就把它搬过去。
+
+**已知待办**：WAL 模式下只拷主库会丢 `-wal` 里已提交的数据（Lib-SQLite README
+明确警告），所以 `usage.db` 目前**不在** `backups/` 的文件级备份覆盖内。要备份
+必须先关连接，或另做一致性方案——别直接 `copy` 那个 `.db`。
 
 ## 已知取舍（读代码遇到别当 bug 修）
 
