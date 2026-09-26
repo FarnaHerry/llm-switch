@@ -98,7 +98,6 @@ public:
 
     // 故障转移开关（默认关）：上游 429/5xx/连接失败时按组内顺序试下一个供应商。
     void setFailoverEnabled(bool enabled);
-    bool failoverEnabled() const;
 
     // 单工具代理开关，运行中可即时修改。默认所有注册工具启用；未知 id 抛异常。
     // 被禁用工具的请求返回 403，且不会访问 resolver / 上游或写入统计。

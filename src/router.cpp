@@ -545,7 +545,6 @@ void LocalRouter::stop() { impl_->stop(); }
 bool LocalRouter::running() const { return impl_->isRunning.load(); }
 int LocalRouter::port() const { return impl_->boundPort.load(); }
 void LocalRouter::setFailoverEnabled(bool enabled) { impl_->failover = enabled; }
-bool LocalRouter::failoverEnabled() const { return impl_->failover.load(); }
 void LocalRouter::setToolEnabled(std::string_view toolId, bool enabled) {
     if (models::findTool(toolId) == nullptr) {
         throw std::runtime_error(std::format("未知工具：{}", toolId));

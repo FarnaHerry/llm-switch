@@ -4,8 +4,6 @@
 // auth.json）也在这里。
 #include <huxerui/huxerui.h>
 
-#include <string>
-#include <vector>
 
 #include "providers_internal.h"
 

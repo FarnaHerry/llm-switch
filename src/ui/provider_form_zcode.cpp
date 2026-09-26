@@ -6,8 +6,6 @@
 // 与校验/装配/保存后置也在这里。
 #include <huxerui/huxerui.h>
 
-#include <format>
-#include <functional>
 #include <string>
 #include <vector>
 

@@ -81,12 +81,9 @@ IslandTheme ResolveIslandTheme(const huxerui::ThemeSpec& theme) {
     };
     const bool dark = luminance(theme.colors.background) < 0.5F;
     return IslandTheme{
-        .page_gap = theme.spacing.extra_small,
         .island_padding = theme.spacing.medium,
         .island_radius = 10.0F,
         .nested_radius = 6.0F,
-        .ocean = theme.colors.background,
-        .base = translucent(theme.colors.surface_container_low, 0.48F),
         .raised = translucent(theme.colors.surface_container, 0.78F),
         .overlay = translucent(theme.colors.surface_container_highest, 0.95F),
         .outline_soft = translucent(theme.colors.outline, 0.62F),

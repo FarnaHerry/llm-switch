@@ -9,10 +9,8 @@
 #include <string>
 #include <string_view>
 
-import llmswitch.models;
 import llmswitch.router;  // 任务E：routerInstance() 声明需要 router::LocalRouter
 import llmswitch.store;
-import llmswitch.usage;
 
 namespace llmswitch::ui {
 
@@ -45,12 +43,9 @@ huxerui::ImageResource ToolIcon(std::string_view iconName);
 // 注：顶级页面已不再有自己的一级岛表面（页面与标题栏共用窗口表面），
 // 这里的 raised / overlay 供二级岛（Card/QuietCard）与浮层使用。
 struct IslandTheme {
-    float page_gap;        // 岛间缝隙（透出窗口底色「海面」）
     float island_padding;  // 岛内边距（页面/卡片共用）
     float island_radius;   // 一级岛圆角（浮层卡片仍在用）
     float nested_radius;   // 二级岛/浮动菜单圆角（当前 6pt）
-    huxerui::Color ocean;   // 海面（窗口背景）
-    huxerui::Color base;    // 一级岛表面（顶级页面已不用；保留给未来的整面区块）
     huxerui::Color raised;  // 二级岛表面
     huxerui::Color overlay; // 浮动面
     huxerui::Color outline_soft;

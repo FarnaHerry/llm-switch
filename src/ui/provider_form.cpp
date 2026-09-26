@@ -8,9 +8,7 @@
 // 策略常量与专属区块文件里。
 #include <huxerui/huxerui.h>
 
-#include <chrono>
 #include <string>
-#include <vector>
 
 #include "providers_internal.h"
 

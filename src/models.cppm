@@ -425,10 +425,6 @@ ProviderGroup groupFromJsonWithUsageFallback(
     return g;
 }
 
-export ProviderGroup groupFromJson(const nlohmann::json& j) {
-    return groupFromJsonWithUsageFallback(j, std::nullopt);
-}
-
 export nlohmann::json toJson(const AppConfig& c) {
     nlohmann::json j;
     j["groups"] = nlohmann::json::object();

@@ -1,10 +1,8 @@
 // provider_card.cpp — 供应商列表卡片与卡片操作.
 #include <huxerui/huxerui.h>
 
-#include <chrono>
 #include <format>
 #include <string>
-#include <utility>
 
 #include "app_resources.h"
 #include "providers_internal.h"

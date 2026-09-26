@@ -17,7 +17,7 @@
 #include <memory>
 #include <mutex>
 #include <set>
-#include <stdexcept>
+#include <exception>
 #include <utility>
 
 #include "ui.h"

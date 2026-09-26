@@ -9,6 +9,7 @@
 #include "ui.h"
 
 import nlohmann.json;
+import llmswitch.models;  // 下面的声明直接用 models::Provider / ToolSpec 等类型
 
 namespace llmswitch::ui::provider_detail {
 

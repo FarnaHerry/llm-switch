@@ -20,6 +20,7 @@
 #include "app_resources.h"
 
 import llmswitch.config;
+import llmswitch.models;
 import llmswitch.store;
 
 namespace llmswitch::ui {

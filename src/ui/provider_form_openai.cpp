@@ -4,8 +4,6 @@
 // 常量（模型必填、默认 URL / API Key 标签）。
 #include <huxerui/huxerui.h>
 
-#include <string>
-#include <vector>
 
 #include "providers_internal.h"
 

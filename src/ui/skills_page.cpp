@@ -10,7 +10,6 @@
 #include <huxerui/huxerui.h>
 
 #include <algorithm>
-#include <chrono>
 #include <string>
 #include <string_view>
 #include <utility>

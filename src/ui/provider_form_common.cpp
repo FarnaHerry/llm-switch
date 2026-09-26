@@ -5,10 +5,8 @@
 // 这里不出现任何 tool == 分支。
 #include <huxerui/huxerui.h>
 
-#include <algorithm>
 #include <array>
 #include <format>
-#include <functional>
 #include <map>
 #include <string>
 #include <string_view>
