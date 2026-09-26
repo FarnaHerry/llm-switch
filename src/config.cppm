@@ -45,14 +45,17 @@ namespace {
 
 // 跟随系统的深色检测要碰系统资源：popen 管道与 Windows 注册表键。两者都包成
 // RAII，提前 return / 抛异常都不会漏掉 pclose / RegCloseKey。
+// 注意：popen / pclose 是 POSIX，MSVC 的全局命名空间里没有这两个名字——
+// 这个 closer 只允许在真正使用它的 macOS / Linux 分支编译，不能提到
+// #if 之外（否则 Windows 构建直接 C3861）。
+#if !defined(_WIN32)
 struct PipeCloser {
     void operator()(std::FILE* pipe) const noexcept {
         if (pipe != nullptr) ::pclose(pipe);
     }
 };
 using UniquePipe = std::unique_ptr<std::FILE, PipeCloser>;
-
-#if defined(_WIN32)
+#else
 struct RegKeyCloser {
     void operator()(HKEY key) const noexcept {
         if (key != nullptr) ::RegCloseKey(key);
