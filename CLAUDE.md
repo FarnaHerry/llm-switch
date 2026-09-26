@@ -292,6 +292,40 @@ I/O、解析和 JSON 函数默认保留在 `.cpp` 中。
 9. **响应式**：`UseViewportClass()` Compact(<600) 收窄页面内边距
    （`PageScaffold` / `AgentPage` 的 medium↔large，顶部恒为 0）与壳层
    `shellInset`（app.cpp，必须同值）；窗口最小 800×600。
+10. **资源一律 RAII 包裹**（权威规则见 `AGENTS.md` 的「资源与 RAII 硬约束」）：
+    禁止裸 `new`/`delete`/`malloc`/`free`；锁只用 `lock_guard`/`unique_lock`/
+    `scoped_lock`；POSIX fd、`popen` 管道、Windows `HKEY`、临时文件、线程都
+    必须先有所有者再使用，错误分支只 `return`，由析构释放。盘点与范本见下节
+    「资源所有权与 RAII」。
+
+## 资源所有权与 RAII
+
+全项目盘点（2026-09 复核）：**所有获取即需释放的资源都有 RAII 所有者**，
+新增资源类型必须照此先写所有者再写使用者。
+
+| 资源 | 所有者 | 位置 |
+|------|--------|------|
+| 堆内存 | `std::unique_ptr<Impl>` / `shared_ptr` / 标准容器（无裸 new/delete） | `router.cpp`、`usage.cpp`、`ui/router_transport.cpp` |
+| POSIX fd（open/socket/accept/connect） | `UniqueFd`（析构 `close`，可移动、禁拷贝；`Valid()` 判失败） | `src/single_instance.cpp` |
+| `popen` 管道 | `UniquePipe = unique_ptr<FILE, PipeCloser>`（析构 `pclose`） | `src/config.cppm` 的 `systemPrefersDark()` |
+| Windows 注册表键 | `UniqueRegKey`（析构 `RegCloseKey`） | `src/config.cppm`、`platform/windows/package/src/app.cpp` |
+| 临时文件 `<file>.tmp` | `TempFileGuard`（成功 rename 后 `Release()`，否则析构删除） | `src/store.cpp`、`src/mcp.cpp`、`src/skills.cpp`、`src/router.cpp`、`src/usage.cpp` |
+| 线程 | 持有者析构 `stop()` + `join()`；创建失败回滚绑定状态 | `LocalRouter::Impl`（`src/router.cpp`）、`single_instance::Coordinator`、测试 `FakeUpstream` |
+| 锁 / 条件变量 | `std::lock_guard` / `std::unique_lock`（永不手写 lock/unlock） | `router.cpp`、`usage.cpp`、`ui/router_transport.cpp`、`single_instance.cpp` |
+| HuxerUI 句柄 / 任务 / 订阅 | SDK 的 `TaskScope`、`ApplicationHandle`、`WindowHandle`、`SystemTrayHandle` 与 `Lifecycle` 返回的 disposer；composable 卸载自动取消 | `src/ui/*.cpp`（`UseTaskScope`、`Lifecycle`、`UseApplication().Clipboard()`） |
+
+要点与易错处：
+
+- 文件流 `std::ifstream` / `std::ofstream` 本身就是 RAII，不要为了「统一」再包一层；
+  真正需要守卫的是它们的**副作用残留**（`.tmp` 半成品、备份、锁文件）。
+- 平台句柄优先「带自定义 deleter 的 `unique_ptr`」，只有需要 `Out()` 参数风格
+  （如 `RegOpenKeyExA` 的 `HKEY*`）才写极小 Guard 类；不要引入堆分配以外开销。
+- 线程创建本身可能抛（资源耗尽）：`LocalRouter::Impl::start` 在 catch 里复位
+  `isRunning` / `boundPort` 并 `server.stop()`，避免「报错但端口已占」的假运行态。
+- `UniqueFd::Reset(int fd = -1)` 先关旧的再接管新的，`StartOrActivate` 重入安全由此保证。
+- 已知的有意例外：`window.OnCloseRequest` 消费关闭、`Lifecycle` 返回清理闭包这类
+  回调注册，必须返回可逆的 disposer（如 `single_instance::ClearActivationHandler`），
+  不得注册后无人撤销。
 
 ## 已知取舍（读代码遇到别当 bug 修）
 

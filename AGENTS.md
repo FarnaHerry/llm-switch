@@ -38,6 +38,36 @@ Claude、Codex、Gemini、Copilot、Cursor、Windsurf 及其他自动化 agent �
   `AppConfig.routerTools`，旧配置缺字段时默认全部启用；运行中切换应即时生效，
   被禁用路径不得访问 resolver、上游或写入请求统计。
 
+## 资源与 RAII 硬约束
+
+- **凡是获取后必须释放的东西，一律由 RAII 所有者包裹**，不得在函数体里裸拿
+  句柄再靠每条分支手写 `close` / `pclose` / `free` / `join` / `RegCloseKey`。
+  覆盖范围：POSIX fd（`open`/`socket`/`accept`）、`FILE*` 与 `popen` 管道、
+  平台句柄（Windows `HKEY`/`HANDLE`）、线程、互斥量与锁、临时文件、以及
+  HuxerUI 的 `TaskScope` / 订阅 / 动画句柄。
+- **裸 `new` / `delete` / `malloc` / `free` 一律禁止**：用 `std::unique_ptr` /
+  `std::shared_ptr` / 标准容器；Pimpl 用 `std::unique_ptr<Impl>`（见
+  `LocalRouter`、`UsageStore`）。
+- **锁只用 `std::lock_guard` / `std::unique_lock` / `std::scoped_lock`**，不手写
+  `lock()` / `unlock()`；需要条件变量时用 `std::unique_lock` + `wait*`。
+- **平台 API 用带自定义 deleter 的 `std::unique_ptr` 或一个极小的 Guard 类**，
+  例如 `config.cppm` 的 `UniquePipe`（`popen` → `pclose`）与 `UniqueRegKey`
+  （`RegOpenKeyExA` → `RegCloseKey`）；不要为它们引入堆分配以外的运行时开销。
+- **获取失败与异常路径都不能泄漏**：先构造所有者，再用 `Valid()` / `operator bool`
+  判断；错误分支直接 `return`，由析构负责释放（`src/single_instance.cpp` 的
+  `UniqueFd` 是范本）。
+- **线程必须由持有者负责停与 join**：持有者析构里 `stop()` + `join()`，或用一个
+  析构即停的 RAII 包装；新起的线程不得无人 join。已有范本：
+  `LocalRouter::Impl::~Impl`、`single_instance::Coordinator::~Coordinator`、
+  测试里的 `FakeUpstream::~FakeUpstream`。线程创建本身失败也要回滚已获取的状态
+  （见 `LocalRouter::Impl::start`），不留「已运行但无人监听」的假象。
+- **临时文件用守卫**：`<file>.tmp` 这类半成品在成功 `rename` 后显式 `Release()`，
+  失败/提前返回/抛异常时由析构删除，不在用户目录留孤儿（`TempFileGuard`，
+  见 `src/store.cpp`、`src/mcp.cpp`、`src/skills.cpp`、`src/router.cpp`、
+  `src/usage.cpp`）。
+- **不要用「文档里写着记得关」代替 RAII**：漏掉一条错误分支就是泄漏；新增资源
+  类型时先写所有者，再写使用它的代码。
+
 ## UI 视觉硬约束
 
 - 总体风格是冷调石板的“岛屿风”：环境层只有一层主题派生的程序化光晕，内容

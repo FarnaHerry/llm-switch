@@ -80,6 +80,25 @@ std::string trimTrailingSlash(std::string_view base) {
     return s;
 }
 
+// 原子写的半成品清理：析构即删除 <file>.tmp。成功 rename 后调 Release()
+// 解除——提前 return 或改名失败都不留孤儿 .tmp。
+class TempFileGuard final {
+public:
+    explicit TempFileGuard(std::filesystem::path path) : path_(std::move(path)) {}
+    ~TempFileGuard() {
+        if (!armed_) return;
+        std::error_code ec;
+        std::filesystem::remove(path_, ec);
+    }
+    TempFileGuard(const TempFileGuard&) = delete;
+    TempFileGuard& operator=(const TempFileGuard&) = delete;
+    void Release() noexcept { armed_ = false; }
+
+private:
+    std::filesystem::path path_;
+    bool armed_ = true;
+};
+
 // 上游结果整形：从会话返回的头里摘出 content-type（usage 提取需要）。
 UpstreamResponse ShapeUpstreamResponse(UpstreamResponse response) {
     std::vector<std::pair<std::string, std::string>> kept;
@@ -236,11 +255,20 @@ struct LocalRouter::Impl {
         }
         boundPort = bound;
         isRunning = true;
-        thread = std::thread([this] {
-            server.listen_after_bind();
+        try {
+            thread = std::thread([this] {
+                server.listen_after_bind();
+                isRunning = false;
+                boundPort = 0;
+            });
+        } catch (...) {
+            // 线程创建失败：撤销绑定状态，不留下「已运行但无人监听」的假象；
+            // 端口由 httplib 的 stop() 释放（Impl 析构亦会兜底 stop）。
             isRunning = false;
             boundPort = 0;
-        });
+            server.stop();
+            throw;
+        }
     }
 
     void stop() {
@@ -419,6 +447,7 @@ struct LocalRouter::Impl {
             }
         }
         const auto tmp = file.string() + ".tmp";
+        TempFileGuard tmp_guard(tmp);
         {
             std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
             if (!out) return;
@@ -431,7 +460,9 @@ struct LocalRouter::Impl {
             std::filesystem::remove(file, ec);
             ec.clear();
             std::filesystem::rename(tmp, file, ec);
+            if (ec) return;
         }
+        tmp_guard.Release();
         jsonlLines = static_cast<std::int64_t>(lines.size());
     }
 

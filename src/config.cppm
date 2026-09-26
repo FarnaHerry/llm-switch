@@ -41,6 +41,28 @@ import std;
 
 namespace cfg {
 
+namespace {
+
+// 跟随系统的深色检测要碰系统资源：popen 管道与 Windows 注册表键。两者都包成
+// RAII，提前 return / 抛异常都不会漏掉 pclose / RegCloseKey。
+struct PipeCloser {
+    void operator()(std::FILE* pipe) const noexcept {
+        if (pipe != nullptr) ::pclose(pipe);
+    }
+};
+using UniquePipe = std::unique_ptr<std::FILE, PipeCloser>;
+
+#if defined(_WIN32)
+struct RegKeyCloser {
+    void operator()(HKEY key) const noexcept {
+        if (key != nullptr) ::RegCloseKey(key);
+    }
+};
+using UniqueRegKey = std::unique_ptr<std::remove_pointer_t<HKEY>, RegKeyCloser>;
+#endif
+
+} // namespace
+
 // 可执行文件目录（资源回退用）。
 export std::filesystem::path executableDir() {
 #ifdef _WIN32
@@ -315,32 +337,29 @@ export std::filesystem::path claudeDesktop3pDir() {
 // 系统是否偏好深色（"跟随系统"主题模式用）。启动时读取一次即可。
 export bool systemPrefersDark() {
 #if defined(_WIN32)
-    HKEY key;
+    HKEY raw_key = nullptr;
     if (RegOpenKeyExA(HKEY_CURRENT_USER,
                       "Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
-                      0, KEY_READ, &key) != ERROR_SUCCESS)
+                      0, KEY_READ, &raw_key) != ERROR_SUCCESS)
         return false;
+    const UniqueRegKey key(raw_key);
     DWORD value = 1, size = sizeof(value);
-    const LONG rc = RegQueryValueExA(key, "AppsUseLightTheme", nullptr, nullptr,
+    const LONG rc = RegQueryValueExA(key.get(), "AppsUseLightTheme", nullptr, nullptr,
                                      reinterpret_cast<LPBYTE>(&value), &size);
-    RegCloseKey(key);
     return rc == ERROR_SUCCESS && value == 0;
 #elif defined(__APPLE__)
-    FILE* pipe = ::popen("defaults read -g AppleInterfaceStyle 2>/dev/null", "r");
-    if (pipe == nullptr) return false;
+    const UniquePipe pipe(::popen("defaults read -g AppleInterfaceStyle 2>/dev/null", "r"));
+    if (!pipe) return false;
     std::array<char, 32> buf{};
-    const bool dark = std::fgets(buf.data(), static_cast<int>(buf.size()), pipe) != nullptr &&
-                      std::string_view(buf.data()).starts_with("Dark");
-    ::pclose(pipe);
-    return dark;
+    return std::fgets(buf.data(), static_cast<int>(buf.size()), pipe.get()) != nullptr &&
+           std::string_view(buf.data()).starts_with("Dark");
 #else
-    FILE* pipe = ::popen("gsettings get org.gnome.desktop.interface color-scheme 2>/dev/null", "r");
-    if (pipe == nullptr) return false;
+    const UniquePipe pipe(
+        ::popen("gsettings get org.gnome.desktop.interface color-scheme 2>/dev/null", "r"));
+    if (!pipe) return false;
     std::array<char, 64> buf{};
-    const bool dark = std::fgets(buf.data(), static_cast<int>(buf.size()), pipe) != nullptr &&
-                      std::string_view(buf.data()).find("prefer-dark") != std::string_view::npos;
-    ::pclose(pipe);
-    return dark;
+    return std::fgets(buf.data(), static_cast<int>(buf.size()), pipe.get()) != nullptr &&
+           std::string_view(buf.data()).find("prefer-dark") != std::string_view::npos;
 #endif
 }
 

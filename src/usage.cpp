@@ -34,6 +34,25 @@ import llmswitch.config;
 namespace usage {
 namespace {
 
+// 原子写的半成品清理：析构即删除 <file>.tmp。成功 rename 后调 Release()
+// 解除——提前 return 或改名失败都不留孤儿 .tmp。
+class TempFileGuard final {
+public:
+    explicit TempFileGuard(std::filesystem::path path) : path_(std::move(path)) {}
+    ~TempFileGuard() {
+        if (!armed_) return;
+        std::error_code ec;
+        std::filesystem::remove(path_, ec);
+    }
+    TempFileGuard(const TempFileGuard&) = delete;
+    TempFileGuard& operator=(const TempFileGuard&) = delete;
+    void Release() noexcept { armed_ = false; }
+
+private:
+    std::filesystem::path path_;
+    bool armed_ = true;
+};
+
 constexpr std::string_view kClaude = "claude-code";
 constexpr std::string_view kCodex = "codex";
 constexpr std::string_view kQwen = "qwen";
@@ -212,6 +231,7 @@ void WriteScanState(const std::filesystem::path& file, const ScanState& state) {
         j["files"][path] = {{"offset", fs.offset}, {"size", fs.size}};
     }
     const auto tmp = file.string() + ".tmp";
+    TempFileGuard tmp_guard(tmp);
     {
         std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
         if (!out) return;
@@ -224,7 +244,9 @@ void WriteScanState(const std::filesystem::path& file, const ScanState& state) {
         std::filesystem::remove(file, ec);
         ec.clear();
         std::filesystem::rename(tmp, file, ec);
+        if (ec) return;
     }
+    tmp_guard.Release();
 }
 
 // 读 [offset, size) 的字节；失败返回空。

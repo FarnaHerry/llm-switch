@@ -80,12 +80,32 @@ std::string generateId() {
                        static_cast<std::uint32_t>(gen()));
 }
 
+// 原子写的半成品清理：析构即删除 <file>.tmp。成功 rename 后调 Release()
+// 解除——抛异常或提前 return 都不会在用户目录留下孤儿 .tmp 文件。
+class TempFileGuard final {
+public:
+    explicit TempFileGuard(std::filesystem::path path) : path_(std::move(path)) {}
+    ~TempFileGuard() {
+        if (!armed_) return;
+        std::error_code ec;
+        std::filesystem::remove(path_, ec);
+    }
+    TempFileGuard(const TempFileGuard&) = delete;
+    TempFileGuard& operator=(const TempFileGuard&) = delete;
+    void Release() noexcept { armed_ = false; }
+
+private:
+    std::filesystem::path path_;
+    bool armed_ = true;
+};
+
 // 原子写文本文件：先写 <file>.tmp 再 rename；rename 失败（Windows 目标被
 // 占用等）回落 remove + rename。任何一步失败抛 std::runtime_error。
 void atomicWrite(const std::filesystem::path& dest, std::string_view content) {
     std::error_code ec;
     if (dest.has_parent_path()) std::filesystem::create_directories(dest.parent_path(), ec);
     const std::filesystem::path tmp = dest.string() + ".tmp";
+    TempFileGuard tmp_guard(tmp);
     {
         std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
         if (!out) {
@@ -108,6 +128,7 @@ void atomicWrite(const std::filesystem::path& dest, std::string_view content) {
                 std::format("保存文件失败：{}（{}）", dest.string(), ec.message()));
         }
     }
+    tmp_guard.Release();
 }
 
 std::string readTextFile(const std::filesystem::path& file) {

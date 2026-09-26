@@ -2,10 +2,12 @@
 #include <cstdlib>
 #include <filesystem>
 #include <iterator>
+#include <memory>
 #include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <vector>
 
 #ifndef NOMINMAX
@@ -23,19 +25,27 @@ namespace installer_strings = installer::strings;
 
 namespace {
 
+// HKEY 的 RAII 所有权：析构即 RegCloseKey，提前 return / 抛异常都不漏。
+struct RegKeyCloser {
+  void operator()(HKEY key) const noexcept {
+    if (key != nullptr) ::RegCloseKey(key);
+  }
+};
+using UniqueRegKey = std::unique_ptr<std::remove_pointer_t<HKEY>, RegKeyCloser>;
+
 bool SystemPrefersDark() {
-  HKEY key = nullptr;
+  HKEY raw_key = nullptr;
   if (RegOpenKeyExA(HKEY_CURRENT_USER,
                     "Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize", 0,
-                    KEY_READ, &key) != ERROR_SUCCESS) {
+                    KEY_READ, &raw_key) != ERROR_SUCCESS) {
     return false;
   }
+  const UniqueRegKey key(raw_key);
 
   DWORD apps_use_light_theme = 1;
   DWORD size = sizeof(apps_use_light_theme);
-  const LONG result = RegQueryValueExA(key, "AppsUseLightTheme", nullptr, nullptr,
+  const LONG result = RegQueryValueExA(key.get(), "AppsUseLightTheme", nullptr, nullptr,
                                        reinterpret_cast<LPBYTE>(&apps_use_light_theme), &size);
-  RegCloseKey(key);
   return result == ERROR_SUCCESS && apps_use_light_theme == 0;
 }
 
