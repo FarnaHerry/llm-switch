@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="46" height="76" viewBox="0 0 46 76">
+  <!-- llm-switch 中国简约风背景·淡月：一枚蛾眉月，窗口右上角的天空里。 -->
+  <!-- 独立插画资源；无色 alpha-mask，运行时按主题正文色 tint。 -->
+  <!-- 尺寸即摆放尺寸（Image.Fit(None) 按原始 DIP 大小绘制），墨迹占满 viewBox，
+       因此窗口角上的内边距就等于它与窗口边缘的距离。 -->
+  <defs>
+    <linearGradient id="yue" gradientUnits="objectBoundingBox" x1="0" y1="0.5" x2="1" y2="0.5">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.06"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0.18"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 外弧取圆的一段，内弧用更平的二次曲线收回：两尖收成月牙，而不是给圆球打阴影。 -->
+  <path fill="url(#yue)" d="M 0 0 A 38.7 38.7 0 0 1 0 76 Q 60.8 38 0 0 Z"/>
+</svg>

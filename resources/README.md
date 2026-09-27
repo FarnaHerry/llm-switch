@@ -27,7 +27,10 @@ HuxerUI 资源根（`huxerui_add_app` 以 `app` 命名空间注册，codegen 生
 - 每个语义图标只保留一个 SVG，禁止新增 `_selected.svg`、`_dark.svg`、
   `_light.svg` 等重复轮廓；选中态由承载底块表达，不更换图标文件；
 - 品牌图标保留官方轮廓，只调整暖墨色、透明度与外围笔触，不重画商标结构；
-- 太极和全景背景属于独立插画资源，不套用 24×24 功能图标模板。
+- 太极和全景背景属于独立插画资源，不套用 24×24 功能图标模板；
+- 窗口留白背景 `backdrop_shanshui.svg` / `backdrop_moon.svg` 同属独立插画：
+  尺寸不是 24×24，尺寸本身就是摆放尺寸（运行时按 `Image.Fit(None)` 的原始
+  DIP 大小绘制），墨迹占满 viewBox，仍然只用 `#FFFFFF` 与透明度描述墨量。
 
 CMake 配置阶段会检查全部 24×24 SVG：包含硬编码颜色（非 `#FFFFFF`）或
 存在 `_selected` 重复资源时直接报错。新增图标时应同时补充下方来源与许可表。
@@ -61,6 +64,8 @@ CMake 配置阶段会检查全部 24×24 SVG：包含硬编码颜色（非 `#FFF
 | `lotus_bloom.svg` | 品牌莲花·盛开，直接采用 Icon Set v1.0 的莲花轮廓（与 `images/home.svg` 同一造型，仅 viewBox 表达不同）；用于标题栏、导航中心、托盘与关于页。含苞态（`lotus_bud.svg`）已整体废弃——托盘与导航盘都不再用"闭合"形态表达状态 | 本仓库转换稿 |
 | `lotus_tray_bloom*.png` | 由盛放图稿生成的托盘多倍率栅格版本（深色圆底 `#14202E` + 冷白莲花，1x/2x/3x/4x/8x） | 同本仓库 |
 | `platform/{linux,windows}` 应用图标 | 由盛放莲花图稿生成的 Linux SVG 与 Windows ICO（品牌底色 `#14202E` / 莲花 `#E8F0F8` 保持不变，仅换莲花造型） | 同本仓库 |
+| `backdrop_shanshui.svg` | 窗口留白背景·山水：左下远山（折线山脊 + 自山脊向下化开的渐变填充）、右侧一笔更淡的远山、山脚一叶孤舟与两道水纹；640×360，运行时钉在窗口左下角 | 同本仓库 |
+| `backdrop_moon.svg` | 窗口留白背景·淡月：一枚蛾眉月（外弧 + 更平的内弧收成两尖）；46×76，运行时钉在窗口右上角 | 同本仓库 |
 | `back/forward.svg` | 本仓库自绘（墨韵图标库·基础操作） | 同本仓库 |
 | `file/folder/image/video/audio.svg` | 本仓库自绘（墨韵图标库·内容相关） | 同本仓库 |
 | `group/message/bell/star/heart.svg` | 本仓库自绘（墨韵图标库·用户相关） | 同本仓库 |

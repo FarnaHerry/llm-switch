@@ -889,7 +889,8 @@ constexpr double kCollapseSeconds = 0.12;
 
 // 环境光：冷调主题的窗口底纹。深色是石墨底上一层柔和青蓝辉光（偏向画面
 // 上方，对齐参考图深色半边的柔和光斑），浅色是冷白底顶部一层极淡天蓝洗色；
-// 两侧背景都保持干净——旧的全景水墨画卷与程序化泼墨已随水墨身份退役。
+// 光晕之外只由下面两幅留白插画点缀，旧的全景水墨画卷与程序化泼墨已随
+// 水墨身份退役。
 // Canvas 直接铺满宿主（不要包 Align/Frame：Align 会把画布按父约束撑满，
 // 画布本就是全幅），光斑按画布尺寸取比例，窗口缩放时不失真。只把光斑
 // 实际覆盖的顶部画进 cairo 批次（深 72% / 浅 56% 窗高；渐变中心/半径按
@@ -1016,10 +1017,25 @@ void InstallApplication(huxerui::ApplicationContext& context) {
     const float shellInset =
         compactShell ? rootSpec.spacing.medium : rootSpec.spacing.large;
 
-    // 叠放根：环境层只有一层冷调环境光，内容仍以轻岛屿组织并透出环境；
-    // 最外层仍刷海面底色，保证极端宽高比下背景稳定。
+    // 叠放根：环境层是冷调环境光 + 一层中国简约风留白背景（左下远山与一叶
+    // 孤舟、右上一弯淡月），内容仍以轻岛屿组织并透出环境；最外层仍刷海面
+    // 底色，保证极端宽高比下背景稳定。
+    // 两幅插画都是 resources/images 下的无色 alpha-mask，这里按主题正文色
+    // tint（深浅两套主题共用一份资源）；Fit::None 按原始尺寸钉在窗口角上，
+    // 窗口变大只是留白更多，插画本身不拉伸、不裁剪，也不参与命中与层级。
+    // 月亮只在右上角留出右侧 144 / 顶部 6 的内边距：窗口按钮占着最右上角，
+    // 各页面顶部工具行也在右端，月亮落在两者之间空出来的那条天空里。
     huxerui::View content = huxerui::Stack {
         AmbientGlow(dark),
+        huxerui::Image(app::images::backdrop_shanshui)
+            .Fit(huxerui::ImageFit::None)
+            .Align(huxerui::HorizontalAlignment::Start, huxerui::VerticalAlignment::End)
+            .Tint(rootSpec.colors.on_surface),
+        huxerui::Image(app::images::backdrop_moon)
+            .Fit(huxerui::ImageFit::None)
+            .Align(huxerui::HorizontalAlignment::End, huxerui::VerticalAlignment::Start)
+            .Tint(rootSpec.colors.on_surface)
+            .With(huxerui::Padding(huxerui::EdgeInsets{.top = 6.0F, .right = 144.0F})),
         huxerui::Column {
             // 标题栏只负责应用名、拖拽区和系统按钮预留；莲花锚点在下方根级
             // 覆盖层按整窗宽度居中，避免被右侧最小化/最大化/关闭按钮推偏。

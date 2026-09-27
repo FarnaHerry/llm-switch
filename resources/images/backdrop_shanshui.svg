@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360">
+  <!-- llm-switch 中国简约风背景·山水：左下远山与一叶孤舟。 -->
+  <!-- 独立插画资源，不套用 24×24 功能图标模板；仍只用 #FFFFFF 与透明度描述墨量， -->
+  <!-- 运行时按主题正文色 tint，深浅两套主题共用这一份无色 alpha-mask。 -->
+  <defs>
+    <!-- 主山自山脊向下化开：山脚 alpha 归零，贴着窗口下缘也不会留下硬边。 -->
+    <linearGradient id="shan" gradientUnits="userSpaceOnUse" x1="0" y1="112" x2="0" y2="352">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.13"/>
+      <stop offset="0.55" stop-color="#FFFFFF" stop-opacity="0.06"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 远山：右侧一笔更淡的平缓山脊，与主山之间留出水面的留白。 -->
+  <path d="M 430 256 C 458 240 480 228 508 230 C 532 232 544 246 570 250 C 594 254 610 248 628 240"
+        fill="none" stroke="#FFFFFF" stroke-opacity="0.085" stroke-width="1.2"
+        stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- 主山：自画面左缘起势，一峰一肩，山脊向右下方没入留白。 -->
+  <path d="M -22 326 C 8 296 26 246 46 206 C 66 168 88 132 110 114 C 120 105 130 106 138 122 C 156 158 178 196 210 220 C 240 240 268 252 296 266 C 326 282 360 296 402 310 L 452 380 L -22 380 Z"
+        fill="url(#shan)"/>
+  <path d="M -22 326 C 8 296 26 246 46 206 C 66 168 88 132 110 114 C 120 105 130 106 138 122 C 156 158 178 196 210 220 C 240 240 268 252 296 266 C 326 282 360 296 402 310"
+        fill="none" stroke="#FFFFFF" stroke-opacity="0.19" stroke-width="1.3"
+        stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- 孤舟：全图唯一的重墨，一人一舟停在主山右侧的水面留白上。 -->
+  <g fill="none" stroke="#FFFFFF" stroke-opacity="0.34" stroke-width="1.6"
+     stroke-linecap="round" stroke-linejoin="round">
+    <path d="M 464 297 C 476 306 486 308 500 308 C 514 308 524 306 536 297"/>
+    <path d="M 501 307 L 501 295"/>
+    <path d="M 494 295 C 496 288 506 288 508 295"/>
+  </g>
+
+  <!-- 水纹：两道极淡的短线，把孤舟落在水面上。 -->
+  <g fill="none" stroke="#FFFFFF" stroke-opacity="0.06" stroke-width="1"
+     stroke-linecap="round">
+    <path d="M 458 326 L 498 326"/>
+    <path d="M 516 338 L 546 338"/>
+  </g>
+</svg>
