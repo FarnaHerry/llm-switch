@@ -679,18 +679,5 @@ I/O、解析和 JSON 函数默认保留在 `.cpp` 中。
   +19.6%（+832/+823KB）、rpm +22.3%、Windows zip +15.2%、setup.exe +7.7%、
   macOS tar.gz +47.8%（基数仅 1.53MB）。同时定下「高频日志直接写文件、
   不进 SQLite」的载体规则（见该节）。
-- ✅ 中国简约风留白背景（2026-09-27）：环境层在 `AmbientGlow` 之上再加两幅
-  留白插画——左下 `backdrop_shanshui.svg`（折线山脊的主山 + 自山脊向下化开的
-  渐变填充、右侧一笔更淡的远山、山脚一叶孤舟与两道水纹，640×360）与右上
-  `backdrop_moon.svg`（蛾眉月，外弧 + 更平的内弧收成两尖，46×76）；都是
-  `resources/images` 下的无色 alpha-mask，运行时用 `rootSpec.colors.on_surface`
-  tint，深浅两套主题共用同一份资源（浅色「晴石」下即淡墨纸本）。`AppRoot` 的
-  根 `Stack` 里以 `Image.Fit(None)` 按原始 DIP 尺寸绘制：`Align(Start, End)` 钉
-  左下、`Align(End, Start)` 钉右上并留 `top 6 / right 144` 内边距——窗口按钮占
-  最右上角、各页顶部工具行（如供应商页的「+」）占右端，月亮因此落在两者之间
-  空出来的那条天空里，不压任何操作图标；窗口变大只是留白更多，插画不拉伸、
-  不裁剪，也不参与命中与层级。**没有用 Canvas**：按 HuxerUI 现行 skill
-  （`canvas-paint-and-images.md`）静态插画应当走 SVG 资源 + `Image`，Canvas 只
-  用于动态几何。
 - ⬜ 待做：订阅站端点可能随各家调整，升级版本时需复核；无 CLI 分流、
   无单实例/开机自启；`usage.db` 的 WAL 一致性备份（当前不在 `backups/` 覆盖内）。
