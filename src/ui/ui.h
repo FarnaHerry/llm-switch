@@ -22,9 +22,8 @@ enum PageIndex : std::size_t {
     kMcp = 3,
     kSkills = 4,
     kSessions = 5,
-    kSubscriptions = 6,
-    kSettings = 7,
-    kAbout = 8,
+    kSettings = 6,
+    kAbout = 7,
 };
 } // namespace pages
 
@@ -81,11 +80,10 @@ IslandTheme ResolveIslandTheme(const huxerui::ThemeSpec& theme);
 huxerui::View AgentPage(
     huxerui::State<int> revision, huxerui::State<std::size_t> navPage,
     huxerui::State<std::size_t> selectedTool,
-    huxerui::State<std::string> addProviderRequest,
-    huxerui::State<std::string> pendingSubscriptionPresetName);
+    huxerui::State<std::string> addProviderRequest);
 // 供应商列表页：各工具组共用同一组件，tool 是
 // models::toolRegistry() 的稳定注册表 id（claude-code / codex / ...）。
-// usageCache 在 AgentPage 创建；新增请求由根级 Agent/订阅页共享；
+// usageCache 在 AgentPage 创建；新增请求由根级 Agent 页共享；
 // 可见列表进入或配置变化时惰性检查到期时间。addProviderRequest 由顶部 action group 发出，目标页消费后打开
 // 自己的新增表单。
 using UsageCache = huxerui::State<std::map<std::string, std::string>>;
@@ -94,18 +92,6 @@ huxerui::View ProvidersPage(std::string tool, huxerui::State<int> revision,
                             huxerui::State<std::string> addProviderRequest,
                             huxerui::State<std::size_t> navPage,
                             huxerui::State<std::size_t> selectedTool, std::size_t toolIndex);
-huxerui::View ProvidersPage(std::string tool, huxerui::State<int> revision,
-                            UsageCache usageCache,
-                            huxerui::State<std::string> addProviderRequest,
-                            huxerui::State<std::string> pendingSubscriptionPresetName,
-                            huxerui::State<std::size_t> navPage,
-                            huxerui::State<std::size_t> selectedTool, std::size_t toolIndex);
-// Subscription catalog: all built-in subscription templates grouped by Agent.
-huxerui::View SubscriptionsPage(
-    huxerui::State<std::size_t> navPage,
-    huxerui::State<std::size_t> selectedTool,
-    huxerui::State<std::string> addProviderRequest,
-    huxerui::State<std::string> pendingSubscriptionPresetName);
 // 设置页持有主题模式 State（AppRoot 传入）。
 huxerui::View SettingsPage(huxerui::State<int> themeMode, huxerui::State<int> revision);
 

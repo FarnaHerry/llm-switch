@@ -511,7 +511,7 @@ huxerui::View TitleBarOrnamentArtwork(huxerui::Color color, bool glow) {
         .Key("title-nav:ornament");
 }
 
-// 中央圆盘的同心环、九向连线与节点是可跟随主题 tint 的静态 SVG 装饰；它们
+// 中央圆盘的同心环、八向连线与节点是可跟随主题 tint 的静态 SVG 装饰；它们
 // 不参与命中，页面动作仍由标准 IconButton 承担。
 huxerui::View RadialNavigationArtwork(huxerui::Color color) {
     return huxerui::Image(app::images::radial_navigation_artwork)
@@ -527,7 +527,7 @@ huxerui::View RadialNavigationArtwork(huxerui::Color color) {
 constexpr double kCollapseSeconds = 0.12;
 
 // 根级径向导航：中轴区域贯穿标题栏到圆盘，保证 Hover 能平滑交接；圆盘本身
-// 保持全部九个顶级页面，按顺时针方向均匀排布并复用 navPage。
+// 保持全部八个顶级页面，按顺时针方向均匀排布并复用 navPage。
 [[huxerui::composable]] huxerui::View RadialNavigationOverlay(
     huxerui::State<std::size_t> navPage,
     huxerui::State<bool> navigationOpen,
@@ -568,24 +568,22 @@ constexpr double kCollapseSeconds = 0.12;
         const char* tooltip;
         std::size_t page;
     };
-    const std::array<Item, 9> items{
+    const std::array<Item, 8> items{
         Item{app::images::agents, "Agent 管理", pages::kAgents},
         Item{app::images::router, "本地路由", pages::kRouter},
         Item{app::images::stats, "使用统计", pages::kStats},
         Item{app::images::mcp, "MCP 服务器", pages::kMcp},
         Item{app::images::skills, "Skills", pages::kSkills},
         Item{app::images::sessions, "会话", pages::kSessions},
-        Item{app::images::providers, "订阅供应商", pages::kSubscriptions},
         Item{app::images::settings, "设置", pages::kSettings},
         Item{app::images::about, "关于", pages::kAbout},
     };
 
-    constexpr std::array<huxerui::Point, 9> positions{
-        huxerui::Point{0.0F, -144.0F}, huxerui::Point{92.6F, -110.4F},
-        huxerui::Point{141.8F, -25.0F}, huxerui::Point{124.7F, 72.0F},
-        huxerui::Point{49.3F, 135.3F}, huxerui::Point{-49.3F, 135.3F},
-        huxerui::Point{-124.7F, 72.0F}, huxerui::Point{-141.8F, -25.0F},
-        huxerui::Point{-92.6F, -110.4F},
+    constexpr std::array<huxerui::Point, 8> positions{
+        huxerui::Point{0.0F, -144.0F}, huxerui::Point{101.8F, -101.8F},
+        huxerui::Point{144.0F, 0.0F}, huxerui::Point{101.8F, 101.8F},
+        huxerui::Point{0.0F, 144.0F}, huxerui::Point{-101.8F, 101.8F},
+        huxerui::Point{-144.0F, 0.0F}, huxerui::Point{-101.8F, -101.8F},
     };
     // 展开稍慢、回收更快：回收是新页面展开的前置动作，要干脆。
     const huxerui::AnimationSpec motion = theme.motion.reduced_motion
@@ -610,7 +608,7 @@ constexpr double kCollapseSeconds = 0.12;
                     ownerTasks.Launch(
                         [navPage, navigationOpen, pageReveal, page,
                          autoClose]() -> huxerui::Task<void> {
-                            // 轮盘（连着九个选项）与旧页面同时开始缩回屏幕中心，
+                            // 轮盘（连着八个选项）与旧页面同时开始缩回屏幕中心，
                             // 视觉上是"一起被吸进那颗莲花"。
                             if (autoClose) {
                                 navigationOpen = false;
@@ -650,7 +648,7 @@ constexpr double kCollapseSeconds = 0.12;
 
     std::vector<huxerui::View> radialChildren;
     radialChildren.reserve(items.size() + 2);
-    // 同心环与九向连线也随盘收放：它们是纯环境装饰（不参与命中、没有逐件
+    // 同心环与八向连线也随盘收放：它们是纯环境装饰（不参与命中、没有逐件
     // 布局），整组向中心缩放不会带来交互件「连同间距一起塌缩」的问题，读
     // 起来正是线条被收进莲花——与图标各自沿半径飞回同走一条时间线。
     radialChildren.push_back(
@@ -790,7 +788,7 @@ constexpr double kCollapseSeconds = 0.12;
               .duration = revealed ? 0.18 : kCollapseSeconds,
               .easing = huxerui::Easing::EaseOut}};
     const std::size_t current = navPage.Get();
-    // 切页变换只套在**当前可见页**上。宿主里 9 个页面全部保持挂载（各自保留
+    // 切页变换只套在**当前可见页**上。宿主里 8 个页面全部保持挂载（各自保留
     // 列表/表单状态），若把 Opacity/Scale 套在整个宿主外层，每帧都要把全部
     // 页面做一次离屏合成——页面有真实数据时非常卡。缓存的是 View 值，这里
     // .With() 产出新声明并现读动画目标，既不会冻结目标值也不重建页面子树。
@@ -812,17 +810,15 @@ constexpr double kCollapseSeconds = 0.12;
     huxerui::State<std::size_t> navPage, huxerui::State<int> revision,
     huxerui::State<int> themeMode, huxerui::State<bool> pageReveal,
     huxerui::State<std::size_t> selectedAgentTool,
-    huxerui::State<std::string> addProviderRequest,
-    huxerui::State<std::string> pendingSubscriptionPresetName) {
+    huxerui::State<std::string> addProviderRequest) {
     auto pageCache =
         huxerui::UseState<std::shared_ptr<std::vector<huxerui::View>>>({});
     std::shared_ptr<std::vector<huxerui::View>> cachedPages = pageCache.Get();
-    if (!cachedPages || cachedPages->size() != 9) {
+    if (!cachedPages || cachedPages->size() != 8) {
         auto nextPages = std::make_shared<std::vector<huxerui::View>>();
-        nextPages->reserve(9);
+        nextPages->reserve(8);
         nextPages->push_back(
-            AgentPage(revision, navPage, selectedAgentTool, addProviderRequest,
-                      pendingSubscriptionPresetName)
+            AgentPage(revision, navPage, selectedAgentTool, addProviderRequest)
                 .Key("agents")
                 .With(huxerui::Grow(1.0F)));
         nextPages->push_back(
@@ -835,11 +831,6 @@ constexpr double kCollapseSeconds = 0.12;
             SkillsPage().Key("skills").With(huxerui::Grow(1.0F)));
         nextPages->push_back(
             SessionsPage().Key("sessions").With(huxerui::Grow(1.0F)));
-        nextPages->push_back(
-            SubscriptionsPage(navPage, selectedAgentTool, addProviderRequest,
-                              pendingSubscriptionPresetName)
-                .Key("subscriptions")
-                .With(huxerui::Grow(1.0F)));
         nextPages->push_back(SettingsPage(themeMode, revision)
                                  .Key("settings")
                                  .With(huxerui::Grow(1.0F)));
@@ -932,7 +923,6 @@ void InstallApplication(huxerui::ApplicationContext& context) {
     auto navPage = huxerui::UseState<std::size_t>(pages::kAgents);
     auto selectedAgentTool = huxerui::UseState<std::size_t>(0);
     auto addProviderRequest = huxerui::UseState<std::string>({});
-    auto pendingSubscriptionPresetName = huxerui::UseState<std::string>({});
     // 标题栏莲花与根级径向浮层共享开合状态；AppRoot 不读取它，避免 Hover
     // 让整套窗口内容重组。
     auto navigationOpen = huxerui::UseState(false);
@@ -1014,8 +1004,7 @@ void InstallApplication(huxerui::ApplicationContext& context) {
             // 不能用硬编码高度去"对齐"的原因。
             // 页面容器承担切页展开：缩放轴心取容器中心，配合淡入即"从中心展开"。
             TopLevelNavigation(navPage, revision, themeMode, pageReveal,
-                               selectedAgentTool, addProviderRequest,
-                               pendingSubscriptionPresetName)
+                               selectedAgentTool, addProviderRequest)
                 .With(huxerui::Grow(1.0F)),
         }
             .With(huxerui::Padding(huxerui::EdgeInsets{.bottom =

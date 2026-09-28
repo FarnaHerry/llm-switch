@@ -55,22 +55,9 @@ namespace llmswitch::ui {
 using provider_detail::FetchUsageText;
 using provider_detail::WriteUsageCache;
 
-// Compatibility overload for the local UI performance probe and existing callers.
 [[huxerui::composable]] huxerui::View ProvidersPage(
     std::string tool, huxerui::State<int> revision, UsageCache usageCache,
     huxerui::State<std::string> addProviderRequest,
-    huxerui::State<std::size_t> navPage,
-    huxerui::State<std::size_t> selectedTool, std::size_t toolIndex) {
-    auto pendingSubscriptionPresetName = huxerui::UseState<std::string>({});
-    return ProvidersPage(std::move(tool), revision, usageCache,
-                         addProviderRequest, pendingSubscriptionPresetName,
-                         navPage, selectedTool, toolIndex);
-}
-
-[[huxerui::composable]] huxerui::View ProvidersPage(
-    std::string tool, huxerui::State<int> revision, UsageCache usageCache,
-    huxerui::State<std::string> addProviderRequest,
-    huxerui::State<std::string> pendingSubscriptionPresetName,
     huxerui::State<std::size_t> navPage,
     huxerui::State<std::size_t> selectedTool, std::size_t toolIndex) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
@@ -95,25 +82,13 @@ using provider_detail::WriteUsageCache;
     auto formInitial = huxerui::UseState<models::Provider>({});
     auto formDataTarget = huxerui::UseState<std::string>({});
     auto formLoading = huxerui::UseState(false);
-    // AgentPage 顶部 action group 或订阅目录发来的新增请求只由对应工具页消费，随后
+    // AgentPage 顶部 action group 发来的新增请求只由对应工具页消费，随后
     // 清空请求，避免同一次点击在后续重组中重复打开表单。
     huxerui::Lifecycle(
-        [tool, addProviderRequest, pendingSubscriptionPresetName,
-         formTarget, formInitial] {
+        [tool, addProviderRequest, formTarget, formInitial] {
             if (addProviderRequest.Get() == tool) {
                 addProviderRequest = {};
-                const std::string presetName =
-                    pendingSubscriptionPresetName.Get();
-                if (!presetName.empty()) {
-                    const auto presets = models::builtinPresets(tool);
-                    for (const auto& preset : presets.subscription) {
-                        if (preset.name == presetName) {
-                            formInitial = preset;
-                            break;
-                        }
-                    }
-                    pendingSubscriptionPresetName = {};
-                }
+                formInitial = models::Provider{};
                 formTarget = "new";
             }
             return [] {};

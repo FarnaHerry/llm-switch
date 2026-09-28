@@ -49,8 +49,7 @@ namespace llmswitch::ui {
 [[huxerui::composable]] huxerui::View AgentPage(
     huxerui::State<int> revision, huxerui::State<std::size_t> navPage,
     huxerui::State<std::size_t> selectedTool,
-    huxerui::State<std::string> addProviderRequest,
-    huxerui::State<std::string> pendingSubscriptionPresetName) {
+    huxerui::State<std::string> addProviderRequest) {
     const auto& registry = models::toolRegistry();
     if (registry.empty()) {
         return huxerui::Text("没有可用的 Agent 工具");
@@ -93,8 +92,7 @@ namespace llmswitch::ui {
             const std::string id(spec.id);
             nextPages->push_back(
                 ProvidersPage(id, revision, usageCache, addProviderRequest,
-                              pendingSubscriptionPresetName, navPage,
-                              selectedTool, index)
+                              navPage, selectedTool, index)
                     .Key("agent-providers:" + id)
                     .With(huxerui::Grow(1.0F)));
         }
@@ -102,12 +100,10 @@ namespace llmswitch::ui {
         cachedPages = std::move(nextPages);
     }
 
-    auto requestAddProvider = [selectedTool, addProviderRequest,
-                               pendingSubscriptionPresetName] {
+    auto requestAddProvider = [selectedTool, addProviderRequest] {
         const auto& currentRegistry = models::toolRegistry();
         const std::size_t index = selectedTool.Get();
         if (index < currentRegistry.size()) {
-            pendingSubscriptionPresetName = {};
             addProviderRequest = std::string(currentRegistry[index].id);
         }
     };
