@@ -104,7 +104,7 @@ export constexpr std::array<ToolSpec, 10> kToolRegistry{{
     // settings.yaml 同样热重载 → 切换无需重启。
     ToolSpec{.id = "dsh",
              .displayName = "DeepSeek Harness",
-             .iconName = "dsh",
+             .iconName = "deepseek",
              .needsModel = true,
              .hasApiFormat = true,
              .hasModelMappings = false,
