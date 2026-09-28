@@ -51,7 +51,7 @@ CMake 配置阶段会检查全部 24×24 SVG：包含硬编码颜色（非 `#FFF
 | `opencode.svg` | opencode 官方 logo，simple-icons develop 分支 `opencode`（保留镂空规则与官方轮廓） | CC0 1.0 |
 | `pi.svg` | pi-mono 官方 logo，[pi.dev](https://pi.dev) `logo-auto.svg`（等比缩到 24×24，官方轮廓不变） | MIT（[pi-mono 仓库](https://github.com/badlogic/pi-mono)） |
 | `dsh.svg` | 本仓库自绘束带扣（DeepSeek Harness 的 harness 意象） | 同本仓库 |
-| `hermes.svg` | 本仓库自绘飞翼（Hermes 的神使飞翼意象） | 同本仓库 |
+| `hermes.svg` | DeepSeek logo，[simple-icons `deepseek`](https://github.com/simple-icons/simple-icons/blob/develop/icons/deepseek.svg)（应产品要求用于 Hermes 工具入口，官方轮廓不变，仅改为主题 tint 用的白色 alpha-mask） | CC0 1.0 |
 | `home/home_active/agents/providers/models/router/skills/mcp/sessions/stats/settings.svg` | 用户提供的 **llm-switch Icon Set v1.0** 参考图中的核心导航图标（首页未选中／选中、Agent 管理、供应商、模型、本地路由、Skills、MCP、会话、用量、设置；`home_active.svg` 为实心莲花，当前未接入运行时，选中态仍由承载底块表达） | 本仓库转换稿 |
 | `trash/download/upload/search/refresh/edit/import/export/backup/restore.svg` | Icon Set v1.0 中的常用操作图标（删除、下载、上传、搜索、刷新、编辑、导入、导出、备份、恢复） | 本仓库转换稿 |
 | `add.svg` | 本仓库自绘的简单通用加号（圆头十字，墨迹 14/24）。Icon Set v1.0 的「卷宗 + 加号」在 16px 下已经认不出是新增，按产品要求换成通用 add 造型 | 同本仓库 |
