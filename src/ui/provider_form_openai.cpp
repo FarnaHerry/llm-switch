@@ -23,7 +23,7 @@ const AgentFormPolicy& OpenAiCliFormPolicy() {
     return policy;
 }
 
-[[huxerui::composable]] [[huxerui::composable]] huxerui::View ApiFormatFields(const FormStates& fs) {
+[[huxerui::composable]] huxerui::View ApiFormatFields(const FormStates& fs) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     return huxerui::Column {
         huxerui::Text("API 协议")

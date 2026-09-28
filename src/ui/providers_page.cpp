@@ -55,9 +55,22 @@ namespace llmswitch::ui {
 using provider_detail::FetchUsageText;
 using provider_detail::WriteUsageCache;
 
+// Compatibility overload for the local UI performance probe and existing callers.
 [[huxerui::composable]] huxerui::View ProvidersPage(
     std::string tool, huxerui::State<int> revision, UsageCache usageCache,
     huxerui::State<std::string> addProviderRequest,
+    huxerui::State<std::size_t> navPage,
+    huxerui::State<std::size_t> selectedTool, std::size_t toolIndex) {
+    auto pendingSubscriptionPresetName = huxerui::UseState<std::string>({});
+    return ProvidersPage(std::move(tool), revision, usageCache,
+                         addProviderRequest, pendingSubscriptionPresetName,
+                         navPage, selectedTool, toolIndex);
+}
+
+[[huxerui::composable]] huxerui::View ProvidersPage(
+    std::string tool, huxerui::State<int> revision, UsageCache usageCache,
+    huxerui::State<std::string> addProviderRequest,
+    huxerui::State<std::string> pendingSubscriptionPresetName,
     huxerui::State<std::size_t> navPage,
     huxerui::State<std::size_t> selectedTool, std::size_t toolIndex) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
@@ -78,22 +91,35 @@ using provider_detail::WriteUsageCache;
     // 列表/表单多模式："" = 列表；"new" = 新增；"usage:" + id = 用量查询
     // 配置页；否则 = 编辑的 provider id。子页以 .Key 组合，换目标即重建状态。
     auto formTarget = huxerui::UseState<std::string>({});
-    // AgentPage 顶部 action group 发来的新增请求只由对应工具页消费，随后
+    // 编辑表单先显示轻量加载页，再异步拷贝目标供应商。
+    auto formInitial = huxerui::UseState<models::Provider>({});
+    auto formDataTarget = huxerui::UseState<std::string>({});
+    auto formLoading = huxerui::UseState(false);
+    // AgentPage 顶部 action group 或订阅目录发来的新增请求只由对应工具页消费，随后
     // 清空请求，避免同一次点击在后续重组中重复打开表单。
     huxerui::Lifecycle(
-        [tool, addProviderRequest, formTarget] {
+        [tool, addProviderRequest, pendingSubscriptionPresetName,
+         formTarget, formInitial] {
             if (addProviderRequest.Get() == tool) {
                 addProviderRequest = {};
+                const std::string presetName =
+                    pendingSubscriptionPresetName.Get();
+                if (!presetName.empty()) {
+                    const auto presets = models::builtinPresets(tool);
+                    for (const auto& preset : presets.subscription) {
+                        if (preset.name == presetName) {
+                            formInitial = preset;
+                            break;
+                        }
+                    }
+                    pendingSubscriptionPresetName = {};
+                }
                 formTarget = "new";
             }
             return [] {};
         },
         addProviderRequest.Get());
-    // 编辑表单先显示轻量加载页，再异步拷贝目标供应商。这样切换编辑目标
-    // 不必先构造整棵供应商卡片树；formDataTarget 也用来丢弃旧目标的迟到结果。
-    auto formInitial = huxerui::UseState<models::Provider>({});
-    auto formDataTarget = huxerui::UseState<std::string>({});
-    auto formLoading = huxerui::UseState(false);
+    // 切换编辑目标不必先构造整棵供应商卡片树；formDataTarget 也用来丢弃旧目标的迟到结果。
     const std::string target = formTarget.Get();
     huxerui::Lifecycle(
         [tasks, tool, target, formTarget, formInitial, formDataTarget,

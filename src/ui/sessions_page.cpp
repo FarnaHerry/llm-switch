@@ -540,7 +540,7 @@ std::string FormatSize(std::uintmax_t bytes) {
                 huxerui::Background(islands.raised),
                 huxerui::CornerRadius(islands.nested_radius));
         }
-        agentButtons.push_back(std::move(button));
+        agentButtons.push_back(button);
         agentPages.push_back(
             AgentSessionsPanel(id, selectedSession, selectedAgent, index)
                 .Key("session-agent:" + id));

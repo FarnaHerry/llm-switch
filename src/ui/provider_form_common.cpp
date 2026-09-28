@@ -118,11 +118,12 @@ const AgentFormPolicy& AgentPolicyFor(std::string_view tool) {
                     theme.colors.on_surface_variant}));
         std::vector<huxerui::View> chips;
         for (const auto& preset : groups.subscription) {
-            chips.push_back(huxerui::Button(preset.name)
-                                .OnClick([fs, fetchedModels, preset] {
-                                    fetchedModels.Clear();
-                                    FillForm(fs, preset);
-                                }));
+            chips.push_back(
+                huxerui::Chip(PresetIcon(preset.name), preset.name)
+                    .OnClick([fs, fetchedModels, preset] {
+                        fetchedModels.Clear();
+                        FillForm(fs, preset);
+                    }));
         }
         // 预设较多时用 Flow 自动换行，避免单行 Row 横向溢出。
         items.push_back(
@@ -136,11 +137,12 @@ const AgentFormPolicy& AgentPolicyFor(std::string_view tool) {
                     theme.colors.on_surface_variant}));
         std::vector<huxerui::View> chips;
         for (const auto& preset : groups.metered) {
-            chips.push_back(huxerui::Button(preset.name)
-                                .OnClick([fs, fetchedModels, preset] {
-                                    fetchedModels.Clear();
-                                    FillForm(fs, preset);
-                                }));
+            chips.push_back(
+                huxerui::Chip(PresetIcon(preset.name), preset.name)
+                    .OnClick([fs, fetchedModels, preset] {
+                        fetchedModels.Clear();
+                        FillForm(fs, preset);
+                    }));
         }
         items.push_back(
             huxerui::Flow(std::move(chips)).With(huxerui::Spacing(8.0F)));
@@ -229,8 +231,8 @@ const AgentFormPolicy& AgentPolicyFor(std::string_view tool) {
                                           showKey.Get() ? "隐藏密钥" : "显示密钥")
                             .OnTrailingIconClick(
                                 [showKey] { showKey = !showKey.Get(); })}
-        : huxerui::View{std::move(keyField)};
-    fields.push_back(std::move(keyView));
+        : huxerui::View{keyField};
+    fields.push_back(keyView);
     return huxerui::Column(std::move(fields))
         .With(huxerui::Spacing(12.0F),
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
@@ -282,7 +284,7 @@ const AgentFormPolicy& AgentPolicyFor(std::string_view tool) {
                   huxerui::Tooltip(canFetch
                                        ? "按模型获取 URL + API Key 拉取模型列表"
                                        : "请先填写 Base URL 与 API Key"));
-    return huxerui::Row{std::move(fetchButton)}
+    return huxerui::Row{fetchButton}
         .With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
 }
 

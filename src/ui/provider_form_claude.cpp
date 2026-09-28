@@ -42,7 +42,7 @@ const AgentFormPolicy& ClaudeDesktopFormPolicy() {
     return policy;
 }
 
-[[huxerui::composable]] [[huxerui::composable]] huxerui::View MappingFields(
+[[huxerui::composable]] huxerui::View MappingFields(
     const FormStates& fs, huxerui::StateList<std::string> fetchedModels) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     // 实际请求模型仍是现有三档 *Model 字段；显示名与 supports1m 仅用于

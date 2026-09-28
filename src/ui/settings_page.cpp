@@ -126,7 +126,7 @@ bool ResolvesToDark(int mode) {
                       theme.colors.on_surface_variant})},
         }.With(huxerui::Spacing(2.0F)),
         huxerui::Spacer(),
-        std::move(control),
+        control,
     }.With(huxerui::Spacing(12.0F),
            huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
 }

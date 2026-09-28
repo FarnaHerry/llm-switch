@@ -52,7 +52,43 @@ huxerui::ImageResource ToolIcon(std::string_view iconName) {
     if (iconName == "zcode") {
         return app::images::zcode;
     }
-    return app::images::agents;
+    return app::images::error;
+}
+
+huxerui::ImageResource PresetIcon(std::string_view providerName) {
+    const std::string_view iconName =
+        models::builtinPresetIconName(providerName);
+    if (iconName == "packycode") return app::images::packycode;
+    if (iconName == "aicodemirror") return app::images::aicodemirror;
+    if (iconName == "code88") return app::images::code88;
+    if (iconName == "duckcoding") return app::images::duckcoding;
+    if (iconName == "kimi") return app::images::kimi;
+    if (iconName == "volcengine") return app::images::volcengine;
+    if (iconName == "baidu") return app::images::baidu;
+    if (iconName == "qwen") return app::images::qwen;
+    if (iconName == "tencent") return app::images::tencent;
+    if (iconName == "xiaomi") return app::images::xiaomi;
+    // Hermes and DeepSeek are represented by the same official DeepSeek mark.
+    if (iconName == "deepseek") return app::images::hermes;
+    if (iconName == "glm") return app::images::glm;
+    if (iconName == "zdotai") return app::images::zdotai;
+    if (iconName == "minimax") return app::images::minimax;
+    if (iconName == "stepfun") return app::images::stepfun;
+    if (iconName == "doubao") return app::images::doubao;
+    if (iconName == "siliconflow") return app::images::siliconflow;
+    if (iconName == "meituan") return app::images::meituan;
+    if (iconName == "antgroup") return app::images::antgroup;
+    if (iconName == "modelscope") return app::images::modelscope;
+    if (iconName == "ppio") return app::images::ppio;
+    if (iconName == "openrouter") return app::images::openrouter;
+    if (iconName == "aihubmix") return app::images::aihubmix;
+    if (iconName == "shengsuanyun") return app::images::shengsuanyun;
+    if (iconName == "qiniu") return app::images::qiniu;
+    if (iconName == "aicoding") return app::images::aicoding;
+    if (iconName == "subrouter") return app::images::subrouter;
+    if (iconName == "cherryin") return app::images::cherryin;
+    // Keep an unknown mapping visibly distinct so omissions cannot pass as a vendor icon.
+    return app::images::error;
 }
 
 std::string_view ToolName(std::string_view tool) {
@@ -115,7 +151,7 @@ IslandTheme ResolveIslandTheme(const huxerui::ThemeSpec& theme) {
         huxerui::Row {
             huxerui::Text(title, huxerui::TextRole::Title),
             huxerui::Spacer(),
-            std::move(actions),
+            actions,
         }.With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
         std::move(body).With(huxerui::Grow(1.0F)),
     }.With(huxerui::Padding(huxerui::EdgeInsets{.top = 0.0F,
@@ -157,11 +193,9 @@ IslandTheme ResolveIslandTheme(const huxerui::ThemeSpec& theme) {
 // 缝隙划分。仅需要强调的独立块（如关于页头部）保留 Card。
 [[huxerui::composable]] huxerui::View PageSection(huxerui::View title,
                                                   huxerui::View content) {
-    huxerui::View section_title = title;
-    huxerui::View section_content = content;
     return huxerui::Column {
-        std::move(section_title),
-        std::move(section_content),
+        title,
+        content,
     }.With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 }
 

@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="360" height="360" viewBox="0 0 360 360">
+  <g fill="none" stroke="currentColor" stroke-linecap="round">
+    <circle cx="180" cy="180" r="78" stroke-opacity="0.34" stroke-width="0.8"/>
+    <circle cx="180" cy="180" r="112" stroke-opacity="0.34" stroke-width="0.8"/>
+    <circle cx="180" cy="180" r="144" stroke-opacity="0.34" stroke-width="1.15"/>
+    <path stroke-opacity="0.34" stroke-width="0.8" d="M180 128V34 M213.4 140.2 273.9 68.2 M231.2 171 323.8 154.7 M225 206 306.4 253 M197.8 228.8 229.9 317.2 M162.2 228.8 130.1 317.2 M135 206 53.6 253 M128.8 171 36.2 154.7 M146.6 140.2 86.1 68.2"/>
+  </g>
+  <g fill="currentColor" fill-opacity="0.34">
+    <circle cx="180" cy="68" r="2.2"/>
+    <circle cx="252" cy="94.1" r="2.2"/>
+    <circle cx="290.3" cy="160.5" r="2.2"/>
+    <circle cx="277" cy="236" r="2.2"/>
+    <circle cx="218.3" cy="285.2" r="2.2"/>
+    <circle cx="141.7" cy="285.2" r="2.2"/>
+    <circle cx="83" cy="236" r="2.2"/>
+    <circle cx="69.7" cy="160.5" r="2.2"/>
+    <circle cx="108" cy="94.1" r="2.2"/>
+  </g>
+</svg>

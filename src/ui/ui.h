@@ -14,6 +14,20 @@ import llmswitch.store;
 
 namespace llmswitch::ui {
 
+namespace pages {
+enum PageIndex : std::size_t {
+    kAgents = 0,
+    kRouter = 1,
+    kStats = 2,
+    kMcp = 3,
+    kSkills = 4,
+    kSessions = 5,
+    kSubscriptions = 6,
+    kSettings = 7,
+    kAbout = 8,
+};
+} // namespace pages
+
 // 全项目统一字号阶梯（pt）：控件/正文跟随 SDK 默认 14，不再散落硬编码字面量。
 namespace font_size {
 inline constexpr float kCaption = 11.0F;  // 徽标、状态小字
@@ -34,8 +48,10 @@ store::ProviderStore& providerStore();
 std::string_view ToolName(std::string_view tool);
 
 // ToolSpec.iconName → 单套无色 alpha-mask 图标；深浅主题由组件运行时 tint
-// 自适应，选中态由承载容器表达。未知名回退 agents 图标。
+// 自适应，选中态由承载容器表达。未知名显示错误图标，避免掩盖漏配。
 huxerui::ImageResource ToolIcon(std::string_view iconName);
+// builtinPresets() vendor name → bundled monochrome brand/monogram icon.
+huxerui::ImageResource PresetIcon(std::string_view providerName);
 
 // ---- 岛屿结构（对齐 Clash-Flux island 模型）----
 // 语义层级：颜色由当前 ThemeSpec 派生，深浅主题共用组件，页面不直接依赖
@@ -60,12 +76,16 @@ struct IslandTheme {
 IslandTheme ResolveIslandTheme(const huxerui::ThemeSpec& theme);
 
 // ---- 页面（定义在各自 .cpp，均为 [[huxerui::composable]]）----
-// Agent 管理页：持有 Agent 工具栏/Pager 的受控选中索引，并让各工具页保持
-// 挂载，从而保留各页的表单、列表和检查状态。
-huxerui::View AgentPage(huxerui::State<int> revision, huxerui::State<std::size_t> navPage);
+// Agent 管理页：使用根级共享的选中索引与新增请求，并让各工具页保持挂载，
+// 从而保留各页的表单、列表和检查状态。
+huxerui::View AgentPage(
+    huxerui::State<int> revision, huxerui::State<std::size_t> navPage,
+    huxerui::State<std::size_t> selectedTool,
+    huxerui::State<std::string> addProviderRequest,
+    huxerui::State<std::string> pendingSubscriptionPresetName);
 // 供应商列表页：各工具组共用同一组件，tool 是
 // models::toolRegistry() 的稳定注册表 id（claude-code / codex / ...）。
-// usageCache 与 addProviderRequest 在 AgentPage 中只创建一份；
+// usageCache 在 AgentPage 创建；新增请求由根级 Agent/订阅页共享；
 // 可见列表进入或配置变化时惰性检查到期时间。addProviderRequest 由顶部 action group 发出，目标页消费后打开
 // 自己的新增表单。
 using UsageCache = huxerui::State<std::map<std::string, std::string>>;
@@ -74,6 +94,18 @@ huxerui::View ProvidersPage(std::string tool, huxerui::State<int> revision,
                             huxerui::State<std::string> addProviderRequest,
                             huxerui::State<std::size_t> navPage,
                             huxerui::State<std::size_t> selectedTool, std::size_t toolIndex);
+huxerui::View ProvidersPage(std::string tool, huxerui::State<int> revision,
+                            UsageCache usageCache,
+                            huxerui::State<std::string> addProviderRequest,
+                            huxerui::State<std::string> pendingSubscriptionPresetName,
+                            huxerui::State<std::size_t> navPage,
+                            huxerui::State<std::size_t> selectedTool, std::size_t toolIndex);
+// Subscription catalog: all built-in subscription templates grouped by Agent.
+huxerui::View SubscriptionsPage(
+    huxerui::State<std::size_t> navPage,
+    huxerui::State<std::size_t> selectedTool,
+    huxerui::State<std::string> addProviderRequest,
+    huxerui::State<std::string> pendingSubscriptionPresetName);
 // 设置页持有主题模式 State（AppRoot 传入）。
 huxerui::View SettingsPage(huxerui::State<int> themeMode, huxerui::State<int> revision);
 

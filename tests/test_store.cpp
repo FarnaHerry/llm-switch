@@ -1497,6 +1497,8 @@ int main() {
         CHECK(models::officialVendorName("claude-code") == "Anthropic 官方");
         CHECK(models::officialVendorName("claude") == "Anthropic 官方");
         CHECK(models::officialVendorName("codex") == "OpenAI 官方");
+        CHECK(models::findTool("codex") != nullptr &&
+              models::findTool("codex")->displayName == "OpenAI");
         CHECK(models::officialVendorName("zcode") == "ZCode 官方");
         CHECK(models::officialVendorName("opencode").empty());
         CHECK(models::officialVendorName("pi").empty());
@@ -1589,6 +1591,17 @@ int main() {
             [](const models::Provider& p) { return p.name == "DeepSeek"; });
         CHECK(hmDs != hm.metered.end() && hmDs->usageEnabled &&
               hmDs->apiFormat == "openai-chat");
+
+        // 所有默认模板（两个计费组、所有 Agent）必须登记可复用的厂商图标。
+        for (const auto& tool : models::toolRegistry()) {
+            const auto presets = models::builtinPresets(tool.id);
+            for (const auto& preset : presets.subscription) {
+                CHECK(!models::builtinPresetIconName(preset.name).empty());
+            }
+            for (const auto& preset : presets.metered) {
+                CHECK(!models::builtinPresetIconName(preset.name).empty());
+            }
+        }
     }
 
     // 15. 三档模型映射：claude-code env 写入/收回/擦除 + desktop

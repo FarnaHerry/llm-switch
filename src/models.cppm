@@ -72,7 +72,7 @@ export constexpr std::array<ToolSpec, 10> kToolRegistry{{
              .binary = "",
              .installCommand = ""},
     ToolSpec{.id = "codex",
-             .displayName = "Codex",
+             .displayName = "OpenAI",
              .iconName = "codex",
              .needsModel = false,
              .hasApiFormat = false,
@@ -510,6 +510,54 @@ export struct PresetGroups {
     std::vector<Provider> subscription;
     std::vector<Provider> metered;
 };
+
+// Default provider template names share one icon identity across Agent groups and
+// billing categories. UI code resolves this stable name to a bundled SVG resource.
+export std::string_view builtinPresetIconName(std::string_view providerName) {
+    if (providerName == "PackyCode") return "packycode";
+    if (providerName == "AICodeMirror") return "aicodemirror";
+    if (providerName == "88code") return "code88";
+    if (providerName == "DuckCoding") return "duckcoding";
+    if (providerName == "Kimi For Coding" || providerName == "Kimi（Moonshot）") {
+        return "kimi";
+    }
+    if (providerName == "火山引擎 Coding Plan") return "volcengine";
+    if (providerName == "百度千帆 Coding Plan") return "baidu";
+    if (providerName == "千问AI平台 Coding Plan" ||
+        providerName == "千问（阿里百炼）" || providerName == "千问AI平台") {
+        return "qwen";
+    }
+    if (providerName == "腾讯 Token Plan") return "tencent";
+    if (providerName == "小米 MiMo Token Plan" ||
+        providerName == "小米 MiMo") {
+        return "xiaomi";
+    }
+    if (providerName == "DeepSeek") return "deepseek";
+    if (providerName == "GLM（智谱）") return "glm";
+    if (providerName == "GLM 国际（z.ai）") return "zdotai";
+    if (providerName == "MiniMax" || providerName == "MiniMax 国际") {
+        return "minimax";
+    }
+    if (providerName == "StepFun（阶跃）" || providerName == "StepFun 国际") {
+        return "stepfun";
+    }
+    if (providerName == "火山引擎豆包") return "doubao";
+    if (providerName == "SiliconFlow" || providerName == "SiliconFlow 国际") {
+        return "siliconflow";
+    }
+    if (providerName == "Longcat（美团）") return "meituan";
+    if (providerName == "BaiLing（蚂蚁）") return "antgroup";
+    if (providerName == "ModelScope") return "modelscope";
+    if (providerName == "PPIO") return "ppio";
+    if (providerName == "OpenRouter") return "openrouter";
+    if (providerName == "AiHubMix") return "aihubmix";
+    if (providerName == "Shengsuanyun") return "shengsuanyun";
+    if (providerName == "Qiniu") return "qiniu";
+    if (providerName == "AICoding") return "aicoding";
+    if (providerName == "SubRouter") return "subrouter";
+    if (providerName == "CherryIN") return "cherryin";
+    return {};
+}
 
 export PresetGroups builtinPresets(std::string_view tool) {
     PresetGroups groups;

@@ -46,15 +46,17 @@ namespace llmswitch::ui {
         .OnChanged(selectTool);
 }
 
-[[huxerui::composable]] huxerui::View AgentPage(huxerui::State<int> revision, huxerui::State<std::size_t> navPage) {
+[[huxerui::composable]] huxerui::View AgentPage(
+    huxerui::State<int> revision, huxerui::State<std::size_t> navPage,
+    huxerui::State<std::size_t> selectedTool,
+    huxerui::State<std::string> addProviderRequest,
+    huxerui::State<std::string> pendingSubscriptionPresetName) {
     const auto& registry = models::toolRegistry();
     if (registry.empty()) {
         return huxerui::Text("没有可用的 Agent 工具");
     }
 
-    auto selectedTool = huxerui::UseState<std::size_t>(0);
     auto usageCache = huxerui::UseState<std::map<std::string, std::string>>({});
-    auto addProviderRequest = huxerui::UseState<std::string>({});
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     const IslandTheme islands = ResolveIslandTheme(theme);
     const bool compact =
@@ -91,7 +93,8 @@ namespace llmswitch::ui {
             const std::string id(spec.id);
             nextPages->push_back(
                 ProvidersPage(id, revision, usageCache, addProviderRequest,
-                              navPage, selectedTool, index)
+                              pendingSubscriptionPresetName, navPage,
+                              selectedTool, index)
                     .Key("agent-providers:" + id)
                     .With(huxerui::Grow(1.0F)));
         }
@@ -99,10 +102,12 @@ namespace llmswitch::ui {
         cachedPages = std::move(nextPages);
     }
 
-    auto requestAddProvider = [selectedTool, addProviderRequest] {
+    auto requestAddProvider = [selectedTool, addProviderRequest,
+                               pendingSubscriptionPresetName] {
         const auto& currentRegistry = models::toolRegistry();
         const std::size_t index = selectedTool.Get();
         if (index < currentRegistry.size()) {
+            pendingSubscriptionPresetName = {};
             addProviderRequest = std::string(currentRegistry[index].id);
         }
     };
@@ -125,7 +130,7 @@ namespace llmswitch::ui {
     const float inset = compact ? theme.spacing.medium : theme.spacing.large;
     return huxerui::Column {
         huxerui::Row {
-            std::move(navigationContainer),
+            navigationContainer,
             huxerui::Row {
                 huxerui::IconButton(app::images::add, "新增供应商")
                     .OnClick(requestAddProvider)

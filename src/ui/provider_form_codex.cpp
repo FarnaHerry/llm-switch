@@ -23,7 +23,7 @@ const AgentFormPolicy& CodexFormPolicy() {
     return policy;
 }
 
-[[huxerui::composable]] [[huxerui::composable]] huxerui::View TomlField(const FormStates& fs) {
+[[huxerui::composable]] huxerui::View TomlField(const FormStates& fs) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     return huxerui::Column {
         huxerui::Text("config.toml 原文（可选；切换时整体替换）")
