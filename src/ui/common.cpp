@@ -68,8 +68,7 @@ huxerui::ImageResource PresetIcon(std::string_view providerName) {
     if (iconName == "qwen") return app::images::qwen;
     if (iconName == "tencent") return app::images::tencent;
     if (iconName == "xiaomi") return app::images::xiaomi;
-    // Hermes and DeepSeek are represented by the same official DeepSeek mark.
-    if (iconName == "deepseek") return app::images::hermes;
+    if (iconName == "deepseek") return app::images::deepseek;
     if (iconName == "glm") return app::images::glm;
     if (iconName == "zdotai") return app::images::zdotai;
     if (iconName == "minimax") return app::images::minimax;

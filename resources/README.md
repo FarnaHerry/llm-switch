@@ -48,11 +48,11 @@ CMake 配置阶段会检查全部 24×24 SVG：包含硬编码颜色（非 `#FFF
 | `claudecode.svg` | 本仓库自绘终端窗口 + 提示符（Claude Code 是 CLI） | 同本仓库 |
 | `claude.svg` | Claude 官方 logo，[simple-icons](https://simpleicons.org) `claude`（官方轮廓不变，增加 alpha 水墨纹理） | CC0 1.0 |
 | `codex.svg` | OpenAI 官方 logo，simple-icons `openai`（取自 release tag 15.1.0；官方轮廓不变，增加 alpha 水墨纹理） | CC0 1.0 |
-| `baidu/kimi/qwen/zdotai/minimax/meituan/modelscope/openrouter/xiaomi.svg` | 对应厂商官方标志，来自 [simple-icons](https://github.com/simple-icons/simple-icons/tree/develop/icons)（保留官方轮廓，统一为主题 tint 用的白色 alpha-mask） | CC0 1.0 |
+| `baidu/deepseek/kimi/qwen/zdotai/minimax/meituan/modelscope/openrouter/xiaomi.svg` | 对应厂商官方标志，来自 [simple-icons](https://github.com/simple-icons/simple-icons/tree/develop/icons)（保留官方轮廓，统一为主题 tint 用的白色 alpha-mask） | CC0 1.0 |
 | `opencode.svg` | opencode 官方 logo，simple-icons develop 分支 `opencode`（保留镂空规则与官方轮廓） | CC0 1.0 |
 | `pi.svg` | pi-mono 官方 logo，[pi.dev](https://pi.dev) `logo-auto.svg`（等比缩到 24×24，官方轮廓不变） | MIT（[pi-mono 仓库](https://github.com/badlogic/pi-mono)） |
 | `dsh.svg` | 本仓库自绘束带扣（DeepSeek Harness 的 harness 意象） | 同本仓库 |
-| `hermes.svg` | DeepSeek logo，[simple-icons `deepseek`](https://github.com/simple-icons/simple-icons/blob/develop/icons/deepseek.svg)（应产品要求用于 Hermes 工具入口，官方轮廓不变，仅改为主题 tint 用的白色 alpha-mask） | CC0 1.0 |
+| `hermes.svg` | 本仓库自绘飞翼（Hermes Agent 工具标志） | 同本仓库 |
 | `packycode/aicodemirror/code88/duckcoding/volcengine/tencent/glm/stepfun/doubao/siliconflow/antgroup/ppio/aihubmix/shengsuanyun/qiniu/aicoding/subrouter/cherryin.svg` | 对应默认供应商模板的本仓库自绘缩写标记（未复刻厂商商标），主题 tint 用白色 alpha-mask | 同本仓库 |
 | `home/home_active/agents/providers/models/router/skills/mcp/sessions/stats/settings.svg` | 用户提供的 **llm-switch Icon Set v1.0** 参考图中的核心导航图标（首页未选中／选中、Agent 管理、供应商、模型、本地路由、Skills、MCP、会话、用量、设置；`home_active.svg` 为实心莲花，当前未接入运行时，选中态仍由承载底块表达） | 本仓库转换稿 |
 | `trash/download/upload/search/refresh/edit/import/export/backup/restore.svg` | Icon Set v1.0 中的常用操作图标（删除、下载、上传、搜索、刷新、编辑、导入、导出、备份、恢复） | 本仓库转换稿 |
