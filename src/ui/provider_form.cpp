@@ -130,6 +130,8 @@ namespace llmswitch::ui {
                                 : huxerui::View{huxerui::Row{}},
             policy.showApiFormat ? ApiFormatFields(fs)
                                  : huxerui::View{huxerui::Row{}},
+            policy.showReasoningEfforts ? DshReasoningFields(fs)
+                                        : huxerui::View{huxerui::Row{}},
             policy.showToml ? TomlField(fs) : huxerui::View{huxerui::Row{}},
         }.With(huxerui::Spacing(12.0F),
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
@@ -199,6 +201,10 @@ namespace llmswitch::ui {
                     p.notes = fs.notes.Get().text;
                     p.codexConfigToml = fs.toml.Get().text;
                     p.apiFormat = ApiFormatFromIndex(fs.apiFormat.Get());
+                    // 推理档位（仅 dsh 展示；其他 agent 掩码恒为 0）。
+                    p.reasoningEfforts =
+                        models::reasoningEffortsFromMask(
+                            fs.reasoningMask.Get());
                     p.haikuModel = fs.haiku.Get().text;
                     p.sonnetModel = fs.sonnet.Get().text;
                     p.opusModel = fs.opus.Get().text;

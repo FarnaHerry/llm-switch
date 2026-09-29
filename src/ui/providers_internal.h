@@ -103,6 +103,9 @@ struct FormStates {
     huxerui::State<std::string> upstreamFormatTool;
     huxerui::State<bool> fullUrl;
     huxerui::State<int> apiFormat;                   // 仅 opencode / pi 展示
+    // dsh 推理档位位掩码（下标 = models::reasoningLevels() 的下标）；
+    // 其他 agent 不展示也不用。
+    huxerui::State<int> reasoningMask;
     huxerui::State<huxerui::TextEditingValue> haiku;   // 仅 claude 系展示
     huxerui::State<huxerui::TextEditingValue> sonnet;
     huxerui::State<huxerui::TextEditingValue> opus;
@@ -141,6 +144,7 @@ struct FormStates {
      huxerui::UseState((p).apiFormat == "anthropic"         ? 1             \
                       : (p).apiFormat == "openai-responses" ? 2             \
                                                             : 0),           \
+     huxerui::UseState(models::reasoningEffortMask((p).reasoningEfforts)),   \
      huxerui::UseState(huxerui::TextEditingValue{(p).haikuModel}),          \
      huxerui::UseState(huxerui::TextEditingValue{(p).sonnetModel}),         \
      huxerui::UseState(huxerui::TextEditingValue{(p).opusModel}),           \
@@ -173,12 +177,14 @@ struct AgentFormPolicy {
     bool showMappings;              // 三档模型映射（claude-code / claude desktop）
     bool showApiFormat;             // API 协议（opencode / pi）
     bool showToml;                  // codex config.toml 原文
+    bool showReasoningEfforts = false;  // 推理档位（dsh 手写路由）
 };
 const AgentFormPolicy& AgentPolicyFor(std::string_view tool);
 const AgentFormPolicy& ClaudeCodeFormPolicy();
 const AgentFormPolicy& ClaudeDesktopFormPolicy();
 const AgentFormPolicy& CodexFormPolicy();
 const AgentFormPolicy& OpenAiCliFormPolicy();  // opencode / pi 共用
+const AgentFormPolicy& DshFormPolicy();        // dsh：OpenAI 兼容 + 推理档位
 const AgentFormPolicy& ZcodeFormPolicy();
 
 // ---- 公共区块（provider_form_common.cpp）----
@@ -212,6 +218,11 @@ const AgentFormPolicy& ZcodeFormPolicy();
 [[huxerui::composable]] huxerui::View TomlField(const FormStates& fs);
 // opencode / pi：API 协议（OpenAI 兼容 / Anthropic / OpenAI Responses）。
 [[huxerui::composable]] huxerui::View ApiFormatFields(const FormStates& fs);
+
+// dsh：推理档位（reasoningEfforts）。声明哪些档位，dsh 的模型菜单就出现哪些
+// 「推理等级」；不声明时 dsh 把手工声明的模型当成不支持思考。写入的是
+// llmswitch-* 条目里某个模型的档位，所以主模型为空时该区块不生效。
+[[huxerui::composable]] huxerui::View DshReasoningFields(const FormStates& fs);
 
 // zcode：条目启用开关 + 模型清单（每模型参数面板：输入/输出模态、
 // 上下文窗口、最大输出、思维链——直接改 modelsMeta 原值）。

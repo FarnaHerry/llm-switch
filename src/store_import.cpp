@@ -373,6 +373,7 @@ models::Provider ProviderStore::importLive(std::string_view tool) {
         p.apiFormat = piApiFormatValue(entry->api);
         p.model = !info.defaultModel.empty() ? info.defaultModel
                                              : entry->firstModel;
+        p.reasoningEfforts = entry->reasoningEfforts;
         if (!entry->apiKeyEnv.empty()) {
             p.apiKey =
                 readDshCredential(cfg::dshCredentialsFile(), entry->apiKeyEnv);

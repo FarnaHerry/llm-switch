@@ -181,6 +181,9 @@ struct DshProviderEntry {
     std::string api;
     std::string apiKeyEnv;
     std::string firstModel;
+    // 首个模型条目声明的推理档位（reasoningEfforts 的键，规范升序；
+    // 未声明时为空）。
+    std::vector<std::string> reasoningEfforts;
 };
 struct DshSettingsInfo {
     std::string defaultProvider;

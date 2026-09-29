@@ -189,6 +189,73 @@ export std::string_view apiFormatLabel(std::string_view apiFormat) {
     return "OpenAI Chat Completions";
 }
 
+// ---- dsh 推理档位（reasoningEfforts）-------------------------------------------
+// dsh 的 llm-pi-ai 适配器把「模型是否支持思考」当 per-model 能力：手工声明的
+// 路由若不在模型条目里写 reasoningEfforts，模型被当成不支持推理，模型菜单里
+// 连「推理等级」都不出现。档位全集与顺序取自 pi-ai 的 thinking level
+// （off / minimal / low / medium / high / xhigh / max）；值即上线拼写，本应用
+// 只声明与档位同名的拼写（自定义拼写留给手改 settings.yaml）。
+
+// 规范档位（升序）。表单按这个顺序展示，写入也按这个顺序。
+export const std::vector<std::string>& reasoningLevels() {
+    static const std::vector<std::string> levels{
+        "off", "minimal", "low", "medium", "high", "xhigh", "max"};
+    return levels;
+}
+
+// 档位显示名（表单 chip 用）：中文档位名，拼写保留英文以免与上线值混淆。
+export std::string_view reasoningLevelLabel(std::string_view level) {
+    if (level == "off") return "关闭思考 off";
+    if (level == "minimal") return "最低 minimal";
+    if (level == "low") return "低 low";
+    if (level == "medium") return "中 medium";
+    if (level == "high") return "高 high";
+    if (level == "xhigh") return "极高 xhigh";
+    if (level == "max") return "最高 max";
+    return level;
+}
+
+// 归一化档位清单：只保留规范档位、去重、按规范升序排列。未知值丢弃
+// （旧配置或手改 settings.yaml 里的非规范拼写不参与往返，写回时被规范化）。
+export std::vector<std::string> normalizeReasoningEfforts(
+    const std::vector<std::string>& levels) {
+    std::vector<std::string> out;
+    for (const auto& known : reasoningLevels()) {
+        for (const auto& level : levels) {
+            if (level == known) {
+                out.push_back(known);
+                break;
+            }
+        }
+    }
+    return out;
+}
+
+// 档位清单 → 位掩码（下标 = reasoningLevels() 的下标），供 UI State<int> 用。
+export int reasoningEffortMask(const std::vector<std::string>& levels) {
+    int mask = 0;
+    const auto& known = reasoningLevels();
+    for (std::size_t i = 0; i < known.size(); ++i) {
+        for (const auto& level : levels) {
+            if (level == known[i]) {
+                mask |= 1 << static_cast<int>(i);
+                break;
+            }
+        }
+    }
+    return mask;
+}
+
+// 位掩码 → 档位清单（规范升序）。未置位与未知位都忽略。
+export std::vector<std::string> reasoningEffortsFromMask(int mask) {
+    std::vector<std::string> out;
+    const auto& known = reasoningLevels();
+    for (std::size_t i = 0; i < known.size(); ++i) {
+        if ((mask & (1 << static_cast<int>(i))) != 0) out.push_back(known[i]);
+    }
+    return out;
+}
+
 // ---- 数据模型 -----------------------------------------------------------------
 
 export struct Provider {
@@ -205,6 +272,11 @@ export struct Provider {
     // modalities / zcode 元数据）。收编时原样捕获、写入时原样回放，键不在
     // models 清单里的条目被忽略；其他工具不用。
     nlohmann::json modelsMeta = nlohmann::json::object();
+    // dsh 的 llm-pi-ai 手写路由：模型声明的可选推理档位（reasoningEfforts）。
+    // 非空 = 切换时在 llmswitch-* 条目里声明这些档位（dsh 的模型菜单才会出现
+    // 「推理等级」）；空 = 不声明，dsh 把手写模型当成不支持思考。顺序按
+    // reasoningLevels() 的规范升序，值即上线拼写（与档位同名）。其他工具不用。
+    std::vector<std::string> reasoningEfforts;
     bool modelSupports1m = false;  // 主模型在 Claude Desktop 菜单中的 1M 能力声明
     // 三档模型映射（仅 hasModelMappings 工具：claude-code / claude，均选填）：
     // * *Model 是发送给上游的实际模型 ID；*DisplayName 是 Claude Desktop
@@ -309,6 +381,9 @@ export nlohmann::json toJson(const Provider& p) {
     if (!p.modelsMeta.empty()) {
         j["modelsMeta"] = p.modelsMeta;  // 每模型参数原值（zcode 往返）
     }
+    if (!p.reasoningEfforts.empty()) {
+        j["reasoningEfforts"] = p.reasoningEfforts;  // dsh 手写路由的推理档位
+    }
     return j;
 }
 
@@ -351,6 +426,13 @@ export Provider providerFromJson(const nlohmann::json& j) {
     }
     if (j.contains("modelsMeta") && j["modelsMeta"].is_object()) {
         p.modelsMeta = j["modelsMeta"];
+    }
+    if (j.contains("reasoningEfforts") && j["reasoningEfforts"].is_array()) {
+        std::vector<std::string> levels;
+        for (const auto& level : j["reasoningEfforts"]) {
+            if (level.is_string()) levels.push_back(level.get<std::string>());
+        }
+        p.reasoningEfforts = normalizeReasoningEfforts(levels);
     }
     // 缺少新字段的旧配置保存的是已经可直接访问的 URL，不能按默认
     // 后缀再次拼接，否则会把 /v1 或 /anthropic 复制一遍。

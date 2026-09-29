@@ -42,6 +42,7 @@ void FillForm(const FormStates& fs, const models::Provider& p) {
     fs.apiFormat = p.apiFormat == "anthropic"      ? 1
                    : p.apiFormat == "openai-responses" ? 2
                                                        : 0;
+    fs.reasoningMask = models::reasoningEffortMask(p.reasoningEfforts);
     fs.haiku = huxerui::TextEditingValue{p.haikuModel};
     fs.sonnet = huxerui::TextEditingValue{p.sonnetModel};
     fs.opus = huxerui::TextEditingValue{p.opusModel};
@@ -79,10 +80,10 @@ const AgentFormPolicy& AgentPolicyFor(std::string_view tool) {
     if (tool == "claude-code") return ClaudeCodeFormPolicy();
     if (tool == "claude") return ClaudeDesktopFormPolicy();
     if (tool == "codex") return CodexFormPolicy();
-    if (tool == "opencode" || tool == "pi" || tool == "dsh" ||
-        tool == "hermes") {
+    if (tool == "opencode" || tool == "pi" || tool == "hermes") {
         return OpenAiCliFormPolicy();
     }
+    if (tool == "dsh") return DshFormPolicy();
     if (tool == "zcode") return ZcodeFormPolicy();
     // 未单列策略的 agent（gemini / qwen 等）：标签按注册表 flags 推导。
     static std::map<std::string, AgentFormPolicy> generic;

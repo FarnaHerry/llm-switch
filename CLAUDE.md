@@ -117,8 +117,8 @@ commit，不回滚已经验证的修改，并在最终回复中报告失败原�
 | 模块 | 文件 | 职责 |
 |------|------|------|
 | `llmswitch.config` | `src/config.cppm` | 数据目录（~/.local/share/llm-switch）/ config.json、backups/、mcp.json、skills-store/、router/requests.jsonl 路径 / live 配置与会话/技能目录解析（全部 LLMSWITCH_* 环境变量可覆盖）/ 深色检测 |
-| `llmswitch.models` | `src/models.cppm` | 工具注册表（ToolSpec/toolRegistry/findTool：claude-code/claude/codex/opencode/pi/dsh/hermes/gemini/qwen/zcode；needsModel/hasApiFormat/hasModelMappings 三标记驱动表单适配）+ Provider/ProviderGroup/AppConfig（groups 以注册表 id 为键的 map，旧格式顶层 claude/codex 自动迁移；router/usage 设置字段，Provider.usageEnabled 控制单个供应商是否查询，routerTools 保存逐 Agent 代理选择；Provider 含 modelFetchUrl、haiku/sonnet/opusModel 三档映射与 upstreamFormat/fullUrl URL 模式）+ JSON 序列化 + 内置预设（builtinPresets）+ 官方厂商名（officialVendorName：claude 系/codex/zcode/dsh 有官方常驻卡）+ apiFormat 三档归一（normalizeApiFormat/apiFormatLabel）+ 上游 URL 归一/后缀（normalizeUpstreamFormat/upstreamFormatSuffix/effectiveBaseUrl）+ 用量模板表纯解析与匹配（parseUsageTemplates/suggestUsageQuery：数据在 resources/raw/usage_templates.json 资源包内置 + dataDir 用户覆盖，不硬编码） |
-| `llmswitch.store` | `src/store.cppm` + `src/store.cpp` | ProviderStore：config.json 读写、CRUD、switchTo 按工具 id 分发十个 writer（原子写+备份；gemini/qwen 走 <dir>/.env 行级 upsert + settings.json 深合并 auth 类型，zcode 走 provider map upsert + enabled 互斥，dsh 走 settings.yaml 行级 upsert + .credentials.yaml 密钥库，hermes 走 config.yaml custom_providers 列表 upsert + model 节指向）、restoreOfficial 恢复厂商原生状态（claude-code/claude/codex/gemini/qwen/zcode/dsh）、detectCurrent/importLive、导出导入、theme/usage/router 与逐 Agent 路由设置 setter、用量模板用户覆盖表读取（loadUsageTemplatesOverride） |
+| `llmswitch.models` | `src/models.cppm` | 工具注册表（ToolSpec/toolRegistry/findTool：claude-code/claude/codex/opencode/pi/dsh/hermes/gemini/qwen/zcode；needsModel/hasApiFormat/hasModelMappings 三标记驱动表单适配）+ Provider/ProviderGroup/AppConfig（groups 以注册表 id 为键的 map，旧格式顶层 claude/codex 自动迁移；router/usage 设置字段，Provider.usageEnabled 控制单个供应商是否查询，routerTools 保存逐 Agent 代理选择；Provider 含 modelFetchUrl、haiku/sonnet/opusModel 三档映射与 upstreamFormat/fullUrl URL 模式）+ JSON 序列化 + 内置预设（builtinPresets）+ 官方厂商名（officialVendorName：claude 系/codex/zcode/dsh 有官方常驻卡）+ apiFormat 三档归一（normalizeApiFormat/apiFormatLabel）+ 上游 URL 归一/后缀（normalizeUpstreamFormat/upstreamFormatSuffix/effectiveBaseUrl）+ dsh 推理档位表（reasoningLevels 规范升序 / reasoningLevelLabel 显示名 / normalizeReasoningEfforts 归一 / 与 UI State<int> 互转的位掩码两函数；Provider.reasoningEfforts 是 per-供应商清单）+ 用量模板表纯解析与匹配（parseUsageTemplates/suggestUsageQuery：数据在 resources/raw/usage_templates.json 资源包内置 + dataDir 用户覆盖，不硬编码） |
+| `llmswitch.store` | `src/store.cppm` + `src/store.cpp` | ProviderStore：config.json 读写、CRUD、switchTo 按工具 id 分发十个 writer（原子写+备份；gemini/qwen 走 <dir>/.env 行级 upsert + settings.json 深合并 auth 类型，zcode 走 provider map upsert + enabled 互斥，dsh 走 settings.yaml 行级 upsert（含推理档位，且写入前把 flow 风格的 providers 值摊平成块风格）+ .credentials.yaml 密钥库，hermes 走 config.yaml custom_providers 列表 upsert + model 节指向）、restoreOfficial 恢复厂商原生状态（claude-code/claude/codex/gemini/qwen/zcode/dsh）、detectCurrent/importLive、导出导入、theme/usage/router 与逐 Agent 路由设置 setter、用量模板用户覆盖表读取（loadUsageTemplatesOverride） |
 | `llmswitch.net` | `src/net.cppm` + `src/net.cpp` | 纯函数：模型列表 URL 拼接 `modelListUrl`/候选推导、响应解析 `parseModelIds`（data/models 两种形状，去重保序）和用量取值 `extractByPath`（点分路径+数组下标取标量）；实际网络请求不在此层——供应商页面走 HuxerUI HttpClient（provider_network.cpp），路由出站走 UpstreamSession |
 | `llmswitch.router` | `src/router.cppm` + `src/router.cpp` | LocalRouter：cpp-httplib 服务器监听 127.0.0.1，`/<tool>/` 前缀路由到该组 current 供应商的实际 URL（按 upstreamFormat 追加 /anthropic 或 /v1，fullUrl 时原样），替换鉴权头，线程安全的逐工具开关运行中即时生效（禁用返回 403，不访问上游/统计），可选故障转移（429/5xx/连接失败按组内顺序试下一个）；RequestLog/StatsSnapshot 统计，每请求追加 JSONL（dataDir()/router/requests.jsonl），启动回填内存环形缓冲（最多 1000 条） |
 | `llmswitch.mcp` | `src/mcp.cppm` + `src/mcp.cpp` | MCP 服务器统一清单（SSOT = dataDir()/mcp.json）；启停 = 写/删工具 live 配置条目：claude-code → ~/.claude.json 顶层 mcpServers 深合并、codex → config.toml 行级 [mcp_servers.*] section 重写、opencode → opencode.json 顶层 mcp；claude/pi 不支持（抛中文错） |
@@ -155,11 +155,18 @@ hover 时在屏幕中央展开径向导航盘，全部 8 个顶级页面图标�
   dsh = `~/.dsh/settings.yaml` 行级改写：llm-pi-ai.providers 下 upsert
   `llmswitch-<id>` 手写路由条目（api 字段复用 pi 三档映射）+ 文件头
   agent-default-model 指向，密钥只写 `~/.dsh/.credentials.yaml`（顶层
-  env 名→密钥 map，apiKeyEnv 引用，目录 0700、文件 0600）；两份 YAML
-  都被 dsh 热监听 → 切换即时生效（needsRestart=false），restoreOfficial
-  删 agent-default-model 块与 llmswitch-* 条目回到内置 deepseek-official
-  路由；hermes = `~/.hermes/config.yaml` 行级改写：custom_providers 列表删
-  旧 llmswitch-* 条目后追加新条目（api_mode 三档映射
+  env 名→密钥 map，apiKeyEnv 引用，目录 0700、文件 0600）；条目首个模型
+  条目按 Provider.reasoningEfforts 写 `reasoningEfforts`（键固定加引号，
+  "off" 留空 = 不发思考参数，其余写成同名拼写）——不声明时 dsh 把手写模型
+  当成不支持思考、模型菜单里不出现「推理等级」，所以档位既是收编字段也是
+  表单里的 chip；两份 YAML 都被 dsh 热监听 → 切换即时生效
+  （needsRestart=false），restoreOfficial 删 agent-default-model 块与
+  llmswitch-* 条目回到内置 deepseek-official 路由；**行级改写只懂块风格**，
+  所以读（detectCurrent/importLive）写（switchTo/restoreOfficial）之前都先
+  把 providers 的 flow 风格值摊平成块风格（flow 里带引号的 `"null"` 是字符串、
+  裸 null/~/Null 与空值同义，摊平后统一写空值），否则往 flow 块后插块条目会
+  写出非法 YAML 且切换静默失效；hermes = `~/.hermes/config.yaml` 行级改写：
+  custom_providers 列表删旧 llmswitch-* 条目后追加新条目（api_mode 三档映射
   anthropic→anthropic_messages / openai-responses→codex_responses /
   其余→chat_completions），顶层 model 节写 provider（总是）与
   default（model 非空时），agent / mcp_servers / v12+ providers dict
@@ -385,6 +392,11 @@ I/O、解析和 JSON 函数默认保留在 `.cpp` 中。
   importFromTool 收编进 mcp.json，首次启停后丢失。
 - **opencode 配置不支持 JSON5 注释**：opencode.json / 顶层 mcp 改写都走严格
   JSON 解析，带注释的官方文件会抛中文错且绝不碰原文件（让用户手动去注释）。
+- **dsh 的 flow→块摊平会丢掉 flow 区域内的注释**：settings.yaml 的
+  `llm-pi-ai.providers` 若是 flow 风格（用户手写或其它工具写入），本应用在读写
+  之前会把这整段摊平成块风格——只改排版、键值与顺序原样保留，但 flow 区域内部
+  的行尾注释不保留（dsh 自己生成的文件没有注释）。不摊平的话，往 flow 块后插
+  块条目会写出非法 YAML，dsh 的 watcher 会保留上一份好文档、切换静默失效。
 - **MCP 不支持 claude desktop / pi / dsh / hermes**：setEnabled/importFromTool 对这些
   工具抛「该工具暂不支持 MCP 管理」。
 - **尚未接入剪贴板 / 打开浏览器交互**：上游 `d1d2daa` 已提供应用层
@@ -715,5 +727,23 @@ I/O、解析和 JSON 函数默认保留在 `.cpp` 中。
   最后一个用通用 `Card` 包的页面区块，现在与其他顶级页面一样直接平铺在窗口表面、
   由 SectionDivider 分段（内部结构、字号与间距一字未动）。`Card` 因此只剩会话详情
   的「用户消息导航」在用。
+- ✅ dsh 手写路由的推理档位（2026-09-29）：dsh 的 llm-pi-ai 适配器把「模型支持
+  思考」当 per-model 能力——手写路由不在模型条目里声明 `reasoningEfforts`，
+  dsh 就把模型当成不支持推理，模型菜单里连「推理等级」都不出现。`models`
+  新增规范档位表（off/minimal/low/medium/high/xhigh/max，取自 pi-ai 的 thinking
+  level）与归一/位掩码互转，`Provider.reasoningEfforts` 作为 per-供应商清单
+  （JSON 往返时归一）；写入端在 `llmswitch-<id>` 的首个模型条目下声明这些档位
+  （键固定加引号，`"off":` 留空 = 不发思考参数），收编端从同一条目读回；
+  dsh 表单新增「推理档位」chip 区块（provider_form_dsh.cpp 的 DshFormPolicy +
+  DshReasoningFields，此前 dsh 复用 opencode/pi 的通用策略）。
+  同时补上 dsh 的 **flow 风格 providers 摊平**：settings.yaml 允许
+  `providers: { c: { ... } }` 这种写法，而行级改写只懂块风格，直接往 flow 块后
+  插条目会写出非法 YAML、dsh 的 watcher 保留旧文档导致切换静默失效——现在读写
+  前先把 flow 值摊平成块风格（含 `providers: {…}` 与换行两种写法、任意嵌套的
+  map/seq、引号内的 `#`/`{}` 不误判），摊平只改排版；裸 null/~/Null 与空值同义，
+  统一写成空值。收编时「首个模型条目的档位」计数按每条路由重置（此前是整篇
+  文档一份计数，第二条及以后的路由档位会被静默丢掉）。test_store 覆盖：
+  档位全集/归一/位掩码往返、写入拼写与顺序、flow 摊平后键值保留且字节稳定、
+  多条路由各自读回、`providers: {…}` 同行写法。
 - ⬜ 待做：订阅站端点可能随各家调整，升级版本时需复核；无 CLI 分流、
   无单实例/开机自启；`usage.db` 的 WAL 一致性备份（当前不在 `backups/` 覆盖内）。

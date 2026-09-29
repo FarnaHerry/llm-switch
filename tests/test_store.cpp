@@ -846,6 +846,7 @@ int main() {
                              .baseUrl = "https://relay.example.com/anthropic",
                              .apiKey = "sk-dsh",
                              .model = "deepseek-v4-flash",
+                             .reasoningEfforts = {"high", "off", "low"},
                              .apiFormat = "anthropic"};
         s.addProvider("dsh", pd2);
         const std::string idS = s.group("dsh").providers.back().id;
@@ -870,6 +871,12 @@ int main() {
                   std::string::npos);
             CHECK(y.find("apiKeyEnv: " + envNameOf(idS)) != std::string::npos);
             CHECK(y.find("- id: \"deepseek-v4-flash\"") != std::string::npos);
+            // 推理档位：只声明选中的档位，按规范升序，off 留空（不发思考参数）。
+            CHECK(y.find("          reasoningEfforts:") != std::string::npos);
+            CHECK(y.find("            \"off\":\n") != std::string::npos);
+            CHECK(y.find("            \"low\": low") != std::string::npos);
+            CHECK(y.find("            \"high\": high") != std::string::npos);
+            CHECK(y.find("minimal") == std::string::npos);
             CHECK(y.find("agent-default-model:") != std::string::npos);
             CHECK(y.find("provider: llmswitch-" + idS) != std::string::npos);
             CHECK(y.find("model: \"deepseek-v4-flash\"") != std::string::npos);
@@ -901,6 +908,8 @@ int main() {
             CHECK(y.find("llmswitch-" + idS2 + ":") != std::string::npos);
             CHECK(y.find("api: openai-completions") != std::string::npos);
             CHECK(y.find("provider: llmswitch-" + idS2) != std::string::npos);
+            // 未选档位的供应商不声明 reasoningEfforts（dsh 视为不支持思考）。
+            CHECK(y.find("reasoningEfforts") == std::string::npos);
             int admBlocks = 0;
             for (std::size_t pos = 0;
                  (pos = y.find("agent-default-model:", pos)) != std::string::npos;
@@ -928,6 +937,174 @@ int main() {
             CHECK(y.find("deepseek-official:") != std::string::npos);
             CHECK(y.find("theme: dark") != std::string::npos);
             CHECK(s.detectCurrent("dsh").empty());
+        }
+        // 8d2. settings.yaml 的 providers 写成 flow 风格（用户手写/其它工具）：
+        // 收编要读得到，写入前要摊平成块风格——直接在 flow 块后插块条目会写出
+        // 非法 YAML，原条目与既有键值必须原样保留。
+        {
+            writeFile(dshSettings,
+                      "agent-default-model:\n"
+                      "  provider: c\n"
+                      "  model: \"deepseek/deepseek-v4.1-flash\"\n"
+                      "llm-pi-ai:\n"
+                      "  providers:\n"
+                      "    {\n"
+                      "      c:\n"
+                      "        {\n"
+                      "          apiKeyEnv: C_API_KEY,\n"
+                      "          displayName: \"Command Code\",\n"
+                      "          api: openai-responses,\n"
+                      "          baseURL: https://api.commandcode.ai/provider/v1,\n"
+                      "          models:\n"
+                      "            [\n"
+                      "              {\n"
+                      "                  id: deepseek/deepseek-v4.1-flash,\n"
+                      "                  contextWindow: 1000000,\n"
+                      "                  maxTokens: 256000,\n"
+                      "                  reasoningEfforts: { \"off\": null, low: low, high: high }\n"
+                      "                }\n"
+                      "            ]\n"
+                      "        }\n"
+                      "    }\n"
+                      "agent-presets:\n"
+                      "  default: cordis\n");
+            writeFile(dshCredentials,
+                      "version: 1\nC_API_KEY: \"sk-flow-key\"\n");
+            s.importLive("dsh");
+            models::Provider imported;
+            for (const auto& p : s.group("dsh").providers) {
+                if (p.id == "c") imported = p;
+            }
+            CHECK(imported.id == "c");
+            CHECK(imported.baseUrl == "https://api.commandcode.ai/provider/v1");
+            CHECK(imported.apiFormat == "openai-responses");
+            CHECK(imported.model == "deepseek/deepseek-v4.1-flash");
+            CHECK(imported.apiKey == "sk-flow-key");
+            CHECK(imported.reasoningEfforts ==
+                  std::vector<std::string>({"off", "low", "high"}));
+
+            s.switchTo("dsh", "c");
+            const std::string y = readTextFile(dshSettings);
+            // 摊平后不再有 flow 括号，原有路线与全部键值原样保留。
+            CHECK(y.find('{') == std::string::npos);
+            CHECK(y.find('}') == std::string::npos);
+            CHECK(y.find("  providers:\n    c:\n") != std::string::npos);
+            CHECK(y.find("      apiKeyEnv: C_API_KEY") != std::string::npos);
+            CHECK(y.find("      displayName: \"Command Code\"") !=
+                  std::string::npos);
+            CHECK(y.find("      api: openai-responses") != std::string::npos);
+            CHECK(y.find("      baseURL: https://api.commandcode.ai/provider/v1") !=
+                  std::string::npos);
+            CHECK(y.find("        - id: deepseek/deepseek-v4.1-flash") !=
+                  std::string::npos);
+            CHECK(y.find("          contextWindow: 1000000") !=
+                  std::string::npos);
+            CHECK(y.find("          maxTokens: 256000") != std::string::npos);
+            // 嵌套 flow 值也摊平了：off 留空（原来的 null 不再出现），
+            // 其余档位保留同名拼写。
+            CHECK(y.find("            \"off\":\n") != std::string::npos);
+            CHECK(y.find("            low: low") != std::string::npos);
+            CHECK(y.find("            high: high") != std::string::npos);
+            CHECK(y.find("null") == std::string::npos);
+            // 新条目按块风格追加，pointer 指向它，无关键保留。
+            CHECK(y.find("    llmswitch-c:") != std::string::npos);
+            CHECK(y.find("provider: llmswitch-c") != std::string::npos);
+            CHECK(y.find("agent-presets:") != std::string::npos);
+            CHECK(y.find("  default: cordis") != std::string::npos);
+            // 原路线与写入条目各一份 reasoningEfforts。
+            std::size_t efforts = 0;
+            for (std::size_t pos = y.find("reasoningEfforts:");
+                 pos != std::string::npos;
+                 pos = y.find("reasoningEfforts:", pos + 1)) {
+                ++efforts;
+            }
+            CHECK(efforts == 2);
+            // 换到另一条路线再切回来：摊平只发生一次，输出字节稳定。
+            s.switchTo("dsh", idS2);
+            CHECK(readTextFile(dshSettings).find("llmswitch-c:") ==
+                  std::string::npos);
+            s.switchTo("dsh", "c");
+            const std::string y2 = readTextFile(dshSettings);
+            CHECK(y2 == y);
+        }
+        // 8d3. 多条手写路由各自声明档位：收编只认「每条路由的首个模型条目」，
+        // 计数必须随路由重置——否则第二条及以后的路由会被上一条的计数影响，
+        // 档位被静默丢掉（收编进组的 supplier 少档位 → 再切换就写丢了）。
+        {
+            writeFile(dshSettings,
+                      "agent-default-model:\n"
+                      "  provider: llmswitch-b\n"
+                      "  model: \"model-b\"\n"
+                      "llm-pi-ai:\n"
+                      "  providers:\n"
+                      "    llmswitch-a:\n"
+                      "      api: openai-completions\n"
+                      "      baseURL: https://dsh-a.example.com\n"
+                      "      apiKeyEnv: A_KEY\n"
+                      "      models:\n"
+                      "        - id: model-a\n"
+                      "          reasoningEfforts:\n"
+                      "            \"off\":\n"
+                      "            high: high\n"
+                      "    llmswitch-b:\n"
+                      "      api: anthropic-messages\n"
+                      "      baseURL: https://dsh-b.example.com\n"
+                      "      apiKeyEnv: B_KEY\n"
+                      "      models:\n"
+                      "        - id: model-b\n"
+                      "          reasoningEfforts:\n"
+                      "            low: low\n"
+                      "        - id: model-b2\n"
+                      "          reasoningEfforts:\n"
+                      "            max: max\n");
+            writeFile(dshCredentials,
+                      "version: 1\nA_KEY: \"sk-a\"\nB_KEY: \"sk-b\"\n");
+            s.importLive("dsh");
+            models::Provider importedB;
+            for (const auto& p : s.group("dsh").providers) {
+                if (p.baseUrl == "https://dsh-b.example.com") importedB = p;
+            }
+            CHECK(importedB.id == "b");
+            CHECK(importedB.model == "model-b");
+            // 第二条路由自己的档位读到了；它的第二个模型条目的档位不参与。
+            CHECK(importedB.reasoningEfforts ==
+                  std::vector<std::string>({"low"}));
+            // 切到它：写回的档位必须与收编到的一致（不写丢）。本应用只维护
+            // 「当前生效」那一条 llmswitch-* 路由（既有约定：切换 = 删掉本应用
+            // 写入的全部条目后写目标条目），所以 a 的条目被清掉是预期行为。
+            s.switchTo("dsh", importedB.id);
+            const std::string yb = readTextFile(dshSettings);
+            CHECK(yb.find("            \"low\": low") != std::string::npos);
+            CHECK(yb.find("    llmswitch-a:") == std::string::npos);
+            CHECK(yb.find("    llmswitch-" + importedB.id + ":") !=
+                  std::string::npos);
+            CHECK(yb.find("https://dsh-b.example.com") != std::string::npos);
+        }
+        // 8d4. flow 值与 `providers:` 同行（`providers: { ... }`）也要摊平——
+        // 这是 normalizer 的另一条分支（flow 从同一行的 `{` 起算）。
+        {
+            writeFile(dshSettings,
+                      "llm-pi-ai:\n"
+                      "  providers: {c: {apiKeyEnv: C2_KEY, api: openai-completions, baseURL: https://inline.example.com, models: [{id: inline-model, reasoningEfforts: {low: low}}]}}\n"
+                      "agent-default-model:\n"
+                      "  provider: c\n"
+                      "  model: inline-model\n");
+            writeFile(dshCredentials, "version: 1\nC2_KEY: \"sk-inline\"\n");
+            s.importLive("dsh");
+            models::Provider inlined;
+            for (const auto& p : s.group("dsh").providers) {
+                if (p.baseUrl == "https://inline.example.com") inlined = p;
+            }
+            CHECK(inlined.baseUrl == "https://inline.example.com");
+            CHECK(inlined.model == "inline-model");
+            CHECK(inlined.apiKey == "sk-inline");
+            CHECK(inlined.reasoningEfforts == std::vector<std::string>({"low"}));
+            s.switchTo("dsh", inlined.id);
+            const std::string yi = readTextFile(dshSettings);
+            CHECK(yi.find('{') == std::string::npos);
+            CHECK(yi.find('}') == std::string::npos);
+            CHECK(yi.find("      api: openai-completions") != std::string::npos);
+            CHECK(yi.find("            low: low") != std::string::npos);
         }
     }
 
@@ -1123,6 +1300,22 @@ int main() {
               "Anthropic Messages（原生）");
         CHECK(models::normalizeUpstreamFormat("anthropic") == "anthropic");
         CHECK(models::normalizeUpstreamFormat("unknown") == "openai");
+        // dsh 推理档位：规范全集、归一化（丢未知、去重、按规范升序）与位掩码往返。
+        CHECK(models::reasoningLevels() ==
+              std::vector<std::string>({"off", "minimal", "low", "medium",
+                                        "high", "xhigh", "max"}));
+        CHECK(models::normalizeReasoningEfforts(
+                  {"high", "bogus", "off", "high", "low", ""}) ==
+              std::vector<std::string>({"off", "low", "high"}));
+        CHECK(models::normalizeReasoningEfforts({}).empty());
+        CHECK(models::reasoningEffortMask({"high", "off"}) != 0);
+        CHECK(models::reasoningEffortsFromMask(
+                  models::reasoningEffortMask({"high", "off"})) ==
+              std::vector<std::string>({"off", "high"}));
+        CHECK(models::reasoningEffortsFromMask(0).empty());
+        CHECK(models::reasoningEffortsFromMask(-1) == models::reasoningLevels());
+        CHECK(models::reasoningLevelLabel("off") == "关闭思考 off");
+        CHECK(models::reasoningLevelLabel("max") == "最高 max");
         CHECK(models::upstreamFormatSuffix("anthropic") == "/anthropic");
         CHECK(models::upstreamFormatSuffix("openai") == "/v1");
         CHECK(models::effectiveBaseUrl("https://api.example.com/", "anthropic",

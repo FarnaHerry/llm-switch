@@ -424,6 +424,399 @@ std::string dshApiKeyEnv(std::string_view id) {
     return out;
 }
 
+// ---- flow 风格 providers 块的摊平 -------------------------------------------
+// settings.yaml 的 llm-pi-ai.providers 也可能是 flow 风格（用户手写或其它
+// 工具写入）：
+//     llm-pi-ai:
+//       providers:
+//         {
+//           c: { apiKeyEnv: C_API_KEY, api: openai-responses, ... }
+//         }
+// 本文件的行级改写只理解块风格（靠缩进定层级、靠 `key:` 行删条目）：直接往
+// flow 块之后插块条目会写出非法 YAML，DSH 的 watcher 会保留上一份好文档，
+// 用户的切换于是静默失效。读写前先把这段 flow 值摊平成块风格——只改排版，
+// 不改任何键值内容（flow 区域内部的注释会随之丢失，DSH 生成的文件没有注释）。
+
+// flow 节点树：标量保留原文（含引号），键保留原文。
+struct FlowValue {
+    enum class Kind { Scalar, Map, Seq };
+    Kind kind = Kind::Scalar;
+    std::string scalar;
+    std::vector<std::pair<std::string, FlowValue>> entries;  // Map
+    std::vector<FlowValue> items;                            // Seq
+};
+
+// flow 文本的最小递归下降解析器：只处理 providers 这一类形状（标量 / 映射 /
+// 序列，可任意嵌套），不做锚点、标签、多行折叠等完整 YAML 语义。
+class FlowParser {
+public:
+    explicit FlowParser(std::string_view text) : text_(text) {}
+
+    std::optional<FlowValue> Parse() {
+        auto node = ParseNode();
+        if (!node.has_value()) return std::nullopt;
+        SkipSpace();
+        if (pos_ != text_.size()) return std::nullopt;  // 尾部还有内容
+        return node;
+    }
+
+private:
+    std::optional<FlowValue> ParseNode() {
+        SkipSpace();
+        if (pos_ >= text_.size()) return std::nullopt;
+        if (text_[pos_] == '{') return ParseMap();
+        if (text_[pos_] == '[') return ParseSeq();
+        return ParseScalar();
+    }
+
+    std::optional<FlowValue> ParseMap() {
+        FlowValue node;
+        node.kind = FlowValue::Kind::Map;
+        ++pos_;  // '{'
+        SkipSpace();
+        if (pos_ < text_.size() && text_[pos_] == '}') {
+            ++pos_;
+            return node;
+        }
+        for (;;) {
+            SkipSpace();
+            auto key = ParseKey();
+            if (!key.has_value()) return std::nullopt;
+            SkipSpace();
+            if (pos_ >= text_.size() || text_[pos_] != ':') return std::nullopt;
+            ++pos_;
+            auto value = ParseNode();
+            if (!value.has_value()) return std::nullopt;
+            node.entries.emplace_back(std::move(*key), std::move(*value));
+            SkipSpace();
+            if (pos_ < text_.size() && text_[pos_] == ',') {
+                ++pos_;
+                continue;
+            }
+            if (pos_ < text_.size() && text_[pos_] == '}') {
+                ++pos_;
+                return node;
+            }
+            return std::nullopt;
+        }
+    }
+
+    std::optional<FlowValue> ParseSeq() {
+        FlowValue node;
+        node.kind = FlowValue::Kind::Seq;
+        ++pos_;  // '['
+        SkipSpace();
+        if (pos_ < text_.size() && text_[pos_] == ']') {
+            ++pos_;
+            return node;
+        }
+        for (;;) {
+            auto item = ParseNode();
+            if (!item.has_value()) return std::nullopt;
+            node.items.push_back(std::move(*item));
+            SkipSpace();
+            if (pos_ < text_.size() && text_[pos_] == ',') {
+                ++pos_;
+                continue;
+            }
+            if (pos_ < text_.size() && text_[pos_] == ']') {
+                ++pos_;
+                return node;
+            }
+            return std::nullopt;
+        }
+    }
+
+    // 键：引号原样保留，裸键读到 ':'（冒号前只有空白才算键）。
+    std::optional<std::string> ParseKey() {
+        if (pos_ >= text_.size()) return std::nullopt;
+        if (text_[pos_] == '"' || text_[pos_] == '\'') return ParseQuoted();
+        const std::size_t begin = pos_;
+        while (pos_ < text_.size()) {
+            const char c = text_[pos_];
+            if (c == ':' || c == ',' || c == '}' || c == ']' || c == '\n') break;
+            ++pos_;
+        }
+        if (pos_ >= text_.size() || text_[pos_] != ':') return std::nullopt;
+        std::string key{trimBoth(text_.substr(begin, pos_ - begin))};
+        if (key.empty()) return std::nullopt;
+        return key;
+    }
+
+    // 标量：引号原样保留；裸标量读到 flow 分隔符，内部换行折成单个空格。
+    std::optional<FlowValue> ParseScalar() {
+        FlowValue node;
+        node.kind = FlowValue::Kind::Scalar;
+        if (text_[pos_] == '"' || text_[pos_] == '\'') {
+            auto quoted = ParseQuoted();
+            if (!quoted.has_value()) return std::nullopt;
+            node.scalar = std::move(*quoted);
+            return node;
+        }
+        bool space = false;
+        while (pos_ < text_.size()) {
+            const char c = text_[pos_];
+            if (c == ',' || c == '}' || c == ']') break;
+            if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
+                space = !node.scalar.empty();
+                ++pos_;
+                continue;
+            }
+            if (space) {
+                node.scalar += ' ';
+                space = false;
+            }
+            node.scalar += c;
+            ++pos_;
+        }
+        return node;
+    }
+
+    // 引号串：返回含首尾引号的原文。
+    std::optional<std::string> ParseQuoted() {
+        const char quote = text_[pos_];
+        const std::size_t begin = pos_;
+        ++pos_;
+        while (pos_ < text_.size()) {
+            const char c = text_[pos_];
+            if (quote == '"' && c == '\\' && pos_ + 1 < text_.size()) {
+                pos_ += 2;
+                continue;
+            }
+            if (quote == '\'' && c == '\'' && pos_ + 1 < text_.size() &&
+                text_[pos_ + 1] == '\'') {
+                pos_ += 2;  // 单引号串里的 '' 是转义的单引号
+                continue;
+            }
+            ++pos_;
+            if (c == quote) {
+                return std::string(text_.substr(begin, pos_ - begin));
+            }
+        }
+        return std::nullopt;
+    }
+
+    // 跳过空白与注释（flow 内的注释由 eemeli/yaml 写不出，这里只求不误判）。
+    void SkipSpace() {
+        while (pos_ < text_.size()) {
+            const char c = text_[pos_];
+            if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
+                ++pos_;
+                continue;
+            }
+            if (c == '#') {
+                while (pos_ < text_.size() && text_[pos_] != '\n') ++pos_;
+                continue;
+            }
+            break;
+        }
+    }
+
+    std::string_view text_;
+    std::size_t pos_ = 0;
+};
+
+std::string flowIndent(int columns) {
+    return std::string(static_cast<std::size_t>(columns), ' ');
+}
+
+// 裸标量是不是 YAML null（`null` / `Null` / `NULL` / `~`，以及本来就是空的
+// 值）。null 与「没有值」是同一个值，所以摊平时统一写成空值：既不改语义，
+// 又与本应用写入口径一致（推理档位里的 "off": 就是「不发思考参数」）。
+// 带引号的 "null" 是字符串，按原样保留。
+bool flowScalarIsNull(const std::string& scalar) {
+    if (scalar.empty()) return true;
+    if (scalar.front() == '"' || scalar.front() == '\'') return false;
+    return scalar == "null" || scalar == "Null" || scalar == "NULL" ||
+           scalar == "~";
+}
+
+void EmitFlowNode(const FlowValue& node, int indent,
+                  std::vector<std::string>& out);
+
+// 一条映射条目（dash = 作为序列项的首条，写成 "- key: value"）。
+void EmitFlowEntry(const std::string& key, const FlowValue& value, int indent,
+                   bool dash, std::vector<std::string>& out) {
+    const std::string prefix =
+        flowIndent(indent) + (dash ? std::string("- ") : std::string());
+    if (value.kind == FlowValue::Kind::Scalar) {
+        out.push_back(flowScalarIsNull(value.scalar)
+                          ? prefix + key + ":"
+                          : prefix + key + ": " + value.scalar);
+        return;
+    }
+    if (value.entries.empty() && value.items.empty()) {
+        out.push_back(prefix + key + ": " +
+                      (value.kind == FlowValue::Kind::Map ? "{}" : "[]"));
+        return;
+    }
+    out.push_back(prefix + key + ":");
+    EmitFlowNode(value, indent + 2, out);
+}
+
+void EmitFlowNode(const FlowValue& node, int indent,
+                  std::vector<std::string>& out) {
+    if (node.kind == FlowValue::Kind::Map) {
+        for (const auto& [key, value] : node.entries) {
+            EmitFlowEntry(key, value, indent, false, out);
+        }
+        return;
+    }
+    for (const auto& item : node.items) {
+        if (item.kind == FlowValue::Kind::Scalar) {
+            out.push_back(flowScalarIsNull(item.scalar)
+                              ? flowIndent(indent) + "-"
+                              : flowIndent(indent) + "- " + item.scalar);
+        } else if (item.kind == FlowValue::Kind::Map && !item.entries.empty()) {
+            // 映射项的首条跟 "- " 同行，其余缩进两列，块风格列表的惯例写法。
+            EmitFlowEntry(item.entries.front().first, item.entries.front().second,
+                          indent, true, out);
+            for (std::size_t i = 1; i < item.entries.size(); ++i) {
+                EmitFlowEntry(item.entries[i].first, item.entries[i].second,
+                              indent + 2, false, out);
+            }
+        } else if (item.entries.empty() && item.items.empty()) {
+            out.push_back(flowIndent(indent) + "- " +
+                          (item.kind == FlowValue::Kind::Map ? "{}" : "[]"));
+        } else {
+            out.push_back(flowIndent(indent) + "-");
+            EmitFlowNode(item, indent + 2, out);
+        }
+    }
+}
+
+// 把 llm-pi-ai.providers 的 flow 值摊平成块风格；没有这种形状时原样返回。
+std::string normalizeDshFlowProviders(std::string_view text) {
+    std::vector<std::string> lines;
+    {
+        std::istringstream in{std::string(text)};
+        for (std::string line; std::getline(in, line);) {
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+            lines.push_back(std::move(line));
+        }
+    }
+    // 找顶层 llm-pi-ai: 之后的第一条 providers。
+    std::size_t prov = lines.size();
+    for (std::size_t i = 0; i < lines.size() && prov == lines.size(); ++i) {
+        const YamlLine dl = yamlLineOf(lines[i]);
+        if (dl.blank || dl.comment || dl.indent != 0) continue;
+        if (dl.key != "llm-pi-ai") continue;
+        for (std::size_t j = i + 1; j < lines.size(); ++j) {
+            const YamlLine n = yamlLineOf(lines[j]);
+            if (n.blank || n.comment) continue;
+            if (n.indent == 0) break;  // 出了 llm-pi-ai 块
+            if (n.key == "providers") {
+                prov = j;
+            }
+            break;
+        }
+    }
+    if (prov == lines.size()) return std::string(text);
+
+    const YamlLine dl = yamlLineOf(lines[prov]);
+    const std::string value = std::string(trimBoth(dl.value));
+    std::size_t startLine = prov;
+    std::size_t open = 0;
+    if (value.empty()) {
+        // providers: 之后另起一行写 flow 块。
+        std::size_t k = prov + 1;
+        while (k < lines.size()) {
+            const YamlLine n = yamlLineOf(lines[k]);
+            if (n.blank || n.comment) {
+                ++k;
+                continue;
+            }
+            break;
+        }
+        if (k >= lines.size()) return std::string(text);
+        const auto trimmed = trimLeft(lines[k]);
+        if (trimmed.empty() || trimmed.front() != '{') return std::string(text);
+        startLine = k;
+        open = lines[k].size() - trimmed.size();
+    } else {
+        if (value.front() != '{') return std::string(text);
+        const auto colon = lines[prov].find(':');
+        const auto brace = lines[prov].find('{', colon);
+        if (brace == std::string::npos) return std::string(text);
+        if (!trimBoth(lines[prov].substr(colon + 1, brace - colon - 1)).empty()) {
+            return std::string(text);  // 冒号与 '{' 之间有别的记号，不认
+        }
+        open = brace;
+    }
+
+    // 收集整段 flow 文本并定位配对的 '}'。
+    std::string flow;
+    int depth = 0;
+    std::size_t endLine = startLine;
+    std::size_t afterClose = lines[startLine].size();
+    char quote = '\0';
+    bool done = false;
+    for (std::size_t i = startLine; i < lines.size() && !done; ++i) {
+        const std::string& line = lines[i];
+        for (std::size_t c = (i == startLine ? open : 0); c < line.size(); ++c) {
+            const char ch = line[c];
+            if (quote != '\0') {
+                flow += ch;
+                if (quote == '"' && ch == '\\' && c + 1 < line.size()) {
+                    flow += line[++c];
+                    continue;
+                }
+                if (ch == quote) quote = '\0';
+                continue;
+            }
+            if (ch == '"' || ch == '\'') {
+                quote = ch;
+                flow += ch;
+                continue;
+            }
+            if (ch == '#') break;  // 行尾注释不进 flow 文本
+            flow += ch;
+            if (ch == '{' || ch == '[') ++depth;
+            if (ch == '}' || ch == ']') {
+                --depth;
+                if (depth == 0) {
+                    endLine = i;
+                    afterClose = c + 1;
+                    done = true;
+                    break;
+                }
+            }
+        }
+        if (!done && i > startLine) flow += '\n';
+    }
+    if (!done || depth != 0) return std::string(text);
+
+    FlowParser parser(flow);
+    auto node = parser.Parse();
+    if (!node.has_value() || node->kind != FlowValue::Kind::Map) {
+        return std::string(text);
+    }
+
+    // 摊平：只替换这段 flow 文本，前后行原样保留。
+    std::vector<std::string> out;
+    out.reserve(lines.size());
+    for (std::size_t i = 0; i < prov; ++i) out.push_back(lines[i]);
+    const std::string head =
+        startLine == prov
+            ? std::string(trimRight(lines[prov].substr(0, open)))
+            : std::string(trimRight(lines[prov]));
+    out.push_back(head);
+    EmitFlowNode(*node, dl.indent + 2, out);
+    const std::string tail =
+        std::string(trimRight(lines[endLine].substr(afterClose)));
+    if (!trimBoth(tail).empty()) out.push_back(tail);
+    for (std::size_t i = endLine + 1; i < lines.size(); ++i) {
+        out.push_back(lines[i]);
+    }
+
+    std::string result;
+    for (const auto& l : out) {
+        result += l;
+        result += '\n';
+    }
+    return result;
+}
+
 // 行级改写 settings.yaml：删顶层 agent-default-model 块与
 // llm-pi-ai.providers 下的 llmswitch-* 条目；entryLines 非空时在 providers
 // 块尾插入（缩进随实际 providers 行调整，entryLines 以 4 列基准缩进生成）；
@@ -433,6 +826,9 @@ std::string rewriteDshSettings(std::string_view text,
                                const std::vector<std::string>& entryLines,
                                std::string_view defaultProvider,
                                std::string_view defaultModel) {
+    // flow 风格的 providers 值先摊平成块风格，后面的行级逻辑才成立。
+    const std::string blockText = normalizeDshFlowProviders(text);
+    text = blockText;
     std::vector<std::string> lines;
     {
         std::istringstream in{std::string(text)};
@@ -799,22 +1195,29 @@ nlohmann::json claudeDesktopModelEntry(const std::string& actual,
 
 // 行级解析 settings.yaml：顶层 agent-default-model 的 provider/model，以及
 // llm-pi-ai.providers 下每条手写路由的 baseURL / api / apiKeyEnv / 首个
-// models 条目 id。best-effort；结构不符的字段留空。
+// models 条目 id 与它声明的推理档位（reasoningEfforts 的键）。best-effort；
+// 结构不符的字段留空。flow 风格的 providers 值先摊平成块风格再解析。
 DshSettingsInfo parseDshSettings(std::string_view text) {
     DshSettingsInfo info;
-    std::istringstream in{std::string(text)};
+    const std::string blockText = normalizeDshFlowProviders(text);
+    std::istringstream in{blockText};
     bool inAdm = false, inPi = false, inProv = false, inModels = false;
+    bool inEfforts = false;
     int admIndent = -1, piIndent = -1, provIndent = -1;
-    int entryIndent = -1, modelsIndent = -1;
+    int entryIndent = -1, modelsIndent = -1, effortsIndent = -1;
+    int firstItemIndent = -1;
+    bool firstItemSeen = false, secondItemSeen = false;
     DshProviderEntry* cur = nullptr;
     for (std::string line; std::getline(in, line);) {
         if (!line.empty() && line.back() == '\r') line.pop_back();
         const YamlLine dl = yamlLineOf(line);
         if (dl.blank || dl.comment) continue;
         if (inModels && dl.indent <= modelsIndent) inModels = false;
+        if (inEfforts && dl.indent <= effortsIndent) inEfforts = false;
         if (cur != nullptr && dl.indent <= entryIndent) {
             cur = nullptr;
             inModels = false;
+            inEfforts = false;
         }
         if (inProv && dl.indent <= provIndent) inProv = false;
         if (inPi && dl.indent <= piIndent) inPi = false;
@@ -830,11 +1233,27 @@ DshSettingsInfo parseDshSettings(std::string_view text) {
         if (inModels && cur != nullptr) {
             if (dl.listItem) {
                 // "- id: x" 或裸标量 "- x"
+                if (!firstItemSeen) {
+                    firstItemSeen = true;
+                    firstItemIndent = dl.indent;
+                } else if (dl.indent == firstItemIndent) {
+                    secondItemSeen = true;  // 只认首个模型条目的档位声明
+                }
                 const std::string id =
                     dl.key == "id" || dl.key.empty() ? yamlScalar(dl.value) : "";
                 if (!id.empty() && cur->firstModel.empty()) {
                     cur->firstModel = id;
                 }
+                continue;
+            }
+            if (dl.key == "reasoningEfforts" && trimBoth(dl.value).empty()) {
+                inEfforts = !secondItemSeen;
+                effortsIndent = dl.indent;
+                continue;
+            }
+            if (inEfforts && !secondItemSeen && dl.indent > effortsIndent &&
+                !dl.key.empty()) {
+                cur->reasoningEfforts.push_back(yamlScalar(dl.key));
             }
             continue;
         }
@@ -848,6 +1267,12 @@ DshSettingsInfo parseDshSettings(std::string_view text) {
             } else if (dl.key == "models" && trimBoth(dl.value).empty()) {
                 inModels = true;
                 modelsIndent = dl.indent;
+                // 只认每条路由首个模型条目的档位声明，所以进入新的 models 块
+                // 必须重置「第几个模型条目」的计数——否则第二条及以后的
+                // llmswitch-* 路由会被上一条的计数影响，档位被静默丢掉。
+                firstItemSeen = false;
+                secondItemSeen = false;
+                firstItemIndent = -1;
             }
             continue;
         }
@@ -876,6 +1301,10 @@ DshSettingsInfo parseDshSettings(std::string_view text) {
                 piIndent = 0;
             }
         }
+    }
+    for (auto& entry : info.providers) {
+        entry.reasoningEfforts =
+            models::normalizeReasoningEfforts(entry.reasoningEfforts);
     }
     return info;
 }
@@ -1091,6 +1520,10 @@ void ProviderStore::switchTo(std::string_view tool, const std::string& id) {
             }
         }
         const std::string envName = dshApiKeyEnv(target->id);
+        // 推理档位（reasoningEfforts）：手工声明的路由不声明它，dsh 会把模型
+        // 当成不支持思考、模型菜单里不出现「推理等级」。档位键固定加引号
+        // （off/low 等在部分解析器里会被当成布尔字面量），"off" 留空 =
+        // 「不发思考参数」，与 dsh 官方文档示例一致。
         std::vector<std::string> entry;
         entry.push_back("    llmswitch-" + target->id + ":");
         entry.push_back("      displayName: " + yamlQuote(target->name));
@@ -1100,6 +1533,15 @@ void ProviderStore::switchTo(std::string_view tool, const std::string& id) {
         if (!target->model.empty()) {
             entry.push_back("      models:");
             entry.push_back("        - id: " + yamlQuote(target->model));
+            if (const auto efforts =
+                    models::normalizeReasoningEfforts(target->reasoningEfforts);
+                !efforts.empty()) {
+                entry.push_back("          reasoningEfforts:");
+                for (const auto& level : efforts) {
+                    entry.push_back("            " + yamlQuote(level) +
+                                    (level == "off" ? ":" : ": " + level));
+                }
+            }
         }
         atomicWrite(settingsFile,
                     rewriteDshSettings(text, entry, "llmswitch-" + target->id,
