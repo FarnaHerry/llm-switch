@@ -85,6 +85,7 @@ std::string RestartHintSuffix(const std::string& tool) {
     std::string tool, const models::Provider& provider, bool active, bool isCurrent,
     huxerui::TaskScope tasks, huxerui::ToastHandle toast,
     huxerui::State<int> revision, UsageCache usageCache,
+    huxerui::State<std::string> formTool,
     huxerui::State<std::string> formTarget) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     const IslandTheme islands = ResolveIslandTheme(theme);
@@ -117,9 +118,16 @@ std::string RestartHintSuffix(const std::string& tool) {
 
     auto bump = [revision] { revision = revision.Get() + 1; };
 
-    // 纯导航直接写 State；卸载由后续帧完成，无需等待 UI idle 任务。
-    auto showEdit = [formTarget, id] { formTarget = id; };
-    auto showUsage = [formTarget, id] { formTarget = "usage:" + id; };
+    // 纯导航直接写 State；表单页由 AgentPage 换页挂载，卸载由后续帧完成。
+    // 两个 State 一起写：formTool 说明表单属于哪个 Agent 组。
+    auto showEdit = [formTool, formTarget, tool, id] {
+        formTool = tool;
+        formTarget = id;
+    };
+    auto showUsage = [formTool, formTarget, tool, id] {
+        formTool = tool;
+        formTarget = "usage:" + id;
+    };
 
     // 删除：内置确认框（主题化 DialogStyle 见 app.cpp MinimalThemed）。
     auto showDeleteConfirm = [dialog, toast, tool, id, name, bump] {

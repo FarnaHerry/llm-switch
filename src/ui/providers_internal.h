@@ -236,6 +236,7 @@ huxerui::View ProviderCard(std::string tool, const models::Provider& provider,
                            huxerui::ToastHandle toast,
                            huxerui::State<int> revision,
                            UsageCache usageCache,
+                           huxerui::State<std::string> formTool,
                            huxerui::State<std::string> formTarget);
 
 } // namespace llmswitch::ui

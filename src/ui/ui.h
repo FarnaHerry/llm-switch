@@ -75,21 +75,26 @@ struct IslandTheme {
 IslandTheme ResolveIslandTheme(const huxerui::ThemeSpec& theme);
 
 // ---- 页面（定义在各自 .cpp，均为 [[huxerui::composable]]）----
-// Agent 管理页：使用根级共享的选中索引与新增请求，并让各工具页保持挂载，
-// 从而保留各页的表单、列表和检查状态。
+// Agent 管理页：使用根级共享的选中索引与新增请求，并让各工具列表页保持挂载，
+// 从而保留列表/卡片局部状态。新增/编辑供应商与用量查询配置是本页自己的第二个
+// 页面（IndexedPages 第二页，整页覆盖工具栏 + Pager）：分页器不参与布局与命中，
+// 左右拖动切不了 Agent，也就滑不走正在编辑的表单。
 huxerui::View AgentPage(
     huxerui::State<int> revision, huxerui::State<std::size_t> navPage,
     huxerui::State<std::size_t> selectedTool,
     huxerui::State<std::string> addProviderRequest);
 // 供应商列表页：各工具组共用同一组件，tool 是
 // models::toolRegistry() 的稳定注册表 id（claude-code / codex / ...）。
-// usageCache 在 AgentPage 创建；新增请求由根级 Agent 页共享；
-// 可见列表进入或配置变化时惰性检查到期时间。addProviderRequest 由顶部 action group 发出，目标页消费后打开
-// 自己的新增表单。
+// usageCache 在 AgentPage 创建；表单入口是 AgentPage 持有的 formTool /
+// formTarget（本页只写，不渲染表单）：卡片编辑图标写 formTarget = id，
+// 用量 gauge 图标写 "usage:" + id，formTool 记录目标 Agent 组；可见列表进入
+// 且没有打开表单或配置变化时惰性检查到期时间。addProviderRequest 由顶部 action
+// group 发出，由 AgentPage 消费后打开新增表单。
 using UsageCache = huxerui::State<std::map<std::string, std::string>>;
 huxerui::View ProvidersPage(std::string tool, huxerui::State<int> revision,
                             UsageCache usageCache,
-                            huxerui::State<std::string> addProviderRequest,
+                            huxerui::State<std::string> formTool,
+                            huxerui::State<std::string> formTarget,
                             huxerui::State<std::size_t> navPage,
                             huxerui::State<std::size_t> selectedTool, std::size_t toolIndex);
 // 设置页持有主题模式 State（AppRoot 传入）。

@@ -124,7 +124,7 @@ commit，不回滚已经验证的修改，并在最终回复中报告失败原�
 | `llmswitch.mcp` | `src/mcp.cppm` + `src/mcp.cpp` | MCP 服务器统一清单（SSOT = dataDir()/mcp.json）；启停 = 写/删工具 live 配置条目：claude-code → ~/.claude.json 顶层 mcpServers 深合并、codex → config.toml 行级 [mcp_servers.*] section 重写、opencode → opencode.json 顶层 mcp；claude/pi 不支持（抛中文错） |
 | `llmswitch.skills` | `src/skills.cppm` + `src/skills.cpp` | Skills 中央库（dataDir()/skills-store/<name>/：SKILL.md + 附带文件）+ create_symlink 同步到 ~/.claude/skills 与 ~/.codex/skills；合并视图（中央库/已链接/仅工具侧） |
 | `llmswitch.sessions` | `src/sessions.cppm` + `src/sessions.cpp` | 历史会话扫描：~/.claude/projects/<项目>/*.jsonl 与 ~/.codex/sessions/<年>/<月>/<日>/*.jsonl；列表 Worker 在一次批次中枚举 mtime/size 并读取每个文件头尾固定大小摘要，VirtualList 行只展示已完成的摘要；删除（限已知 sessions 根之下，越界抛错）/导出/详情从文件尾反向分页读取；摘要 best-effort，详情按需解析 |
-| `llmswitch::ui`（普通 C++） | `src/ui/*.cpp` | app（壳：冷调石板主题 AppDark「深海」/AppLight「晴石」+程序化环境光 AmbientGlow+带对称线条节点与 Hover 辉光的标题栏莲花导航+顶级 8 区块径向导航+IndexedPages+莲花托盘图标（单一盛放态）+关闭最小化到托盘+路由自启）/ agent_page（薄宿主：持 currentTool State + ProvidersPage .Key(tool) 宿主）/ router_page（路由总开关+逐 Agent 代理开关+已启用接入地址+最近请求日志，含 routerInstance() 单例）/ stats_page（统计汇总）/ mcp_page / skills_page / sessions_page（会话管理：右上角 Agent 图标组与 Agent 管理页同一注册表、无“全部”混合页；Pager 切换独立 Agent 历史，只有当前 Agent 扫描对应历史，单次 Worker 批量读取头尾固定大小摘要并缓存 30 秒，可见行只展示已完成的摘要，切换时丢弃过期结果；扫描/导出/删除/详情分页读取全程 RunWorker 入 worker 线程；详情首次从文件尾读取最近 50 条并定位末条，实际向上滚动接近顶部时才反向加载上一页并保持视口锚点，消息通过 StateList + VirtualList 虚拟化且以文件偏移保持稳定身份，行使用无阴影的不透明轻量表面）/ about_page（关于，顶部莲花 logo 卡）/ common（岛屿原语、页面骨架/卡片/弹窗卡片、providerStore() 全局实例、ToolIcon/PresetIcon 图标资源映射）/ providers_page（各工具共用供应商页：官方常驻卡首位 + 卡片列表及操作图标组，模型列表/用量/连通检测经 HuxerUI HttpClient；新增/编辑整页表单与用量查询配置页内嵌订阅/按量模板并显示厂商图标，模型行内 Select 下拉 + 卡片用量显示/轮询）/ settings_page（主题/路径/导入导出/关于）/ ui.h（内部声明） |
+| `llmswitch::ui`（普通 C++） | `src/ui/*.cpp` | app（壳：冷调石板主题 AppDark「深海」/AppLight「晴石」+程序化环境光 AmbientGlow+带对称线条节点与 Hover 辉光的标题栏莲花导航+顶级 8 区块径向导航+IndexedPages+莲花托盘图标（单一盛放态）+关闭最小化到托盘+路由自启）/ agent_page（薄宿主：持 selectedTool State + 工具栏/Pager 宿主；新增/编辑与用量配置是同一宿主内的第二个页面，整页覆盖工具栏与 Pager）/ router_page（路由总开关+逐 Agent 代理开关+已启用接入地址+最近请求日志，含 routerInstance() 单例）/ stats_page（统计汇总）/ mcp_page / skills_page / sessions_page（会话管理：右上角 Agent 图标组与 Agent 管理页同一注册表、无“全部”混合页；Pager 切换独立 Agent 历史，只有当前 Agent 扫描对应历史，单次 Worker 批量读取头尾固定大小摘要并缓存 30 秒，可见行只展示已完成的摘要，切换时丢弃过期结果；扫描/导出/删除/详情分页读取全程 RunWorker 入 worker 线程；详情首次从文件尾读取最近 50 条并定位末条，实际向上滚动接近顶部时才反向加载上一页并保持视口锚点，消息通过 StateList + VirtualList 虚拟化且以文件偏移保持稳定身份，行使用无阴影的不透明轻量表面）/ about_page（关于，顶部莲花 logo 卡）/ common（岛屿原语、页面骨架/卡片/弹窗卡片、providerStore() 全局实例、ToolIcon/PresetIcon 图标资源映射）/ providers_page（各工具共用供应商列表页：官方常驻卡首位 + 卡片列表及操作图标组，模型列表/用量/连通检测经 HuxerUI HttpClient；表单入口只写 AgentPage 的 formTool/formTarget（表单由 AgentPage 换页渲染，订阅/按量模板与厂商图标在新表单页内），模型行内 Select 下拉 + 卡片用量显示/轮询）/ settings_page（主题/路径/导入导出/关于）/ ui.h（内部声明） |
 | `src/app.cpp` | 普通 TU | `Application{AppRoot, AppOptions}`（Custom chrome，标题栏 24pt，1080×720 / min 800×600） |
 | 平台入口 | `platform/{linux,windows,macos}/main.cpp` | 薄入口 `huxerui::RunApplication()`（无 CLI 分流；顶层 CMake 按 WIN32/APPLE/Linux 分支选用） |
 
@@ -679,5 +679,14 @@ I/O、解析和 JSON 函数默认保留在 `.cpp` 中。
   +19.6%（+832/+823KB）、rpm +22.3%、Windows zip +15.2%、setup.exe +7.7%、
   macOS tar.gz +47.8%（基数仅 1.53MB）。同时定下「高频日志直接写文件、
   不进 SQLite」的载体规则（见该节）。
+- ✅ 表单页脱离 Pager（2026-09-29）：新增/编辑供应商与用量查询配置从
+  ProvidersPage 的页内模式提升为 AgentPage 自己的第二个页面（IndexedPages
+  双页，只有选中页参与测量与摆放）——表单打开时工具栏 + Pager 不参与布局
+  与命中，横向拖动既滑不走表单也切不了 Agent；Pager 与各列表页仍保持挂载，
+  返回列表保留列表滚动位置、卡片状态与用量刷新时间戳。表单在 Agent 页这一
+  层只缩进一次，标题与工具栏、其他页面标题同一条左边线（此前叠在已带壳层
+  内边距的 Pager 页里，缩进两次）。无头 UiTest 实测量：列表模式横向拖动
+  仍能切 Agent（0↔1），表单打开后同一拖动被表单页挡住（selectedTool 不变、
+  返回/取消仍在）。
 - ⬜ 待做：订阅站端点可能随各家调整，升级版本时需复核；无 CLI 分流、
   无单实例/开机自启；`usage.db` 的 WAL 一致性备份（当前不在 `backups/` 覆盖内）。
