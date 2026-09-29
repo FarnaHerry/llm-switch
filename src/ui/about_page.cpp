@@ -1,6 +1,8 @@
 // about_page.cpp — 关于页：应用名 + 版本（LLMSWITCH_VERSION 编译期常量）+ 一句话
-// 简介、链接列表、技术栈卡、许可与致谢卡。SDK 无打开浏览器 API（platform 层只有
-// 文本剪贴板接口，未暴露给 app），链接以等宽纯文本展示。
+// 简介、链接列表、技术栈、许可与致谢。头部内容直接落在页面上，不再用 Card 包
+// 一层：顶级页面没有自己的卡片，与其余三段的 PageSection 平铺格式一致。
+// SDK 无打开浏览器 API（platform 层只有文本剪贴板接口，未暴露给 app），链接以
+// 等宽纯文本展示。
 #include <huxerui/huxerui.h>
 
 #include <string>
@@ -51,7 +53,7 @@ const std::string kVersionLine = std::format("llm-switch v{}", LLMSWITCH_VERSION
         huxerui::Row{},
         huxerui::ScrollView(
             huxerui::Column {
-                Card(huxerui::Row {
+                huxerui::Row {
                     huxerui::Image(app::images::lotus_bloom)
                         .Tint(theme.colors.on_surface)
                         .With(huxerui::Frame{.width = 44.0F, .height = 44.0F}),
@@ -68,7 +70,7 @@ const std::string kVersionLine = std::format("llm-switch v{}", LLMSWITCH_VERSION
                            huxerui::CrossAlign(
                                huxerui::CrossAxisAlignment::Stretch)),
                 }.With(huxerui::Spacing(14.0F),
-                       huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center))),
+                       huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
 
                 SectionDivider(),
 
