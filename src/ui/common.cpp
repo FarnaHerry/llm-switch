@@ -96,6 +96,14 @@ std::string_view ToolName(std::string_view tool) {
     return tool;
 }
 
+std::size_t ToolRegistryIndex(std::string_view tool) {
+    const auto registry = models::toolRegistry();
+    for (std::size_t i = 0; i < registry.size(); ++i) {
+        if (registry[i].id == tool) return i;
+    }
+    return 0;
+}
+
 IslandTheme ResolveIslandTheme(const huxerui::ThemeSpec& theme) {
     // 轻岛屿：页面更接近连续宣纸/玄墨画布，实体卡片仍保留足够承托；
     // overlay 保持近不透明，确保弹层在全景水墨上可读。
@@ -131,9 +139,8 @@ IslandTheme ResolveIslandTheme(const huxerui::ThemeSpec& theme) {
     };
 }
 
-[[huxerui::composable]] huxerui::View PageScaffold(const std::string& title,
-                                                   huxerui::View actions,
-                                                   huxerui::View content) {
+[[huxerui::composable]] huxerui::View PageScaffoldWithHeader(huxerui::View header,
+                                                             huxerui::View content) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     // 响应式：Compact(<600) 收窄页面内边距。
     const bool compact =
@@ -145,13 +152,13 @@ IslandTheme ResolveIslandTheme(const huxerui::ThemeSpec& theme) {
     // 顶部不留内边距（top = 0）且壳层也不留 Spacing：页面标题紧接标题栏下沿，
     // 两者之间没有额外高度；标题栏自身的高度由平台解析，页面排在它之后贴合。
     const float inset = compact ? theme.spacing.medium : theme.spacing.large;
+    // 形参在 hcg 生成的组合体里按值捕获（const），链式修饰符是右值限定，
+    // 所以先落成局部变量再 move。
+    huxerui::View headerView = header;
     huxerui::View body = content;
     return huxerui::Column {
-        huxerui::Row {
-            huxerui::Text(title, huxerui::TextRole::Title),
-            huxerui::Spacer(),
-            actions,
-        }.With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
+        std::move(headerView)
+            .With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
         std::move(body).With(huxerui::Grow(1.0F)),
     }.With(huxerui::Padding(huxerui::EdgeInsets{.top = 0.0F,
                                                 .right = inset,
@@ -161,6 +168,18 @@ IslandTheme ResolveIslandTheme(const huxerui::ThemeSpec& theme) {
            huxerui::ClipChildren(),
            huxerui::Grow(1.0F),
            huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
+}
+
+[[huxerui::composable]] huxerui::View PageScaffold(const std::string& title,
+                                                   huxerui::View actions,
+                                                   huxerui::View content) {
+    return PageScaffoldWithHeader(
+        huxerui::Row {
+            huxerui::Text(title, huxerui::TextRole::Title),
+            huxerui::Spacer(),
+            actions,
+        }.With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
+        std::move(content));
 }
 
 [[huxerui::composable]] huxerui::View Card(huxerui::View content) {

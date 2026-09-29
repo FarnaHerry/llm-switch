@@ -8,6 +8,7 @@
 // 策略常量与专属区块文件里。
 #include <huxerui/huxerui.h>
 
+#include <format>
 #include <string>
 
 #include "providers_internal.h"
@@ -22,13 +23,19 @@ namespace llmswitch::ui {
 // 新增/编辑供应商页（整页表单，不再是弹窗——字段太多弹窗太挤）。
 // 表单状态以 initial 为初值（UseState 初值只在首次组合生效；调用方用
 // .Key("form:" + target) 保证换编辑目标整体重建）。isNew 时顶部内嵌预设
-// 模板区（点选 FillForm 预填）。通用校验：名称必填；URL / API Key 按各
-// agent 策略；有主模型行的 agent 按 needsModel 校验模型必填；zcode 校验
+// 模板区（点选 FillForm 预填），左上角的标题行换成 targetSelector——目标
+// Agent 选择器（AgentPage 用注册表工具栏 + 「所有 Agent」构成），点选切换这份
+// 配置写给哪个组，选择器为空时退回普通标题行（编辑/用量页没有选择器）。
+// tool 为空串 = 「所有 Agent」：策略退回注册表中立的通用字段，保存时把同一份
+// 配置写进每个注册表组（每组各自生成 id）。通用校验：名称必填；URL / API Key
+// 按各 agent 策略；有主模型行的 agent 按 needsModel 校验模型必填；zcode 校验
 // 模型清单非空。保存成功 toast 后返回列表。
 // 点击回调只写 State：框架在后续帧重组并卸载本页，不必排入异步任务队列。
 [[huxerui::composable]] huxerui::View ProviderFormPage(
     std::string tool, models::Provider initial, bool isNew,
-    huxerui::State<int> revision, huxerui::State<std::string> formTarget) {
+    huxerui::State<int> revision, huxerui::State<std::string> formTarget,
+    huxerui::View targetSelector) {
+    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     const auto tasks = huxerui::UseTaskScope();
     auto toast = huxerui::UseToast();
     const auto http = huxerui::UseService<huxerui::HttpClient>();
@@ -41,6 +48,8 @@ namespace llmswitch::ui {
         formInitial.upstreamFormat = DefaultUpstreamFormat(tool);
         formInitial.fullUrl = false;
     }
+    // 「所有 Agent」没有单一 agent：写进每一个注册表组。
+    const bool allTools = isNew && tool.empty();
     const FormStates fs LLMSWITCH_FORM_STATES_INIT(formInitial);
     const std::string editingId = isNew ? "" : initial.id;
     // 「获取模型」拉取状态：fetching 驱动按钮加载态。fetchedModels 只是
@@ -78,6 +87,21 @@ namespace llmswitch::ui {
     // State 赋值只请求下一帧；直接完成导航，避免等待低优先级 UI 任务队列。
     auto goBack = [formTarget] { formTarget = ""; };
 
+    // 左上角选择器切换目标 Agent 时（新增表单），把「上游格式」重置成新 agent
+    // 的原生默认：它是 agent 派生的初值，跨 agent 沿用会给出错误后缀
+    // （claude 系默认 /anthropic，其余 /v1）。其余字段都是用户输入，全部保留。
+    // 用 tool 作为 Lifecycle 依赖：首组合跑一次（值与表单初值一致），之后只在
+    // 目标 Agent 变化时再跑，用户手动改下拉不受影响。
+    huxerui::Lifecycle(
+        [fs, tool, isNew] {
+            if (isNew) {
+                fs.upstreamFormat =
+                    DefaultUpstreamFormat(tool) == "anthropic" ? 0 : 1;
+            }
+            return [] {};
+        },
+        tool);
+
     // 公共区块：预设（仅新增）+ 通用字段。
     huxerui::View fields =
         huxerui::Column {
@@ -113,119 +137,151 @@ namespace llmswitch::ui {
     }
 
     const std::string title =
-        isNew ? "新增供应商 — " + std::string(ToolName(tool))
+        isNew ? (allTools ? "新增供应商 — 所有 Agent"
+                          : "新增供应商 — " + std::string(ToolName(tool)))
               : "编辑供应商 — " + initial.name;
-    return PageScaffold(
-        title,
+    huxerui::View backAction = huxerui::Row {
+        huxerui::Button("返回").OnClick([goBack] { goBack(); }),
+    };
+    huxerui::View body = huxerui::Column {
+        huxerui::ScrollView(std::move(fields)).With(huxerui::Grow(1.0F)),
         huxerui::Row {
-            huxerui::Button("返回").OnClick([goBack] { goBack(); }),
-        },
-        huxerui::Column {
-            huxerui::ScrollView(std::move(fields)).With(huxerui::Grow(1.0F)),
-            huxerui::Row {
-                huxerui::Button("取消").OnClick([goBack] { goBack(); }),
-                huxerui::Button(isNew ? "添加" : "保存")
-                    .OnClick([=] {
-                        const std::string name = fs.name.Get().text;
-                        const std::string baseUrl = fs.baseUrl.Get().text;
-                        const std::string model = fs.model.Get().text;
-                        if (name.empty()) {
-                            toast.Show("名称不能为空");
-                            return;
-                        }
-                        if (policy.urlRequired && baseUrl.empty()) {
-                            toast.Show("URL 不能为空");
-                            return;
-                        }
-                        if (fs.fullUrl.Get() && baseUrl.empty()) {
-                            toast.Show("完整 URL 不能为空");
-                            return;
-                        }
-                        if (policy.keyRequired && fs.apiKey.Get().text.empty()) {
-                            toast.Show("API Key 不能为空");
-                            return;
-                        }
-                        if (spec != nullptr && spec->needsModel &&
-                            !policy.primaryModelLabel.empty() && model.empty()) {
-                            toast.Show("模型不能为空");
-                            return;
-                        }
-                        if (tool == "zcode" &&
-                            !ZcodeModelListValid(modelList, toast)) {
-                            return;
-                        }
-                        models::Provider p;
-                        p.id = editingId;
-                        p.name = name;
-                        p.baseUrl = baseUrl;
-                        p.modelFetchUrl = fs.modelFetchUrl.Get().text;
-                        p.apiKey = fs.apiKey.Get().text;
-                        p.model = model;
-                        // 模型清单 = 表单当前清单（初值来自已保存清单，手动
-                        // 增删都体现在这里）。
-                        for (std::size_t i = 0; i < modelList.Size(); ++i) {
-                            p.models.push_back(modelList.At(i));
+            huxerui::Button("取消").OnClick([goBack] { goBack(); }),
+            huxerui::Button(isNew ? "添加" : "保存")
+                .OnClick([=] {
+                    const std::string name = fs.name.Get().text;
+                    const std::string baseUrl = fs.baseUrl.Get().text;
+                    const std::string model = fs.model.Get().text;
+                    if (name.empty()) {
+                        toast.Show("名称不能为空");
+                        return;
+                    }
+                    if (policy.urlRequired && baseUrl.empty()) {
+                        toast.Show("URL 不能为空");
+                        return;
+                    }
+                    if (fs.fullUrl.Get() && baseUrl.empty()) {
+                        toast.Show("完整 URL 不能为空");
+                        return;
+                    }
+                    if (policy.keyRequired && fs.apiKey.Get().text.empty()) {
+                        toast.Show("API Key 不能为空");
+                        return;
+                    }
+                    if (spec != nullptr && spec->needsModel &&
+                        !policy.primaryModelLabel.empty() && model.empty()) {
+                        toast.Show("模型不能为空");
+                        return;
+                    }
+                    if (tool == "zcode" &&
+                        !ZcodeModelListValid(modelList, toast)) {
+                        return;
+                    }
+                    models::Provider p;
+                    p.id = editingId;
+                    p.name = name;
+                    p.baseUrl = baseUrl;
+                    p.modelFetchUrl = fs.modelFetchUrl.Get().text;
+                    p.apiKey = fs.apiKey.Get().text;
+                    p.model = model;
+                    // 模型清单 = 表单当前清单（初值来自已保存清单，手动
+                    // 增删都体现在这里）。
+                    for (std::size_t i = 0; i < modelList.Size(); ++i) {
+                        p.models.push_back(modelList.At(i));
+                    }
+                    if (tool == "zcode") {
+                        AssembleZcodeProvider(p, modelList, modelMeta);
+                    }
+                    p.modelSupports1m = fs.modelSupports1m.Get();
+                    p.upstreamFormat =
+                        UpstreamFormatFromIndex(fs.upstreamFormat.Get());
+                    p.fullUrl = fs.fullUrl.Get();
+                    p.website = fs.website.Get().text;
+                    p.notes = fs.notes.Get().text;
+                    p.codexConfigToml = fs.toml.Get().text;
+                    p.apiFormat = ApiFormatFromIndex(fs.apiFormat.Get());
+                    p.haikuModel = fs.haiku.Get().text;
+                    p.sonnetModel = fs.sonnet.Get().text;
+                    p.opusModel = fs.opus.Get().text;
+                    p.haikuDisplayName = fs.haikuDisplayName.Get().text;
+                    p.sonnetDisplayName = fs.sonnetDisplayName.Get().text;
+                    p.opusDisplayName = fs.opusDisplayName.Get().text;
+                    p.haikuSupports1m = fs.haikuSupports1m.Get();
+                    p.sonnetSupports1m = fs.sonnetSupports1m.Get();
+                    p.opusSupports1m = fs.opusSupports1m.Get();
+                    // 用量查询配置归 UsageFormPage 管：编辑保留原值；
+                    // 新增取预设携带值（无预设点选时为默认空配置）。
+                    const models::Provider& usageSource =
+                        editingId.empty() ? fs.presetCarry.Get() : initial;
+                    p.usageEnabled = usageSource.usageEnabled;
+                    p.usageRefreshMinutes = usageSource.usageRefreshMinutes;
+                    p.usageUrl = usageSource.usageUrl;
+                    p.usagePath = usageSource.usagePath;
+                    p.usageLabel = usageSource.usageLabel;
+                    std::string savedId = editingId;
+                    std::size_t allToolsAdded = 0;
+                    try {
+                        if (allTools) {
+                            // 「所有 Agent」：同一份配置写进每个注册表组，
+                            // id 由各组各自生成（id 只在组内唯一）；用量配置
+                            // 随预设一起带过去，zcode 不额外启用条目（保持
+                            // 与逐组新增一致的默认态）。
+                            for (const auto& groupSpec :
+                                 models::toolRegistry()) {
+                                models::Provider copy = p;
+                                providerStore().addProvider(groupSpec.id,
+                                                            std::move(copy));
+                                ++allToolsAdded;
+                            }
+                        } else if (editingId.empty()) {
+                            savedId = providerStore().addProvider(tool,
+                                                                  std::move(p));
+                        } else {
+                            // 编辑保留原创建时间。
+                            for (const auto& cur :
+                                 providerStore().group(tool).providers) {
+                                if (cur.id == editingId) {
+                                    p.createdAt = cur.createdAt;
+                                    break;
+                                }
+                            }
+                            providerStore().updateProvider(tool, p);
                         }
                         if (tool == "zcode") {
-                            AssembleZcodeProvider(p, modelList, modelMeta);
+                            AfterSaveZcode(savedId, zcodeEnabled.Get());
                         }
-                        p.modelSupports1m = fs.modelSupports1m.Get();
-                        p.upstreamFormat =
-                            UpstreamFormatFromIndex(fs.upstreamFormat.Get());
-                        p.fullUrl = fs.fullUrl.Get();
-                        p.website = fs.website.Get().text;
-                        p.notes = fs.notes.Get().text;
-                        p.codexConfigToml = fs.toml.Get().text;
-                        p.apiFormat = ApiFormatFromIndex(fs.apiFormat.Get());
-                        p.haikuModel = fs.haiku.Get().text;
-                        p.sonnetModel = fs.sonnet.Get().text;
-                        p.opusModel = fs.opus.Get().text;
-                        p.haikuDisplayName = fs.haikuDisplayName.Get().text;
-                        p.sonnetDisplayName = fs.sonnetDisplayName.Get().text;
-                        p.opusDisplayName = fs.opusDisplayName.Get().text;
-                        p.haikuSupports1m = fs.haikuSupports1m.Get();
-                        p.sonnetSupports1m = fs.sonnetSupports1m.Get();
-                        p.opusSupports1m = fs.opusSupports1m.Get();
-                        // 用量查询配置归 UsageFormPage 管：编辑保留原值；
-                        // 新增取预设携带值（无预设点选时为默认空配置）。
-                        const models::Provider& usageSource =
-                            editingId.empty() ? fs.presetCarry.Get() : initial;
-                        p.usageEnabled = usageSource.usageEnabled;
-                        p.usageRefreshMinutes = usageSource.usageRefreshMinutes;
-                        p.usageUrl = usageSource.usageUrl;
-                        p.usagePath = usageSource.usagePath;
-                        p.usageLabel = usageSource.usageLabel;
-                        std::string savedId = editingId;
-                        try {
-                            if (editingId.empty()) {
-                                savedId =
-                                    providerStore().addProvider(tool,
-                                                                std::move(p));
-                            } else {
-                                // 编辑保留原创建时间。
-                                for (const auto& cur :
-                                     providerStore().group(tool).providers) {
-                                    if (cur.id == editingId) {
-                                        p.createdAt = cur.createdAt;
-                                        break;
-                                    }
-                                }
-                                providerStore().updateProvider(tool, p);
-                            }
-                            if (tool == "zcode") {
-                                AfterSaveZcode(savedId, zcodeEnabled.Get());
-                            }
-                        } catch (const std::exception& e) {
-                            toast.Show(e.what());
-                            return;
-                        }
-                        revision = revision.Get() + 1;
+                    } catch (const std::exception& e) {
+                        toast.Show(e.what());
+                        return;
+                    }
+                    revision = revision.Get() + 1;
+                    if (allTools) {
+                        toast.Show(
+                            std::format("已添加到 {} 个 Agent", allToolsAdded));
+                    } else {
                         toast.Show(editingId.empty() ? "已添加" : "已保存");
-                        goBack();
-                    }),
-            }.With(huxerui::MainAlign(huxerui::MainAxisAlignment::SpaceBetween)),
-        }.With(huxerui::Spacing(12.0F),
-               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)));
+                    }
+                    goBack();
+                }),
+        }.With(huxerui::MainAlign(huxerui::MainAxisAlignment::SpaceBetween)),
+    }.With(huxerui::Spacing(12.0F),
+           huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
+
+    // 新增页：左上角的标题换成目标 Agent 选择器（与 Agent 页工具栏同款岛屿），
+    // 右侧仍是「返回」；编辑/用量页没有选择器，走普通标题行。
+    if (isNew && targetSelector) {
+        // 形参在 hcg 生成的组合体里按值捕获（const），先落成局部变量再 move。
+        huxerui::View selector = targetSelector;
+        return PageScaffoldWithHeader(
+            huxerui::Row {
+                std::move(selector),
+                huxerui::Spacer(),
+                std::move(backAction),
+            }.With(huxerui::Spacing(theme.spacing.small),
+                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
+            std::move(body));
+    }
+    return PageScaffold(title, std::move(backAction), std::move(body));
 }
 
 } // namespace llmswitch::ui

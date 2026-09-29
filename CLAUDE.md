@@ -688,5 +688,19 @@ I/O、解析和 JSON 函数默认保留在 `.cpp` 中。
   内边距的 Pager 页里，缩进两次）。无头 UiTest 实测量：列表模式横向拖动
   仍能切 Agent（0↔1），表单打开后同一拖动被表单页挡住（selectedTool 不变、
   返回/取消仍在）。
+- ✅ 新增供应商页的目标 Agent 选择器（2026-09-29）：新增页左上角的标题换成
+  与 Agent 页完全相同的注册表工具栏（AgentToolButton/AgentToolBar 提到
+  agent_page.cpp 共用），但行为是「这份配置写给谁」——点选切换目标 Agent，
+  表单策略随之切换（codex 出现 config.toml 区块等）；工具栏最后一项是新的
+  `resources/images/all.svg`「所有 Agent」，保存时把同一份配置写进每个注册表
+  组（各组各自生成 id，用量配置随预设带过去）。编辑/用量页没有选择器，仍走
+  普通标题行（PageScaffoldWithHeader 让标题行整行可由调用方提供，左右内边距
+  与 PageScaffold 同一套壳层约束）。表单目标改用注册表下标
+  `formToolIndex`（registry.size() = 所有 Agent）作为唯一真源，卡片入口经
+  `ToolRegistryIndex` 换算；切换目标保留已填内容，只把「上游格式」重置成新
+  agent 的原生默认（agent 派生初值，跨 agent 沿用会给出错误后缀）。
+  无头 UiTest 实测：选择器 11 项齐全、切到 codex 后只在 codex 表单出现
+  config.toml 区块、预设填好的数据在切换目标后保留、切到「所有 Agent」保存后
+  10 个注册表组各出现一条该供应商。
 - ⬜ 待做：订阅站端点可能随各家调整，升级版本时需复核；无 CLI 分流、
   无单实例/开机自启；`usage.db` 的 WAL 一致性备份（当前不在 `backups/` 覆盖内）。

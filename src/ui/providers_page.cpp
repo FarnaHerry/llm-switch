@@ -3,9 +3,10 @@
 // Agent 工具栏 + Pager 负责，新增动作也由 AgentPage 顶部 action group 触发；
 // 本页只有列表一种形态——新增/编辑与用量查询配置是 AgentPage 自己的第二个
 // 页面（整页覆盖工具栏 + Pager，不受分页器左右拖动影响），本页提供的只是
-// 进入入口（formTool + formTarget 两个 State 由 AgentPage 持有）：
+// 进入入口（formToolIndex + formTarget 两个 State 由 AgentPage 持有）：
 // 卡片的编辑图标写 formTarget = id，用量 gauge 图标写 "usage:" + id，
-// AgentPage 据此换页并把供应商数据回填给表单。
+// formToolIndex 定位目标 Agent 组（ToolRegistryIndex），AgentPage 据此换页
+// 并把供应商数据回填给表单。
 // 每个供应商一张卡片三段式：左信息列（名称 / 实际访问 URL / 备注 /
 // 「使用中」徽章（group.current 或 detectCurrent 命中），
 // Grow 吃满剩余宽度）｜ 中间状态列（连通检测延迟 + 用量文本/刷新图标，
@@ -57,7 +58,7 @@ using provider_detail::WriteUsageCache;
 
 [[huxerui::composable]] huxerui::View ProvidersPage(
     std::string tool, huxerui::State<int> revision, UsageCache usageCache,
-    huxerui::State<std::string> formTool,
+    huxerui::State<std::size_t> formToolIndex,
     huxerui::State<std::string> formTarget,
     huxerui::State<std::size_t> navPage,
     huxerui::State<std::size_t> selectedTool, std::size_t toolIndex) {
@@ -136,13 +137,14 @@ using provider_detail::WriteUsageCache;
             huxerui::VirtualList(
                 g.providers,
                 [tool, currentProvider, detectedProvider, tasks, toast, revision,
-                 usageCache, formTool, formTarget](const models::Provider& provider) {
+                 usageCache, formToolIndex,
+                 formTarget](const models::Provider& provider) {
                     const bool isCurrent = currentProvider == provider.id;
                     const bool active =
                         isCurrent || detectedProvider == provider.id;
                     return ProviderCard(tool, provider, active, isCurrent, tasks,
-                                        toast, revision, usageCache, formTool,
-                                        formTarget);
+                                        toast, revision, usageCache,
+                                        formToolIndex, formTarget);
                 })
                 .EstimatedItemExtent(150.0F)
                 .CacheExtent(480.0F)

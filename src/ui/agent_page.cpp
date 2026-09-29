@@ -12,6 +12,7 @@
 #include <huxerui/huxerui.h>
 
 #include <cstddef>
+#include <functional>
 #include <map>
 #include <memory>
 #include <string>
@@ -26,21 +27,45 @@ import llmswitch.store;
 
 namespace llmswitch::ui {
 
+// Agent 图标按钮（Agent 页工具栏与新增供应商页的「目标 Agent」选择器共用同一
+// 控件）：点击把 selectedIndex 写成 index，选中态由承载底块表达。选中下标在
+// 按钮自己的组合体里读取，外层缓存 View 声明也能跟随选择变化重组。
 [[huxerui::composable]] huxerui::View AgentToolButton(
-    std::string iconName, std::string label,
-    huxerui::State<std::size_t> selectedTool, std::size_t toolIndex) {
+    huxerui::ImageResource icon, std::string label,
+    huxerui::State<std::size_t> selectedIndex, std::size_t index) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     const IslandTheme islands = ResolveIslandTheme(theme);
     huxerui::View toolButton =
-        huxerui::IconButton(ToolIcon(iconName), label)
-            .OnClick([selectedTool, toolIndex] { selectedTool = toolIndex; })
+        huxerui::IconButton(icon, label)
+            .OnClick([selectedIndex, index] { selectedIndex = index; })
             .With(huxerui::Tooltip(label));
-    if (selectedTool.Get() == toolIndex) {
+    if (selectedIndex.Get() == index) {
         toolButton = std::move(toolButton).With(
             huxerui::Background(islands.overlay),
             huxerui::CornerRadius(islands.nested_radius));
     }
     return toolButton;
+}
+
+// 工具栏岛：一排图标按钮 + raised 表面 / 6pt 圆角 / 内边距。Agent 页工具栏与
+// 新增供应商页的目标选择器外观完全一致。
+[[huxerui::composable]] huxerui::View AgentToolBar(huxerui::View buttons) {
+    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    const IslandTheme islands = ResolveIslandTheme(theme);
+    // 形参在 hcg 生成的组合体里按值捕获（const），链式修饰符右值限定。
+    huxerui::View row = buttons;
+    return huxerui::Row {
+        std::move(row)
+            .With(huxerui::Spacing(theme.spacing.extra_small),
+                  huxerui::MainAlign(huxerui::MainAxisAlignment::Start),
+                  huxerui::CrossAlign(
+                      huxerui::CrossAxisAlignment::Center)),
+    }.With(huxerui::Padding(theme.spacing.extra_small),
+           huxerui::Background(islands.raised),
+           huxerui::CornerRadius(islands.nested_radius),
+           huxerui::ClipChildren(),
+           huxerui::MainAlign(huxerui::MainAxisAlignment::Start),
+           huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 }
 
 [[huxerui::composable]] huxerui::View AgentPager(
@@ -73,23 +98,28 @@ namespace llmswitch::ui {
         huxerui::UseViewportClass() == huxerui::ViewportClass::Compact;
     const huxerui::TaskScope tasks = huxerui::UseTaskScope();
 
-    // 表单页状态：formTool 记录表单属于哪个 Agent 组（供应商 id 只在组内唯一）；
+    // 表单页状态：formToolIndex 是表单的目标 Agent 在注册表里的下标，
+    // registry.size() = 特殊项「所有 Agent」（同一份配置写进每个组）；
     // formTarget 的取值与表单页约定一致——"" = 无表单；"new" = 新增；
     // "usage:" + id = 用量查询配置；否则 = 编辑的供应商 id。
-    auto formTool = huxerui::UseState<std::string>({});
+    // 用下标而不是 tool id 作为唯一真源：新增页的左上角就是这条注册表工具栏，
+    // 选中态与点击落点天然一致（ToolRegistryIndex 供卡片入口换算）。
+    const std::size_t allToolsIndex = registry.size();
+    auto formToolIndex = huxerui::UseState<std::size_t>(0);
     auto formTarget = huxerui::UseState<std::string>({});
     auto formInitial = huxerui::UseState<models::Provider>({});
     auto formDataTarget = huxerui::UseState<std::string>({});
     auto formLoading = huxerui::UseState(false);
 
     // 顶部 action group 的新增请求（AppRoot 共享）由本页消费，随后清空，避免
-    // 同一次点击在后续重组中重复打开表单。三个 State 一起写：下一帧的表单以
-    // 新的 formInitial 挂载。
+    // 同一次点击在后续重组中重复打开表单。写目标下标 + 目标 + 初值：下一帧的
+    // 表单以新的 formInitial 挂载。
     huxerui::Lifecycle(
-        [addProviderRequest, formTool, formTarget, formInitial] {
+        [addProviderRequest, formToolIndex, formTarget, formInitial] {
             if (!addProviderRequest.Get().empty()) {
-                formTool = addProviderRequest.Get();
+                const std::string requested = addProviderRequest.Get();
                 addProviderRequest = {};
+                formToolIndex = ToolRegistryIndex(requested);
                 formInitial = models::Provider{};
                 formTarget = "new";
             }
@@ -98,12 +128,18 @@ namespace llmswitch::ui {
         addProviderRequest.Get());
 
     const std::string target = formTarget.Get();
-    const std::string formToolId = formTool.Get();
+    const std::size_t toolIndex =
+        std::min(formToolIndex.Get(), allToolsIndex);
+    // 「所有 Agent」没有单一 tool id：表单退回注册表中立的通用策略（不出现
+    // 任何 agent 专属区块），保存时把同一份配置写进每个注册表组。
+    const bool allTools = toolIndex == allToolsIndex;
+    const std::string formToolId =
+        allTools ? std::string{} : std::string(registry[toolIndex].id);
     // 打开表单不必先构造整棵供应商卡片树；目标供应商的拷贝经任务线程在本次
     // 事件之后完成，formDataTarget 同时用来丢弃旧目标的迟到结果。
     huxerui::Lifecycle(
-        [tasks, formToolId, target, formTool, formTarget, formInitial,
-         formDataTarget, formLoading] {
+        [tasks, formToolId, target, toolIndex, formToolIndex, formTarget,
+         formInitial, formDataTarget, formLoading] {
             formDataTarget = "";
             formLoading = !target.empty() && target != "new";
             if (target.empty()) return;
@@ -112,13 +148,13 @@ namespace llmswitch::ui {
                 formLoading = false;
                 return;
             }
-            tasks.Launch([formToolId, target, formTool, formTarget, formInitial,
-                          formDataTarget,
+            tasks.Launch([formToolId, target, toolIndex, formToolIndex,
+                          formTarget, formInitial, formDataTarget,
                           formLoading]() -> huxerui::Task<void> {
                 // 不经 Delay(0)（帧调度）：任务体在工厂返回后经事件队列
                 // 立即执行，此时组合已结束，写状态安全。
                 if (formTarget.Get() != target ||
-                    formTool.Get() != formToolId) {
+                    formToolIndex.Get() != toolIndex) {
                     co_return;
                 }
                 const std::string id =
@@ -132,7 +168,7 @@ namespace llmswitch::ui {
                     }
                 }
                 if (formTarget.Get() != target ||
-                    formTool.Get() != formToolId) {
+                    formToolIndex.Get() != toolIndex) {
                     co_return;
                 }
                 formInitial = loaded;
@@ -154,7 +190,7 @@ namespace llmswitch::ui {
             const auto& spec = registry[index];
             const std::string id(spec.id);
             nextButtons->push_back(
-                AgentToolButton(std::string(spec.iconName),
+                AgentToolButton(ToolIcon(spec.iconName),
                                 std::string(spec.displayName), selectedTool, index)
                     .Key("agent-tool:" + id));
         }
@@ -173,8 +209,8 @@ namespace llmswitch::ui {
             const auto& spec = registry[index];
             const std::string id(spec.id);
             nextPages->push_back(
-                ProvidersPage(id, revision, usageCache, formTool, formTarget,
-                              navPage, selectedTool, index)
+                ProvidersPage(id, revision, usageCache, formToolIndex,
+                              formTarget, navPage, selectedTool, index)
                     .Key("agent-providers:" + id)
                     .With(huxerui::Grow(1.0F)));
         }
@@ -190,18 +226,7 @@ namespace llmswitch::ui {
         }
     };
 
-    huxerui::View navigationContainer = huxerui::Row {
-        huxerui::Row(*cachedButtons)
-            .With(huxerui::Spacing(theme.spacing.extra_small),
-                  huxerui::MainAlign(huxerui::MainAxisAlignment::Start),
-                  huxerui::CrossAlign(
-                      huxerui::CrossAxisAlignment::Center)),
-    }.With(huxerui::Padding(theme.spacing.extra_small),
-           huxerui::Background(islands.raised),
-           huxerui::CornerRadius(islands.nested_radius),
-           huxerui::ClipChildren(),
-           huxerui::MainAlign(huxerui::MainAxisAlignment::Start),
-           huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
+    huxerui::View navigationContainer = AgentToolBar(huxerui::Row(*cachedButtons));
     // 与 PageScaffold 同一套壳层约束：顶部不留内边距（top = 0，壳层也不留
     // Spacing），Agent 工具栏紧接标题栏下沿；左右边距是壳层标题栏的同一个
     // shellInset，应用名与工具栏左对齐。
@@ -230,6 +255,29 @@ namespace llmswitch::ui {
            huxerui::ClipChildren(),
            huxerui::Grow(1.0F),
            huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
+
+    // 新增页左上角的目标 Agent 选择器：与 Agent 页工具栏同一控件、同一外观，
+    // 但行为是「这份配置写给谁」——点选切换目标 Agent，最后一项「所有 Agent」
+    // 表示写进每个注册表组。只在新增时有意义（编辑的条目属于固定组）。
+    huxerui::View targetSelector;
+    if (target == "new") {
+        std::vector<huxerui::View> selectorButtons;
+        selectorButtons.reserve(registry.size() + 1);
+        for (std::size_t index = 0; index < registry.size(); ++index) {
+            const auto& spec = registry[index];
+            selectorButtons.push_back(
+                AgentToolButton(ToolIcon(spec.iconName),
+                                std::string(spec.displayName), formToolIndex,
+                                index)
+                    .Key("form-tool:" + std::string(spec.id)));
+        }
+        selectorButtons.push_back(
+            AgentToolButton(app::images::all, "所有 Agent", formToolIndex,
+                            allToolsIndex)
+                .Key("form-tool:all"));
+        targetSelector =
+            AgentToolBar(huxerui::Row(std::move(selectorButtons)));
+    }
 
     // 页面 1：新增/编辑供应商或用量查询配置。未打开时是空占位（IndexedPages
     // 要求子 View 非空）；选中页才参与布局，占位不会被测量。
@@ -266,7 +314,8 @@ namespace llmswitch::ui {
         } else {
             agentForm =
                 ProviderFormPage(formToolId, formInitial.Get(),
-                                 target == "new", revision, formTarget)
+                                 target == "new", revision, formTarget,
+                                 std::move(targetSelector))
                     .Key("form:" + target);
         }
     }

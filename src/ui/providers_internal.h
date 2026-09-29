@@ -32,7 +32,8 @@ namespace llmswitch::ui {
 
 huxerui::View ProviderFormPage(std::string tool, models::Provider initial,
                                bool isNew, huxerui::State<int> revision,
-                               huxerui::State<std::string> formTarget);
+                               huxerui::State<std::string> formTarget,
+                               huxerui::View targetSelector);
 
 huxerui::View UsageFormPage(std::string tool, models::Provider initial,
                             huxerui::State<int> revision,
@@ -236,7 +237,7 @@ huxerui::View ProviderCard(std::string tool, const models::Provider& provider,
                            huxerui::ToastHandle toast,
                            huxerui::State<int> revision,
                            UsageCache usageCache,
-                           huxerui::State<std::string> formTool,
+                           huxerui::State<std::size_t> formToolIndex,
                            huxerui::State<std::string> formTarget);
 
 } // namespace llmswitch::ui

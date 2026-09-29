@@ -56,6 +56,7 @@ CMake 配置阶段会检查全部 24×24 SVG：包含硬编码颜色（非 `#FFF
 | `home/home_active/agents/models/router/skills/mcp/sessions/stats/settings.svg` | 用户提供的 **llm-switch Icon Set v1.0** 参考图中的核心导航图标（首页未选中／选中、Agent 管理、模型、本地路由、Skills、MCP、会话、用量、设置；`home_active.svg` 为实心莲花，当前未接入运行时，选中态仍由承载底块表达） | 本仓库转换稿 |
 | `trash/download/upload/search/refresh/edit/import/export/backup/restore.svg` | Icon Set v1.0 中的常用操作图标（删除、下载、上传、搜索、刷新、编辑、导入、导出、备份、恢复） | 本仓库转换稿 |
 | `add.svg` | 本仓库自绘的简单通用加号（圆头十字，墨迹 14/24）。Icon Set v1.0 的「卷宗 + 加号」在 16px 下已经认不出是新增，按产品要求换成通用 add 造型 | 同本仓库 |
+| `all.svg` | 本仓库自绘的「所有 Agent」标记（2×2 四枚圆角墨块）；新增供应商页目标选择器的最后一项，点选 = 给全部 Agent 加同一份配置 | 同本仓库 |
 | `success/error/warning/info/loading/more/disabled/processing.svg` | Icon Set v1.0 中的状态提示图标 | 本仓库转换稿 |
 | `user/api_key/link/options/logout.svg` | Icon Set v1.0 中的辅助图标 | 本仓库转换稿 |
 | `about.svg` | 本仓库自绘圆圈 i（顶级「关于」入口） | 同本仓库 |

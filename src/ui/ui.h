@@ -46,6 +46,10 @@ store::ProviderStore& providerStore();
 // 工具显示名（侧边栏提示 / 托盘菜单分组标题 / 页面标题）。
 std::string_view ToolName(std::string_view tool);
 
+// 工具在 models::toolRegistry() 里的下标（供应商页/表单的目标选择器用它定位
+// Agent 图标）；未注册（不应发生）回退 0。
+std::size_t ToolRegistryIndex(std::string_view tool);
+
 // ToolSpec.iconName → 单套无色 alpha-mask 图标；深浅主题由组件运行时 tint
 // 自适应，选中态由承载容器表达。未知名显示错误图标，避免掩盖漏配。
 huxerui::ImageResource ToolIcon(std::string_view iconName);
@@ -85,15 +89,15 @@ huxerui::View AgentPage(
     huxerui::State<std::string> addProviderRequest);
 // 供应商列表页：各工具组共用同一组件，tool 是
 // models::toolRegistry() 的稳定注册表 id（claude-code / codex / ...）。
-// usageCache 在 AgentPage 创建；表单入口是 AgentPage 持有的 formTool /
+// usageCache 在 AgentPage 创建；表单入口是 AgentPage 持有的 formToolIndex /
 // formTarget（本页只写，不渲染表单）：卡片编辑图标写 formTarget = id，
-// 用量 gauge 图标写 "usage:" + id，formTool 记录目标 Agent 组；可见列表进入
-// 且没有打开表单或配置变化时惰性检查到期时间。addProviderRequest 由顶部 action
-// group 发出，由 AgentPage 消费后打开新增表单。
+// 用量 gauge 图标写 "usage:" + id，formToolIndex 记录目标 Agent 组在注册表里的
+// 下标；可见列表进入且没有打开表单或配置变化时惰性检查到期时间。
+// addProviderRequest 由顶部 action group 发出，由 AgentPage 消费后打开新增表单。
 using UsageCache = huxerui::State<std::map<std::string, std::string>>;
 huxerui::View ProvidersPage(std::string tool, huxerui::State<int> revision,
                             UsageCache usageCache,
-                            huxerui::State<std::string> formTool,
+                            huxerui::State<std::size_t> formToolIndex,
                             huxerui::State<std::string> formTarget,
                             huxerui::State<std::size_t> navPage,
                             huxerui::State<std::size_t> selectedTool, std::size_t toolIndex);
@@ -106,6 +110,11 @@ huxerui::View SettingsPage(huxerui::State<int> themeMode, huxerui::State<int> re
 // 落在窗口海面底色上（岛间缝隙经壳层 Spacing 透出）。
 huxerui::View PageScaffold(const std::string& title, huxerui::View actions,
                            huxerui::View content);
+
+// 同上，但整条标题行由调用方提供——新增供应商页把左上角的标题换成目标 Agent
+// 选择器（与 Agent 页工具栏同一控件），选择器由此进入页面的同一条左边线。
+huxerui::View PageScaffoldWithHeader(huxerui::View header,
+                                     huxerui::View content);
 
 // 卡片容器（二级岛）：raised 表面 + 6pt 圆角 + 1pt 语义描边 + 内边距。
 // 保持单层绘制，避免滚动时产生逐卡片矢量叠层和裁剪合成；只用于少数需要

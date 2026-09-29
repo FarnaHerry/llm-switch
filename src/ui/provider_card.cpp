@@ -85,7 +85,7 @@ std::string RestartHintSuffix(const std::string& tool) {
     std::string tool, const models::Provider& provider, bool active, bool isCurrent,
     huxerui::TaskScope tasks, huxerui::ToastHandle toast,
     huxerui::State<int> revision, UsageCache usageCache,
-    huxerui::State<std::string> formTool,
+    huxerui::State<std::size_t> formToolIndex,
     huxerui::State<std::string> formTarget) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     const IslandTheme islands = ResolveIslandTheme(theme);
@@ -119,13 +119,14 @@ std::string RestartHintSuffix(const std::string& tool) {
     auto bump = [revision] { revision = revision.Get() + 1; };
 
     // 纯导航直接写 State；表单页由 AgentPage 换页挂载，卸载由后续帧完成。
-    // 两个 State 一起写：formTool 说明表单属于哪个 Agent 组。
-    auto showEdit = [formTool, formTarget, tool, id] {
-        formTool = tool;
+    // 两个 State 一起写：formToolIndex 说明表单属于哪个 Agent 组（供应商 id
+    // 只在组内唯一，所以目标组必须跟着入口一起确定）。
+    auto showEdit = [formToolIndex, formTarget, tool, id] {
+        formToolIndex = ToolRegistryIndex(tool);
         formTarget = id;
     };
-    auto showUsage = [formTool, formTarget, tool, id] {
-        formTool = tool;
+    auto showUsage = [formToolIndex, formTarget, tool, id] {
+        formToolIndex = ToolRegistryIndex(tool);
         formTarget = "usage:" + id;
     };
 
