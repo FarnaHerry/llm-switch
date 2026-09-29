@@ -283,8 +283,13 @@ namespace llmswitch::ui {
     // 要求子 View 非空）；选中页才参与布局，占位不会被测量。
     huxerui::View agentForm = huxerui::Row{};
     if (!target.empty()) {
+        // 新增表单没有任何东西要读：它在 formTarget 变成 "new" 的那一帧就必须
+        // 直接渲染。不能再等 formDataTarget —— 那是编辑表单等异步拷贝的就绪
+        // 标志，而关闭上一次表单时它已被清空，会让新增页先闪一帧「编辑供应商
+        // / 正在加载供应商配置…」的旧脚手架（左上角还不是目标 Agent 选择器）。
         const bool formReady =
-            formDataTarget.Get() == target && !formLoading.Get();
+            target == "new" ||
+            (formDataTarget.Get() == target && !formLoading.Get());
         auto goBack = [formTarget] { formTarget = ""; };
         if (!formReady) {
             agentForm = PageScaffold(

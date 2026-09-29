@@ -97,6 +97,10 @@ struct FormStates {
     huxerui::State<huxerui::TextEditingValue> notes;
     huxerui::State<huxerui::TextEditingValue> toml;  // 仅 codex 展示
     huxerui::State<int> upstreamFormat;
+    // upstreamFormat 是「为哪个目标 Agent 定的」：两者不等说明还没人给当前
+    // agent 定过，用该 agent 的原生默认现算（见 ProviderFormPage 的组合期重置），
+    // 这样切换目标不需要回写 State 再等一帧。
+    huxerui::State<std::string> upstreamFormatTool;
     huxerui::State<bool> fullUrl;
     huxerui::State<int> apiFormat;                   // 仅 opencode / pi 展示
     huxerui::State<huxerui::TextEditingValue> haiku;   // 仅 claude 系展示
@@ -132,6 +136,7 @@ struct FormStates {
      huxerui::UseState(huxerui::TextEditingValue{(p).notes}),               \
      huxerui::UseState(huxerui::TextEditingValue{(p).codexConfigToml}),     \
      huxerui::UseState((p).upstreamFormat == "anthropic" ? 0 : 1),          \
+     huxerui::UseState(std::string{}),                                      \
      huxerui::UseState((p).fullUrl),                                         \
      huxerui::UseState((p).apiFormat == "anthropic"         ? 1             \
                       : (p).apiFormat == "openai-responses" ? 2             \

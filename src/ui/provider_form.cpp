@@ -87,20 +87,19 @@ namespace llmswitch::ui {
     // State 赋值只请求下一帧；直接完成导航，避免等待低优先级 UI 任务队列。
     auto goBack = [formTarget] { formTarget = ""; };
 
-    // 左上角选择器切换目标 Agent 时（新增表单），把「上游格式」重置成新 agent
-    // 的原生默认：它是 agent 派生的初值，跨 agent 沿用会给出错误后缀
-    // （claude 系默认 /anthropic，其余 /v1）。其余字段都是用户输入，全部保留。
-    // 用 tool 作为 Lifecycle 依赖：首组合跑一次（值与表单初值一致），之后只在
-    // 目标 Agent 变化时再跑，用户手动改下拉不受影响。
-    huxerui::Lifecycle(
-        [fs, tool, isNew] {
-            if (isNew) {
-                fs.upstreamFormat =
-                    DefaultUpstreamFormat(tool) == "anthropic" ? 0 : 1;
-            }
-            return [] {};
-        },
-        tool);
+    // 「上游格式」是 agent 派生的初值：目标 Agent 一变就回到该 agent 的原生默认
+    // （claude 系 /anthropic，其余 /v1）。这一步必须在**本帧组合里**算出，不能
+    // 靠 Lifecycle 事后回写 State——Lifecycle 在组合之后才跑，切换目标时会先闪
+    // 一帧旧 agent 的默认后缀。只在新增表单里重置：编辑表单没有「换目标」这回
+    // 事，一律沿用已保存的值。
+    if (isNew && fs.upstreamFormatTool.Get() != tool) {
+        const int toolDefault =
+            DefaultUpstreamFormat(tool) == "anthropic" ? 0 : 1;
+        if (fs.upstreamFormat.Get() != toolDefault) {
+            fs.upstreamFormat = toolDefault;
+        }
+        fs.upstreamFormatTool = tool;
+    }
 
     // 公共区块：预设（仅新增）+ 通用字段。
     huxerui::View fields =
