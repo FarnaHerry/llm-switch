@@ -188,10 +188,19 @@ struct DshProviderEntry {
     // 首个模型条目声明的推理档位（reasoningEfforts 的键，规范升序；
     // 未声明时为空）。
     std::vector<std::string> reasoningEfforts;
+    // 同一个模型条目的容量与输入模态（官方字段 contextWindow / maxTokens /
+    // input；0 与空清单 = 未声明）。
+    std::int64_t contextWindow = 0;
+    std::int64_t maxTokens = 0;
+    std::vector<std::string> inputModalities;
 };
 struct DshSettingsInfo {
     std::string defaultProvider;
     std::string defaultModel;
+    // agent-default-model 里的推理等级（dsh 的模型选择状态之一：官方键
+    // reasoningEffort）。本应用不建模它，但改写这一块时必须原样带回去——
+    // 否则切换一次就把用户在 dsh 里选的推理等级清掉。
+    std::string defaultReasoningEffort;
     std::vector<DshProviderEntry> providers;
 };
 DshSettingsInfo parseDshSettings(std::string_view text);

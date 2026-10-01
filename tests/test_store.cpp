@@ -1187,6 +1187,201 @@ int main() {
             CHECK(yi.find("      api: openai-completions") != std::string::npos);
             CHECK(yi.find("            low: low") != std::string::npos);
         }
+        // 8d5. 模型条目的官方能力字段（contextWindow / maxTokens / input）：
+        // dsh 的 llm-pi-ai 把能力放在模型条目上，与 dsh 官方设置页编辑的是同一
+        // 组字段（PiAiModelProfile）。写侧按官方顺序落盘、未声明就不写；读侧
+        // 必须逐个读回来——否则收编后再切换就把用户的容量与视觉声明写丢了。
+        {
+            writeFile(dshSettings,
+                      "llm-pi-ai:\n"
+                      "  providers:\n"
+                      "    deepseek-official:\n"
+                      "      api: anthropic-messages\n"
+                      "      baseURL: https://api.deepseek.com/anthropic\n");
+            models::Provider vision{.name = "带视觉的中转",
+                                    .baseUrl = "https://vision.example.com/v1",
+                                    .apiKey = "sk-vision",
+                                    .model = "vision-model",
+                                    .contextWindow = 1000000,
+                                    .maxTokens = 256000,
+                                    .inputModalities = {"image", "text"}};
+            s.addProvider("dsh", vision);
+            const std::string idV = s.group("dsh").providers.back().id;
+            s.switchTo("dsh", idV);
+            const std::string y = readTextFile(dshSettings);
+            // 官方字段紧接 id、按官方顺序（容量 → 模态 → 档位）。
+            CHECK(y.find("        - id: \"vision-model\"\n"
+                         "          contextWindow: 1000000\n"
+                         "          maxTokens: 256000\n"
+                         "          input: [text, image]\n") != std::string::npos);
+            // 未声明的档位不出现（dsh 视为不支持思考）。
+            CHECK(y.find("reasoningEfforts") == std::string::npos);
+            // 第二个供应商一个都不声明：三个字段都不落盘。
+            models::Provider plain{.name = "无声明",
+                                   .baseUrl = "https://plain.example.com/v1",
+                                   .apiKey = "sk-plain",
+                                   .model = "plain-model"};
+            s.addProvider("dsh", plain);
+            s.switchTo("dsh", s.group("dsh").providers.back().id);
+            const std::string yp = readTextFile(dshSettings);
+            CHECK(yp.find("          contextWindow:") == std::string::npos);
+            CHECK(yp.find("          maxTokens:") == std::string::npos);
+            CHECK(yp.find("          input:") == std::string::npos);
+            // agent-default-model 的推理等级（官方键 reasoningEffort）不属于
+            // 本应用的模型，但改写这块时必须原样带回：切换只是换 provider/model。
+            writeFile(dshSettings,
+                      "agent-default-model:\n"
+                      "  provider: c\n"
+                      "  model: \"old-model\"\n"
+                      "  reasoningEffort: xhigh\n"
+                      "llm-pi-ai:\n"
+                      "  providers:\n"
+                      "    c:\n"
+                      "      api: openai-completions\n"
+                      "      baseURL: https://keep-effort.example.com/v1\n");
+            models::Provider effort{.name = "保留等级",
+                                    .baseUrl = "https://keep-effort.example.com/v1",
+                                    .apiKey = "sk-effort",
+                                    .model = "effort-model"};
+            s.addProvider("dsh", effort);
+            const std::string idE = s.group("dsh").providers.back().id;
+            s.switchTo("dsh", idE);
+            const std::string ye = readTextFile(dshSettings);
+            CHECK(ye.find("  provider: llmswitch-" + idE) != std::string::npos);
+            CHECK(ye.find("  model: \"effort-model\"") != std::string::npos);
+            CHECK(ye.find("  reasoningEffort: xhigh") != std::string::npos);
+            CHECK(s.detectCurrent("dsh") == idE);
+
+            // 读侧往返：手写一条块风格条目（本应用写出的就是这种形状），
+            // 收编要把三个字段都读回来，再切换写回同样的文本。
+            writeFile(dshSettings,
+                      "agent-default-model:\n"
+                      "  provider: roundtrip\n"
+                      "llm-pi-ai:\n"
+                      "  providers:\n"
+                      "    roundtrip:\n"
+                      "      api: openai-responses\n"
+                      "      baseURL: https://roundtrip.example.com/v1\n"
+                      "      apiKeyEnv: RT_KEY\n"
+                      "      models:\n"
+                      "        - id: roundtrip-model\n"
+                      "          contextWindow: 1000000\n"
+                      "          maxTokens: 256000\n"
+                      "          input: [text, image]\n"
+                      "          reasoningEfforts:\n"
+                      "            \"off\":\n"
+                      "            medium: medium\n");
+            writeFile(dshCredentials, "version: 1\nRT_KEY: \"sk-rt\"\n");
+            const auto rt = s.importLive("dsh");
+            CHECK(rt.baseUrl == "https://roundtrip.example.com/v1");
+            CHECK(rt.model == "roundtrip-model");
+            CHECK(rt.contextWindow == 1000000);
+            CHECK(rt.maxTokens == 256000);
+            CHECK(rt.inputModalities ==
+                  std::vector<std::string>({"text", "image"}));
+            CHECK(rt.reasoningEfforts ==
+                  std::vector<std::string>({"off", "medium"}));
+            s.switchTo("dsh", rt.id);
+            const std::string yr = readTextFile(dshSettings);
+            CHECK(yr.find("        - id: \"roundtrip-model\"\n"
+                          "          contextWindow: 1000000\n"
+                          "          maxTokens: 256000\n"
+                          "          input: [text, image]\n"
+                          "          reasoningEfforts:\n"
+                          "            \"off\":\n"
+                          "            \"medium\": medium\n") != std::string::npos);
+        }
+        // 8d6. 手写路由的官方字段读回：块序列 input（flow 摊平后的形态）、
+        // 同行 flow input、同行 flow reasoningEfforts、带 K 后缀的容量。
+        {
+            writeFile(dshSettings,
+                      "agent-default-model:\n"
+                      "  provider: block-seq\n"
+                      "llm-pi-ai:\n"
+                      "  providers:\n"
+                      "    block-seq:\n"
+                      "      api: openai-completions\n"
+                      "      baseURL: https://seq.example.com/v1\n"
+                      "      apiKeyEnv: SEQ_KEY\n"
+                      "      models:\n"
+                      "        - id: seq-model\n"
+                      "          contextWindow: 128000\n"
+                      "          input:\n"
+                      "            - text\n"
+                      "            - image\n");
+            writeFile(dshCredentials, "version: 1\nSEQ_KEY: \"sk-seq\"\n");
+            const auto seq = s.importLive("dsh");
+            CHECK(seq.baseUrl == "https://seq.example.com/v1");
+            CHECK(seq.model == "seq-model");
+            CHECK(seq.contextWindow == 128000);
+            CHECK(seq.maxTokens == 0);  // 没声明
+            CHECK(seq.inputModalities ==
+                  std::vector<std::string>({"text", "image"}));
+            // 块序列读完后接着切换：写回的是同一组官方字段。
+            s.switchTo("dsh", seq.id);
+            const std::string ys = readTextFile(dshSettings);
+            CHECK(ys.find("          contextWindow: 128000") != std::string::npos);
+            CHECK(ys.find("          input: [text, image]") != std::string::npos);
+        }
+        {
+            writeFile(dshSettings,
+                      "agent-default-model:\n"
+                      "  provider: inline-flow\n"
+                      "llm-pi-ai:\n"
+                      "  providers:\n"
+                      "    inline-flow:\n"
+                      "      api: openai-completions\n"
+                      "      baseURL: https://flow.example.com/v1\n"
+                      "      apiKeyEnv: FLOW_KEY\n"
+                      "      models:\n"
+                      "        - id: flow-model\n"
+                      "          maxTokens: 64K\n"
+                      "          input: [text, image]\n"
+                      "          reasoningEfforts: { \"off\": null, medium: medium }\n");
+            writeFile(dshCredentials, "version: 1\nFLOW_KEY: \"sk-flow\"\n");
+            const auto flow = s.importLive("dsh");
+            CHECK(flow.baseUrl == "https://flow.example.com/v1");
+            CHECK(flow.model == "flow-model");
+            CHECK(flow.contextWindow == 0);  // 没声明
+            CHECK(flow.maxTokens == 64000);  // K 后缀
+            CHECK(flow.inputModalities ==
+                  std::vector<std::string>({"text", "image"}));
+            CHECK(flow.reasoningEfforts ==
+                  std::vector<std::string>({"off", "medium"}));
+            // 再切换写回：同行 flow 值按块风格落盘（摊平只改排版）。
+            s.switchTo("dsh", flow.id);
+            const std::string yf = readTextFile(dshSettings);
+            CHECK(yf.find("          maxTokens: 64000") != std::string::npos);
+            CHECK(yf.find("          input: [text, image]") != std::string::npos);
+            CHECK(yf.find("            \"medium\": medium") != std::string::npos);
+        }
+        // 8d7. 容量拼写（与 dsh 官方设置页同一套）：解析 / 回写往返 + 非法值。
+        {
+            CHECK(models::parseTokenCount("") == 0);  // 空 = 不声明
+            CHECK(models::parseTokenCount("   ") == 0);
+            CHECK(models::parseTokenCount("131072") == 131072);
+            CHECK(models::parseTokenCount("256K") == 256000);
+            CHECK(models::parseTokenCount("2m") == 2000000);
+            CHECK(models::parseTokenCount("1.5K") == 1500);
+            CHECK(models::parseTokenCount("0") == -1);    // 容量必须为正整数
+            CHECK(models::parseTokenCount("-5") == -1);
+            CHECK(models::parseTokenCount("abc") == -1);
+            CHECK(models::parseTokenCount("1.5") == -1);  // 非整数
+            CHECK(models::parseTokenCount("K") == -1);
+            CHECK(models::formatTokenCount(1000000) == "1M");
+            CHECK(models::formatTokenCount(256000) == "256K");
+            CHECK(models::formatTokenCount(131072) == "131072");
+            CHECK(models::formatTokenCount(0).empty());
+            // 模态：text 是底座（非空清单必然带 text），空清单仍是「不声明」。
+            CHECK(models::normalizeInputModalities({"image"}) ==
+                  std::vector<std::string>({"text", "image"}));
+            CHECK(models::normalizeInputModalities({}).empty());
+            CHECK(models::inputModalitiesFromMask(
+                      models::inputModalityMask({"image"})) ==
+                  std::vector<std::string>({"text", "image"}));
+            CHECK(models::inputModalityMask({}) == 0);
+            CHECK(models::inputModalitiesFromMask(0).empty());
+        }
     }
 
     // 8e. hermes：config.yaml 的 custom_providers 列表 upsert（删旧

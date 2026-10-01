@@ -106,6 +106,12 @@ struct FormStates {
     // dsh 推理档位位掩码（下标 = models::reasoningLevels() 的下标）；
     // 其他 agent 不展示也不用。
     huxerui::State<int> reasoningMask;
+    // dsh 模型条目的官方能力声明：输入模态位掩码（下标 =
+    // models::inputModalities() 的下标）、上下文窗口与最大输出 token 数
+    // （文本输入，支持 262144 / 256K / 1M 拼写；空 = 不声明）。
+    huxerui::State<int> inputMask;
+    huxerui::State<huxerui::TextEditingValue> contextWindow;
+    huxerui::State<huxerui::TextEditingValue> maxTokens;
     huxerui::State<huxerui::TextEditingValue> haiku;   // 仅 claude 系展示
     huxerui::State<huxerui::TextEditingValue> sonnet;
     huxerui::State<huxerui::TextEditingValue> opus;
@@ -145,6 +151,11 @@ struct FormStates {
                       : (p).apiFormat == "openai-responses" ? 2             \
                                                             : 0),           \
      huxerui::UseState(models::reasoningEffortMask((p).reasoningEfforts)),   \
+     huxerui::UseState(models::inputModalityMask((p).inputModalities)),     \
+     huxerui::UseState(huxerui::TextEditingValue{                           \
+         models::formatTokenCount((p).contextWindow)}),                     \
+     huxerui::UseState(huxerui::TextEditingValue{                           \
+         models::formatTokenCount((p).maxTokens)}),                         \
      huxerui::UseState(huxerui::TextEditingValue{(p).haikuModel}),          \
      huxerui::UseState(huxerui::TextEditingValue{(p).sonnetModel}),         \
      huxerui::UseState(huxerui::TextEditingValue{(p).opusModel}),           \
@@ -177,7 +188,8 @@ struct AgentFormPolicy {
     bool showMappings;              // 三档模型映射（claude-code / claude desktop）
     bool showApiFormat;             // API 协议（opencode / pi）
     bool showToml;                  // codex config.toml 原文
-    bool showReasoningEfforts = false;  // 推理档位（dsh 手写路由）
+    // dsh 模型条目的官方能力区块（输入模态 / 容量 / 推理档位）。
+    bool showDshModelFields = false;
 };
 const AgentFormPolicy& AgentPolicyFor(std::string_view tool);
 const AgentFormPolicy& ClaudeCodeFormPolicy();
@@ -219,10 +231,18 @@ const AgentFormPolicy& ZcodeFormPolicy();
 // opencode / pi：API 协议（OpenAI 兼容 / Anthropic / OpenAI Responses）。
 [[huxerui::composable]] huxerui::View ApiFormatFields(const FormStates& fs);
 
-// dsh：推理档位（reasoningEfforts）。声明哪些档位，dsh 的模型菜单就出现哪些
-// 「推理等级」；不声明时 dsh 把手工声明的模型当成不支持思考。写入的是
-// llmswitch-* 条目里某个模型的档位，所以主模型为空时该区块不生效。
-[[huxerui::composable]] huxerui::View DshReasoningFields(const FormStates& fs);
+// dsh：模型条目的官方能力声明（输入模态 input / 容量 contextWindow、maxTokens /
+// 推理档位 reasoningEfforts）。dsh 的 llm-pi-ai 把「模型能力」放在模型条目上，
+// 手工声明的路由不声明就什么都没有：不声明 input 收不了图片、不声明
+// reasoningEfforts 模型菜单里连「推理等级」都不出现。字段名与 dsh 官方设置页
+// （@deepseek-ai/dsh-llm-pi-ai 的 PiAiModelProfile）一致。
+[[huxerui::composable]] huxerui::View DshModelFields(const FormStates& fs);
+
+// 校验 dsh 的容量输入（0 = 空 = 不声明；负数 = 无法解析），失败时 toast 并
+// 返回 false，由调用方中止保存。返回解析结果供装配使用。
+bool DshCapacitiesValid(const FormStates& fs, huxerui::ToastHandle toast);
+std::vector<std::string> DshInputModalities(const FormStates& fs);
+std::int64_t DshCapacity(const huxerui::State<huxerui::TextEditingValue>& field);
 
 // zcode：条目启用开关 + 模型清单（每模型参数面板：输入/输出模态、
 // 上下文窗口、最大输出、思维链——直接改 modelsMeta 原值）。

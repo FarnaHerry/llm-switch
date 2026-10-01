@@ -130,8 +130,8 @@ namespace llmswitch::ui {
                                 : huxerui::View{huxerui::Row{}},
             policy.showApiFormat ? ApiFormatFields(fs)
                                  : huxerui::View{huxerui::Row{}},
-            policy.showReasoningEfforts ? DshReasoningFields(fs)
-                                        : huxerui::View{huxerui::Row{}},
+            policy.showDshModelFields ? DshModelFields(fs)
+                                      : huxerui::View{huxerui::Row{}},
             policy.showToml ? TomlField(fs) : huxerui::View{huxerui::Row{}},
         }.With(huxerui::Spacing(12.0F),
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
@@ -178,6 +178,10 @@ namespace llmswitch::ui {
                         !ZcodeModelListValid(modelList, toast)) {
                         return;
                     }
+                    if (policy.showDshModelFields &&
+                        !DshCapacitiesValid(fs, toast)) {
+                        return;
+                    }
                     models::Provider p;
                     p.id = editingId;
                     p.name = name;
@@ -205,6 +209,11 @@ namespace llmswitch::ui {
                     p.reasoningEfforts =
                         models::reasoningEffortsFromMask(
                             fs.reasoningMask.Get());
+                    // dsh 模型条目的官方能力声明（仅 dsh 展示；其他 agent
+                    // 掩码恒为 0 / 容量恒为空）。
+                    p.inputModalities = DshInputModalities(fs);
+                    p.contextWindow = DshCapacity(fs.contextWindow);
+                    p.maxTokens = DshCapacity(fs.maxTokens);
                     p.haikuModel = fs.haiku.Get().text;
                     p.sonnetModel = fs.sonnet.Get().text;
                     p.opusModel = fs.opus.Get().text;

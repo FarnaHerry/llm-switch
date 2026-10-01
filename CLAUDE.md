@@ -117,7 +117,7 @@ commit，不回滚已经验证的修改，并在最终回复中报告失败原�
 | 模块 | 文件 | 职责 |
 |------|------|------|
 | `llmswitch.config` | `src/config.cppm` | 数据目录（~/.local/share/llm-switch）/ config.json、backups/、mcp.json、skills-store/、router/requests.jsonl 路径 / live 配置与会话/技能目录解析（全部 LLMSWITCH_* 环境变量可覆盖）/ 深色检测 |
-| `llmswitch.models` | `src/models.cppm` | 工具注册表（ToolSpec/toolRegistry/findTool：claude-code/claude/codex/opencode/pi/dsh/hermes/gemini/qwen/zcode；needsModel/hasApiFormat/hasModelMappings 三标记驱动表单适配）+ Provider/ProviderGroup/AppConfig（groups 以注册表 id 为键的 map，旧格式顶层 claude/codex 自动迁移；router/usage 设置字段，Provider.usageEnabled 控制单个供应商是否查询，routerTools 保存逐 Agent 代理选择；Provider 含 modelFetchUrl、haiku/sonnet/opusModel 三档映射与 upstreamFormat/fullUrl URL 模式）+ JSON 序列化 + 内置预设（builtinPresets）+ 官方厂商名（officialVendorName：claude 系/codex/zcode/dsh 有官方常驻卡）+ apiFormat 三档归一（normalizeApiFormat/apiFormatLabel）+ 上游 URL 归一/后缀（normalizeUpstreamFormat/upstreamFormatSuffix/effectiveBaseUrl）+ dsh 推理档位表（reasoningLevels 规范升序 / reasoningLevelLabel 显示名 / normalizeReasoningEfforts 归一 / 与 UI State<int> 互转的位掩码两函数；Provider.reasoningEfforts 是 per-供应商清单）+ 用量模板表纯解析与匹配（parseUsageTemplates/suggestUsageQuery：数据在 resources/raw/usage_templates.json 资源包内置 + dataDir 用户覆盖，不硬编码） |
+| `llmswitch.models` | `src/models.cppm` | 工具注册表（ToolSpec/toolRegistry/findTool：claude-code/claude/codex/opencode/pi/dsh/hermes/gemini/qwen/zcode；needsModel/hasApiFormat/hasModelMappings 三标记驱动表单适配）+ Provider/ProviderGroup/AppConfig（groups 以注册表 id 为键的 map，旧格式顶层 claude/codex 自动迁移；router/usage 设置字段，Provider.usageEnabled 控制单个供应商是否查询，routerTools 保存逐 Agent 代理选择；Provider 含 modelFetchUrl、haiku/sonnet/opusModel 三档映射与 upstreamFormat/fullUrl URL 模式）+ JSON 序列化 + 内置预设（builtinPresets）+ 官方厂商名（officialVendorName：claude 系/codex/zcode/dsh 有官方常驻卡）+ apiFormat 三档归一（normalizeApiFormat/apiFormatLabel）+ 上游 URL 归一/后缀（normalizeUpstreamFormat/upstreamFormatSuffix/effectiveBaseUrl）+ dsh 模型条目的官方能力字段（档位表 reasoningLevels 规范升序 / reasoningLevelLabel / normalizeReasoningEfforts / 位掩码两函数；输入模态表 inputModalities = text+image / inputModalityLabel / normalizeInputModalities / 位掩码两函数，text 是底座；容量拼写 parseTokenCount / formatTokenCount，接受 256K、1M；Provider 的 reasoningEfforts / inputModalities / contextWindow / maxTokens 都是 per-供应商声明，0 与空清单 = 不声明）+ 用量模板表纯解析与匹配（parseUsageTemplates/suggestUsageQuery：数据在 resources/raw/usage_templates.json 资源包内置 + dataDir 用户覆盖，不硬编码） |
 | `llmswitch.store` | `src/store.cppm` + `src/store.cpp` | ProviderStore：config.json 读写、CRUD、switchTo 按工具 id 分发十个 writer（原子写+备份；gemini/qwen 走 <dir>/.env 行级 upsert + settings.json 深合并 auth 类型，zcode 走 provider map upsert + enabled 互斥，dsh 走 settings.yaml 行级 upsert（含推理档位，且写入前把 flow 风格的 providers 值摊平成块风格）+ .credentials.yaml 密钥库，hermes 走 config.yaml custom_providers 列表 upsert + model 节指向）、restoreOfficial 恢复厂商原生状态（claude-code/claude/codex/gemini/qwen/zcode/dsh）、detectCurrent/importLive、导出导入、theme/usage/router 与逐 Agent 路由设置 setter、用量模板用户覆盖表读取（loadUsageTemplatesOverride） |
 | `llmswitch.net` | `src/net.cppm` + `src/net.cpp` | 纯函数：模型列表 URL 拼接 `modelListUrl`/候选推导、响应解析 `parseModelIds`（data/models 两种形状，去重保序）和用量取值 `extractByPath`（点分路径+数组下标取标量）；实际网络请求不在此层——供应商页面走 HuxerUI HttpClient（provider_network.cpp），路由出站走 UpstreamSession |
 | `llmswitch.router` | `src/router.cppm` + `src/router.cpp` | LocalRouter：cpp-httplib 服务器监听 127.0.0.1，`/<tool>/` 前缀路由到该组 current 供应商的实际 URL（按 upstreamFormat 追加 /anthropic 或 /v1，fullUrl 时原样），替换鉴权头，线程安全的逐工具开关运行中即时生效（禁用返回 403，不访问上游/统计），可选故障转移（429/5xx/连接失败按组内顺序试下一个）；RequestLog/StatsSnapshot 统计，每请求追加 JSONL（dataDir()/router/requests.jsonl），启动回填内存环形缓冲（最多 1000 条） |
@@ -159,10 +159,16 @@ hover 时在屏幕中央展开径向导航盘，全部 8 个顶级页面图标�
   `llmswitch-<id>` 手写路由条目（api 字段复用 pi 三档映射）+ 文件头
   agent-default-model 指向，密钥只写 `~/.dsh/.credentials.yaml`（顶层
   env 名→密钥 map，apiKeyEnv 引用，目录 0700、文件 0600）；条目首个模型
-  条目按 Provider.reasoningEfforts 写 `reasoningEfforts`（键固定加引号，
-  "off" 留空 = 不发思考参数，其余写成同名拼写）——不声明时 dsh 把手写模型
-  当成不支持思考、模型菜单里不出现「推理等级」，所以档位既是收编字段也是
-  表单里的 chip；两份 YAML 都被 dsh 热监听 → 切换即时生效
+  条目按 Provider 的官方能力字段写：`contextWindow` / `maxTokens`（容量，
+  0 = 不声明）、`input: [text, image]`（请求模态，声明 image 才让手工路由
+  收图片附件；text 是底座，非空清单必然带 text）、`reasoningEfforts`
+  （键固定加引号，"off" 留空 = 不发思考参数，其余写成同名拼写）——三者与
+  dsh 官方设置页编辑的是同一组（PiAiModelProfile），不声明时 dsh 依次退回
+  已装 catalog 的值、再退回路由默认（上下文 262144 / 输出 32768 / 模态
+  [text]），所以 0 与空清单一律当「不声明」不猜；agent-default-model 块
+  重写时保留用户在里面选的 `reasoningEffort`（dsh 的模型选择状态，不属本
+  应用的模型，但每切一次都被清掉就是丢官方设置）；两份 YAML 都被 dsh
+  热监听 → 切换即时生效
   （needsRestart=false），restoreOfficial 删 agent-default-model 块与
   llmswitch-* 条目回到内置 deepseek-official 路由；**行级改写只懂块风格**，
   所以读（detectCurrent/importLive）写（switchTo/restoreOfficial）之前都先
@@ -782,5 +788,32 @@ I/O、解析和 JSON 函数默认保留在 `.cpp` 中。
   说明）实测：修复前受影响卡片的 6 个操作图标 x=[1080,1340] 全部
   in_viewport=false；修复后 800×600 与 1080×720 两个视口下图标全在卡内，且在
   图标中心真实点击能触发切换（该卡挂上「使用中」徽章）。
+- ✅ dsh 官方模型条目字段（2026-10-01）：此前 dsh 新增/编辑表单只有推理档位，
+  Provider 也只存 reasoningEfforts——收编一条手写路由后再切换，用户的容量与
+  视觉声明就被写丢。字段清单与取值口径取自本机安装的 dsh 插件
+  （`@deepseek-ai/dsh-llm-pi-ai` 的 `lib/types/config.d.ts` / `catalog.d.ts`：
+  `PiAiModelProfile` 的 id / name / contextWindow / maxTokens / input /
+  reasoningEfforts，以及 `MODALITIES = [text, image]`、
+  `THINKING_LEVELS = [off…max]`——档位表与既有 `reasoningLevels()` 完全一致）。
+  新增：Provider 的 `contextWindow` / `maxTokens`（0 = 不声明）与
+  `inputModalities`（text/image）；表单多出一块「输入模态 + 容量」chips/输入框
+  （容量接受 `131072` / `256K` / `1M`，与 dsh 官方设置页同一套 K/M 拼写，
+  `models::parseTokenCount` / `formatTokenCount`）；写入端在模型条目里按官方
+  顺序落盘 `contextWindow` → `maxTokens` → `input: [text, image]` →
+  `reasoningEfforts`，未声明一律不写（dsh 退回 catalog 值/路由默认）；
+  读取端认块风格、同行 flow（`input: [text, image]`、
+  `reasoningEfforts: { "off": null, medium: medium }`）与 K 后缀容量。
+  **text 是底座**：非空模态清单一律补齐 text（只声明 image 等于声明这个模型
+  收不了文字），空清单仍是「不声明」；chips 里勾「图像」自动带上「文本」、
+  取消「文本」整份声明一起灭。另修一处官方键丢失：agent-default-model 块
+  重写时保留用户选的 `reasoningEffort`（dsh 的模型选择状态，每切一次都被清掉
+  就是丢设置）。无头 UiTest 探针（tests/ui_dsh_form_probe.cpp，未跟踪）实测
+  完整路径「打开 dsh 新增页 → 选 DeepSeek 预设 → 勾图像 → 上下文窗口填 1M、
+  最大输出填 256K → 添加 → 切换」：config.json 装配出
+  `inputModalities:[text,image]`、`contextWindow:1000000`、`maxTokens:256000`，
+  live settings.yaml 落成官方形状；撤掉表单区块或撤掉装配代码，探针分别以
+  退出码 1 / 2 复现。test_store 覆盖写入形状、未声明不写、块/flow 读回、
+  容量拼写与模态底座规则（四处均做反向验证：撤掉修复后分别 4 / 10 / 7 / 1
+  项断言失败）。
 - ⬜ 待做：订阅站端点可能随各家调整，升级版本时需复核；无 CLI 分流、
   无单实例/开机自启；`usage.db` 的 WAL 一致性备份（当前不在 `backups/` 覆盖内）。

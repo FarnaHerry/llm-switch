@@ -43,6 +43,11 @@ void FillForm(const FormStates& fs, const models::Provider& p) {
                    : p.apiFormat == "openai-responses" ? 2
                                                        : 0;
     fs.reasoningMask = models::reasoningEffortMask(p.reasoningEfforts);
+    fs.inputMask = models::inputModalityMask(p.inputModalities);
+    fs.contextWindow =
+        huxerui::TextEditingValue{models::formatTokenCount(p.contextWindow)};
+    fs.maxTokens =
+        huxerui::TextEditingValue{models::formatTokenCount(p.maxTokens)};
     fs.haiku = huxerui::TextEditingValue{p.haikuModel};
     fs.sonnet = huxerui::TextEditingValue{p.sonnetModel};
     fs.opus = huxerui::TextEditingValue{p.opusModel};

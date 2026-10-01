@@ -256,6 +256,131 @@ export std::vector<std::string> reasoningEffortsFromMask(int mask) {
     return out;
 }
 
+// ---- dsh 模型容量与输入模态（模型条目的官方字段）-------------------------------
+// dsh 的 llm-pi-ai 把模型能力放在**模型条目**上，与 dsh 官方设置页编辑的是同一
+// 组字段（见 @deepseek-ai/dsh-llm-pi-ai 的 PiAiModelProfile）：contextWindow /
+// maxTokens 是容量声明，input 是请求模态（text / image）——手工声明的路由只有
+// 声明了 image，dsh 才肯把图片附件发给它。三者不声明时 dsh 依次退回已装
+// catalog 的值、再退回路由默认（上下文 262144 / 输出 32768 / 模态 [text]），
+// 所以本应用把「0 / 空清单」当作「不声明」，不替用户猜一个数字。
+
+// 输入模态全集（顺序即展示顺序，值即上线拼写）。
+export const std::vector<std::string>& inputModalities() {
+    static const std::vector<std::string> modalities{"text", "image"};
+    return modalities;
+}
+
+// 模态显示名（表单 chip 用）：中文名 + 上线拼写。
+export std::string_view inputModalityLabel(std::string_view modality) {
+    if (modality == "text") return "文本 text";
+    if (modality == "image") return "图像 image";
+    return modality;
+}
+
+// 归一化模态清单：只保留规范值、去重、按规范顺序排列；未知值丢弃。
+// **text 是底座**：dsh 自己的默认模态就是 [text]，任何受支持的协议都至少承载
+// 文本，只声明 image 等于声明「这个模型收不了文字」——没有这种路由，所以非空
+// 清单一律补齐 text（空清单仍是「不声明」，语义不同，不补）。
+export std::vector<std::string> normalizeInputModalities(
+    const std::vector<std::string>& in) {
+    std::vector<std::string> out;
+    for (const auto& known : inputModalities()) {
+        for (const auto& value : in) {
+            if (value == known) {
+                out.push_back(known);
+                break;
+            }
+        }
+    }
+    if (!out.empty() && out.front() != "text") {
+        out.insert(out.begin(), "text");
+    }
+    return out;
+}
+
+// 模态清单 → 位掩码（下标 = inputModalities() 的下标），供 UI State<int> 用。
+// 与 normalizeInputModalities 同一套底座规则：非空清单必然带上 text 位，
+// 表单里的 chip 状态与最终写出的声明因此始终一致。
+export int inputModalityMask(const std::vector<std::string>& modalities) {
+    int mask = 0;
+    const auto& known = inputModalities();
+    for (std::size_t i = 0; i < known.size(); ++i) {
+        for (const auto& value : modalities) {
+            if (value == known[i]) {
+                mask |= 1 << static_cast<int>(i);
+                break;
+            }
+        }
+    }
+    if (mask != 0) mask |= 1;  // text = 下标 0
+    return mask;
+}
+
+// 位掩码 → 模态清单（规范顺序）。未置位与未知位都忽略；同上，非空即含 text。
+export std::vector<std::string> inputModalitiesFromMask(int mask) {
+    std::vector<std::string> out;
+    const auto& known = inputModalities();
+    for (std::size_t i = 0; i < known.size(); ++i) {
+        if ((mask & (1 << static_cast<int>(i))) != 0) out.push_back(known[i]);
+    }
+    if (!out.empty() && out.front() != "text") {
+        out.insert(out.begin(), "text");
+    }
+    return out;
+}
+
+// 容量拼写：接受十进制数 + 可选 K/M 后缀（K=1000、M=1e6，大小写不敏感），与
+// dsh 官方设置页的输入框同款（用户可以写 256K 而不必数零）。返回值语义：
+// 0 = 空（不声明）；-1 = 无法解析（非数字、非整数、非正数）；其余 = token 数。
+export std::int64_t parseTokenCount(std::string_view text) {
+    std::string_view s = text;
+    while (!s.empty() && (s.front() == ' ' || s.front() == '\t')) s.remove_prefix(1);
+    while (!s.empty() && (s.back() == ' ' || s.back() == '\t')) s.remove_suffix(1);
+    if (s.empty()) return 0;
+    long double scale = 1.0L;
+    const char suffix = s.back();
+    if (suffix == 'k' || suffix == 'K') {
+        scale = 1000.0L;
+        s.remove_suffix(1);
+    } else if (suffix == 'm' || suffix == 'M') {
+        scale = 1000000.0L;
+        s.remove_suffix(1);
+    }
+    if (s.empty()) return -1;
+    long double value = 0.0L;
+    bool dot = false;
+    long double fraction = 0.1L;
+    for (const char c : s) {
+        if (c == '.') {
+            if (dot) return -1;
+            dot = true;
+            continue;
+        }
+        if (c < '0' || c > '9') return -1;
+        const long double digit = static_cast<long double>(c - '0');
+        if (dot) {
+            value += digit * fraction;
+            fraction /= 10.0L;
+        } else {
+            value = value * 10.0L + digit;
+        }
+    }
+    const long double scaled = value * scale;
+    const long double rounded = std::round(scaled);
+    if (std::fabs(scaled - rounded) > 1e-6L) return -1;  // 非整数的容量非法
+    if (rounded < 1.0L) return -1;                      // 容量必须是正数
+    return static_cast<std::int64_t>(rounded);
+}
+
+// 存回最短的可往返拼写（整千写 K、整百万写 M），与 dsh 官方设置页一致；
+// 不声明（0）写空串。
+export std::string formatTokenCount(std::int64_t value) {
+    if (value <= 0) return {};
+    if (value % 1000000 == 0) return std::format("{}M", value / 1000000);
+    if (value % 1000 == 0) return std::format("{}K", value / 1000);
+    return std::format("{}", value);
+}
+
 // ---- 数据模型 -----------------------------------------------------------------
 
 export struct Provider {
@@ -277,6 +402,13 @@ export struct Provider {
     // 「推理等级」）；空 = 不声明，dsh 把手写模型当成不支持思考。顺序按
     // reasoningLevels() 的规范升序，值即上线拼写（与档位同名）。其他工具不用。
     std::vector<std::string> reasoningEfforts;
+    // dsh 的 llm-pi-ai 手写路由：模型条目的容量与输入模态（官方字段
+    // contextWindow / maxTokens / input，与 dsh 官方设置页编辑的是同一组）。
+    // 0 与空清单 = 不声明，dsh 退回已装 catalog 的值或路由默认；声明 image
+    // 才让手工路由能收图片附件。其他工具不用。
+    std::int64_t contextWindow = 0;
+    std::int64_t maxTokens = 0;
+    std::vector<std::string> inputModalities;  // "text" / "image"
     bool modelSupports1m = false;  // 主模型在 Claude Desktop 菜单中的 1M 能力声明
     // 三档模型映射（仅 hasModelMappings 工具：claude-code / claude，均选填）：
     // * *Model 是发送给上游的实际模型 ID；*DisplayName 是 Claude Desktop
@@ -384,6 +516,15 @@ export nlohmann::json toJson(const Provider& p) {
     if (!p.reasoningEfforts.empty()) {
         j["reasoningEfforts"] = p.reasoningEfforts;  // dsh 手写路由的推理档位
     }
+    if (p.contextWindow > 0) {
+        j["contextWindow"] = p.contextWindow;  // dsh 模型条目的容量声明
+    }
+    if (p.maxTokens > 0) {
+        j["maxTokens"] = p.maxTokens;
+    }
+    if (!p.inputModalities.empty()) {
+        j["inputModalities"] = p.inputModalities;  // dsh 模型条目的输入模态
+    }
     return j;
 }
 
@@ -433,6 +574,15 @@ export Provider providerFromJson(const nlohmann::json& j) {
             if (level.is_string()) levels.push_back(level.get<std::string>());
         }
         p.reasoningEfforts = normalizeReasoningEfforts(levels);
+    }
+    p.contextWindow = j.value("contextWindow", std::int64_t{0});
+    p.maxTokens = j.value("maxTokens", std::int64_t{0});
+    if (j.contains("inputModalities") && j["inputModalities"].is_array()) {
+        std::vector<std::string> modalities;
+        for (const auto& value : j["inputModalities"]) {
+            if (value.is_string()) modalities.push_back(value.get<std::string>());
+        }
+        p.inputModalities = normalizeInputModalities(modalities);
     }
     // 缺少新字段的旧配置保存的是已经可直接访问的 URL，不能按默认
     // 后缀再次拼接，否则会把 /v1 或 /anthropic 复制一遍。

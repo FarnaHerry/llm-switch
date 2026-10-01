@@ -842,7 +842,8 @@ std::string normalizeDshFlowProviders(std::string_view text) {
 std::string rewriteDshSettings(std::string_view text,
                                const std::vector<std::string>& entryLines,
                                std::string_view defaultProvider,
-                               std::string_view defaultModel) {
+                               std::string_view defaultModel,
+                               std::string_view defaultReasoningEffort) {
     // flow 风格的 providers 值先摊平成块风格，后面的行级逻辑才成立。
     const std::string blockText = normalizeDshFlowProviders(text);
     text = blockText;
@@ -946,6 +947,13 @@ std::string rewriteDshSettings(std::string_view text,
         head.push_back("  provider: " + std::string(defaultProvider));
         if (!defaultModel.empty()) {
             head.push_back("  model: " + yamlQuote(defaultModel));
+        }
+        // dsh 的推理等级是模型选择状态的一部分（官方键 reasoningEffort）：
+        // 本应用不建模它，但切换只是换 provider/model，用户选的等级要原样
+        // 带回去，否则每切一次就被清掉。
+        if (!defaultReasoningEffort.empty()) {
+            head.push_back("  reasoningEffort: " +
+                           std::string(defaultReasoningEffort));
         }
         head.emplace_back();
         out.insert(out.begin(), head.begin(), head.end());
@@ -1210,18 +1218,44 @@ nlohmann::json claudeDesktopModelEntry(const std::string& actual,
 
 } // namespace
 
+namespace {
+
+// flow 值的标量清单：序列取各项、映射取各键（同行写法
+// `reasoningEfforts: { off:, low: low }` 的档位就是键）。形状不符时返回空清单。
+std::vector<std::string> flowScalarList(std::string_view value) {
+    std::vector<std::string> out;
+    FlowParser parser(value);
+    auto node = parser.Parse();
+    if (!node.has_value()) return out;
+    for (const auto& [key, item] : node->entries) {
+        const std::string name = yamlScalar(key);
+        if (!name.empty()) out.push_back(name);
+    }
+    for (const auto& item : node->items) {
+        if (item.kind != FlowValue::Kind::Scalar) continue;
+        const std::string scalar = yamlScalar(item.scalar);
+        if (!scalar.empty()) out.push_back(scalar);
+    }
+    return out;
+}
+
+} // namespace
+
 // 行级解析 settings.yaml：顶层 agent-default-model 的 provider/model，以及
 // llm-pi-ai.providers 下每条手写路由的 baseURL / api / apiKeyEnv / 首个
-// models 条目 id 与它声明的推理档位（reasoningEfforts 的键）。best-effort；
-// 结构不符的字段留空。flow 风格的 providers 值先摊平成块风格再解析。
+// models 条目 id 与它声明的官方字段（reasoningEfforts 的键、contextWindow /
+// maxTokens 容量、input 输入模态）。best-effort；结构不符的字段留空。
+// flow 风格的 providers 值先摊平成块风格再解析（所以 flow 里的 `input: [a, b]`
+// 与 `reasoningEfforts: { … }` 到这里已经是块风格；同行 flow 写法也直接认）。
 DshSettingsInfo parseDshSettings(std::string_view text) {
     DshSettingsInfo info;
     const std::string blockText = normalizeDshFlowProviders(text);
     std::istringstream in{blockText};
     bool inAdm = false, inPi = false, inProv = false, inModels = false;
-    bool inEfforts = false;
+    bool inEfforts = false, inInput = false;
     int admIndent = -1, piIndent = -1, provIndent = -1;
     int entryIndent = -1, modelsIndent = -1, effortsIndent = -1;
+    int inputIndent = -1;
     int firstItemIndent = -1;
     bool firstItemSeen = false, secondItemSeen = false;
     DshProviderEntry* cur = nullptr;
@@ -1231,10 +1265,20 @@ DshSettingsInfo parseDshSettings(std::string_view text) {
         if (dl.blank || dl.comment) continue;
         if (inModels && dl.indent <= modelsIndent) inModels = false;
         if (inEfforts && dl.indent <= effortsIndent) inEfforts = false;
+        // input 的块序列项（"input:" 之后的 "- text"）要在模型条目分支之前收，
+        // 否则会被当成一个新的模型条目。
+        if (inInput && dl.indent <= inputIndent) inInput = false;
         if (cur != nullptr && dl.indent <= entryIndent) {
             cur = nullptr;
             inModels = false;
             inEfforts = false;
+            inInput = false;
+        }
+        if (inInput && cur != nullptr && dl.listItem && !secondItemSeen) {
+            const std::string value =
+                yamlScalar(dl.key.empty() ? dl.value : dl.key);
+            if (!value.empty()) cur->inputModalities.push_back(value);
+            continue;
         }
         if (inProv && dl.indent <= provIndent) inProv = false;
         if (inPi && dl.indent <= piIndent) inPi = false;
@@ -1244,6 +1288,8 @@ DshSettingsInfo parseDshSettings(std::string_view text) {
                 info.defaultProvider = yamlScalar(dl.value);
             } else if (dl.key == "model") {
                 info.defaultModel = yamlScalar(dl.value);
+            } else if (dl.key == "reasoningEffort") {
+                info.defaultReasoningEffort = yamlScalar(dl.value);
             }
             continue;
         }
@@ -1254,7 +1300,7 @@ DshSettingsInfo parseDshSettings(std::string_view text) {
                     firstItemSeen = true;
                     firstItemIndent = dl.indent;
                 } else if (dl.indent == firstItemIndent) {
-                    secondItemSeen = true;  // 只认首个模型条目的档位声明
+                    secondItemSeen = true;  // 只认首个模型条目的能力声明
                 }
                 const std::string id =
                     dl.key == "id" || dl.key.empty() ? yamlScalar(dl.value) : "";
@@ -1263,10 +1309,41 @@ DshSettingsInfo parseDshSettings(std::string_view text) {
                 }
                 continue;
             }
-            if (dl.key == "reasoningEfforts" && trimBoth(dl.value).empty()) {
-                inEfforts = !secondItemSeen;
-                effortsIndent = dl.indent;
-                continue;
+            if (!secondItemSeen) {
+                if (dl.key == "contextWindow" || dl.key == "maxTokens") {
+                    const std::int64_t count =
+                        models::parseTokenCount(yamlScalar(dl.value));
+                    if (count > 0) {
+                        if (dl.key == "contextWindow") {
+                            cur->contextWindow = count;
+                        } else {
+                            cur->maxTokens = count;
+                        }
+                    }
+                    continue;
+                }
+                if (dl.key == "input" || dl.key == "reasoningEfforts") {
+                    const std::string inlineValue =
+                        std::string(trimBoth(dl.value));
+                    if (!inlineValue.empty()) {
+                        // 同行 flow 写法（input: [text, image] /
+                        // reasoningEfforts: { off:, low: low }）直接收。
+                        for (auto& value : flowScalarList(inlineValue)) {
+                            if (dl.key == "input") {
+                                cur->inputModalities.push_back(std::move(value));
+                            } else {
+                                cur->reasoningEfforts.push_back(std::move(value));
+                            }
+                        }
+                    } else if (dl.key == "input") {
+                        inInput = true;
+                        inputIndent = dl.indent;
+                    } else {
+                        inEfforts = true;
+                        effortsIndent = dl.indent;
+                    }
+                    continue;
+                }
             }
             if (inEfforts && !secondItemSeen && dl.indent > effortsIndent &&
                 !dl.key.empty()) {
@@ -1284,12 +1361,14 @@ DshSettingsInfo parseDshSettings(std::string_view text) {
             } else if (dl.key == "models" && trimBoth(dl.value).empty()) {
                 inModels = true;
                 modelsIndent = dl.indent;
-                // 只认每条路由首个模型条目的档位声明，所以进入新的 models 块
+                // 只认每条路由首个模型条目的能力声明，所以进入新的 models 块
                 // 必须重置「第几个模型条目」的计数——否则第二条及以后的
-                // llmswitch-* 路由会被上一条的计数影响，档位被静默丢掉。
+                // llmswitch-* 路由会被上一条的计数影响，字段被静默丢掉。
                 firstItemSeen = false;
                 secondItemSeen = false;
                 firstItemIndent = -1;
+                inEfforts = false;
+                inInput = false;
             }
             continue;
         }
@@ -1322,6 +1401,8 @@ DshSettingsInfo parseDshSettings(std::string_view text) {
     for (auto& entry : info.providers) {
         entry.reasoningEfforts =
             models::normalizeReasoningEfforts(entry.reasoningEfforts);
+        entry.inputModalities =
+            models::normalizeInputModalities(entry.inputModalities);
     }
     return info;
 }
@@ -1568,10 +1649,11 @@ void ProviderStore::switchTo(std::string_view tool, const std::string& id) {
             }
         }
         const std::string envName = dshApiKeyEnv(target->id);
-        // 推理档位（reasoningEfforts）：手工声明的路由不声明它，dsh 会把模型
-        // 当成不支持思考、模型菜单里不出现「推理等级」。档位键固定加引号
-        // （off/low 等在部分解析器里会被当成布尔字面量），"off" 留空 =
-        // 「不发思考参数」，与 dsh 官方文档示例一致。
+        // 模型条目写官方字段（与 dsh 官方设置页编辑的是同一组）：id 之下的
+        // contextWindow / maxTokens（容量声明，0 = 不声明）、input（请求模态，
+        // 声明 image 才让手工路由能收图片附件）、reasoningEfforts（推理档位）。
+        // 档位键固定加引号（off/low 等在部分解析器里会被当成布尔字面量），
+        // "off" 留空 = 「不发思考参数」，与 dsh 官方文档示例一致。
         std::vector<std::string> entry;
         entry.push_back("    llmswitch-" + target->id + ":");
         entry.push_back("      displayName: " + yamlQuote(target->name));
@@ -1581,6 +1663,24 @@ void ProviderStore::switchTo(std::string_view tool, const std::string& id) {
         if (!target->model.empty()) {
             entry.push_back("      models:");
             entry.push_back("        - id: " + yamlQuote(target->model));
+            if (target->contextWindow > 0) {
+                entry.push_back("          contextWindow: " +
+                                std::to_string(target->contextWindow));
+            }
+            if (target->maxTokens > 0) {
+                entry.push_back("          maxTokens: " +
+                                std::to_string(target->maxTokens));
+            }
+            if (const auto modalities = models::normalizeInputModalities(
+                    target->inputModalities);
+                !modalities.empty()) {
+                std::string list;
+                for (const auto& modality : modalities) {
+                    if (!list.empty()) list += ", ";
+                    list += modality;
+                }
+                entry.push_back("          input: [" + list + "]");
+            }
             if (const auto efforts =
                     models::normalizeReasoningEfforts(target->reasoningEfforts);
                 !efforts.empty()) {
@@ -1592,8 +1692,9 @@ void ProviderStore::switchTo(std::string_view tool, const std::string& id) {
             }
         }
         atomicWrite(settingsFile,
-                    rewriteDshSettings(text, entry, "llmswitch-" + target->id,
-                                       target->model));
+                    rewriteDshSettings(
+                        text, entry, "llmswitch-" + target->id, target->model,
+                        parseDshSettings(text).defaultReasoningEffort));
         if (!target->apiKey.empty()) {
             const auto credFile = cfg::dshCredentialsFile();
             backupLiveFile(tool, credFile);
@@ -1894,7 +1995,7 @@ void ProviderStore::restoreOfficial(std::string_view tool) {
             backupLiveFile(tool, settingsFile);
             atomicWrite(settingsFile,
                         rewriteDshSettings(readTextFile(settingsFile), {}, "",
-                                           ""));
+                                           "", ""));
         }
     } else if (tool == "claude") {
         // 撤掉 3p 直连：两份 claude_desktop_config.json 删 deploymentMode 键；

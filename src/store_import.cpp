@@ -405,6 +405,11 @@ models::Provider ProviderStore::importLive(std::string_view tool) {
         p.model = !info.defaultModel.empty() ? info.defaultModel
                                              : entry->firstModel;
         p.reasoningEfforts = entry->reasoningEfforts;
+        // 模型条目的官方能力声明（容量 + 输入模态）一并收编：它们决定 dsh 的
+        // 模型菜单与图片附件能否走这条路由，漏收会在下次切换时把声明写丢。
+        p.contextWindow = entry->contextWindow;
+        p.maxTokens = entry->maxTokens;
+        p.inputModalities = entry->inputModalities;
         if (!entry->apiKeyEnv.empty()) {
             p.apiKey =
                 readDshCredential(cfg::dshCredentialsFile(), entry->apiKeyEnv);
