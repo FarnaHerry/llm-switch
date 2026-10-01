@@ -23,6 +23,71 @@ std::string RestartHintSuffix(const std::string& tool) {
     return std::format("，重启 {} 客户端后生效", spec->displayName);
 }
 
+namespace {
+
+// 卡片中间状态行是三段式里的一段固定尺寸内容：Row 的非 Grow 子项按 intrinsic
+// 宽度参与布局，Grow 的信息列只能吃剩下的宽度。所以状态文本必须自带上限——
+// 用量失败文本带 URL 与响应体摘要，一条就能宽到 1000+pt，把信息列挤到 0 宽、
+// 把右侧操作组整个顶出卡片（切换/编辑/删除全部点不到）。显示层统一「取首行 +
+// 预览长度上限」，再叠 Frame.max_width 兜底：无论缓存里的状态文本多长，中间
+// 这段的宽度都有硬上限，卡片布局不再受影响。被截掉的内容仍可看：悬停出 Tooltip。
+constexpr std::size_t kStatusPreviewColumns = 26;
+constexpr float kStatusTextMaxWidth = 150.0F;
+
+// 状态文本的显示形态：preview 是首行截断后的预览，truncated = 预览丢了内容
+// （多行或超长）。完整文本由调用方按引用传入——它就是缓存里的那条原文，
+// 不必在这里再存一份。
+struct StatusPreview {
+    std::string preview;
+    bool truncated = false;
+};
+
+// 预览预算按「显示列」计，不按字节也不按字符：按字节算中文只剩三分之一预算，
+// 按字符算中文又能占到两倍宽度。26 列 ≈ 13 个汉字 ≈ 143pt（kCaption 11pt），
+// 于是不论中英混排，预览恒为单行且不超 kStatusTextMaxWidth。
+std::size_t PreviewCut(const std::string& line) {
+    std::size_t columns = 0;
+    for (std::size_t i = 0; i < line.size(); ++i) {
+        const auto lead = static_cast<unsigned char>(line[i]);
+        // 续字节：列数已在多字节序列的首字节计入，跳过。
+        if ((lead & 0xC0U) == 0x80U) continue;
+        const std::size_t width = lead >= 0xE0U ? 2U : 1U;  // 3/4 字节 = 全角
+        if (columns + width > kStatusPreviewColumns) return i;
+        columns += width;
+    }
+    return line.size();
+}
+
+// 取首行 + 按 UTF-8 字符边界截断；截断后追加省略号。
+StatusPreview PreviewStatus(const std::string& text) {
+    std::string line = text.substr(0, text.find('\n'));
+    const std::size_t cut = PreviewCut(line);
+    if (cut == line.size()) {
+        return {std::move(line), line.size() != text.size()};
+    }
+    line.resize(cut);
+    return {line + "…", true};
+}
+
+// 中间状态行的一条状态文本（延迟 / 用量）：宽度上限 + 被截断时的完整文本
+// Tooltip。预览与完整文本等价的（普通延迟、正常用量值）不挂 Tooltip——那只会
+// 多一个不提供新信息的浮层；用量失败文本是两行，完整原因（URL 与响应体摘要）
+// 只在 Tooltip 里出现。
+huxerui::View StatusText(const StatusPreview& preview, const std::string& full,
+                         huxerui::Color color) {
+    huxerui::View view =
+        huxerui::Text(preview.preview)
+            .Style(huxerui::TextStyle{huxerui::Font::System(font_size::kCaption),
+                                      color})
+            .With(huxerui::Frame{.max_width = kStatusTextMaxWidth});
+    if (preview.truncated && !full.empty()) {
+        view = std::move(view).With(huxerui::Tooltip(full));
+    }
+    return view;
+}
+
+} // namespace
+
 // 官方常驻卡：有官方厂商的工具（models::officialVendorName 非空）固定在// 供应商列表第一位；切换 = store.restoreOfficial 还原厂商原生状态（与
 // 普通卡同样的切换语义，无确认框）。active = 组 current 与 detectCurrent
 // 均为空（即当前生效的就是厂商原生状态）。
@@ -115,6 +180,10 @@ std::string RestartHintSuffix(const std::string& tool) {
             usageText = "用量待查询";
         }
     }
+    const StatusPreview usagePreview = PreviewStatus(usageText);
+    const std::string latencyText =
+        checking.Get() ? "连通检测中…" : latency.Get();
+    const StatusPreview latencyPreview = PreviewStatus(latencyText);
 
     auto bump = [revision] { revision = revision.Get() + 1; };
 
@@ -198,25 +267,21 @@ std::string RestartHintSuffix(const std::string& tool) {
         // 中间状态行：延迟与用量横向排列（延迟在前、用量在后，后续新增的
         // 状态项也在此行追加）。延迟：连通检测结果（未检测不显示；失败
         // error 色）；用量：启用开关打开且 usageUrl 非空才显示，带手动刷新
-        // 图标。两者皆无时整行塌缩为零宽。
+        // 图标。两者皆无时整行塌缩为零宽。文本一律经 StatusText 限宽（首行 +
+        // 预览上限 + Frame.max_width），这条固定段因此永远吃不下信息列与
+        // 右侧操作组；被截掉的完整文本进 Tooltip。
         huxerui::Row {
             (!checking.Get() && latency.Get().empty())
                 ? huxerui::View{huxerui::Row{}}
-                : huxerui::View{huxerui::Text(
-                      checking.Get() ? "连通检测中…" : latency.Get())
-                      .Style(huxerui::TextStyle{
-                          huxerui::Font::System(font_size::kCaption),
-                          latency.Get().starts_with("不可达")
-                              ? theme.colors.error
-                              : theme.colors.on_surface_variant})},
+                : StatusText(latencyPreview, latencyText,
+                             latency.Get().starts_with("不可达")
+                                 ? theme.colors.error
+                                 : theme.colors.on_surface_variant),
             !usageConfigured
                 ? huxerui::View{huxerui::Row{}}
-                : huxerui::View{huxerui::Text(usageText)
-                                    .Style(huxerui::TextStyle{
-                                        huxerui::Font::System(font_size::kCaption),
-                                        usageError
-                                            ? theme.colors.error
-                                            : theme.colors.on_surface_variant})},
+                : StatusText(usagePreview, usageText,
+                             usageError ? theme.colors.error
+                                        : theme.colors.on_surface_variant),
             !usageConfigured
                 ? huxerui::View{huxerui::Row{}}
                 : huxerui::View{

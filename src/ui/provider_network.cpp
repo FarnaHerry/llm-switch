@@ -18,6 +18,24 @@ import llmswitch.net;
 import llmswitch.store;
 
 namespace llmswitch::ui::provider_detail {
+namespace {
+
+// HTTP 失败：what() 是完整上下文（含 URL 与响应体摘要，进 toast / Tooltip），
+// summary 是一行短原因——卡片状态行只显示这一行，所以它必须是「看得懂的那半句」
+// 而不是把上下文再抄一遍。
+class HttpFailure final : public std::runtime_error {
+public:
+    HttpFailure(std::string summary, std::string detail)
+        : std::runtime_error(std::move(detail)), summary_(std::move(summary)) {}
+
+    [[nodiscard]] const std::string& Summary() const noexcept { return summary_; }
+
+private:
+    std::string summary_;
+};
+
+} // namespace
+
 std::string HttpBodyText(const huxerui::Bytes& body) {
     if (body.empty()) return {};
     return std::string(reinterpret_cast<const char*>(body.data()), body.size());
@@ -43,7 +61,8 @@ huxerui::Task<std::string> FetchHttpText(
     std::shared_ptr<huxerui::HttpClient> http, std::string url,
     std::vector<huxerui::HttpHeader> headers, std::string_view context) {
     if (!http) {
-        throw std::runtime_error(std::format("{}失败：HTTP 服务不可用", context));
+        throw HttpFailure("HTTP 服务不可用",
+                          std::format("{}失败：HTTP 服务不可用", context));
     }
     const std::string requestUrl = url;
     auto result = co_await http->SendAsync(
@@ -51,16 +70,18 @@ huxerui::Task<std::string> FetchHttpText(
                              .headers = std::move(headers),
                              .timeout = std::chrono::seconds{10}});
     if (!result.Succeeded()) {
-        throw std::runtime_error(std::format(
-            "{}失败：{}", context, result.Error().message));
+        const std::string message = result.Error().message;
+        throw HttpFailure(message, std::format("{}失败：{}", context, message));
     }
     auto response = std::move(result).Value();
     if (response.status_code < 200 || response.status_code >= 300) {
         const std::string body = HttpBodyText(response.body);
-        throw std::runtime_error(std::format(
-            "{}失败：HTTP {}（{}）—— {}", context, response.status_code,
-            response.url.empty() ? requestUrl : response.url,
-            body.substr(0, 200)));
+        throw HttpFailure(
+            std::format("HTTP {}", response.status_code),
+            std::format("{}失败：HTTP {}（{}）—— {}", context,
+                        response.status_code,
+                        response.url.empty() ? requestUrl : response.url,
+                        body.substr(0, 200)));
     }
     co_return HttpBodyText(response.body);
 }
@@ -98,7 +119,9 @@ huxerui::Task<std::vector<std::string>> FetchModelIdsWithFallback(
         std::format("{}；已尝试多个模型列表端点", lastError));
 }
 
-// 拉单个供应商的用量并格式化成展示文本；本函数不写 State。
+// 拉单个供应商的用量并格式化成展示文本；本函数不写 State。失败文本是两行：
+// 首行短原因（卡片状态行只显示首行，所以必须是「HTTP 404」这类一眼可读的原因），
+// 次行完整原因——含 URL 与响应体摘要，悬停 Tooltip 里展开。
 huxerui::Task<std::string> FetchUsageText(
     std::shared_ptr<huxerui::HttpClient> http, models::Provider p) {
     try {
@@ -107,6 +130,8 @@ huxerui::Task<std::string> FetchUsageText(
         const std::string value = net::extractByPath(body, p.usagePath);
         co_return p.usageLabel.empty() ? value
                                        : std::format("{} {}", value, p.usageLabel);
+    } catch (const HttpFailure& e) {
+        co_return std::format("查询失败：{}\n{}", e.Summary(), e.what());
     } catch (const std::exception& e) {
         co_return std::format("查询失败：{}", e.what());
     }

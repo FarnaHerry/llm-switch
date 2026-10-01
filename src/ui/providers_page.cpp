@@ -12,7 +12,11 @@
 // Grow 吃满剩余宽度）｜ 中间状态列（连通检测延迟 + 用量文本/刷新图标，
 // 垂直居中落在内容与操作组之间，两者皆无时塌缩为零宽）｜ 右侧操作图标组
 // （切换 swap / 联通检测 activity / 编辑 edit / 用量查询配置 gauge /
-// 复制 copy / 删除 trash，自绘 SVG + Tooltip，删除走内置确认框）。联通检测经
+// 复制 copy / 删除 trash，自绘 SVG + Tooltip，删除走内置确认框）。中间列是
+// 固定尺寸段，所以状态文本在 provider_card 里统一限宽（首行 + 预览上限 +
+// Frame.max_width）：用量失败文本带 URL 与响应体摘要，任其按 intrinsic 宽度
+// 参与布局会挤垮信息列并把操作组顶出卡片；被截掉的完整文本进 Tooltip。
+// 联通检测经
 // HuxerUI HttpClient（平台原生异步 HTTP），连通后卡片显示
 // 「延迟 N ms」，失败显示「不可达：…」（error 色）。有官方厂商的工具
 // （claude-code / claude / codex，models::officialVendorName）列表第一位固定
