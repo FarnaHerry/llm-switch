@@ -152,6 +152,9 @@ hover 时在屏幕中央展开径向导航盘，全部 8 个顶级页面图标�
   providers upsert（api 字段三档映射 anthropic→anthropic-messages /
   openai-responses→openai-responses / 其余→openai-completions）+
   settings.json 深合并 defaultProvider/defaultModel（目录 0700、文件 0600）；
+  条目里已有的**其它模型清单原样保留**（本应用只声明主模型，清单裁成一条会
+  让 pi 的模型菜单静默少几条），主模型缺失时按原元素形状补一条——裸标量与
+  `{"id": ...}` 对象两种形状都认（`modelEntryId`/`modelListContains`）；
   dsh = `~/.dsh/settings.yaml` 行级改写：llm-pi-ai.providers 下 upsert
   `llmswitch-<id>` 手写路由条目（api 字段复用 pi 三档映射）+ 文件头
   agent-default-model 指向，密钥只写 `~/.dsh/.credentials.yaml`（顶层
@@ -214,7 +217,14 @@ hover 时在屏幕中央展开径向导航盘，全部 8 个顶级页面图标�
   `importLive`——把当前生效配置收编成名为「当前配置」的 provider 并设为
   current（已有匹配项则复用不重复建）。
 - **detectCurrent**：读 live 文件与组内 provider 匹配（claude 按
-  baseUrl+apiKey，codex 按 apiKey），只读不改配置。
+  baseUrl+apiKey，codex 按 apiKey，opencode 按顶层 model 前缀，dsh/hermes
+  按默认路由键），只读不改配置。pi 特殊：先看 settings.json 的
+  defaultProvider 是否就是组内 id；是别家的键（用户手写路由）时**只按那一条
+  条目**的 baseUrl+apiKey 匹配，不遍历 models.json 的其它条目——本应用切换
+  只 upsert、从不删旧条目，历史条目会一直留在文件里，扫全部会把「pi 实际用着
+  别的路由」误判成某个历史供应商正在生效；只有 defaultProvider 为空或悬空
+  （指向不存在的条目）才退回遍历全部条目。pi 的探测走 readJsonPassive（解析
+  失败按无内容，不挪文件），与「只读」契约一致。
 - **restoreOfficial**：恢复厂商原生状态（UI 入口 = 供应商列表首位的
   「官方」常驻卡，claude-code / claude / codex / zcode / dsh 等
   officialVendorName 非空的工具；opencode / pi / hermes 无官方
@@ -745,5 +755,18 @@ I/O、解析和 JSON 函数默认保留在 `.cpp` 中。
   文档一份计数，第二条及以后的路由档位会被静默丢掉）。test_store 覆盖：
   档位全集/归一/位掩码往返、写入拼写与顺序、flow 摊平后键值保留且字节稳定、
   多条路由各自读回、`providers: {…}` 同行写法。
+- ✅ pi 支持精确化（2026-09-29）：三处对 pi（`~/.pi/agent/models.json` +
+  settings.json）的精确性修复。①`detectCurrent("pi")` 原先在
+  defaultProvider 不是组内 id 时**遍历 models.json 全部条目**找凭据命中——
+  而本应用切换只 upsert、从不删旧条目，历史条目会一直躺在文件里，于是「pi
+  实际用着用户手写的别的路由」被误判成某个历史供应商正在生效；现在改为只按
+  defaultProvider 指向的那一条条目匹配，仅当该键为空或悬空（配置已不自洽）
+  才退回遍历全部条目（保留原行为与既有测试）。探测同时改用 readJsonPassive，
+  坏文件不再被 detect 挪走。②切换原先把 providers[id].models 覆盖成
+  `[主模型]`，用户在该 provider 下配的其它模型被静默删掉；现在保留既有清单，
+  只在缺少主模型时补一条，且**按原元素形状**补（裸标量或 `{"id": ...}` 对象
+  都认，新增 `modelEntryId`/`modelListContains` 共享助手）。③收编时
+  defaultModel 缺失则回退到条目第一个模型（与 dsh 一致），否则收编出来的
+  供应商没有模型、再切换就把清单写丢。
 - ⬜ 待做：订阅站端点可能随各家调整，升级版本时需复核；无 CLI 分流、
   无单实例/开机自启；`usage.db` 的 WAL 一致性备份（当前不在 `backups/` 覆盖内）。

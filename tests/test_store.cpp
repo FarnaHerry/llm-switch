@@ -826,6 +826,87 @@ int main() {
 )json");
         CHECK(s.detectCurrent("pi") == idP2);
     }
+    // 8c. pi：detectCurrent 优先按 defaultProvider 指向的那条条目精确匹配（历史
+    // 条目排在前面也不能顶替）；切换保留条目里已有的其它模型（不裁成一条）；
+    // 收编时 defaultModel 缺失则回退到条目首个模型；detect 是只读探测。
+    {
+        models::Provider pStale{.name = "Pi 历史",
+                                .baseUrl = "https://pi-stale.example.com",
+                                .apiKey = "sk-pi-stale",
+                                .model = "stale-model"};
+        models::Provider pActive{.name = "Pi 手写默认",
+                                 .baseUrl = "https://pi-active.example.com",
+                                 .apiKey = "sk-pi-active",
+                                 .model = "active-model"};
+        const std::string idStale = s.addProvider("pi", pStale);
+        const std::string idActive = s.addProvider("pi", pActive);
+        // models.json：本应用的历史条目排在前（切换只 upsert、从不删旧条目），
+        // 实际生效的是用户手写的 "hand" 条目，凭据属于 pActive。
+        writeFile(piModels,
+                  "{\"providers\": {\"" + idStale +
+                      "\": {\"baseUrl\": \"https://pi-stale.example.com\", "
+                      "\"apiKey\": \"sk-pi-stale\", \"api\": "
+                      "\"openai-completions\", \"models\": [\"stale-model\"]}, "
+                      "\"hand\": {\"baseUrl\": \"https://pi-active.example.com\", "
+                      "\"apiKey\": \"sk-pi-active\", \"api\": "
+                      "\"openai-completions\", "
+                      "\"models\": [\"m-a\", \"m-b\"]}}}\n");
+        writeFile(piSettings, R"json({"defaultProvider": "hand"}
+)json");
+        CHECK(s.detectCurrent("pi") == idActive);  // 不能报到排在前面的历史条目
+
+        // 收编：defaultModel 缺失 → 回退到条目第一个模型（与 dsh 一致）；
+        // 凭据不与组内任何供应商重合，走「新建」而不是复用已有匹配项。
+        writeFile(piModels,
+                  R"json({"providers": {"ext-pi": {"baseUrl": "https://pi-import.example.com", "apiKey": "sk-pi-import", "api": "anthropic-messages", "models": ["m-a", "m-b"]}}}
+)json");
+        writeFile(piSettings, R"json({"defaultProvider": "ext-pi"}
+)json");
+        s.importLive("pi");
+        models::Provider hand;
+        for (const auto& p : s.group("pi").providers) {
+            if (p.id == "ext-pi") hand = p;
+        }
+        CHECK(hand.id == "ext-pi");  // 复用 models.json 的条目键作为收编 id
+        CHECK(hand.baseUrl == "https://pi-import.example.com");
+        CHECK(hand.apiKey == "sk-pi-import");
+        CHECK(hand.apiFormat == "anthropic");
+        CHECK(hand.model == "m-a");
+
+        // 切换：主模型不在清单里 → 追加，条目里已有的 m-a / m-b 必须保留
+        hand.model = "m-c";
+        s.updateProvider("pi", hand);
+        s.switchTo("pi", "ext-pi");
+        auto handModels = readJson(piModels)["providers"]["ext-pi"]["models"];
+        CHECK(handModels.size() == 3);
+        CHECK(handModels[0] == "m-a");
+        CHECK(handModels[1] == "m-b");
+        CHECK(handModels[2] == "m-c");
+        // 再切一次（主模型已在清单里）→ 不重复追加，输出稳定
+        s.switchTo("pi", "ext-pi");
+        CHECK(readJson(piModels)["providers"]["ext-pi"]["models"].size() == 3);
+
+        // 元素是 {"id": ...} 对象时按同一形状补条目
+        writeFile(piModels,
+                  R"json({"providers": {"ext-pi": {"baseUrl": "https://pi-import.example.com", "apiKey": "sk-pi-import", "api": "anthropic-messages", "models": [{"id": "m-a"}]}}}
+)json");
+        writeFile(piSettings, R"json({"defaultProvider": "ext-pi"}
+)json");
+        s.switchTo("pi", "ext-pi");
+        const auto objModels = readJson(piModels)["providers"]["ext-pi"]["models"];
+        CHECK(objModels.size() == 2);
+        CHECK(objModels[0]["id"] == "m-a");
+        CHECK(objModels[1]["id"] == "m-c");
+
+        // detect 是只读探测：defaultProvider 不是组内 id 时会去读 models.json，
+        // 坏文件按无内容处理，且不能被挪走（readJsonOrNull 会挪成
+        // <file>.corrupt-<毫秒>）。
+        writeFile(piSettings, R"json({"defaultProvider": "ghost"}
+)json");
+        writeFile(piModels, "{ not json\n");
+        CHECK(s.detectCurrent("pi").empty());
+        CHECK(fs::exists(piModels));
+    }
 
     // 8d. dsh：settings.yaml 行级 upsert（删旧 llmswitch-* 条目 +
     // agent-default-model 指向，无关键/注释/内置路由保留）+ 密钥只进

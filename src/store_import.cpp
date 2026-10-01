@@ -133,26 +133,48 @@ std::string ProviderStore::detectCurrent(std::string_view tool) const {
         return "";
     }
     if (tool == "pi") {
-        // 先按 settings.json 的 defaultProvider 命中组内 id。
-        const auto settings = readJsonOrNull(cfg::piSettingsFile());
+        // pi 当前生效的路由 = settings.json 的 defaultProvider 指向的条目，
+        // 判「使用中」按三步走，从精确到兼容：
+        //   1) defaultProvider 就是组内 id（本应用写入的条目）→ 直接命中；
+        //   2) 该键在 models.json 里存在（用户手写路由、或条目键被改名）→
+        //      只按这一条条目的 baseUrl+apiKey 匹配组内供应商，**不扫其它
+        //      条目**：本应用切换只 upsert、从不删旧条目，历史条目会一直留在
+        //      文件里，扫全部会把「pi 实际用着别的路由」误判成某个历史供应商
+        //      正在生效；
+        //   3) defaultProvider 为空或悬空（指向不存在的条目）→ 退回遍历全部
+        //      条目的老回退：配置已经不自洽，此时「有一条凭据与组内某供应商
+        //      一致」是唯一可用的线索。
+        // 两个文件都走 readJsonPassive：detect 是只读探测，解析失败按无内容
+        // 处理，绝不在探测里挪走用户的文件（readJsonOrNull 会挪）。
+        const auto settings = readJsonPassive(cfg::piSettingsFile());
         const std::string def = jsonStr(settings, "defaultProvider");
         if (!def.empty()) {
             for (const auto& p : g.providers) {
                 if (p.id == def) return p.id;
             }
         }
-        // 再按 models.json 条目的 apiKey+baseUrl 匹配。
-        const auto models = readJsonOrNull(cfg::piModelsFile());
-        if (models.is_object() && models.contains("providers") &&
-            models["providers"].is_object()) {
-            for (auto it = models["providers"].begin();
-                 it != models["providers"].end(); ++it) {
-                const std::string baseUrl = jsonStr(it.value(), "baseUrl");
-                const std::string apiKey = jsonStr(it.value(), "apiKey");
-                if (baseUrl.empty() && apiKey.empty()) continue;
-                const auto* p = matchByUrlKey(g, baseUrl, apiKey);
-                if (p != nullptr) return p->id;
-            }
+        const auto models = readJsonPassive(cfg::piModelsFile());
+        const bool haveProviders =
+            models.is_object() && models.contains("providers") &&
+            models["providers"].is_object();
+        if (!haveProviders) return "";
+        const auto named = def.empty() ? models["providers"].end()
+                                       : models["providers"].find(def);
+        if (!def.empty() && named != models["providers"].end() &&
+            named->is_object()) {
+            const std::string baseUrl = jsonStr(*named, "baseUrl");
+            const std::string apiKey = jsonStr(*named, "apiKey");
+            if (baseUrl.empty() && apiKey.empty()) return "";
+            const auto* p = matchByUrlKey(g, baseUrl, apiKey);
+            return p != nullptr ? p->id : "";
+        }
+        for (auto it = models["providers"].begin();
+             it != models["providers"].end(); ++it) {
+            const std::string baseUrl = jsonStr(it.value(), "baseUrl");
+            const std::string apiKey = jsonStr(it.value(), "apiKey");
+            if (baseUrl.empty() && apiKey.empty()) continue;
+            const auto* p = matchByUrlKey(g, baseUrl, apiKey);
+            if (p != nullptr) return p->id;
         }
         return "";
     }
@@ -329,7 +351,10 @@ models::Provider ProviderStore::importLive(std::string_view tool) {
         return adopt(std::move(p));
     }
     if (tool == "pi") {
-        // 经 settings.json 的 defaultProvider 找 models.json 里的条目。
+        // 经 settings.json 的 defaultProvider 找 models.json 里的条目；
+        // 主模型取 defaultModel，缺失时回退到条目 models 清单里的第一个
+        // （与 dsh 的收编一致），否则收编出来的供应商没有模型，再切换会把
+        // 条目里的清单写丢。清单元素裸标量与 {"id": ...} 对象两种形状都认。
         const auto settingsFile = cfg::piSettingsFile();
         const auto modelsFile = cfg::piModelsFile();
         if (!std::filesystem::exists(modelsFile, ec)) return {};
@@ -350,6 +375,12 @@ models::Provider ProviderStore::importLive(std::string_view tool) {
         p.apiKey = jsonStr(entry, "apiKey");
         p.apiFormat = piApiFormatValue(jsonStr(entry, "api"));
         p.model = jsonStr(readJsonOrNull(settingsFile), "defaultModel");
+        if (p.model.empty()) {
+            const auto list = entry.find("models");
+            if (list != entry.end() && list->is_array() && !list->empty()) {
+                p.model = modelEntryId((*list)[0]);
+            }
+        }
         return adopt(std::move(p));
     }
     if (tool == "dsh") {

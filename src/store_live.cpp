@@ -124,6 +124,23 @@ std::string jsonStr(const nlohmann::json& j, std::string_view key) {
     return it->get<std::string>();
 }
 
+// pi 的 models.json 模型清单条目取 id：裸标量（"m1"）与对象（{"id": "m1"} /
+// {"name": "m1"}）两种形状都认。写侧要按原形状补条目，读侧只要 id。
+std::string modelEntryId(const nlohmann::json& element) {
+    if (element.is_string()) return element.get<std::string>();
+    if (!element.is_object()) return "";
+    const std::string id = jsonStr(element, "id");
+    return id.empty() ? jsonStr(element, "name") : id;
+}
+
+bool modelListContains(const nlohmann::json& list, std::string_view id) {
+    if (!list.is_array()) return false;
+    for (const auto& item : list) {
+        if (modelEntryId(item) == id) return true;
+    }
+    return false;
+}
+
 // 去掉前导空白。
 std::string_view trimLeft(std::string_view s) {
     const auto it = std::ranges::find_if(
@@ -1480,17 +1497,48 @@ void ProviderStore::switchTo(std::string_view tool, const std::string& id) {
         nlohmann::json models = readJsonOrNull(modelsFile);
         if (!models.is_object()) models = nlohmann::json::object();
         backupLiveFile(tool, modelsFile);
+        if (!models.contains("providers") || !models["providers"].is_object()) {
+            models["providers"] = nlohmann::json::object();
+        }
+        const auto previous = models["providers"].find(target->id);
+        const bool hadEntry = previous != models["providers"].end() &&
+                              previous->is_object();
         nlohmann::json entry;
         entry["baseUrl"] = baseUrl;
         entry["apiKey"] = target->apiKey;
         entry["api"] = piApiValue(target->apiFormat);
-        if (!target->model.empty()) {
+        // 模型清单：该条目里已有的其它模型必须保留——本应用只声明主模型，
+        // 把清单裁成一条会让 pi 的模型菜单静默少掉几条（用户在该 provider 下
+        // 配的其它模型是 pi 自己的数据）。元素形状原样沿用：裸标量或
+        // {"id": ...} 对象都可能，主模型缺失时按同一形状补一条。
+        if (hadEntry) {
+            const auto old = previous->find("models");
+            if (old != previous->end() && old->is_array()) {
+                if (target->model.empty()) {
+                    entry["models"] = *old;  // 没有主模型：清单原样保留
+                } else if (!modelListContains(*old, target->model)) {
+                    bool objectShape = false;
+                    for (const auto& item : *old) {
+                        if (item.is_object()) {
+                            objectShape = true;
+                            break;
+                        }
+                    }
+                    nlohmann::json list = *old;
+                    list.push_back(objectShape
+                                       ? nlohmann::json{{"id", target->model}}
+                                       : nlohmann::json(target->model));
+                    entry["models"] = std::move(list);
+                } else {
+                    entry["models"] = *old;  // 主模型已在清单里
+                }
+            } else if (!target->model.empty()) {
+                entry["models"] = nlohmann::json::array({target->model});
+            }
+        } else if (!target->model.empty()) {
             entry["models"] = nlohmann::json::array({target->model});
         }
-        if (!models.contains("providers") || !models["providers"].is_object()) {
-            models["providers"] = nlohmann::json::object();
-        }
-        models["providers"][target->id] = entry;
+        models["providers"][target->id] = std::move(entry);
         atomicWrite(modelsFile, models.dump(2) + "\n");
         restrictPiFile(modelsFile);
 

@@ -163,6 +163,10 @@ void pruneBackups(const std::filesystem::path& dir, const std::string& prefix);
 
 std::string jsonStr(const nlohmann::json& j, std::string_view key);
 nlohmann::json readJsonStrict(const std::filesystem::path& file);
+// pi 的 models.json 模型清单助手（定义在 store_live.cpp）：元素既可能是裸标量
+// （"m1"）也可能是对象（{"id": "m1"} / {"name": "m1"}），两种形状都认。
+std::string modelEntryId(const nlohmann::json& element);
+bool modelListContains(const nlohmann::json& list, std::string_view id);
 std::string envLineKey(std::string_view line);
 std::string trimEnvValue(std::string_view value);
 std::string readEnvValue(const std::filesystem::path& file,
