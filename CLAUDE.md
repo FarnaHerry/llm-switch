@@ -177,7 +177,11 @@ hover 时在屏幕中央展开径向导航盘，全部 8 个顶级页面图标�
   deepseek-official / 无关键 / 注释一律不动；`agent-default-model` 只在需要
   时改（显式切换或清除、裸键接管改名后重指向、原默认指向已删供应商时清回
   内置官方路由）。密钥只写
-  `~/.dsh/.credentials.yaml`（顶层 env 名→密钥 map，apiKeyEnv 引用，只增改、
+  `~/.dsh/.credentials.yaml`（**version 1 布局：顶层只允许 version / refs /
+  records，引用名写进 `refs:` 块内**（缩进 2）；写进顶层会被 dsh 判
+  `unknown top-level key` 而拒绝整份文档、所有密钥一起失效——旧版本写到顶层的
+  `LLMSWITCH_*` 残留会在下一次写入时迁回 refs 块；没有 version 的预发布 flat
+  布局仍写顶层，空文件直接建 version 1 骨架。apiKeyEnv 引用，只增改、
   不代清无引用的旧键，目录 0700、文件 0600）；条目首个模型
   条目按 Provider 的官方能力字段写：`contextWindow` / `maxTokens`（容量，
   0 = 不声明）、`input: [text, image]`（请求模态，声明 image 才让手工路由

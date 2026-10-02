@@ -961,7 +961,8 @@ int main() {
                   "    llmswitch-stale:\n"
                   "      api: openai-completions\n"
                   "      baseURL: https://stale.example.com\n");
-        writeFile(dshCredentials, "version: 1\nOTHER_KEY: \"keep-me\"\n");
+        writeFile(dshCredentials,
+                  "version: 1\nrefs:\n  OTHER_KEY: \"keep-me\"\n");
         models::Provider pd2{.name = "DeepSeek 中转",
                              .baseUrl = "https://relay.example.com/anthropic",
                              .apiKey = "sk-dsh",
@@ -1123,7 +1124,7 @@ int main() {
                       "agent-presets:\n"
                       "  default: cordis\n");
             writeFile(dshCredentials,
-                      "version: 1\nC_API_KEY: \"sk-flow-key\"\n");
+                      "version: 1\nrefs:\n  C_API_KEY: \"sk-flow-key\"\n");
             s.importLive("dsh");
             models::Provider imported;
             for (const auto& p : s.group("dsh").providers) {
@@ -1233,7 +1234,7 @@ int main() {
                       "          reasoningEfforts:\n"
                       "            max: max\n");
             writeFile(dshCredentials,
-                      "version: 1\nA_KEY: \"sk-a\"\nB_KEY: \"sk-b\"\n");
+                      "version: 1\nrefs:\n  A_KEY: \"sk-a\"\n  B_KEY: \"sk-b\"\n");
             s.importLive("dsh");
             models::Provider importedB;
             for (const auto& p : s.group("dsh").providers) {
@@ -1281,7 +1282,8 @@ int main() {
                       "agent-default-model:\n"
                       "  provider: c\n"
                       "  model: inline-model\n");
-            writeFile(dshCredentials, "version: 1\nC2_KEY: \"sk-inline\"\n");
+            writeFile(dshCredentials,
+                      "version: 1\nrefs:\n  C2_KEY: \"sk-inline\"\n");
             s.importLive("dsh");
             models::Provider inlined;
             for (const auto& p : s.group("dsh").providers) {
@@ -1386,7 +1388,8 @@ int main() {
                       "          reasoningEfforts:\n"
                       "            \"off\":\n"
                       "            medium: medium\n");
-            writeFile(dshCredentials, "version: 1\nRT_KEY: \"sk-rt\"\n");
+            writeFile(dshCredentials,
+                      "version: 1\nrefs:\n  RT_KEY: \"sk-rt\"\n");
             const auto rt = s.importLive("dsh");
             CHECK(rt.baseUrl == "https://roundtrip.example.com/v1");
             CHECK(rt.model == "roundtrip-model");
@@ -1424,7 +1427,8 @@ int main() {
                       "          input:\n"
                       "            - text\n"
                       "            - image\n");
-            writeFile(dshCredentials, "version: 1\nSEQ_KEY: \"sk-seq\"\n");
+            writeFile(dshCredentials,
+                      "version: 1\nrefs:\n  SEQ_KEY: \"sk-seq\"\n");
             const auto seq = s.importLive("dsh");
             CHECK(seq.baseUrl == "https://seq.example.com/v1");
             CHECK(seq.model == "seq-model");
@@ -1455,7 +1459,8 @@ int main() {
                       "          maxTokens: 64K\n"
                       "          input: [text, image]\n"
                       "          reasoningEfforts: { \"off\": null, medium: medium }\n");
-            writeFile(dshCredentials, "version: 1\nFLOW_KEY: \"sk-flow\"\n");
+            writeFile(dshCredentials,
+                      "version: 1\nrefs:\n  FLOW_KEY: \"sk-flow\"\n");
             const auto flow = s.importLive("dsh");
             CHECK(flow.baseUrl == "https://flow.example.com/v1");
             CHECK(flow.model == "flow-model");
@@ -1539,7 +1544,7 @@ int main() {
                       "agent-presets:\n"
                       "  default: cordis\n");
             writeFile(dshCredentials,
-                      "version: 1\nHAND_KEY: \"sk-hand\"\nORPHAN_KEY: \"keep\"\n");
+                      "version: 1\nrefs:\n  HAND_KEY: \"sk-hand\"\n  ORPHAN_KEY: \"keep\"\n");
             // 空组同步：孤儿条目清掉，内置路由 / 别家条目 / 无关键 / 注释都留着，
             // 没有被引用的旧密钥也不代清（只增改，不删别人的）。
             s.syncDshProviders({});
@@ -1645,7 +1650,8 @@ int main() {
                       "      apiKeyEnv: EXT_KEY\n"
                       "      models:\n"
                       "        - id: ext-model\n");
-            writeFile(dshCredentials, "version: 1\nEXT_KEY: \"sk-ext\"\n");
+            writeFile(dshCredentials,
+                      "version: 1\nrefs:\n  EXT_KEY: \"sk-ext\"\n");
             s.removeDshProvider("llmswitch-ext");
             const std::string yExt = readTextFile(dshSettings);
             CHECK(yExt.find("llmswitch-ext") == std::string::npos);
@@ -1794,6 +1800,117 @@ int main() {
             s.removeProvider("dsh", idKeep, /*eraseLive=*/true);
             CHECK(readTextFile(dshSettings).find("llmswitch-" + idKeep) ==
                   std::string::npos);
+        }
+
+        // 8d10. .credentials.yaml 的文档布局。dsh 的凭据文档是 version 1 布局：
+        // 顶层只允许 version / refs / records，引用名在 `refs:` 块内（缩进 2）。
+        // 引用名写到版本 1 文档的顶层会让 dsh 拒绝**整份文档**
+        // （unknown top-level key "…"），于是所有密钥一起失效、路由完全不可用
+        // ——这里逐条钉住写/读的位置，以及旧残留的迁移。
+        {
+            while (!s.group("dsh").providers.empty()) {
+                s.removeProvider("dsh", s.group("dsh").providers.back().id);
+            }
+            writeFile(dshSettings, "llm-pi-ai:\n  providers: {}\n");
+            const auto envOf = [](std::string_view id) {
+                std::string out = "LLMSWITCH_";
+                for (const unsigned char c : id) {
+                    out += std::isalnum(c) ? static_cast<char>(std::toupper(c))
+                                           : '_';
+                }
+                return out;
+            };
+            const auto topKeys = [](const std::string& text) {
+                std::vector<std::string> keys;
+                std::size_t pos = 0;
+                while (pos < text.size()) {
+                    const std::size_t end = text.find('\n', pos);
+                    const std::string line = text.substr(
+                        pos, end == std::string::npos ? std::string::npos
+                                                      : end - pos);
+                    pos = end == std::string::npos ? text.size() : end + 1;
+                    if (line.empty() || line.front() == ' ' ||
+                        line.front() == '#') {
+                        continue;
+                    }
+                    const auto colon = line.find(':');
+                    if (colon == std::string::npos) continue;
+                    keys.push_back(line.substr(0, colon));
+                }
+                return keys;
+            };
+            const auto addLayoutProvider = [&](const std::string& apiKey) {
+                models::Provider p{.name = "布局",
+                                   .baseUrl = "https://layout.example.com/v1",
+                                   .apiKey = apiKey,
+                                   .model = "layout-model"};
+                return s.addProvider("dsh", p);
+            };
+            // (a) 版本 1 + refs 块：新引用名落在块内，顶层键与 records 原样。
+            writeFile(dshCredentials,
+                      "version: 1\nrefs:\n  KEEP_KEY: \"keep\"\n"
+                      "records:\n  browser-session:\n    kind: grant\n");
+            const std::string idA = addLayoutProvider("sk-a");
+            {
+                const std::string cred = readTextFile(dshCredentials);
+                CHECK(cred.find("  " + envOf(idA) + ": \"sk-a\"") !=
+                      std::string::npos);
+                CHECK(cred.find("\n" + envOf(idA) + ":") == std::string::npos);
+                CHECK(topKeys(cred) ==
+                      std::vector<std::string>({"version", "refs", "records"}));
+                CHECK(cred.find("  KEEP_KEY: \"keep\"") != std::string::npos);
+                CHECK(cred.find("kind: grant") != std::string::npos);
+            }
+            // (b) 旧版本写错的顶层 LLMSWITCH_* 残留：迁回 refs 块（值保留），
+            // refs 里已有的同名引用以 refs 为准。
+            writeFile(dshCredentials,
+                      "version: 1\nrefs:\n  LLMSWITCH_DUP: \"sk-refs\"\n"
+                      "LLMSWITCH_OLD: \"sk-old\"\nLLMSWITCH_DUP: \"sk-stray\"\n");
+            const std::string idB = addLayoutProvider("sk-b");
+            {
+                const std::string cred = readTextFile(dshCredentials);
+                CHECK(topKeys(cred) ==
+                      std::vector<std::string>({"version", "refs"}));
+                CHECK(cred.find("  LLMSWITCH_OLD: \"sk-old\"") !=
+                      std::string::npos);
+                CHECK(cred.find("  LLMSWITCH_DUP: \"sk-refs\"") !=
+                      std::string::npos);
+                CHECK(cred.find("sk-stray") == std::string::npos);
+                CHECK(cred.find("  " + envOf(idB) + ": \"sk-b\"") !=
+                      std::string::npos);
+            }
+            // (c) 空 flow 块 refs: {} → 摊平成块风格再写。
+            writeFile(dshCredentials, "version: 1\nrefs: {}\n");
+            const std::string idC = addLayoutProvider("sk-c");
+            {
+                const std::string cred = readTextFile(dshCredentials);
+                CHECK(cred.find("refs: {}") == std::string::npos);
+                CHECK(cred.find("refs:\n  " + envOf(idC) + ": \"sk-c\"") !=
+                      std::string::npos);
+            }
+            // (d) 预发布 flat 布局（没有 version）：仍写顶层，dsh 自己迁移。
+            writeFile(dshCredentials, "FLAT_KEY: \"sk-flat\"\n");
+            const std::string idD = addLayoutProvider("sk-d");
+            {
+                const std::string cred = readTextFile(dshCredentials);
+                CHECK(cred.find("FLAT_KEY: \"sk-flat\"") != std::string::npos);
+                CHECK(cred.find("\n" + envOf(idD) + ": \"sk-d\"") !=
+                      std::string::npos);
+                // flat 布局的引用名在顶层，读取也走顶层。
+                const auto adopted = s.adoptDshProvider("llmswitch-" + idD);
+                CHECK(adopted.apiKey == "sk-d");
+            }
+            // (e) 空文件：直接建版本 1 骨架（注释保留）。
+            writeFile(dshCredentials, "# 我的密钥\n");
+            const std::string idE = addLayoutProvider("sk-e");
+            {
+                const std::string cred = readTextFile(dshCredentials);
+                CHECK(cred.find("# 我的密钥") != std::string::npos);
+                CHECK(cred.find("version: 1\nrefs:\n  " + envOf(idE) +
+                                ": \"sk-e\"") != std::string::npos);
+                CHECK(topKeys(cred) ==
+                      std::vector<std::string>({"version", "refs"}));
+            }
         }
     }
 

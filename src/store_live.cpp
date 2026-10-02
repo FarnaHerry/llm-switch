@@ -1038,8 +1038,49 @@ std::vector<std::string> dshEntryLines(const std::string& id,
     return entry;
 }
 
-// .credentials.yaml 行级 upsert `ENV: "key"`（顶层 map；version 等其它键、
-// 注释与顺序原样保留，缺失追加尾部）。写前调用方负责 backupLiveFile。
+// ---- .credentials.yaml（dsh 的凭据文档）-------------------------------------
+//
+// 这份文档有两种布局，引用名该写在哪一层完全不同：
+//   - 版本 1（当前 build 读写的布局）：顶层只有 `version` / `refs` /
+//     `records` 三个键，引用名在 `refs:` **块内**（缩进 2）；
+//   - 预发布 flat 布局（没有 `version` 键，引用名直接就是顶层键）：dsh 自己
+//     首次写入时会迁移成版本 1。
+// 引用名写错层级——往版本 1 文档的顶层追加 `LLMSWITCH_<ID>: "..."`——会让 dsh
+// 直接拒绝**整份文档**（`credentials-local: unknown top-level key "..."`），
+// 于是所有密钥一起失效，连用户自己存的 C_API_KEY 都读不出来，路由因此完全
+// 不可用。所以这里先认布局再落笔，并把旧版本写错的 `LLMSWITCH_*` 顶层残留
+// 迁回 `refs:` 块（值原样搬，不丢凭据）。写前调用方负责 backupLiveFile。
+
+// 顶层键扫描结果。
+struct CredDocShape {
+    bool hasVersion = false;
+    bool hasRecords = false;
+    int refsIdx = -1;  // `refs:` 行下标（缩进必须为 0），无则 -1
+};
+
+CredDocShape scanCredDocShape(const std::vector<std::string>& lines) {
+    CredDocShape shape;
+    for (std::size_t i = 0; i < lines.size(); ++i) {
+        const YamlLine dl = yamlLineOf(lines[i]);
+        if (dl.blank || dl.comment || dl.listItem || dl.indent != 0) continue;
+        if (dl.key == "version") shape.hasVersion = true;
+        if (dl.key == "records") shape.hasRecords = true;
+        if (dl.key == "refs") shape.refsIdx = static_cast<int>(i);
+    }
+    return shape;
+}
+
+// `refs:` 块的结束下标：块内之后的第一个顶层（缩进 0）非空行，或文件尾。
+std::size_t credRefsBlockEnd(const std::vector<std::string>& lines, int refsIdx) {
+    for (std::size_t i = static_cast<std::size_t>(refsIdx) + 1; i < lines.size(); ++i) {
+        const YamlLine dl = yamlLineOf(lines[i]);
+        if (dl.blank || dl.comment) continue;
+        if (dl.indent == 0) return i;
+    }
+    return lines.size();
+}
+
+// 行级 upsert 一条凭据：按文档布局写进 `refs:` 块（版本 1）或顶层（flat）。
 void upsertDshCredential(const std::filesystem::path& file,
                          std::string_view envName, std::string_view apiKey) {
     std::vector<std::string> lines;
@@ -1052,17 +1093,138 @@ void upsertDshCredential(const std::filesystem::path& file,
             }
         }
     }
-    const std::string newLine =
-        std::string(envName) + ": " + yamlQuote(apiKey);
-    bool found = false;
-    for (auto& line : lines) {
+    const std::string newLine = std::string(envName) + ": " + yamlQuote(apiKey);
+
+    // 空文档（文件不存在或全是空行/注释）：直接写成 dsh 当前的版本 1 布局，
+    // 不留 flat 布局让 dsh 事后迁移。
+    bool hasContent = false;
+    for (const auto& line : lines) {
         const YamlLine dl = yamlLineOf(line);
-        if (dl.listItem || dl.key != envName) continue;
-        line = newLine;
-        found = true;
-        break;
+        if (!dl.blank && !dl.comment) {
+            hasContent = true;
+            break;
+        }
     }
-    if (!found) lines.push_back(newLine);
+    if (!hasContent) {
+        // 纯注释/空文件：注释原样留下，再补版本 1 的骨架。
+        std::string out;
+        for (const auto& line : lines) {
+            out += line;
+            out += '\n';
+        }
+        out += "version: 1\nrefs:\n  " + newLine + "\n";
+        atomicWrite(file, out);
+        return;
+    }
+
+    // 旧版本把引用名写到了版本 1 文档的顶层——先摘出来（有 `refs:` 块才摘，
+    // flat 布局的顶层引用名本来就是对的），随后搬进 refs 块。
+    std::vector<std::pair<std::string, std::string>> stray;
+    if (scanCredDocShape(lines).refsIdx >= 0) {
+        std::vector<std::string> kept;
+        kept.reserve(lines.size());
+        for (auto& line : lines) {
+            const YamlLine dl = yamlLineOf(line);
+            if (!dl.blank && !dl.comment && !dl.listItem && dl.indent == 0 &&
+                dl.key.starts_with("LLMSWITCH_")) {
+                stray.emplace_back(std::string(dl.key), yamlScalar(dl.value));
+                continue;
+            }
+            kept.push_back(std::move(line));
+        }
+        lines = std::move(kept);
+    }
+
+    const CredDocShape shape = scanCredDocShape(lines);
+    if (shape.refsIdx < 0 && !shape.hasVersion) {
+        // 预发布 flat 布局：引用名就是顶层键，按顶层 upsert（dsh 迁移时会把
+        // 它整段挪进 refs 块）。
+        bool found = false;
+        for (auto& line : lines) {
+            const YamlLine dl = yamlLineOf(line);
+            if (dl.listItem || dl.indent != 0 || dl.key != envName) continue;
+            line = newLine;
+            found = true;
+            break;
+        }
+        if (!found) lines.push_back(newLine);
+        std::string out;
+        for (const auto& line : lines) {
+            out += line;
+            out += '\n';
+        }
+        atomicWrite(file, out);
+        return;
+    }
+
+    if (shape.refsIdx < 0) {
+        // 版本 1 但还没有 refs 块：文件尾补一块。
+        lines.push_back("refs:");
+        lines.push_back("  " + newLine);
+        for (const auto& [name, value] : stray) {
+            if (name == envName) continue;
+            lines.push_back("  " + name + ": " + yamlQuote(value));
+        }        std::string out;
+        for (const auto& line : lines) {
+            out += line;
+            out += '\n';
+        }
+        atomicWrite(file, out);
+        return;
+    }
+
+    const int refsIdx = shape.refsIdx;
+    const int refsIndent = yamlLineOf(lines[static_cast<std::size_t>(refsIdx)]).indent;
+    const int childIndent = refsIndent + 2;
+    // `refs:` 行上带 flow 值：`{}` 是 dsh 写的空块，摊平成块风格继续；其它
+    // flow 内容本应用的行级改写看不懂，宁可报错也不写坏文档。
+    if (std::string_view rv = trimLeft(
+            yamlLineOf(lines[static_cast<std::size_t>(refsIdx)]).value);
+        !rv.empty()) {
+        if (rv != "{}") {
+            throw std::runtime_error(
+                "dsh 的 .credentials.yaml 里 refs 是 flow 风格，本应用暂不支持"
+                "改写；请手工整理成块风格");
+        }
+        lines[static_cast<std::size_t>(refsIdx)] = "refs:";
+    }
+    const std::string childPad(static_cast<std::size_t>(childIndent), ' ');
+    const std::size_t blockEnd = credRefsBlockEnd(lines, refsIdx);
+    const auto findInBlock = [&](std::string_view name) -> std::size_t {
+        for (std::size_t i = static_cast<std::size_t>(refsIdx) + 1; i < blockEnd; ++i) {
+            const YamlLine dl = yamlLineOf(lines[i]);
+            if (dl.blank || dl.comment || dl.listItem) continue;
+            if (dl.indent == childIndent && dl.key == name) return i;
+        }
+        return std::string::npos;
+    };
+    // 要写的这条 + 搬回来的旧残留（refs 里已存在的以 refs 为准，不拿旧值覆盖）。
+    std::vector<std::string> additions;
+    const auto stage = [&](std::string_view name, const std::string& text) {
+        const std::size_t at = findInBlock(name);
+        if (at != std::string::npos) {
+            lines[at] = text;
+        } else {
+            additions.push_back(text);
+        }
+    };
+    stage(envName, childPad + newLine);
+    for (const auto& [name, value] : stray) {
+        if (name == envName) continue;
+        const std::size_t at = findInBlock(name);
+        if (at != std::string::npos) continue;  // 块里已有这条引用
+        additions.push_back(childPad + name + ": " + yamlQuote(value));
+    }
+    if (!additions.empty()) {
+        // 插在块尾（块内尾随空行之前），保持块内条目连成一片。
+        std::size_t insertAt = blockEnd;
+        while (insertAt > static_cast<std::size_t>(refsIdx) + 1 &&
+               yamlLineOf(lines[insertAt - 1]).blank) {
+            --insertAt;
+        }
+        lines.insert(lines.begin() + static_cast<std::ptrdiff_t>(insertAt),
+                     additions.begin(), additions.end());
+    }
     std::string out;
     for (const auto& line : lines) {
         out += line;
@@ -1481,17 +1643,38 @@ DshSettingsInfo parseDshSettings(std::string_view text) {
     return info;
 }
 
-// 读 .credentials.yaml 顶层 map 里 envName 对应的密钥值（缺失返回空串）。
+// 读 .credentials.yaml 里 envName 对应的密钥值（缺失返回空串）。版本 1 布局
+// 的引用在 `refs:` 块内，预发布 flat 布局的引用才在顶层：文档里有 `refs:`
+// 块时只认块内——顶层的同名行是旧版本写错的残留，不能当成有效值。
 std::string readDshCredential(const std::filesystem::path& file,
                               std::string_view envName) {
     std::error_code ec;
     if (!std::filesystem::exists(file, ec)) return "";
     std::ifstream in(file, std::ios::binary);
     if (!in) return "";
+    std::vector<std::string> lines;
     for (std::string line; std::getline(in, line);) {
         if (!line.empty() && line.back() == '\r') line.pop_back();
+        lines.push_back(std::move(line));
+    }
+    const int refsIdx = scanCredDocShape(lines).refsIdx;
+    if (refsIdx >= 0) {
+        const int refsIndent =
+            yamlLineOf(lines[static_cast<std::size_t>(refsIdx)]).indent;
+        for (std::size_t i = static_cast<std::size_t>(refsIdx) + 1;
+             i < lines.size(); ++i) {
+            const YamlLine dl = yamlLineOf(lines[i]);
+            if (dl.blank || dl.comment) continue;
+            if (dl.indent <= refsIndent) break;  // 块结束
+            if (!dl.listItem && dl.key == envName) return yamlScalar(dl.value);
+        }
+        return "";
+    }
+    for (const auto& line : lines) {
         const YamlLine dl = yamlLineOf(line);
-        if (!dl.listItem && dl.key == envName) return yamlScalar(dl.value);
+        if (!dl.listItem && dl.indent == 0 && dl.key == envName) {
+            return yamlScalar(dl.value);
+        }
     }
     return "";
 }
