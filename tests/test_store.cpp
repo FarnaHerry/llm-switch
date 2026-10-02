@@ -1769,6 +1769,31 @@ int main() {
             CHECK(yOne.find("llmswitch-" + idLive) == std::string::npos);
             CHECK(yOne.find("    hand-written:") != std::string::npos);
             CHECK(yOne.find("deepseek-official:") != std::string::npos);
+            // eraseLive=false（右列删除确认的「只删本应用」）：只收回本地留存，
+            // settings.yaml 一字不动，那条随即变成左列的未纳管手写路由；再收编
+            // 回来仍能接管同一条，然后才轮到「连同 dsh 一起删」摘掉它。
+            writeFile(dshSettings,
+                      "llm-pi-ai:\n"
+                      "  providers:\n"
+                      "    deepseek-official:\n"
+                      "      api: anthropic-messages\n"
+                      "      baseURL: https://api.deepseek.com/anthropic\n");
+            const std::string idKeep = s.addProvider("dsh", pIdle);
+            const std::string beforeKeep = readTextFile(dshSettings);
+            s.removeProvider("dsh", idKeep, /*eraseLive=*/false);
+            CHECK(readTextFile(dshSettings) == beforeKeep);
+            CHECK(s.group("dsh").providers.empty());
+            {
+                const auto live = s.dshLiveProviders();
+                CHECK(live.size() == 2);
+                CHECK(live.back().key == "llmswitch-" + idKeep);
+                CHECK(live.back().providerId.empty());  // 已无本地对应条目
+            }
+            const auto readopted = s.adoptDshProvider("llmswitch-" + idKeep);
+            CHECK(readopted.id == idKeep);
+            s.removeProvider("dsh", idKeep, /*eraseLive=*/true);
+            CHECK(readTextFile(dshSettings).find("llmswitch-" + idKeep) ==
+                  std::string::npos);
         }
     }
 

@@ -95,8 +95,13 @@ public:
     // 对不存在的条目抛 std::runtime_error。
     [[nodiscard]] bool zcodeEntryEnabled(const std::string& id) const;
     void setZcodeEntryEnabled(const std::string& id, bool enabled);
-    // 删除；删掉的是 current 时 current 置空。
-    void removeProvider(std::string_view tool, const std::string& id);
+    // 删除本地留存；删掉的是 current 时 current 置空。
+    // eraseLive 只对 dsh 有意义（别的工具本就不在 live 里留条目）：false = 只删
+    // 本应用这条，settings.yaml 原样不动——右列那条删除确认的「只删本应用」，
+    // 删完 live 条目仍在，左列随后把它显示成未纳管的手写路由，用户还能再收编
+    // 回来。默认 true 与历史行为一致（dsh 的 llmswitch-<id> 一并摘掉）。
+    void removeProvider(std::string_view tool, const std::string& id,
+                        bool eraseLive = true);
     // 复制一份（新 id、名称加「（副本）」），插在原项之后并返回副本。
     models::Provider duplicateProvider(std::string_view tool, const std::string& id);
 

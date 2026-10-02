@@ -413,16 +413,19 @@ void ProviderStore::updateProvider(std::string_view tool,
     throw std::runtime_error(std::format("供应商不存在：{}", provider.id));
 }
 
-void ProviderStore::removeProvider(std::string_view tool, const std::string& id) {
+void ProviderStore::removeProvider(std::string_view tool, const std::string& id,
+                                   bool eraseLive) {
     auto& g = groupRef(tool);
     std::optional<models::ProviderGroup> snapshot;
-    if (tool == "dsh") snapshot = g;  // live 写失败 ⇒ 回滚删除
+    if (tool == "dsh" && eraseLive) snapshot = g;  // live 写失败 ⇒ 回滚删除
     std::erase_if(g.providers, [&](const models::Provider& p) { return p.id == id; });
     if (g.current == id) g.current.clear();
-    if (tool == "dsh") {
+    if (tool == "dsh" && eraseLive) {
         // 单条增量删除：只把这一条 llmswitch-<id> 从 live 摘掉（条目不在 live
         // 里时连文件都不碰），它正是 dsh 默认路由时指针一并清回内置官方路由。
         // 别的供应商——包括还没写进 live 的那些——一律不受影响。
+        // eraseLive=false 时连这里都不做：settings.yaml 一字不动，那一条留在
+        // 左列当未纳管的手写路由（右列删除确认的「只删本应用」）。
         try {
             eraseDshEntry("llmswitch-" + id);
         } catch (...) {

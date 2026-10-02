@@ -12,7 +12,8 @@
 //   左列：收编（live → 本地，条目被接管成 llmswitch-<id>，默认路由跟着改指）、
 //         从 dsh 删除（只删这一条，别的条目原样保留）；
 //   右列：设为 dsh 默认（只改 agent-default-model）、写入/更新 dsh（只写这一
-//         条）、编辑 / 用量 / 联通 / 复制 / 删除。
+//         条）、编辑 / 用量 / 联通 / 复制 / 删除（条目同时在 live 里时先问
+//         「只删本应用」还是「连同 dsh 一起删」，单条增量，别的不动）。
 // 顶部另有「全部写入 dsh」「全部收编」两个批量动作。
 // 写入语义在 store（writeDshProvider / adoptDshProvider / removeDshProvider）：
 // 本应用条目恒为 llmswitch-<id>，别家条目一律不动；每个入口只动自己那一条，
@@ -90,6 +91,94 @@ huxerui::View DshMonoLine(const std::string& text, huxerui::Color color) {
 }
 
 } // namespace
+
+// 右列一条的删除动作：eraseLive=false 走 store 的「只删本应用留存」路径
+// （settings.yaml 一字不动），true 才把 llmswitch-<id> 也从 dsh 摘掉。
+void RemoveDshLocal(huxerui::ToastHandle toast, const std::string& name,
+                    const std::string& id, huxerui::State<int> revision,
+                    bool eraseLive) {
+    try {
+        providerStore().removeProvider("dsh", id, eraseLive);
+        toast.Show(eraseLive ? std::format("已删除 {}（含 dsh 里的条目）", name)
+                             : std::format("已删除 {}（dsh 里的条目保留）", name));
+    } catch (const std::exception& e) {
+        toast.Show(e.what());
+    }
+    revision = revision.Get() + 1;
+}
+
+// 右列删除确认：这条供应商同时存在于两列时，删除得先问清删哪边——只收回本
+// 应用的留存（settings.yaml 里那条原地留下，左列随即显示成未纳管的手写路由），
+// 还是连 dsh 里那一条一起摘掉。内置确认框只有正/负两个动作，所以条目在 live 里
+// 时用自定义内容给三个选择。
+[[huxerui::composable]] huxerui::View DshDeleteConfirmContent(
+    std::string name, std::string id, huxerui::DialogContext context,
+    huxerui::ToastHandle toast, huxerui::State<int> revision) {
+    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    const huxerui::TextStyle hint{
+        huxerui::Font::System(font_size::kCaption),
+        theme.colors.on_surface_variant};
+    return DialogCard(huxerui::Column {
+        huxerui::Text("删除供应商", huxerui::TextRole::Title),
+        huxerui::Text(std::format(
+            "「{}」在本应用和 dsh 的 settings.yaml 里都有条目，这次删除要不要连 "
+            "dsh 里那一条一起摘掉？",
+            name)),
+        huxerui::Text(std::format(
+                          "只删本应用：settings.yaml 里的 llmswitch-{} 原样留下，"
+                          "左列会把它显示成未纳管的手写路由，需要时还能再收编"
+                          "回来。",
+                          id))
+            .Style(hint),
+        huxerui::Text("连同 dsh 一起删：settings.yaml 里那一条也被摘掉；它正是 "
+                      "dsh 默认路由时，agent-default-model 会清回内置官方路由。")
+            .Style(hint),
+        huxerui::Row {
+            huxerui::Spacer(),
+            huxerui::Button("取消").OnClick([context] { context.Dismiss(); }),
+            huxerui::Button("只删本应用").OnClick(
+                [context, toast, name, id, revision] {
+                    context.Dismiss();
+                    RemoveDshLocal(toast, name, id, revision,
+                                   /*eraseLive=*/false);
+                }),
+            huxerui::Button("连同 dsh 一起删").OnClick(
+                [context, toast, name, id, revision] {
+                    context.Dismiss();
+                    RemoveDshLocal(toast, name, id, revision,
+                                   /*eraseLive=*/true);
+                }),
+        }.With(huxerui::Spacing(8.0F),
+               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
+    }.With(huxerui::Spacing(12.0F),
+           huxerui::Frame{.width = 460.0F},
+           huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)));
+}
+
+// 打开右列删除确认（普通函数：dialog.Show 的工厂转发到 composable 内容）。
+// 条目还没写进 live 时两边其实只有一份，照旧走内置单动作确认框。
+void ShowDshDeleteConfirm(huxerui::DialogHandle dialog,
+                          huxerui::ToastHandle toast, const std::string& name,
+                          const std::string& id, bool present,
+                          huxerui::State<int> revision) {
+    if (!present) {
+        dialog.Show(
+            "删除供应商",
+            std::format("确定删除「{}」？dsh 的 settings.yaml 里没有它的条目。",
+                        name),
+            "删除", "取消",
+            [toast, name, id, revision] {
+                RemoveDshLocal(toast, name, id, revision, /*eraseLive=*/true);
+            },
+            {});
+        return;
+    }
+    dialog.Show(
+        [=](huxerui::DialogContext ctx) -> huxerui::View {
+            return DshDeleteConfirmContent(name, id, ctx, toast, revision);
+        },
+        huxerui::DialogOptions{});
+}
 
 // 左列一行：DSH 实际配置里的一条手写路由。
 [[huxerui::composable]] huxerui::View DshLiveRow(
@@ -288,21 +377,8 @@ huxerui::View DshMonoLine(const std::string& text, huxerui::Color color) {
         formToolIndex = ToolRegistryIndex("dsh");
         formTarget = "usage:" + id;
     };
-    auto showDeleteConfirm = [dialog, toast, id, name, bump] {
-        dialog.Show("删除供应商",
-                    std::format("确定删除「{}」？它在 dsh 里的条目会一并清掉。",
-                                name),
-                    "删除", "取消",
-                    [toast, id, name, bump] {
-                        try {
-                            providerStore().removeProvider("dsh", id);
-                            toast.Show(std::format("已删除 {}", name));
-                        } catch (const std::exception& e) {
-                            toast.Show(e.what());
-                        }
-                        bump();
-                    },
-                    {});
+    auto showDeleteConfirm = [dialog, toast, id, name, present, revision] {
+        ShowDshDeleteConfirm(dialog, toast, name, id, present, revision);
     };
 
     return QuietCard(huxerui::Column {
@@ -388,7 +464,7 @@ huxerui::View DshMonoLine(const std::string& text, huxerui::Color color) {
                         co_return;
                     });
                 })
-                .With(huxerui::Tooltip("删除（含 dsh 里的条目）")),
+                .With(huxerui::Tooltip("删除（先问只删本应用还是连同 dsh 一起删）")),
         }.With(huxerui::Spacing(4.0F),
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
     }.With(huxerui::Spacing(6.0F),
