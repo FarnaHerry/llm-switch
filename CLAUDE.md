@@ -163,7 +163,10 @@ hover 时在屏幕中央展开径向导航盘，全部 8 个顶级页面图标�
   （收编手写裸键 → 改名 `llmswitch-<id>` 接管，是默认路由时指针跟着改指）/
   `removeDshProvider`（只删 live 那一条，含未纳管的 dsh 条目）/ 增改复制删
   与 `switchTo`（切换 = 只改 agent-default-model；目标条目不在 live 里时补写
-  一条，避免指针悬空）都走它们；`dshLiveProviders` 是左列实况快照
+  一条，避免指针悬空）都走它们；右列删除走 `removeProvider` 的 `eraseLive`
+  参数——条目同时在 live 里时页面先用三键确认框问「只删本应用」（false = 只
+  收回本地留存，settings.yaml 一字不动，那条随即成为左列的未纳管手写路由）
+  还是「连同 dsh 一起删」（true，默认 = 历史行为）；`dshLiveProviders` 是左列实况快照
   （settings.yaml 里没有内置 deepseek-official 时补一条 `builtin` 合成行，
   不能收编/删除；没有 agent-default-model 块时官方行就是「使用中」）。
   整组重建只剩 `syncDshProviders` 一个入口——供应商页的「全部写入 dsh」按钮
