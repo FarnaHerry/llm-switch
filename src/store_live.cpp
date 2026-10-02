@@ -1708,12 +1708,13 @@ void ProviderStore::switchTo(std::string_view tool, const std::string& id) {
         atomicWrite(settingsFile, settings.dump(2) + "\n");
         restrictPiFile(settingsFile);
     } else if (tool == "dsh") {
-        // settings.yaml：增量同步（组内全部供应商逐条 upsert 成
-        // llmswitch-<id> 条目，其它手写条目原样保留）并把 agent-default-model
-        // 指向目标；密钥只写 .credentials.yaml（apiKeyEnv 引用）。dsh 的
-        // providers 是多路由并存的 map——切换只改默认指向，不替换整个列表。
-        // 两份文件都被 dsh 热监听 → 切换即时生效，无需重启。
-        syncDshProviders(target->id);
+        // settings.yaml：切换 = 只改 agent-default-model 指向；外加一条保险——
+        // 目标条目还没写进 live 时补写一条（否则指针指向不存在的键就是坏配置）。
+        // 已在 live 里的条目内容原样保留（用户在 dsh 侧的手改由页面上的
+        // 「写入 / 更新」显式覆盖），别的条目一个字都不动。密钥只写
+        // .credentials.yaml（apiKeyEnv 引用）。两份文件都被 dsh 热监听 →
+        // 切换即时生效，无需重启。
+        writeDshEntry(*target, /*overwrite=*/false, /*makeDefault=*/true);
     } else if (tool == "hermes") {
         // config.yaml：custom_providers 列表删旧 llmswitch-* 条目后追加新
         // 条目（api_mode 三档映射），顶层 model 节写 provider（总是）与
@@ -2073,20 +2074,115 @@ void ProviderStore::restoreOfficial(std::string_view tool) {
 
 // ---- dsh 增量多供应商 ---------------------------------------------------------
 // dsh 的 settings.yaml 里 llm-pi-ai.providers 是「多条手写路由并存」的 map：
-// 本应用把组内全部供应商逐条写成 llmswitch-<id> 条目（增量、不删别家条目），
-// 「切换」只改 agent-default-model 指向。下面四个 API 是这张表的全部入口；
+// 本应用把组内供应商逐条写成 llmswitch-<id> 条目（累积、不删别家条目），
+// 「切换」只改 agent-default-model 指向。下面这些 API 是这张表的全部入口；
 // 供应商页的左（live 实况）右（本地留存）两列对照就建立在这上面。
+//
+// 写侧的铁律：**每个入口只动自己那一条**。新增/编辑/复制/收编/删除/切换/单条
+// 「写入 / 更新」都走 writeDshEntry / eraseDshEntry 的单条增量，绝不整组重建——
+// 整组重建会把本地全部供应商一次性推给 dsh（用户在左列删掉/整理过的那些会
+// 立刻被补回来），只有「全部写入 dsh」按钮才显式触发 syncDshProviders。
+
+// 单条增量写入（私有；声明见 store.cppm）。
+void ProviderStore::writeDshEntry(const models::Provider& p, bool overwrite,
+                                 bool makeDefault) {
+    const auto settingsFile = cfg::dshSettingsFile();
+    restrictPiDir(settingsFile.parent_path());
+    std::string text;
+    {
+        std::error_code ec;
+        if (std::filesystem::exists(settingsFile, ec)) {
+            text = readTextFile(settingsFile);
+        }
+    }
+    const auto info = parseDshSettings(text);
+    const std::string key = "llmswitch-" + p.id;
+    bool hasEntry = false;    // llmswitch-<id> 已在 live 里
+    bool hasBareKey = false;  // 裸键 <id>（收编前的形状 / 用户手写的同名键）
+    for (const auto& entry : info.providers) {
+        if (entry.key == key) hasEntry = true;
+        if (entry.key == p.id) hasBareKey = true;
+    }
+    const bool rebuild = overwrite || !hasEntry;
+    bool touchDefault = makeDefault;
+    std::string defaultKey = makeDefault ? key : std::string{};
+    if (!touchDefault && hasBareKey && info.defaultProvider == p.id) {
+        // 原默认正好指向这个裸键：它被改名接管成 llmswitch-<id>，指针跟着
+        // 改指同一个路由，dsh 侧行为不变。
+        touchDefault = true;
+        defaultKey = key;
+    }
+    // 条目已是最新形状（例如「设为默认」）：内容一字不动，只在指针需要改指时
+    // 写一次；两者都不需要时连文件都不碰。
+    if (!rebuild && !touchDefault) return;
+    std::vector<std::vector<std::string>> entries;
+    std::set<std::string> removeKeys;
+    if (rebuild) {
+        entries.push_back(dshEntryLines(p.id, p, models::effectiveBaseUrl(p)));
+        removeKeys.insert(key);
+        if (hasBareKey) removeKeys.insert(p.id);
+    }
+    std::string defaultModel;
+    if (!defaultKey.empty()) defaultModel = p.model;
+    backupLiveFile("dsh", settingsFile);
+    atomicWrite(settingsFile,
+                rewriteDshSettings(text, entries, removeKeys, touchDefault,
+                                   defaultKey, defaultModel,
+                                   info.defaultReasoningEffort));
+    if (!p.apiKey.empty()) {
+        const auto credFile = cfg::dshCredentialsFile();
+        backupLiveFile("dsh", credFile);
+        upsertDshCredential(credFile, dshApiKeyEnv(p.id), p.apiKey);
+        restrictPiFile(credFile);
+    }
+}
+
+// 单条增量删除（私有；声明见 store.cppm）。
+bool ProviderStore::eraseDshEntry(const std::string& key) {
+    const auto settingsFile = cfg::dshSettingsFile();
+    std::error_code ec;
+    if (!std::filesystem::exists(settingsFile, ec) || ec) return false;
+    const std::string text = readTextFile(settingsFile);
+    const auto info = parseDshSettings(text);
+    bool found = false;
+    for (const auto& entry : info.providers) {
+        if (entry.key == key) found = true;
+    }
+    // 只有它正是默认路由时才动 agent-default-model（清掉整块 = 回到内置官方
+    // 路由）；别的条目、默认指向、无关键与注释全部原样。
+    const bool clearDefault = info.defaultProvider == key;
+    if (!found && !clearDefault) return false;
+    backupLiveFile("dsh", settingsFile);
+    atomicWrite(settingsFile,
+                rewriteDshSettings(text, {}, {key}, clearDefault, "", "", ""));
+    return found;
+}
+
+void ProviderStore::writeDshProvider(const std::string& id) {
+    const auto& g = group("dsh");
+    for (const auto& p : g.providers) {
+        if (p.id != id) continue;
+        writeDshEntry(p, /*overwrite=*/true, /*makeDefault=*/false);
+        return;
+    }
+    throw std::runtime_error(std::format("供应商不存在：{}", id));
+}
 
 std::vector<DshLiveProvider> ProviderStore::dshLiveProviders() const {
     std::vector<DshLiveProvider> out;
     const auto file = cfg::dshSettingsFile();
     std::error_code ec;
-    if (!std::filesystem::exists(file, ec) || ec) return out;
-    const auto info = parseDshSettings(readTextFile(file));
+    // 文件不存在不是「什么都没有」：dsh 仍然跑在组合里的内置默认路由上，合成
+    // 官方行照样要出现（见下）。所以这里不提前返回。
+    const bool hasFile = std::filesystem::exists(file, ec) && !ec;
+    const auto info =
+        hasFile ? parseDshSettings(readTextFile(file)) : DshSettingsInfo{};
     const auto& g = group("dsh");
     const auto credFile = cfg::dshCredentialsFile();
-    out.reserve(info.providers.size());
+    out.reserve(info.providers.size() + 1);
+    bool hasOfficial = false;
     for (const auto& entry : info.providers) {
+        if (entry.key == "deepseek-official") hasOfficial = true;
         DshLiveProvider live;
         live.key = entry.key;
         live.displayName = entry.displayName;
@@ -2095,7 +2191,12 @@ std::vector<DshLiveProvider> ProviderStore::dshLiveProviders() const {
         live.apiFormat = piApiFormatValue(entry.api);
         live.apiKeyEnv = entry.apiKeyEnv;
         live.model = entry.firstModel;
-        live.isDefault = entry.key == info.defaultProvider;
+        // 没有 agent-default-model 块时 dsh 用的是组合里的内置默认路由
+        // （provider: deepseek-official）——左列的「使用中」要落在官方行上。
+        const bool officialRoute = entry.key == "deepseek-official";
+        live.isDefault = info.defaultProvider.empty()
+                             ? officialRoute
+                             : entry.key == info.defaultProvider;
         if (!entry.apiKeyEnv.empty()) {
             live.apiKey = readDshCredential(credFile, entry.apiKeyEnv);
         }
@@ -2110,11 +2211,28 @@ std::vector<DshLiveProvider> ProviderStore::dshLiveProviders() const {
         }
         out.push_back(std::move(live));
     }
+    // dsh 内置的 deepseek-official 由适配器注册，通常不落在 settings.yaml 里，
+    // 但默认选择完全可能指向它（没有 agent-default-model 块时就是它）。左列要
+    // 能回答「现在到底用哪条」，所以文件里没有这条时补一个只读的合成行：
+    // 它不在文件里，既不能收编也不能删除。
+    if (!hasOfficial) {
+        DshLiveProvider official;
+        official.key = "deepseek-official";
+        official.displayName = "DeepSeek 官方";
+        official.builtin = true;
+        official.isDefault = info.defaultProvider.empty() ||
+                             info.defaultProvider == official.key;
+        if (official.isDefault) official.model = info.defaultModel;
+        out.insert(out.begin(), std::move(official));
+    }
     return out;
 }
 
 void ProviderStore::syncDshProviders(const std::string& defaultProviderId,
                                      bool clearDefault) {
+    // 显式整体重建（供应商页「全部写入 dsh」按钮 + restoreOfficial 的收尾）：
+    // 组内全部供应商逐条重建、孤儿 llmswitch-* 清掉。增删改的即时同步一律走
+    // writeDshEntry / eraseDshEntry 的单条增量，不走这里。
     const auto& g = group("dsh");
     const auto settingsFile = cfg::dshSettingsFile();
     restrictPiDir(settingsFile.parent_path());
@@ -2238,10 +2356,11 @@ models::Provider ProviderStore::adoptDshProvider(const std::string& key) {
     }
     if (isDefault) g.current = id;
     // 先落盘本地列表（live 接管失败也不丢收编结果，页面会显示「未写入」），
-    // 再把该条目接管成 llmswitch-<id>：它正是默认路由时 agent-default-model
-    // 同步改指新键，dsh 侧行为不变。
+    // 再把这一条接管成 llmswitch-<id>：它正是默认路由时 agent-default-model
+    // 同步改指新键，dsh 侧行为不变。只动这一条——收编不该顺手把本地其它
+    // 供应商也推给 dsh。
     save();
-    syncDshProviders(isDefault ? id : std::string{});
+    writeDshEntry(p, /*overwrite=*/true, /*makeDefault=*/isDefault);
     return p;
 }
 
@@ -2251,8 +2370,10 @@ void ProviderStore::removeDshProvider(const std::string& key) {
     if (!std::filesystem::exists(file, ec) || ec) {
         throw std::runtime_error("dsh 配置文件不存在，没有可删除的条目");
     }
-    const std::string text = readTextFile(file);
-    const auto info = parseDshSettings(text);
+    // 存在性检查先做（找不到就整体不动），真正落盘交给单条增量删除：只删这个
+    // 键，别的条目一字不动——包括组内那些还没写进 live 的供应商（左列删一条
+    // 不该把右列全部推过去）。
+    const auto info = parseDshSettings(readTextFile(file));
     bool found = false;
     for (const auto& entry : info.providers) {
         if (entry.key == key) found = true;
@@ -2260,28 +2381,7 @@ void ProviderStore::removeDshProvider(const std::string& key) {
     if (!found) {
         throw std::runtime_error(std::format("dsh 配置里没有条目：{}", key));
     }
-    // 只删这一条：其余组内供应商照常重建（条目不在 entries 里就等于被清掉）。
-    const auto& g = group("dsh");
-    std::vector<std::vector<std::string>> entries;
-    std::set<std::string> groupIds;
-    for (const auto& p : g.providers) {
-        groupIds.insert(p.id);
-        if (key == "llmswitch-" + p.id) continue;  // 目标条目：不再重建
-        entries.push_back(dshEntryLines(p.id, p, models::effectiveBaseUrl(p)));
-    }
-    std::set<std::string> removeKeys;
-    for (const auto& entry : info.providers) {
-        if (entry.key.starts_with("llmswitch-") ||
-            groupIds.find(entry.key) != groupIds.end()) {
-            removeKeys.insert(entry.key);
-        }
-    }
-    removeKeys.insert(key);
-    const bool clearDefault = key == info.defaultProvider;
-    backupLiveFile("dsh", file);
-    atomicWrite(file,
-                rewriteDshSettings(text, entries, removeKeys, clearDefault, "",
-                                   "", ""));
+    eraseDshEntry(key);
 }
 
 } // namespace store

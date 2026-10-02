@@ -983,8 +983,10 @@ int main() {
             CHECK(y.find("# dsh 设置") != std::string::npos);   // 注释保留
             CHECK(y.find("theme: dark") != std::string::npos);  // 无关键保留
             CHECK(y.find("deepseek-official:") != std::string::npos);  // 内置路由保留
-            CHECK(y.find("llmswitch-stale") == std::string::npos);     // 旧条目删除
-            CHECK(y.find("stale.example.com") == std::string::npos);
+            // 单条增量：新增 + 切换只动自己这一条，文件里原有的孤儿
+            // llmswitch-stale 不会被顺手清掉（清理只发生在「全部写入 dsh」）。
+            CHECK(y.find("    llmswitch-stale:") != std::string::npos);
+            CHECK(y.find("stale.example.com") != std::string::npos);
             CHECK(y.find("    llmswitch-" + idS + ":") != std::string::npos);
             CHECK(y.find("api: anthropic-messages") != std::string::npos);
             CHECK(y.find("baseURL: \"https://relay.example.com/anthropic\"") !=
@@ -1013,6 +1015,15 @@ int main() {
                   (fs::perms::owner_read | fs::perms::owner_write));
 #endif
             CHECK(s.detectCurrent("dsh") == idS);
+            // 「全部写入 dsh」是显式的整组重建：它才负责清孤儿，并把组内全部
+            // 供应商（这里只有 idS）逐条写进去。
+            s.syncDshProviders({});
+            const std::string yFull = readTextFile(dshSettings);
+            CHECK(yFull.find("llmswitch-stale") == std::string::npos);
+            CHECK(yFull.find("stale.example.com") == std::string::npos);
+            CHECK(yFull.find("    llmswitch-" + idS + ":") != std::string::npos);
+            CHECK(yFull.find("provider: llmswitch-" + idS) != std::string::npos);
+            CHECK(yFull.find("deepseek-official:") != std::string::npos);
         }
         // 二次切换：dsh 是增量多供应商——两条本应用条目并存，切换只改
         // agent-default-model 指向（不再把先前的条目替换掉）。
@@ -1134,9 +1145,10 @@ int main() {
             CHECK(y.find('{') == std::string::npos);
             CHECK(y.find('}') == std::string::npos);
             CHECK(y.find("\n    c:\n") == std::string::npos);
-            // 摊平后三条组内条目都是块风格（裸键 c 被接管改名，内容不变）。
-            CHECK(!settingsEntryBlock(y, "llmswitch-" + idS).empty());
-            CHECK(!settingsEntryBlock(y, "llmswitch-" + idS2).empty());
+            // 单条增量：切换只写自己这一条（裸键 c 被接管改名成块风格条目），
+            // 组内其它供应商不会被顺手推回 live——文件里本来没有它们。
+            CHECK(settingsEntryBlock(y, "llmswitch-" + idS).empty());
+            CHECK(settingsEntryBlock(y, "llmswitch-" + idS2).empty());
             CHECK(!settingsEntryBlock(y, "llmswitch-c").empty());
             CHECK(y.find("      apiKeyEnv: LLMSWITCH_C") != std::string::npos);
             CHECK(y.find("      displayName: \"Command Code\"") !=
@@ -1160,11 +1172,19 @@ int main() {
             CHECK(y.find("provider: llmswitch-c") != std::string::npos);
             CHECK(y.find("agent-presets:") != std::string::npos);
             CHECK(y.find("  default: cordis") != std::string::npos);
-            // 档位声明跟着各自的条目走：收编来的 c 有，先前的 idS2 没有。
+            // 档位声明跟着各自的条目走：单条「写入 / 更新」只重写这一条，
+            // 收编来的 c 有档位、先写进来的 idS2 没有——各写各的，不互相串。
             CHECK(settingsEntryBlock(y, "llmswitch-c")
                       .find("reasoningEfforts") != std::string::npos);
-            CHECK(settingsEntryBlock(y, "llmswitch-" + idS2)
-                      .find("reasoningEfforts") == std::string::npos);
+            s.writeDshProvider(idS2);
+            {
+                const std::string y2 = readTextFile(dshSettings);
+                CHECK(!settingsEntryBlock(y2, "llmswitch-" + idS2).empty());
+                CHECK(settingsEntryBlock(y2, "llmswitch-" + idS2)
+                          .find("reasoningEfforts") == std::string::npos);
+                CHECK(settingsEntryBlock(y2, "llmswitch-c")
+                          .find("reasoningEfforts") != std::string::npos);
+            }
             // 增量语义：换默认路由不删别的本应用条目，只改 agent-default-model。
             s.switchTo("dsh", idS2);
             {
@@ -1173,10 +1193,14 @@ int main() {
                 CHECK(yOther.find("provider: llmswitch-" + idS2) !=
                       std::string::npos);
             }
-            // 再切回来：摊平只发生一次，输出字节稳定。
+            // 再切回来：条目已在 live 里就不再重写（切换只改指针），输出字节
+            // 稳定——flow 摊平只发生一次。
             s.switchTo("dsh", "c");
-            const std::string y2 = readTextFile(dshSettings);
-            CHECK(y2 == y);
+            const std::string yStable = readTextFile(dshSettings);
+            CHECK(yStable.find("provider: llmswitch-c") != std::string::npos);
+            s.switchTo("dsh", idS2);
+            s.switchTo("dsh", "c");
+            CHECK(readTextFile(dshSettings) == yStable);
         }
         // 8d3. 多条手写路由各自声明档位：收编只认「每条路由的首个模型条目」，
         // 计数必须随路由重置——否则第二条及以后的路由会被上一条的计数影响，
@@ -1220,16 +1244,33 @@ int main() {
             // 第二条路由自己的档位读到了；它的第二个模型条目的档位不参与。
             CHECK(importedB.reasoningEfforts ==
                   std::vector<std::string>({"low"}));
-            // 切到它：写回的档位必须与收编到的一致（不写丢）。本应用只重建
-            // 组内供应商的 llmswitch-* 条目；a 没被收编（不是默认路由），
-            // 它自己的 llmswitch-a 条目属于「孤儿」被清掉是预期行为。
+            // 切到它：条目已在 live 里且内容一致 → 只改 agent-default-model，
+            // 内容一字不动（用户手写的 `low: low` 保持原拼写）；别人写的
+            // llmswitch-a 也不会被清（它是孤儿，清理属于显式的「全部写入 dsh」）。
             s.switchTo("dsh", importedB.id);
-            const std::string yb = readTextFile(dshSettings);
-            CHECK(yb.find("            \"low\": low") != std::string::npos);
-            CHECK(yb.find("    llmswitch-a:") == std::string::npos);
-            CHECK(yb.find("    llmswitch-" + importedB.id + ":") !=
+            {
+                const std::string yb = readTextFile(dshSettings);
+                CHECK(yb.find("            low: low") != std::string::npos);
+                CHECK(yb.find("    llmswitch-a:") != std::string::npos);
+                CHECK(yb.find("    llmswitch-" + importedB.id + ":") !=
+                      std::string::npos);
+                CHECK(yb.find("https://dsh-b.example.com") != std::string::npos);
+                CHECK(yb.find("provider: llmswitch-b") != std::string::npos);
+            }
+            // 档位不写丢：显式的单条「写入 / 更新」按本应用写侧形状重建这一条
+            // （键加引号），档位与收编到的一致，第二个模型条目的档位不参与。
+            s.writeDshProvider(importedB.id);
+            {
+                const std::string blockB = settingsEntryBlock(
+                    readTextFile(dshSettings), "llmswitch-" + importedB.id);
+                CHECK(blockB.find("            \"low\": low") !=
+                      std::string::npos);
+                CHECK(blockB.find("model-b2") == std::string::npos);
+            }
+            // 整体重建才清孤儿：a 没被收编，属于本应用历史条目。
+            s.syncDshProviders({});
+            CHECK(readTextFile(dshSettings).find("llmswitch-a:") ==
                   std::string::npos);
-            CHECK(yb.find("https://dsh-b.example.com") != std::string::npos);
         }
         // 8d4. flow 值与 `providers:` 同行（`providers: { ... }`）也要摊平——
         // 这是 normalizer 的另一条分支（flow 从同一行的 `{` 起算）。
@@ -1518,6 +1559,13 @@ int main() {
                 const auto live = s.dshLiveProviders();
                 CHECK(live.size() == 2);
                 for (const auto& entry : live) {
+                    if (entry.key == "deepseek-official") {
+                        // 没有 agent-default-model 块 → 实际默认就是内置官方
+                        // 路由，所以这一行是「使用中」。
+                        CHECK(entry.isDefault);
+                        CHECK(entry.providerId.empty());
+                        continue;
+                    }
                     CHECK(!entry.isDefault);
                     if (entry.key == "hand-written") {
                         CHECK(entry.providerId.empty());
@@ -1602,7 +1650,9 @@ int main() {
             const std::string yExt = readTextFile(dshSettings);
             CHECK(yExt.find("llmswitch-ext") == std::string::npos);
             CHECK(yExt.find("agent-default-model") == std::string::npos);
-            CHECK(yExt.find("    llmswitch-" + idA + ":") != std::string::npos);
+            // 增量删除只摘掉这一个键：组内那些还没写进 live 的供应商（这里的
+            // idA 在重写文件时已经不在 live 里了）绝不能被顺手补写回来。
+            CHECK(yExt.find("    llmswitch-" + idA + ":") == std::string::npos);
             CHECK(yExt.find("deepseek-official:") != std::string::npos);
             bool threw = false;
             try {
@@ -1611,6 +1661,114 @@ int main() {
                 threw = true;
             }
             CHECK(threw);
+        }
+        // 8d9. 左列的内置官方行与「单条增量」的两条硬性质：
+        //   - settings.yaml 里没有 deepseek-official（它是适配器注册的内置路由，
+        //     通常不落文件）时，实况列表要补一条 builtin 合成行；没有
+        //     agent-default-model 时它是「使用中」，默认指向别家裸键时则是
+        //     那条裸键「使用中」；
+        //   - 删除一个 live 里根本没有条目的供应商时，live 文件必须一字不动；
+        //   - 删除一条 live 条目时，别的条目（含未纳管的）不受影响。
+        {
+            // 先把 dsh 组清空，让下面的增删只涉及本块自己造的供应商。
+            while (!s.group("dsh").providers.empty()) {
+                s.removeProvider("dsh", s.group("dsh").providers.back().id);
+            }
+            writeFile(dshSettings,
+                      "llm-pi-ai:\n"
+                      "  providers:\n"
+                      "    hand-written:\n"
+                      "      api: openai-completions\n"
+                      "      baseURL: https://hand.example.com/v1\n");
+            writeFile(dshCredentials, "version: 1\n");
+            {
+                const auto live = s.dshLiveProviders();
+                CHECK(live.size() == 2);
+                CHECK(live.front().key == "deepseek-official");
+                CHECK(live.front().builtin);
+                CHECK(live.front().providerId.empty());
+                CHECK(live.front().isDefault);  // 没有 agent-default-model
+                CHECK(live.back().key == "hand-written");
+                CHECK(!live.back().builtin);
+                CHECK(!live.back().isDefault);
+            }
+            // 实际用户文件的形状：默认指向一条裸键（未纳管的 c），文件里没有
+            // deepseek-official → 官方行仍是 builtin 合成行，但「使用中」落在
+            // c 上（不是官方行）。
+            writeFile(dshSettings,
+                      "agent-default-model:\n"
+                      "  provider: c\n"
+                      "  model: \"deepseek/deepseek-v4.1-flash\"\n"
+                      "llm-pi-ai:\n"
+                      "  providers:\n"
+                      "    c:\n"
+                      "      apiKeyEnv: C_API_KEY\n"
+                      "      api: openai-responses\n"
+                      "      baseURL: https://api.commandcode.ai/provider/v1\n");
+            {
+                const auto live = s.dshLiveProviders();
+                CHECK(live.size() == 2);
+                CHECK(live.front().key == "deepseek-official");
+                CHECK(live.front().builtin);
+                CHECK(!live.front().isDefault);
+                CHECK(live.back().key == "c");
+                CHECK(!live.back().builtin);
+                CHECK(live.back().isDefault);
+                CHECK(live.back().providerId.empty());
+            }
+            // 文件里真写了 deepseek-official 时不再合成（它是一条可收编/可删的
+            // 手写条目，builtin 保持 false）。
+            writeFile(dshSettings,
+                      "llm-pi-ai:\n"
+                      "  providers:\n"
+                      "    deepseek-official:\n"
+                      "      api: anthropic-messages\n"
+                      "      baseURL: https://api.deepseek.com/anthropic\n");
+            {
+                const auto live = s.dshLiveProviders();
+                CHECK(live.size() == 1);
+                CHECK(live.front().key == "deepseek-official");
+                CHECK(!live.front().builtin);
+                CHECK(live.front().isDefault);
+            }
+            // 删一个 live 里没有的条目：文件一字不动（增量删除不写别的条目）。
+            models::Provider pIdle{.name = "Idle",
+                                   .baseUrl = "https://idle.example.com/v1",
+                                   .apiKey = "sk-idle",
+                                   .model = "idle-model"};
+            const std::string idIdle = s.addProvider("dsh", pIdle);
+            writeFile(dshSettings,
+                      "llm-pi-ai:\n"
+                      "  providers:\n"
+                      "    deepseek-official:\n"
+                      "      api: anthropic-messages\n"
+                      "      baseURL: https://api.deepseek.com/anthropic\n");
+            const std::string before = readTextFile(dshSettings);
+            s.removeProvider("dsh", idIdle);
+            CHECK(readTextFile(dshSettings) == before);
+            // 删一条确实在 live 里的条目：只少这一条，未纳管的手写条目与内置
+            // 路由原样保留。
+            writeFile(dshSettings,
+                      "llm-pi-ai:\n"
+                      "  providers:\n"
+                      "    deepseek-official:\n"
+                      "      api: anthropic-messages\n"
+                      "      baseURL: https://api.deepseek.com/anthropic\n"
+                      "    hand-written:\n"
+                      "      api: openai-completions\n"
+                      "      baseURL: https://hand.example.com/v1\n");
+            const std::string idLive = s.addProvider("dsh", pIdle);
+            {
+                const std::string yAdd = readTextFile(dshSettings);
+                CHECK(yAdd.find("    llmswitch-" + idLive + ":") !=
+                      std::string::npos);
+                CHECK(yAdd.find("    hand-written:") != std::string::npos);
+            }
+            s.removeProvider("dsh", idLive);
+            const std::string yOne = readTextFile(dshSettings);
+            CHECK(yOne.find("llmswitch-" + idLive) == std::string::npos);
+            CHECK(yOne.find("    hand-written:") != std::string::npos);
+            CHECK(yOne.find("deepseek-official:") != std::string::npos);
         }
     }
 

@@ -4,18 +4,20 @@
 // 路由并存」的 map，而本应用的 config.json 组是另一份留存——两者会被对方改
 // 动（dsh 自己、其它工具、手改），本来就可能不同步。所以这一页不再是单列卡片
 // 列表，而是：
-//   左列 = DSH 实际配置（settings.yaml 里现存的每条手写路由，含未纳管项）
+//   左列 = DSH 实际配置（settings.yaml 里现存的每条手写路由，含未纳管项；
+//          文件里没有 dsh 内置的 deepseek-official 时补一条只读合成行）
 //   右列 = 本应用留存（config.json 组内供应商）
 // 左右各自的行显示同步状态（使用中 / 已纳管 / 未纳管 / 已同步 / 有差异 /
 // 未写入），并可逐条动作：
 //   左列：收编（live → 本地，条目被接管成 llmswitch-<id>，默认路由跟着改指）、
 //         从 dsh 删除（只删这一条，别的条目原样保留）；
-//   右列：设为 dsh 默认（只改 agent-default-model）、写入/更新 dsh（增量
-//         upsert 本应用全部条目）、编辑 / 用量 / 联通 / 复制 / 删除。
+//   右列：设为 dsh 默认（只改 agent-default-model）、写入/更新 dsh（只写这一
+//         条）、编辑 / 用量 / 联通 / 复制 / 删除。
 // 顶部另有「全部写入 dsh」「全部收编」两个批量动作。
-// 写入语义在 store（syncDshProviders / adoptDshProvider / removeDshProvider）：
-// 本应用条目恒为 llmswitch-<id>，别家条目一律不动；每次同步重建本应用条目
-// 集合，孤儿 llmswitch-* 随之清理。
+// 写入语义在 store（writeDshProvider / adoptDshProvider / removeDshProvider）：
+// 本应用条目恒为 llmswitch-<id>，别家条目一律不动；每个入口只动自己那一条，
+// 整组重建只发生在「全部写入 dsh」这一个显式按钮上——否则删掉/整理过一条
+// live 条目，下一次本地增删又会把全部本地供应商推回 dsh。
 #include <huxerui/huxerui.h>
 
 #include <format>
@@ -108,18 +110,21 @@ huxerui::View DshMonoLine(const std::string& text, huxerui::Color color) {
     if (!live.providerId.empty()) {
         badges.push_back(DshBadge("已纳管", islands.success, islands.on_success,
                                   islands.nested_radius));
-    } else if (live.key != kDshOfficialKey) {
-        badges.push_back(DshBadge("未纳管", islands.raised,
+    } else if (live.builtin || live.key == kDshOfficialKey) {
+        badges.push_back(DshBadge("dsh 内置", islands.raised,
                                   theme.colors.on_surface_variant,
                                   islands.nested_radius));
     } else {
-        badges.push_back(DshBadge("dsh 内置", islands.raised,
+        badges.push_back(DshBadge("未纳管", islands.raised,
                                   theme.colors.on_surface_variant,
                                   islands.nested_radius));
     }
 
     auto bump = [revision] { revision = revision.Get() + 1; };
-    const bool adoptable = live.providerId.empty() &&
+    // 合成行（builtin）不在 settings.yaml 里：既没有可收编的条目，也没有可删
+    // 的键。文件里真有一条 deepseek-official 手写条目时同样不提供收编——那个
+    // 键属于 dsh 适配器注册的内置路由名，收编改名会把它从文件里抹掉。
+    const bool adoptable = live.providerId.empty() && !live.builtin &&
                            live.key != kDshOfficialKey;
 
     // 收编：live 条目 → 本地供应商卡（store 负责把条目接管成 llmswitch-<id>）。
@@ -138,9 +143,13 @@ huxerui::View DshMonoLine(const std::string& text, huxerui::Color color) {
     auto showDeleteConfirm = [dialog, toast, live, name, bump] {
         dialog.Show(
             "从 dsh 删除条目",
-            std::format("确定从 settings.yaml 删除「{}」？只删这一条，本应用"
-                        "列表里对应的供应商卡会变成「未写入」。",
-                        name),
+            live.providerId.empty()
+                ? std::format("确定从 settings.yaml 删除「{}」？只删这一条，"
+                              "别的条目与本应用列表都不受影响。",
+                              name)
+                : std::format("确定从 settings.yaml 删除「{}」？只删这一条，"
+                              "本应用列表里对应的供应商卡会变成「未写入」。",
+                              name),
             "删除", "取消",
             [toast, live, name, bump] {
                 try {
@@ -176,7 +185,11 @@ huxerui::View DshMonoLine(const std::string& text, huxerui::Color color) {
                         co_return;
                     });
                 })
-                .With(huxerui::Tooltip("只从 dsh 配置删除这一条")),
+                .With(huxerui::Enabled(!live.builtin),
+                      huxerui::Tooltip(
+                          live.builtin
+                              ? "dsh 内置路由不在 settings.yaml 里，无法删除"
+                              : "只从 dsh 配置删除这一条")),
         }.With(huxerui::Spacing(4.0F),
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
     }.With(huxerui::Spacing(6.0F),
@@ -319,10 +332,10 @@ huxerui::View DshMonoLine(const std::string& text, huxerui::Color color) {
                                            ? "已是 dsh 默认路由"
                                            : "改 agent-default-model 指向它")),
             huxerui::IconButton(app::images::upload, "写入 / 更新 dsh")
-                .OnClick([toast, bump] {
+                .OnClick([toast, name, id, bump] {
                     try {
-                        providerStore().syncDshProviders({});
-                        toast.Show("已把本应用全部供应商增量写入 dsh");
+                        providerStore().writeDshProvider(id);
+                        toast.Show(std::format("已把 {} 写入 dsh", name));
                     } catch (const std::exception& e) {
                         toast.Show(e.what());
                     }
@@ -331,7 +344,7 @@ huxerui::View DshMonoLine(const std::string& text, huxerui::Color color) {
                 .With(huxerui::Enabled(!present || !same),
                       huxerui::Tooltip(present && same
                                            ? "dsh 里已是最新"
-                                           : "增量写入 settings.yaml")),
+                                           : "只把这一条写进 settings.yaml")),
             huxerui::IconButton(app::images::activity, "联通检测")
                 .OnClick([tasks, checking, latency, http, url = accessUrl] {
                     checking = true;
@@ -433,7 +446,7 @@ huxerui::View DshMonoLine(const std::string& text, huxerui::Color color) {
         huxerui::Button("全部写入 dsh").OnClick([toast, revision] {
             try {
                 providerStore().syncDshProviders({});
-                toast.Show("已把本应用全部供应商增量写入 dsh");
+                toast.Show("已把本应用全部供应商写入 dsh（并清理孤儿条目）");
             } catch (const std::exception& e) {
                 toast.Show(e.what());
             }
@@ -462,29 +475,19 @@ huxerui::View DshMonoLine(const std::string& text, huxerui::Color color) {
     }.With(huxerui::Spacing(theme.spacing.small),
            huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
 
-    // 左列：DSH 实际配置。
+    // 左列：DSH 实际配置。至少有一条 dsh 内置官方行（settings.yaml 里没有
+    // deepseek-official 时是合成的），所以这里不判空。
     const std::string liveCount =
         std::format("DSH 实际配置 · {} 条", live.size());
-    huxerui::View liveList = live.empty()
-                                 ? huxerui::View{
-                                       huxerui::Text("settings.yaml 里还没有手写"
-                                                     "路由。")
-                                           .Style(huxerui::TextStyle{
-                                               huxerui::Font::System(
-                                                   font_size::kCaption),
-                                               theme.colors
-                                                   .on_surface_variant})}
-                                 : huxerui::View{huxerui::VirtualList(
-                                       live,
-                                       [revision, toast](
-                                           const store::DshLiveProvider& entry) {
-                                           return DshLiveRow(entry, revision,
-                                                             toast);
-                                       })
-                                       .EstimatedItemExtent(120.0F)
-                                       .CacheExtent(480.0F)
-                                       .With(huxerui::Spacing(8.0F),
-                                             huxerui::Grow(1.0F))};
+    huxerui::View liveList =
+        huxerui::VirtualList(live,
+                             [revision, toast](
+                                 const store::DshLiveProvider& entry) {
+                                 return DshLiveRow(entry, revision, toast);
+                             })
+            .EstimatedItemExtent(120.0F)
+            .CacheExtent(480.0F)
+            .With(huxerui::Spacing(8.0F), huxerui::Grow(1.0F));
     huxerui::View liveColumn = huxerui::Column {
         huxerui::Text(liveCount).Style(
             huxerui::TextStyle{huxerui::Font::System(font_size::kChip)

@@ -373,11 +373,13 @@ std::string ProviderStore::addProvider(std::string_view tool,
     if (tool == "zcode") upsertZcodeEntry(provider);
     std::string id = provider.id;
     g.providers.push_back(std::move(provider));
-    // dsh 的 providers 是多路由并存的 map：新增即增量写入 live（llmswitch-<id>
-    // 条目），而非等切换时替换整个列表。写失败回滚内存态，不留半套状态。
+    // dsh 的 providers 是多路由并存的 map：新增即增量写入 live（只写这一条
+    // llmswitch-<id>，别的条目与默认指向不动），而非等切换时重建整个列表。
+    // 写失败回滚内存态，不留半套状态。
     if (tool == "dsh") {
         try {
-            syncDshProviders({});
+            writeDshEntry(g.providers.back(), /*overwrite=*/true,
+                          /*makeDefault=*/false);
         } catch (...) {
             g.providers.pop_back();
             throw;
@@ -396,7 +398,8 @@ void ProviderStore::updateProvider(std::string_view tool,
             cur = provider;
             if (tool == "dsh") {
                 try {
-                    syncDshProviders({});
+                    writeDshEntry(cur, /*overwrite=*/true,
+                                  /*makeDefault=*/false);
                 } catch (...) {
                     cur = previous;
                     throw;
@@ -417,10 +420,11 @@ void ProviderStore::removeProvider(std::string_view tool, const std::string& id)
     std::erase_if(g.providers, [&](const models::Provider& p) { return p.id == id; });
     if (g.current == id) g.current.clear();
     if (tool == "dsh") {
-        // 增量同步：组里已没有它，条目随之从 live 清掉；它正是 dsh 默认路由时
-        // 同步会把悬空的 agent-default-model 清回内置官方路由。
+        // 单条增量删除：只把这一条 llmswitch-<id> 从 live 摘掉（条目不在 live
+        // 里时连文件都不碰），它正是 dsh 默认路由时指针一并清回内置官方路由。
+        // 别的供应商——包括还没写进 live 的那些——一律不受影响。
         try {
-            syncDshProviders({});
+            eraseDshEntry("llmswitch-" + id);
         } catch (...) {
             if (snapshot) g = std::move(*snapshot);
             throw;
@@ -441,7 +445,7 @@ models::Provider ProviderStore::duplicateProvider(std::string_view tool,
         g.providers.insert(g.providers.begin() + static_cast<std::ptrdiff_t>(i + 1), copy);
         if (tool == "dsh") {
             try {
-                syncDshProviders({});
+                writeDshEntry(copy, /*overwrite=*/true, /*makeDefault=*/false);
             } catch (...) {
                 g.providers.erase(g.providers.begin() +
                                   static_cast<std::ptrdiff_t>(i + 1));

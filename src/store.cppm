@@ -33,6 +33,10 @@ export struct DshLiveProvider {
     // 已纳管（本应用条目 llmswitch-<id> 且组内存在该 id）时的组内 id；
     // 空 = live 独有（未纳管），页面提供「收编」。
     std::string providerId;
+    // 合成行：settings.yaml 里没有这条，它由 dsh 自己的适配器注册
+    // （只有内置的 deepseek-official 路由是这样）。左列补出它是为了让
+    // 「当前默认到底用哪条」可见；它不在文件里，所以既不能收编也不能删除。
+    bool builtin = false;
 };
 
 export class ProviderStore {
@@ -97,30 +101,41 @@ public:
     models::Provider duplicateProvider(std::string_view tool, const std::string& id);
 
     // ---- dsh 增量多供应商（settings.yaml 的 llm-pi-ai.providers）----
-    // dsh 的 live 配置是「多条手写路由并存」的累加列表：本应用把组内全部
-    // 供应商逐条写成 llmswitch-<id> 条目，切换只改 agent-default-model 指向。
+    // dsh 的 live 配置是「多条手写路由并存」的累加列表：本应用把组内供应商
+    // 逐条写成 llmswitch-<id> 条目，切换只改 agent-default-model 指向。
     // 供应商页用左右两列对照 live 实况与本地留存——live 会被 dsh 自己或其它
     // 工具改动，两边本来就可能不同步。
+    //
+    // 写侧一律是**单条增量**：每个入口只动自己那一条（syncDshProviders 是
+    // 唯一例外，它是「全部写入 dsh」按钮显式触发的整体重建）。绝不能把增删改
+    // 顺手做成整组重建——那等于把本地全部供应商一次性推给 dsh，用户在 dsh 侧
+    // 手工整理过的条目前脚刚删掉一条就会被别人补回来。
 
-    // live settings.yaml 里 llm-pi-ai.providers 的实况列表（只读）。
+    // live settings.yaml 里 llm-pi-ai.providers 的实况列表（只读）。文件里没有
+    // dsh 内置的 deepseek-official 路由时补一条 builtin 合成行（默认指向内置
+    // 路由时，由它表达「当前用哪条」）。
     [[nodiscard]] std::vector<DshLiveProvider> dshLiveProviders() const;
-    // 把组内全部供应商增量写入 live：逐条重建 llmswitch-<id> 条目（含模型
-    // 能力声明与 .credentials.yaml 密钥），清掉不再属于组内的孤儿 llmswitch-*
-    // 条目，并把被收编过来的裸键（键 == 组内 id）接管成 llmswitch-<id>；
-    // 其它手写条目（含 dsh 内置路由）一律原样保留。
+    // 显式整体重建（「全部写入 dsh」按钮）：把组内全部供应商逐条重建为
+    // llmswitch-<id> 条目（含模型能力声明与 .credentials.yaml 密钥），清掉不再
+    // 属于组内的孤儿 llmswitch-* 条目，并把被收编过来的裸键（键 == 组内 id）
+    // 接管成 llmswitch-<id>；其它手写条目（含 dsh 内置路由）一律原样保留。
     // defaultProviderId 非空 = agent-default-model 指向它；clearDefault = 删掉
     // 该块回到内置官方路由（两者同时给时 clearDefault 优先）。另外，live 里
     // 指向已被删除供应商的悬空默认会自动清回官方路由。
     void syncDshProviders(const std::string& defaultProviderId = {},
                           bool clearDefault = false);
+    // 单条增量写入（供应商页每行的「写入 / 更新」）：只把该供应商重建为
+    // llmswitch-<id> 条目（含密钥 upsert），别的条目与默认指向一字不动。
+    // id 不在组内抛 std::runtime_error。
+    void writeDshProvider(const std::string& id);
     // 收编 live 里的一条手写条目成供应商卡：条目键映射成组内 id
     // （llmswitch-<id> 剥前缀，裸键即 id），同 id 已存在则原位更新（以 live
-    // 为准，保留原 createdAt）。收编后该条目被接管成 llmswitch-<id>（键改名、
+    // 为准，保留原 createdAt）。收编后只重建这一条（键改名 llmswitch-<id>、
     // 内容不变）；它正是 dsh 默认路由时 agent-default-model 同步改指。
     // 条目不存在抛 std::runtime_error。
     models::Provider adoptDshProvider(const std::string& key);
     // 删除 live 里的一条条目（本应用的 llmswitch-<id> 或用户手写键都行），
-    // 只删这一条、组内其它供应商照常重建；被删的正是默认路由时
+    // 只删这一条、别的条目一字不动；被删的正是默认路由时
     // agent-default-model 块一并清除。条目不存在抛 std::runtime_error。
     void removeDshProvider(const std::string& key);
 
@@ -185,6 +200,19 @@ public:
 private:
     models::ProviderGroup& groupRef(std::string_view tool);
     models::AppConfig config_;
+
+    // ---- dsh 单条增量写入/删除（定义在 store_live.cpp）----
+    // 把 p 写成 llmswitch-<p.id> 条目：overwrite=false 且条目已在 live 里时内容
+    // 原样保留（「设为默认」不该覆盖用户在 dsh 侧的手改），true 时整条重建；
+    // 裸键 <p.id>（收编前的形状）在同一 id 的新条目写入时被移除。makeDefault
+    // = true 时 agent-default-model 指向新键，否则只在原默认正好指向被改名的
+    // 裸键时跟着改指。别的条目、无关键、注释一律不动；密钥 upsert 进
+    // .credentials.yaml。
+    void writeDshEntry(const models::Provider& p, bool overwrite,
+                       bool makeDefault);
+    // 只从 live 删掉这个键（别的条目与默认指向都不动）；它正是默认路由时
+    // agent-default-model 块一并清除。返回该键在 providers 里是否存在。
+    bool eraseDshEntry(const std::string& key);
 };
 
 // 用量查询模板的用户覆盖表（cfg::usageTemplatesFile()）原文；文件不存在

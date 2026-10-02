@@ -155,17 +155,25 @@ hover 时在屏幕中央展开径向导航盘，全部 8 个顶级页面图标�
   条目里已有的**其它模型清单原样保留**（本应用只声明主模型，清单裁成一条会
   让 pi 的模型菜单静默少几条），主模型缺失时按原元素形状补一条——裸标量与
   `{"id": ...}` 对象两种形状都认（`modelEntryId`/`modelListContains`）；
-  dsh = `~/.dsh/settings.yaml` 行级改写，**增量多路由**：llm-pi-ai.providers
-  是「多供应商并存 + agent-default-model 指默认」，所以每次写都是
-  `syncDshProviders` 的整组重建——把组内每个供应商写成 `llmswitch-<id>`
-  条目（api 字段复用 pi 三档映射，追加在 providers 块尾）、删掉文件里所有
-  `llmswitch-*`（不在组内的即孤儿）以及被收编的裸键，别家手写条目 / 内置
+  dsh = `~/.dsh/settings.yaml` 行级改写，**单条增量的多路由**：
+  llm-pi-ai.providers 是「多供应商并存 + agent-default-model 指默认」的累加
+  map，写侧每个入口**只动自己那一条**——`writeDshEntry`（私有的单条 upsert/
+  改名接管与指针改指）与 `eraseDshEntry`（私有的单条删除）是全部实现，
+  公开入口 `writeDshProvider`（每行「写入 / 更新」）/ `adoptDshProvider`
+  （收编手写裸键 → 改名 `llmswitch-<id>` 接管，是默认路由时指针跟着改指）/
+  `removeDshProvider`（只删 live 那一条，含未纳管的 dsh 条目）/ 增改复制删
+  与 `switchTo`（切换 = 只改 agent-default-model；目标条目不在 live 里时补写
+  一条，避免指针悬空）都走它们；`dshLiveProviders` 是左列实况快照
+  （settings.yaml 里没有内置 deepseek-official 时补一条 `builtin` 合成行，
+  不能收编/删除；没有 agent-default-model 块时官方行就是「使用中」）。
+  整组重建只剩 `syncDshProviders` 一个入口——供应商页的「全部写入 dsh」按钮
+  与 restoreOfficial 的收尾；它把组内每条写成 `llmswitch-<id>`（api 字段复用
+  pi 三档映射，追加在 providers 块尾）、清掉不在组内的孤儿 `llmswitch-*`。
+  **别把增删改做成整组重建**：那等于把本地全部供应商一次性推给 dsh，用户在
+  左列删掉/整理过的条目下一次本地增删就会被补回来。别家手写条目 / 内置
   deepseek-official / 无关键 / 注释一律不动；`agent-default-model` 只在需要
   时改（显式切换或清除、裸键接管改名后重指向、原默认指向已删供应商时清回
-  内置官方路由）。增 / 改 / 删供应商都即时同步 live，不必先切换；四个入口：
-  `syncDshProviders`（整组重建）/ `dshLiveProviders`（左列实况快照）/
-  `adoptDshProvider`（收编手写裸键 → 改名 `llmswitch-<id>` 接管）/
-  `removeDshProvider`（只删 live 那一条，含未纳管的 dsh 条目）。密钥只写
+  内置官方路由）。密钥只写
   `~/.dsh/.credentials.yaml`（顶层 env 名→密钥 map，apiKeyEnv 引用，只增改、
   不代清无引用的旧键，目录 0700、文件 0600）；条目首个模型
   条目按 Provider 的官方能力字段写：`contextWindow` / `maxTokens`（容量，
