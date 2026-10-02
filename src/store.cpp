@@ -405,8 +405,17 @@ void ProviderStore::updateProvider(std::string_view tool,
                     throw;
                 }
             }
+            if (tool == "zcode") {
+                // 单条增量：只重建这一条，别的条目与 ZCode 侧的手改不动。
+                try {
+                    writeZcodeEntry(cur, /*overwrite=*/true,
+                                    /*makeEnabled=*/false);
+                } catch (...) {
+                    cur = previous;
+                    throw;
+                }
+            }
             save();
-            if (tool == "zcode") upsertZcodeEntry(provider);
             return;
         }
     }
@@ -417,7 +426,9 @@ void ProviderStore::removeProvider(std::string_view tool, const std::string& id,
                                    bool eraseLive) {
     auto& g = groupRef(tool);
     std::optional<models::ProviderGroup> snapshot;
-    if (tool == "dsh" && eraseLive) snapshot = g;  // live 写失败 ⇒ 回滚删除
+    if ((tool == "dsh" || tool == "zcode") && eraseLive) {
+        snapshot = g;  // live 写失败 ⇒ 回滚删除
+    }
     std::erase_if(g.providers, [&](const models::Provider& p) { return p.id == id; });
     if (g.current == id) g.current.clear();
     if (tool == "dsh" && eraseLive) {
@@ -428,6 +439,22 @@ void ProviderStore::removeProvider(std::string_view tool, const std::string& id,
         // 左列当未纳管的手写路由（右列删除确认的「只删本应用」）。
         try {
             eraseDshEntry("llmswitch-" + id);
+        } catch (...) {
+            if (snapshot) g = std::move(*snapshot);
+            throw;
+        }
+    }
+    if (tool == "zcode" && eraseLive) {
+        // 同上，ZCode 侧：只摘掉这一条（键可能是 llmswitch:<id>，也可能是
+        // ZCode 原生条目——右列那条在 config.json 里的实体就是它）。条目不在
+        // live 里时连文件都不碰；eraseLive=false 同样一字不动。
+        try {
+            const auto doc = readJsonOrNull(cfg::zcodeConfigFile());
+            if (doc.is_object() && doc.contains("provider") &&
+                doc["provider"].is_object()) {
+                const std::string key = zcodeEntryKeyFor(doc["provider"], id);
+                if (doc["provider"].contains(key)) eraseZcodeEntry(key);
+            }
         } catch (...) {
             if (snapshot) g = std::move(*snapshot);
             throw;
@@ -449,6 +476,16 @@ models::Provider ProviderStore::duplicateProvider(std::string_view tool,
         if (tool == "dsh") {
             try {
                 writeDshEntry(copy, /*overwrite=*/true, /*makeDefault=*/false);
+            } catch (...) {
+                g.providers.erase(g.providers.begin() +
+                                  static_cast<std::ptrdiff_t>(i + 1));
+                throw;
+            }
+        }
+        if (tool == "zcode") {
+            try {
+                writeZcodeEntry(copy, /*overwrite=*/true,
+                                /*makeEnabled=*/false);
             } catch (...) {
                 g.providers.erase(g.providers.begin() +
                                   static_cast<std::ptrdiff_t>(i + 1));

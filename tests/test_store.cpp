@@ -184,12 +184,14 @@ int main() {
         CHECK(models::findTool("dsh")->needsModel);
         CHECK(models::findTool("dsh")->hasApiFormat);
         CHECK(!models::findTool("dsh")->hasModelMappings);
-        // 增量供应商：dsh 的 live 文件里同时存在多条本应用路由，页面走
-        // 左右两列对照而非单选中。其余工具仍是「切换 = 只留一条」。
+        // 增量供应商：dsh / zcode 的 live 文件里同时存在多条本应用路由，
+        // 页面走左右两列对照而非单选中。其余工具仍是「切换 = 只留一条」。
         CHECK(models::findTool("dsh")->additiveProviders);
+        CHECK(models::findTool("zcode")->additiveProviders);
         CHECK(std::ranges::none_of(
             models::toolRegistry(), [](const auto& t) {
-                return t.id != "dsh" && t.additiveProviders;
+                return t.id != "dsh" && t.id != "zcode" &&
+                       t.additiveProviders;
             }));
         CHECK(models::findTool("hermes")->needsModel);
         CHECK(models::findTool("hermes")->hasApiFormat);
@@ -819,12 +821,14 @@ int main() {
                 CHECK(entry["options"]["apiKeyRequired"] == true);
                 CHECK(entry["models"].contains("na-2"));
             }
-            // 切换：目标原生条目显式启用，detect 命中；原生乙的 enabled
-            // false 不被互斥改写。
+            // 切换：目标原生条目本来就是启用态（enabled 缺省 = 启用），单条
+            // 增量不无谓地给 ZCode 自己的条目补字段、也不重写它的内容；原生乙
+            // 的 enabled false 不被互斥改写（互斥只覆盖本应用托管条目）。
             s6.switchTo("zcode", "native-a");
             {
                 const auto doc = readJson(zcodeConfig);
-                CHECK(doc["provider"]["native-a"]["enabled"] == true);
+                CHECK(!doc["provider"]["native-a"].contains("enabled"));
+                CHECK(doc["provider"]["native-a"]["name"] == "原生甲改");
                 CHECK(doc["provider"]["native-b"]["enabled"] == false);
                 CHECK(s6.detectCurrent("zcode") == "native-a");
             }
@@ -834,6 +838,174 @@ int main() {
                   false);
             CHECK(s6.zcodeEntryEnabled("native-a") == false);
             CHECK(s6.detectCurrent("zcode").empty());
+        }
+    }
+
+    // 8c1. zcode 的单条增量（与 dsh 同一套不变式，两个工具的差别在
+    // 「当前用哪条」= 条目自己的 enabled、密钥就在条目里）：
+    //   - 实况快照带 key / providerId / builtin / enabled / 模型清单；
+    //   - 每个入口只动自己那一条：新增 / 更新 / 写入 / 启用 / 删除都不碰别的
+    //     条目（builtin:* 与 ZCode 原生条目原样保留）；
+    //   - 收编不改 live 一字（原生条目保留它自己的键与内容）；
+    //   - 删除分「只删本应用」（文件全等）与「连同 ZCode 一起删」；
+    //   - 整组重建只发生在 syncZcodeProviders，且只清孤儿 llmswitch:*。
+    {
+        while (!s.group("zcode").providers.empty()) {
+            s.removeProvider("zcode", s.group("zcode").providers.back().id,
+                             /*eraseLive=*/false);
+        }
+        writeFile(zcodeConfig, R"json({"provider": {
+            "builtin:zai": {"name": "Z.ai", "kind": "anthropic", "options": {"apiKey": "bk"}, "enabled": true, "source": "builtin"},
+            "native-x": {"name": "原生X", "kind": "anthropic", "options": {"apiKey": "kx", "baseURL": "https://nx.example.com", "apiKeyRequired": true}, "models": {"nx-1": {}}}
+        }})json");
+        const nlohmann::json beforeBuiltin =
+            readJson(zcodeConfig)["provider"]["builtin:zai"];
+        const nlohmann::json beforeNative =
+            readJson(zcodeConfig)["provider"]["native-x"];
+        const auto providersOf = [&] {
+            return readJson(zcodeConfig)["provider"];
+        };
+        // 实况快照：builtin 标记、enabled 缺省语义、模型清单、未纳管。
+        {
+            const auto live = s.zcodeLiveProviders();
+            CHECK(live.size() == 2);
+            CHECK(live[0].key == "builtin:zai");
+            CHECK(live[0].builtin);
+            CHECK(live[0].providerId.empty());
+            CHECK(live[0].enabled);
+            CHECK(live[1].key == "native-x");
+            CHECK(!live[1].builtin);
+            CHECK(live[1].enabled);  // 没有 enabled 字段 = 启用
+            CHECK(live[1].apiFormat == "anthropic");
+            CHECK(live[1].apiKey == "kx");
+            CHECK(live[1].models == std::vector<std::string>({"nx-1"}));
+        }
+        // 新增：只多自己那一条，且新建条目不自动启用。
+        models::Provider pA{.name = "A",
+                            .baseUrl = "https://a.example.com/v1",
+                            .apiKey = "sk-a",
+                            .model = "a-1",
+                            .models = {"a-1", "a-2"}};
+        const std::string idA = s.addProvider("zcode", pA);
+        {
+            const auto providers = providersOf();
+            CHECK(providers["native-x"] == beforeNative);
+            CHECK(providers["builtin:zai"] == beforeBuiltin);
+            CHECK(providers["llmswitch:" + idA]["kind"] ==
+                  "openai-compatible");
+            CHECK(providers["llmswitch:" + idA]["enabled"] == false);
+            CHECK(providers["llmswitch:" + idA]["models"].contains("a-2"));
+        }
+        // 切换：只翻 enabled，不按本应用留存重建条目内容（用户在 ZCode 侧的
+        // 手改必须留着），别的 llmswitch:* 条目只被停用、内容不动。
+        models::Provider pB{.name = "B",
+                            .baseUrl = "https://b.example.com/v1",
+                            .apiKey = "sk-b",
+                            .model = "b-1"};
+        const std::string idB = s.addProvider("zcode", pB);
+        s.switchTo("zcode", idB);
+        {
+            auto doc = readJson(zcodeConfig);
+            doc["provider"]["llmswitch:" + idB]["handEdited"] = "keepB";
+            doc["provider"]["llmswitch:" + idA]["handEdited"] = "keepA";
+            writeFile(zcodeConfig, doc.dump(2) + "\n");
+        }
+        s.switchTo("zcode", idA);
+        {
+            const auto providers = providersOf();
+            CHECK(providers["llmswitch:" + idA]["enabled"] == true);
+            CHECK(providers["llmswitch:" + idA]["handEdited"] == "keepA");
+            CHECK(providers["llmswitch:" + idB]["enabled"] == false);
+            CHECK(providers["llmswitch:" + idB]["handEdited"] == "keepB");
+            CHECK(providers["native-x"] == beforeNative);
+            CHECK(providers["builtin:zai"] == beforeBuiltin);
+        }
+        // 「写入 / 更新」：只重建这一条（原生条目原位合并，保留 ZCode 自己
+        // 维护的字段），别的条目一字不动。
+        {
+            auto doc = readJson(zcodeConfig);
+            doc["provider"]["llmswitch:" + idA]["options"]["baseURL"] =
+                "https://hacked.example.com";
+            writeFile(zcodeConfig, doc.dump(2) + "\n");
+        }
+        s.writeZcodeProvider(idA);
+        {
+            const auto providers = providersOf();
+            CHECK(providers["llmswitch:" + idA]["options"]["baseURL"] ==
+                  "https://a.example.com/v1");
+            CHECK(providers["llmswitch:" + idA]["handEdited"] == "keepA");
+            CHECK(providers["native-x"] == beforeNative);
+            CHECK(providers["builtin:zai"] == beforeBuiltin);
+        }
+        // 收编：live 一字不动（原生条目保留它自己的键与内容），本地开始记录。
+        {
+            const std::string beforeAdopt = readTextFile(zcodeConfig);
+            const auto adopted = s.adoptZcodeProvider("native-x");
+            CHECK(adopted.id == "native-x");
+            CHECK(adopted.apiKey == "kx");
+            CHECK(adopted.models == std::vector<std::string>({"nx-1"}));
+            CHECK(readTextFile(zcodeConfig) == beforeAdopt);
+            CHECK(s.group("zcode").current == "native-x");  // 缺省 = 启用
+            bool sawManaged = false;
+            for (const auto& entry : s.zcodeLiveProviders()) {
+                if (entry.key == "native-x") {
+                    sawManaged = entry.providerId == "native-x";
+                }
+            }
+            CHECK(sawManaged);
+        }
+        // 删除：eraseLive=false 只收回本地留存（文件全等）；true 才摘掉那一条
+        // （别的条目——含 builtin 与原生条目——原样保留）。
+        {
+            const std::string before = readTextFile(zcodeConfig);
+            s.removeProvider("zcode", idB, /*eraseLive=*/false);
+            CHECK(readTextFile(zcodeConfig) == before);
+            CHECK(providersOf().contains("llmswitch:" + idB));
+            s.removeProvider("zcode", idB, /*eraseLive=*/true);
+            CHECK(!providersOf().contains("llmswitch:" + idB));
+            CHECK(providersOf()["native-x"] == beforeNative);
+            CHECK(providersOf()["builtin:zai"] == beforeBuiltin);
+        }
+        // 左列「从 ZCode 删除」：只删这一条；builtin 与不存在的键都抛错。
+        {
+            bool threwBuiltin = false;
+            try {
+                s.removeZcodeProvider("builtin:zai");
+            } catch (const std::exception&) {
+                threwBuiltin = true;
+            }
+            CHECK(threwBuiltin);
+            CHECK(providersOf().contains("builtin:zai"));
+            bool threwMissing = false;
+            try {
+                s.removeZcodeProvider("ghost");
+            } catch (const std::exception&) {
+                threwMissing = true;
+            }
+            CHECK(threwMissing);
+            s.removeZcodeProvider("native-x");
+            CHECK(!providersOf().contains("native-x"));
+            CHECK(providersOf()["builtin:zai"] == beforeBuiltin);
+        }
+        // 整组重建（「全部写入 ZCode」）：组内每条写成 llmswitch:<id>（原生键
+        // 已删的这条就新建），清掉孤儿 llmswitch:*，builtin 与原生条目不动。
+        {
+            auto doc = readJson(zcodeConfig);
+            doc["provider"]["llmswitch:orphan"] =
+                nlohmann::json{{"name", "孤儿"},
+                               {"kind", "anthropic"},
+                               {"options", {{"baseURL", "https://orphan.example.com"}}}};
+            writeFile(zcodeConfig, doc.dump(2) + "\n");
+        }
+        s.syncZcodeProviders();
+        {
+            const auto providers = providersOf();
+            CHECK(!providers.contains("llmswitch:orphan"));
+            CHECK(providers.contains("llmswitch:native-x"));
+            CHECK(providers.contains("llmswitch:" + idA));
+            CHECK(providers["builtin:zai"] == beforeBuiltin);
+            CHECK(providers["llmswitch:native-x"]["options"]["baseURL"] ==
+                  "https://nx.example.com");
         }
     }
     // 默认档（apiFormat 留空）→ openai-completions

@@ -95,29 +95,82 @@ nlohmann::json mergeZcodeEntry(const nlohmann::json& existing,
     return merged;
 }
 
+// 条目键 → 组内 id：本应用托管的 llmswitch:<id> 剥前缀，ZCode 原生条目
+// （键就是 ZCode 自己生成的 id）原样当 id。
+std::string zcodeProviderIdFor(std::string_view key) {
+    return key.starts_with("llmswitch:") ? std::string(key.substr(10))
+                                         : std::string(key);
+}
+
+// config.json 的一个 provider 条目 → Provider。收编与全量导入共用，保证两边
+// 读出来的字段一致；name 缺失回退条目键，kind 走 apiFormat 三档归一。
+models::Provider zcodeProviderFromEntry(std::string_view key,
+                                        const nlohmann::json& entry) {
+    models::Provider p;
+    p.id = zcodeProviderIdFor(key);
+    p.name = entry.is_object() ? jsonStr(entry, "name") : "";
+    if (p.name.empty()) p.name = std::string(key);
+    p.apiFormat = entry.is_object() && jsonStr(entry, "kind") == "anthropic"
+                      ? "anthropic"
+                      : "openai-chat";
+    const auto& options = entry.is_object() ? entry["options"] : nlohmann::json();
+    if (options.is_object()) {
+        p.baseUrl = jsonStr(options, "baseURL");
+        p.apiKey = jsonStr(options, "apiKey");
+    }
+    if (entry.is_object() && entry.contains("models") &&
+        entry["models"].is_object()) {
+        for (auto mit = entry["models"].begin(); mit != entry["models"].end();
+             ++mit) {
+            p.models.push_back(mit.key());
+            if (mit.value().is_object()) p.modelsMeta[mit.key()] = mit.value();
+        }
+        if (!p.models.empty()) p.model = p.models.front();
+    }
+    return p;
+}
+
 // 保存同步：把 provider 原位写成 config.json 的条目——优先已有的
 // llmswitch:<id>，ZCode 原生自建条目（键 = id）直接原位更新不另起重复
 // 条目；已存在时保留其 enabled（含缺省，字段不补写），新建时 enabled 置
 // false（启用走显式开关）。与 ZCode 页面的第三方供应商一一对应，无需
 // 切换即可改清单。
 void ProviderStore::upsertZcodeEntry(const models::Provider& provider) {
+    writeZcodeEntry(provider, /*overwrite=*/true, /*makeEnabled=*/false);
+}
+
+// 单条增量写入：只动自己这一条。overwrite=false 且条目已在 live 里时保持
+// 内容原样（只按需翻 enabled）——「设为启用」不该覆盖用户在 ZCode 侧的手改；
+// overwrite=true 时整条重建（原生条目走 mergeZcodeEntry 原位合并，它自己维护
+// 的其它字段与 options 键保留）。没有实际变化就不碰文件（不备份、不写）。
+void ProviderStore::writeZcodeEntry(const models::Provider& p, bool overwrite,
+                                    bool makeEnabled) {
     const auto file = cfg::zcodeConfigFile();
     nlohmann::json doc = readJsonOrNull(file);
     if (!doc.is_object()) doc = nlohmann::json::object();
     if (!doc.contains("provider") || !doc["provider"].is_object()) {
         doc["provider"] = nlohmann::json::object();
     }
-    backupLiveFile("zcode", file);
     auto& providers = doc["provider"];
-    const std::string entryKey = zcodeEntryKeyFor(providers, provider.id);
-    nlohmann::json entry =
-        buildZcodeEntry(provider, models::effectiveBaseUrl(provider));
+    const std::string entryKey = zcodeEntryKeyFor(providers, p.id);
     const auto existing = providers.find(entryKey);
-    if (existing != providers.end() && existing->is_object()) {
+    const bool hasEntry = existing != providers.end() && existing->is_object();
+    if (hasEntry && !overwrite && !makeEnabled) return;
+
+    nlohmann::json entry = buildZcodeEntry(p, models::effectiveBaseUrl(p));
+    if (hasEntry) {
         entry = mergeZcodeEntry(*existing, entry);
+        if (!makeEnabled) {
+            // 内容与启用状态都没变：不写文件。
+            if (entry == *existing) return;
+        } else {
+            entry["enabled"] = true;
+            if (entry == *existing) return;
+        }
     } else {
-        entry["enabled"] = false;
+        entry["enabled"] = makeEnabled;
     }
+    backupLiveFile("zcode", file);
     providers[entryKey] = std::move(entry);
     atomicWrite(file, doc.dump(2) + "\n");
 }
@@ -152,6 +205,157 @@ void ProviderStore::setZcodeEntryEnabled(const std::string& id, bool enabled) {
     }
     backupLiveFile("zcode", file);
     doc["provider"][key]["enabled"] = enabled;
+    atomicWrite(file, doc.dump(2) + "\n");
+}
+
+// live provider map 实况（只读）：每条给出页面左列需要的字段与「是否已纳管」。
+// 组内 id → 条目的对应关系反向算：先看 llmswitch:<id>，再看原生键 <id>
+// （与 zcodeEntryKeyFor 同一套规则），命中即已纳管。
+std::vector<ZcodeLiveProvider> ProviderStore::zcodeLiveProviders() const {
+    std::vector<ZcodeLiveProvider> out;
+    const auto doc = readJsonOrNull(cfg::zcodeConfigFile());
+    if (!doc.is_object() || !doc.contains("provider") ||
+        !doc["provider"].is_object()) {
+        return out;
+    }
+    const auto& g = group("zcode");
+    for (auto it = doc["provider"].begin(); it != doc["provider"].end(); ++it) {
+        const auto& entry = it.value();
+        if (!entry.is_object()) continue;
+        ZcodeLiveProvider live;
+        live.key = it.key();
+        live.builtin = live.key.starts_with("builtin:");
+        const models::Provider parsed = zcodeProviderFromEntry(live.key, entry);
+        live.displayName = parsed.name;
+        live.baseUrl = parsed.baseUrl;
+        live.kind = jsonStr(entry, "kind");
+        live.apiFormat = parsed.apiFormat;
+        live.apiKey = parsed.apiKey;
+        live.model = parsed.model;
+        live.models = parsed.models;
+        live.enabled = zcodeEntryOn(entry);
+        if (!live.builtin) {
+            for (const auto& p : g.providers) {
+                if (p.id == parsed.id &&
+                    zcodeEntryKeyFor(doc["provider"], p.id) == live.key) {
+                    live.providerId = p.id;
+                    break;
+                }
+            }
+        }
+        out.push_back(std::move(live));
+    }
+    return out;
+}
+
+// 右列「写入 / 更新」：只重建这一条（原生键的原位更新，保留它自己的字段）。
+void ProviderStore::writeZcodeProvider(const std::string& id) {
+    const auto& g = group("zcode");
+    for (const auto& p : g.providers) {
+        if (p.id != id) continue;
+        writeZcodeEntry(p, /*overwrite=*/true, /*makeEnabled=*/false);
+        return;
+    }
+    throw std::runtime_error(std::format("供应商不存在：{}", id));
+}
+
+// 收编：把 live 条目记进本地列表。live 一字不动——ZCode 原生条目保持它自己
+// 的键与内容（本应用只是开始管理它），llmswitch:<id> 条目本来就是我们的形状。
+models::Provider ProviderStore::adoptZcodeProvider(const std::string& key) {
+    auto& g = groupRef("zcode");
+    const auto file = cfg::zcodeConfigFile();
+    const auto doc = readJsonOrNull(file);
+    if (!doc.is_object() || !doc.contains("provider") ||
+        !doc["provider"].is_object() || !doc["provider"].contains(key) ||
+        !doc["provider"][key].is_object()) {
+        throw std::runtime_error(std::format("ZCode 配置里没有条目：{}", key));
+    }
+    if (key.starts_with("builtin:")) {
+        throw std::runtime_error(
+            std::format("ZCode 官方套餐条目不能收编：{}", key));
+    }
+    models::Provider p = zcodeProviderFromEntry(key, doc["provider"][key]);
+    const bool enabled = zcodeEntryOn(doc["provider"][key]);
+    bool replaced = false;
+    for (auto& cur : g.providers) {
+        if (cur.id != p.id) continue;
+        const std::int64_t created = cur.createdAt;
+        cur = p;
+        cur.createdAt = created;
+        replaced = true;
+        break;
+    }
+    if (!replaced) {
+        p.createdAt = nowMillis();
+        g.providers.push_back(p);
+    }
+    if (enabled) g.current = p.id;
+    save();
+    return p;
+}
+
+// 从 config.json 删掉这一条：只删它，别的条目（含 builtin:* 与 ZCode 原生
+// 条目）一字不动。key 不存在也报错，避免用户以为删掉了。
+void ProviderStore::removeZcodeProvider(const std::string& key) {
+    const auto file = cfg::zcodeConfigFile();
+    if (!eraseZcodeEntry(key)) {
+        throw std::runtime_error(std::format("ZCode 配置里没有条目：{}", key));
+    }
+}
+
+// 只从 live 删掉这个键。builtin:* 抛错；键不存在返回 false（不写文件）。
+bool ProviderStore::eraseZcodeEntry(const std::string& key) {
+    if (key.starts_with("builtin:")) {
+        throw std::runtime_error(
+            std::format("ZCode 官方套餐条目不能删除：{}", key));
+    }
+    const auto file = cfg::zcodeConfigFile();
+    nlohmann::json doc = readJsonOrNull(file);
+    if (!doc.is_object() || !doc.contains("provider") ||
+        !doc["provider"].is_object() || !doc["provider"].contains(key)) {
+        return false;
+    }
+    backupLiveFile("zcode", file);
+    doc["provider"].erase(key);
+    atomicWrite(file, doc.dump(2) + "\n");
+    return true;
+}
+
+// 显式整组重建（「全部写入 ZCode」按钮）：把组内每条写成它对应的条目
+// （已有 llmswitch:<id> 或原生键原位更新，都没有则新建 llmswitch:<id>），
+// 并清掉不再属于组内的孤儿 llmswitch:* 条目。builtin:* 与 ZCode 原生条目
+// 一律不动——那是 ZCode 自己的配置。
+void ProviderStore::syncZcodeProviders() {
+    auto& g = groupRef("zcode");
+    const auto file = cfg::zcodeConfigFile();
+    nlohmann::json doc = readJsonOrNull(file);
+    if (!doc.is_object()) doc = nlohmann::json::object();
+    if (!doc.contains("provider") || !doc["provider"].is_object()) {
+        doc["provider"] = nlohmann::json::object();
+    }
+    nlohmann::json next = doc["provider"];
+    std::set<std::string> kept;
+    for (const auto& p : g.providers) {
+        const std::string key = zcodeEntryKeyFor(doc["provider"], p.id);
+        nlohmann::json entry = buildZcodeEntry(p, models::effectiveBaseUrl(p));
+        const auto existing = doc["provider"].find(key);
+        if (existing != doc["provider"].end() && existing->is_object()) {
+            entry = mergeZcodeEntry(*existing, entry);
+        } else {
+            entry["enabled"] = false;
+        }
+        kept.insert(key);
+        next[key] = std::move(entry);
+    }
+    // 清孤儿：不在组内、且是本应用托管的 llmswitch:* 条目。
+    for (auto it = doc["provider"].begin(); it != doc["provider"].end(); ++it) {
+        if (it.key().starts_with("llmswitch:") && !kept.contains(it.key())) {
+            next.erase(it.key());
+        }
+    }
+    if (next == doc["provider"]) return;
+    backupLiveFile("zcode", file);
+    doc["provider"] = std::move(next);
     atomicWrite(file, doc.dump(2) + "\n");
 }
 

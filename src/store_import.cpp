@@ -500,35 +500,12 @@ models::Provider ProviderStore::importLive(std::string_view tool) {
             const auto& entry = it.value();
             if (!entry.is_object()) continue;
             if (it.key().starts_with("builtin:")) continue;
-            const auto& options = entry["options"];
-            const std::string baseUrl =
-                options.is_object() ? jsonStr(options, "baseURL") : "";
-            const std::string apiKey =
-                options.is_object() ? jsonStr(options, "apiKey") : "";
-            if (baseUrl.empty() && apiKey.empty()) continue;
-            models::Provider p;
-            p.name = jsonStr(entry, "name");
-            if (p.name.empty()) p.name = it.key();
-            p.apiFormat =
-                jsonStr(entry, "kind") == "anthropic" ? "anthropic" : "openai-chat";
-            p.baseUrl = baseUrl;
-            p.apiKey = apiKey;
-            if (entry.contains("models") && entry["models"].is_object()) {
-                for (auto mit = entry["models"].begin();
-                     mit != entry["models"].end(); ++mit) {
-                    p.models.push_back(mit.key());
-                    if (mit.value().is_object()) {
-                        p.modelsMeta[mit.key()] = mit.value();
-                    }
-                }
-                if (!p.models.empty()) p.model = p.models.front();
-            }
+            models::Provider p = zcodeProviderFromEntry(it.key(), entry);
+            if (p.baseUrl.empty() && p.apiKey.empty()) continue;
             // 条目键即身份：同端点+同密钥的两条自建条目也是两个供应商，
             // 不得按端点+密钥合并（ZCode 页面显示几条就收编几条）；
             // llmswitch: 前缀还原为原始 id，本应用创建的供应商原位更新。
-            const std::string preferred =
-                it.key().starts_with("llmswitch:") ? it.key().substr(10)
-                                                   : it.key();
+            const std::string preferred = p.id;
             models::Provider* slot = nullptr;
             for (auto& cur : g.providers) {
                 if (cur.id == preferred) {
@@ -537,7 +514,6 @@ models::Provider ProviderStore::importLive(std::string_view tool) {
                 }
             }
             if (slot == nullptr) {
-                p.id = preferred;
                 p.createdAt = nowMillis();
                 g.providers.push_back(p);
             } else {

@@ -12,10 +12,16 @@
   dsh」按钮），供应商页左右两列 + 「全部写入 dsh」/「全部收编」+ 逐条
   写入/收编/删除；左列在文件里没有内置 deepseek-official 时补一条只读合成行
   （ToolSpec.additiveProviders）。
-- [ ] zcode：同一类增量模式（`~/.zcode/v2/config.json` 的 provider map 也是
-  多供应商并存、enabled 互斥停用其余）。待照搬两个差异对照的左右双列与
-  全部/逐条写入收编，并把 `zcode` 的 `ToolSpec.additiveProviders` 打开
-  （当前仍按「切换 = 只留一条」的写法）。
+- [x] zcode：`~/.zcode/v2/config.json` 的 provider map 同一套**单条增量**
+  （`writeZcodeProvider` / `adoptZcodeProvider` / `removeZcodeProvider` /
+  增改复制删 / 切换各只动自己那一条，`syncZcodeProviders` 整组重建只留给显式的
+  「全部写入 ZCode」按钮），供应商页左右两列 + 全部写入 / 全部收编 + 逐条
+  写入/收编/删除（删除确认问「只删本应用」还是「连同 ZCode 一起删」）；
+  `ToolSpec.additiveProviders` 已打开。与 dsh 的两处差别：默认指向是条目自己的
+  `enabled`（互斥只覆盖本应用托管的 llmswitch:*），密钥就在条目里（没有独立
+  凭据文档）。**收编不改写 live**：ZCode 原生条目保留它自己的键与内容，写入/
+  更新原位合并、保留它自己维护的字段（options 其它键、systemDisabledReason），
+  `builtin:*` 不收编不删除。
 
 ## 发布与分发
 

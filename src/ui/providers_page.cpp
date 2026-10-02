@@ -123,12 +123,18 @@ using provider_detail::WriteUsageCache;
     // 订阅全局变更计数：托盘切换 / 设置页导入后本页重读。
     (void)revision.Get();
 
-    // 增量多供应商工具（dsh）不走单列卡片：它的 live 配置是多路由并存的
-    // 累加列表，页面改由 DshProvidersPage 渲染「live 实况 / 本地留存」左右两列
-    // （注册表 ToolSpec::additiveProviders 分流，这里不出现具体工具名）。
+    // 增量多供应商工具（dsh / zcode）不走单列卡片：它们的 live 配置是多条目
+    // 并存的累加 map，页面改由左右两列渲染「live 实况 / 本地留存」。分流本身
+    // 走注册表标记 ToolSpec::additiveProviders，具体布局按工具分派——两个工具
+    // 的条目形状与默认语义不同（dsh 用 agent-default-model + 凭据文档，ZCode 用
+    // 条目自己的 enabled + options.apiKey），共用的是「左右两列对照」这套交互。
     if (const auto* spec = models::findTool(tool);
         spec != nullptr && spec->additiveProviders) {
-        return DshProvidersPage(revision, usageCache, formToolIndex, formTarget);
+        return tool == "zcode"
+                   ? ZcodeProvidersPage(revision, usageCache, formToolIndex,
+                                        formTarget)
+                   : DshProvidersPage(revision, usageCache, formToolIndex,
+                                      formTarget);
     }
 
     // 卡片列表：官方常驻卡（有官方厂商的工具）排第一，其后是供应商卡；

@@ -117,8 +117,8 @@ commit，不回滚已经验证的修改，并在最终回复中报告失败原�
 | 模块 | 文件 | 职责 |
 |------|------|------|
 | `llmswitch.config` | `src/config.cppm` | 数据目录（~/.local/share/llm-switch）/ config.json、backups/、mcp.json、skills-store/、router/requests.jsonl 路径 / live 配置与会话/技能目录解析（全部 LLMSWITCH_* 环境变量可覆盖）/ 深色检测 |
-| `llmswitch.models` | `src/models.cppm` | 工具注册表（ToolSpec/toolRegistry/findTool：claude-code/claude/codex/opencode/pi/dsh/hermes/gemini/qwen/zcode；needsModel/hasApiFormat/hasModelMappings 三标记驱动表单适配，additiveProviders 标记「live 是多供应商并存 + 一个默认指向」的增量工具（目前只有 dsh，页面走左右双列对照））+ Provider/ProviderGroup/AppConfig（groups 以注册表 id 为键的 map，旧格式顶层 claude/codex 自动迁移；router/usage 设置字段，Provider.usageEnabled 控制单个供应商是否查询，routerTools 保存逐 Agent 代理选择；Provider 含 modelFetchUrl、haiku/sonnet/opusModel 三档映射与 upstreamFormat/fullUrl URL 模式）+ JSON 序列化 + 内置预设（builtinPresets）+ 官方厂商名（officialVendorName：claude 系/codex/zcode/dsh 有官方常驻卡）+ apiFormat 三档归一（normalizeApiFormat/apiFormatLabel）+ 上游 URL 归一/后缀（normalizeUpstreamFormat/upstreamFormatSuffix/effectiveBaseUrl）+ dsh 模型条目的官方能力字段（档位表 reasoningLevels 规范升序 / reasoningLevelLabel / normalizeReasoningEfforts / 位掩码两函数；输入模态表 inputModalities = text+image / inputModalityLabel / normalizeInputModalities / 位掩码两函数，text 是底座；容量拼写 parseTokenCount / formatTokenCount，接受 256K、1M；Provider 的 reasoningEfforts / inputModalities / contextWindow / maxTokens 都是 per-供应商声明，0 与空清单 = 不声明）+ 用量模板表纯解析与匹配（parseUsageTemplates/suggestUsageQuery：数据在 resources/raw/usage_templates.json 资源包内置 + dataDir 用户覆盖，不硬编码） |
-| `llmswitch.store` | `src/store.cppm` + `src/store.cpp` | ProviderStore：config.json 读写、CRUD、switchTo 按工具 id 分发十个 writer（原子写+备份；gemini/qwen 走 <dir>/.env 行级 upsert + settings.json 深合并 auth 类型，zcode 走 provider map upsert + enabled 互斥，dsh 走 settings.yaml 行级 upsert（含推理档位，且写入前把 flow 风格的 providers 值摊平成块风格）+ .credentials.yaml 密钥库，hermes 走 config.yaml custom_providers 列表 upsert + model 节指向）、restoreOfficial 恢复厂商原生状态（claude-code/claude/codex/gemini/qwen/zcode/dsh）、detectCurrent/importLive、导出导入、theme/usage/router 与逐 Agent 路由设置 setter、用量模板用户覆盖表读取（loadUsageTemplatesOverride） |
+| `llmswitch.models` | `src/models.cppm` | 工具注册表（ToolSpec/toolRegistry/findTool：claude-code/claude/codex/opencode/pi/dsh/hermes/gemini/qwen/zcode；needsModel/hasApiFormat/hasModelMappings 三标记驱动表单适配，additiveProviders 标记「live 是多供应商并存 + 一个默认指向」的增量工具（dsh 与 zcode，供应商页走左右双列对照））+ Provider/ProviderGroup/AppConfig（groups 以注册表 id 为键的 map，旧格式顶层 claude/codex 自动迁移；router/usage 设置字段，Provider.usageEnabled 控制单个供应商是否查询，routerTools 保存逐 Agent 代理选择；Provider 含 modelFetchUrl、haiku/sonnet/opusModel 三档映射与 upstreamFormat/fullUrl URL 模式）+ JSON 序列化 + 内置预设（builtinPresets）+ 官方厂商名（officialVendorName：claude 系/codex/zcode/dsh 有官方常驻卡）+ apiFormat 三档归一（normalizeApiFormat/apiFormatLabel）+ 上游 URL 归一/后缀（normalizeUpstreamFormat/upstreamFormatSuffix/effectiveBaseUrl）+ dsh 模型条目的官方能力字段（档位表 reasoningLevels 规范升序 / reasoningLevelLabel / normalizeReasoningEfforts / 位掩码两函数；输入模态表 inputModalities = text+image / inputModalityLabel / normalizeInputModalities / 位掩码两函数，text 是底座；容量拼写 parseTokenCount / formatTokenCount，接受 256K、1M；Provider 的 reasoningEfforts / inputModalities / contextWindow / maxTokens 都是 per-供应商声明，0 与空清单 = 不声明）+ 用量模板表纯解析与匹配（parseUsageTemplates/suggestUsageQuery：数据在 resources/raw/usage_templates.json 资源包内置 + dataDir 用户覆盖，不硬编码） |
+| `llmswitch.store` | `src/store.cppm` + `src/store.cpp` | ProviderStore：config.json 读写、CRUD、switchTo 按工具 id 分发十个 writer（原子写+备份；gemini/qwen 走 <dir>/.env 行级 upsert + settings.json 深合并 auth 类型，zcode 走 config.json 的 provider map 单条增量 upsert + enabled 互斥（收编保留原生条目键、不改写），dsh 走 settings.yaml 行级 upsert（含推理档位，且写入前把 flow 风格的 providers 值摊平成块风格）+ .credentials.yaml 密钥库，hermes 走 config.yaml custom_providers 列表 upsert + model 节指向）、restoreOfficial 恢复厂商原生状态（claude-code/claude/codex/gemini/qwen/zcode/dsh）、detectCurrent/importLive、导出导入、theme/usage/router 与逐 Agent 路由设置 setter、用量模板用户覆盖表读取（loadUsageTemplatesOverride） |
 | `llmswitch.net` | `src/net.cppm` + `src/net.cpp` | 纯函数：模型列表 URL 拼接 `modelListUrl`/候选推导、响应解析 `parseModelIds`（data/models 两种形状，去重保序）和用量取值 `extractByPath`（点分路径+数组下标取标量）；实际网络请求不在此层——供应商页面走 HuxerUI HttpClient（provider_network.cpp），路由出站走 UpstreamSession |
 | `llmswitch.router` | `src/router.cppm` + `src/router.cpp` | LocalRouter：cpp-httplib 服务器监听 127.0.0.1，`/<tool>/` 前缀路由到该组 current 供应商的实际 URL（按 upstreamFormat 追加 /anthropic 或 /v1，fullUrl 时原样），替换鉴权头，线程安全的逐工具开关运行中即时生效（禁用返回 403，不访问上游/统计），可选故障转移（429/5xx/连接失败按组内顺序试下一个）；RequestLog/StatsSnapshot 统计，每请求追加 JSONL（dataDir()/router/requests.jsonl），启动回填内存环形缓冲（最多 1000 条） |
 | `llmswitch.mcp` | `src/mcp.cppm` + `src/mcp.cpp` | MCP 服务器统一清单（SSOT = dataDir()/mcp.json）；启停 = 写/删工具 live 配置条目：claude-code → ~/.claude.json 顶层 mcpServers 深合并、codex → config.toml 行级 [mcp_servers.*] section 重写、opencode → opencode.json 顶层 mcp；claude/pi 不支持（抛中文错） |
@@ -839,5 +839,34 @@ I/O、解析和 JSON 函数默认保留在 `.cpp` 中。
   退出码 1 / 2 复现。test_store 覆盖写入形状、未声明不写、块/flow 读回、
   容量拼写与模态底座规则（四处均做反向验证：撤掉修复后分别 4 / 10 / 7 / 1
   项断言失败）。
+- ✅ dsh 凭据文档布局修复（2026-10-02）：`.credentials.yaml` 是 dsh 的
+  **version 1 布局**——顶层只允许 version / refs / records，引用名在 `refs:`
+  块内（缩进 2）。此前 `upsertDshCredential` 把 `LLMSWITCH_<ID>: "…"` 追加到
+  顶层，dsh 解析时直接拒绝**整份文档**
+  （`credentials-local: unknown top-level key "LLMSWITCH_…"`），于是所有密钥
+  一起失效、连用户自己存的 C_API_KEY 都读不出来，所有手工路由都报凭据缺失
+  ——dsh 完全不可用。修复：先认布局再落笔（有 `refs:` 块就写块内、`refs: {}`
+  摊平成块风格、其它 flow 值明确报错不硬写；没有 version 的预发布 flat 布局
+  仍写顶层；空文件建 version 1 骨架），并把旧版本写到顶层的 `LLMSWITCH_*`
+  残留迁回 refs 块（值保留、refs 里已有的同名引用为准），下一次写入即自愈；
+  读侧（adopt/importLive）只认 refs 块内的引用。test_store 8d10 覆盖布局/
+  迁移/去重/骨架，实机文件已修复（原件备份在 backups/dsh/），并用 dsh 自己的
+  `parseCredentialsDocument` 验证可解析。
+- ✅ ZCode 同步 dsh 的增量模式（2026-10-02）：`~/.zcode/v2/config.json` 的
+  provider map 与 dsh 同为「多条目并存 + 一个当前指向」，供应商页改走左右
+  两列（ToolSpec.additiveProviders，providers_zcode.cpp）。写侧单条增量：
+  `writeZcodeEntry`（私有单条 upsert，原生条目走 mergeZcodeEntry 原位合并）与
+  `eraseZcodeEntry`（私有单条删除）是全部实现，公开入口 `writeZcodeProvider` /
+  `adoptZcodeProvider` / `removeZcodeProvider` / `syncZcodeProviders`（整组重建
+  只此一处）+ 增改复制删与 `switchTo` 都走它们；`zcodeLiveProviders` 是左列
+  实况快照（key / providerId / builtin / enabled / 模型清单）。与 dsh 的两处
+  差别：**默认指向是条目自己的 enabled**（ZCode 允许多条同时启用，本应用只
+  保证自己托管的 llmswitch:* 互斥——切换只翻 enabled，内容一字不动）、
+  **密钥就在条目里**（没有独立凭据文档）。「保留 ZCode 自己的配置」是硬约束：
+  原生条目（键由 ZCode 生成）收编时**不改名也不改写**、只是开始被本应用记录；
+  写入/更新原位合并、保留它自己维护的字段（options 其它键、
+  systemDisabledReason 等）；builtin:* 不收编不删除；整组重建只写成
+  llmswitch:<id>（已有原生键的原位更新）并清孤儿 llmswitch:*。
+  `removeProvider` 的 `eraseLive` 对 zcode 同样生效（右列删除确认的三键弹窗）。
 - ⬜ 待做：订阅站端点可能随各家调整，升级版本时需复核；无 CLI 分流、
   无单实例/开机自启；`usage.db` 的 WAL 一致性备份（当前不在 `backups/` 覆盖内）。

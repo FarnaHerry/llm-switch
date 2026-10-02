@@ -39,11 +39,12 @@ export struct ToolSpec {
     // 包名在写入时逐个对 npm registry / PyPI 核实过，见下方注册表注释。
     std::string_view installCommand;
     // live 配置是「多供应商并存」的累加列表（dsh 的 llm-pi-ai.providers 手写
-    // 路由 map）：本应用把组内全部供应商逐条增量写入（llmswitch-<id> 条目），
-    // 「切换」只改默认指向，而不是把选中项替换进 live。这类工具的供应商页用
-    // 左右两列对照「live 实况 / 本地留存」——live 配置会被 dsh 自己或其它工具
-    // 改动，两边本来就可能不同步，页面负责把差异显式暴露出来（收编 / 写入）。
-    // zcode 的 provider map 同属这一类（TODO：见仓库根 TODO.md）。
+    // 路由 map、ZCode 的 provider map）：本应用把组内供应商逐条增量写入
+    // （dsh 是 llmswitch-<id> 条目，zcode 优先沿用已有条目键），「切换」只改
+    // 默认指向（dsh 的 agent-default-model / ZCode 的 enabled），而不是把选中项
+    // 替换进 live。这类工具的供应商页用左右两列对照「live 实况 / 本地留存」
+    // ——live 配置会被工具自己或其它工具改动，两边本来就可能不同步，页面负责
+    // 把差异显式暴露出来（收编 / 写入 / 删除确认）。
     bool additiveProviders = false;
 };
 
@@ -157,6 +158,8 @@ export constexpr std::array<ToolSpec, 10> kToolRegistry{{
              .installCommand = "npm i -g @qwen-code/qwen-code@latest"},
     // ZCode：provider map（~/.zcode/v2/config.json）upsert 自定义条目并置
     // enabled，apiFormat 决定 provider.kind（anthropic / openai）。
+    // additiveProviders：provider map 同样是「多供应商并存 + enabled 指当前」，
+    // 供应商页走左右两列（左 = config.json 实况，右 = 本应用留存），写侧单条增量。
     ToolSpec{.id = "zcode",
              .displayName = "ZCode",
              .iconName = "zcode",
@@ -165,7 +168,8 @@ export constexpr std::array<ToolSpec, 10> kToolRegistry{{
              .hasModelMappings = false,
              .needsRestart = true,
              .binary = "zcode",
-             .installCommand = ""},
+             .installCommand = "",
+             .additiveProviders = true},
 }};
 
 export std::span<const ToolSpec> toolRegistry() { return kToolRegistry; }

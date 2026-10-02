@@ -39,6 +39,28 @@ export struct DshLiveProvider {
     bool builtin = false;
 };
 
+// ZCode live 实况条目：config.json 的 `provider` map 下每一条。
+// ZCode 的条目键有三种：本应用托管的 `llmswitch:<id>`、ZCode 自己页面上
+// 新建的原生条目（键是它自己生成的 id）与官方套餐 `builtin:*`。密钥就在
+// 条目里（options.apiKey），不像 dsh 那样另存凭据文档。
+export struct ZcodeLiveProvider {
+    std::string key;          // provider map 键
+    std::string displayName;  // 条目的 name（缺失为空）
+    std::string baseUrl;      // options.baseURL
+    std::string kind;         // 原始 kind 拼写（anthropic / openai-compatible）
+    std::string apiFormat;    // 归一到 models::normalizeApiFormat 三档
+    std::string apiKey;       // options.apiKey（可空：OAuth 条目没有）
+    std::string model;        // 模型清单首个（可空）
+    std::vector<std::string> models;  // 模型清单（保序；空 = 条目没有清单）
+    bool enabled = false;     // enabled 字段（缺省 = 启用）
+    // 已纳管（组内存在对应供应商）时的组内 id；空 = live 独有（未纳管），
+    // 页面提供「收编」。
+    std::string providerId;
+    // `builtin:*`：ZCode 官方套餐条目，不是第三方供应商，既不能收编也不能
+    // 删除（官方状态由「ZCode 官方」常驻卡表达）。
+    bool builtin = false;
+};
+
 export class ProviderStore {
 public:
     ProviderStore() = default;
@@ -144,6 +166,35 @@ public:
     // agent-default-model 块一并清除。条目不存在抛 std::runtime_error。
     void removeDshProvider(const std::string& key);
 
+    // ---- ZCode 增量多供应商（config.json 的 provider map）----
+    // 与 dsh 同一套模型，两个差别：
+    //   1. 「默认指向」是条目自己的 `enabled` 开关（ZCode 允许多条同时启用，
+    //      本应用只保证自己托管的那几条互斥——切换时停用其余 llmswitch:*）；
+    //   2. 密钥就在条目里，没有单独的凭据文档。
+    // 同样是**单条增量**：只有 syncZcodeProviders 做整组重建。
+    //
+    // ZCode 自己页面上的原生条目（键是它自己的 id）一律原样保留：收编只把它
+    // 记进本地列表，既不改名也不改写；「写入 / 更新」原位更新该条目但保留
+    // 它自己维护的其它字段（options 里的其余键、systemDisabledReason 等）。
+    // builtin:* 是官方套餐条目，不收编、不删除。
+
+    // live config.json 的 provider map 实况（只读）。
+    [[nodiscard]] std::vector<ZcodeLiveProvider> zcodeLiveProviders() const;
+    // 单条增量写入（右列「写入 / 更新」）：只重建这一条，别的条目一字不动。
+    // id 不在组内抛 std::runtime_error。
+    void writeZcodeProvider(const std::string& id);
+    // 收编 live 里的一条非 builtin 条目：记进本地列表（键即身份，
+    // llmswitch:<id> 剥前缀），live 一字不动；同 id 已存在则原位更新（以 live
+    // 为准，保留原 createdAt）。条目不存在 / builtin 抛 std::runtime_error。
+    models::Provider adoptZcodeProvider(const std::string& key);
+    // 从 config.json 删掉这一条（别的条目原样保留）。builtin:* 抛错，
+    // 条目不存在抛错。
+    void removeZcodeProvider(const std::string& key);
+    // 显式整组重建（「全部写入 ZCode」）：把组内每条写成 llmswitch:<id>
+    // （原生键的条目原位更新、不另起重复条目），清掉不再属于组内的孤儿
+    // llmswitch:* 条目；builtin:* 与 ZCode 原生条目一律不动。
+    void syncZcodeProviders();
+
     // 切换激活供应商：先备份 live 文件再改写，成功后更新 current 并落盘。
     // 各工具写入策略：
     //   claude-code：深合并 settings.json 的 env（ANTHROPIC_BASE_URL /
@@ -218,6 +269,17 @@ private:
     // 只从 live 删掉这个键（别的条目与默认指向都不动）；它正是默认路由时
     // agent-default-model 块一并清除。返回该键在 providers 里是否存在。
     bool eraseDshEntry(const std::string& key);
+
+    // ---- ZCode 单条增量写入/删除（定义在 store_zcode.cpp）----
+    // 把 p 写成它对应的条目（优先已有的 llmswitch:<p.id>，其次原生裸键
+    // <p.id>，都没有才新建 llmswitch:<p.id>）：overwrite=false 且条目已存在时
+    // 内容原样保留（「设为启用」不该覆盖用户在 ZCode 侧的手改），true 时整条
+    // 重建（原生条目原位合并，它自己维护的字段保留）。makeEnabled=true 时
+    // 置 enabled=true。没有变化就不碰文件。
+    void writeZcodeEntry(const models::Provider& p, bool overwrite,
+                         bool makeEnabled);
+    // 只从 config.json 删掉这个键；builtin:* 抛错，键不存在返回 false。
+    bool eraseZcodeEntry(const std::string& key);
 };
 
 // 用量查询模板的用户覆盖表（cfg::usageTemplatesFile()）原文；文件不存在
@@ -321,5 +383,11 @@ std::string zcodeEntryKeyFor(const nlohmann::json& providers,
 bool zcodeEntryOn(const nlohmann::json& entry);
 nlohmann::json mergeZcodeEntry(const nlohmann::json& existing,
                                const nlohmann::json& built);
+// 条目键 → 组内 id（llmswitch:<id> 剥前缀，原生键即 id）。
+std::string zcodeProviderIdFor(std::string_view key);
+// config.json 的一个 provider 条目 → Provider（name/apiFormat/baseUrl/apiKey/
+// model/models/modelsMeta）。收编与全量导入共用同一套读法，两边不会漂移。
+models::Provider zcodeProviderFromEntry(std::string_view key,
+                                        const nlohmann::json& entry);
 
 } // namespace store

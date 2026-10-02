@@ -1957,34 +1957,47 @@ void ProviderStore::switchTo(std::string_view tool, const std::string& id) {
         deepMerge(settings, patch);
         atomicWrite(settingsFile, settings.dump(2) + "\n");
     } else if (tool == "zcode") {
-        // 启用目标条目（原生条目原位合并后置 true），并停用其余本应用
-        // 托管（llmswitch:*）条目。builtin:* 与 ZCode 原生自建条目不动：
-        // ZCode 允许多条目同时启用，其自有条目的启停由用户在 ZCode 侧
-        // 管理，本应用不得代管。
+        // 启用目标条目、停用其余本应用托管（llmswitch:*）条目——本应用只能
+        // 保证自己这几条互斥；builtin:* 与 ZCode 原生自建条目的启停由用户在
+        // ZCode 侧管理，本应用不得代管。
+        //
+        // 单条增量：条目已在 live 里时**只翻 enabled**，内容一字不动——切换
+        // 不该把用户在 ZCode 侧改过的清单/参数按本应用的留存重建回去；目标
+        // 条目不存在才补写一条（避免「启用」指向一个不存在的条目）。
         const auto file = cfg::zcodeConfigFile();
         nlohmann::json doc = readJsonOrNull(file);
         if (!doc.is_object()) doc = nlohmann::json::object();
         if (!doc.contains("provider") || !doc["provider"].is_object()) {
             doc["provider"] = nlohmann::json::object();
         }
-        backupLiveFile(tool, file);
         auto& providers = doc["provider"];
         const std::string entryKey = zcodeEntryKeyFor(providers, target->id);
-        nlohmann::json entry =
-            buildZcodeEntry(*target, baseUrl);
         const auto existing = providers.find(entryKey);
-        if (existing != providers.end() && existing->is_object()) {
-            entry = mergeZcodeEntry(*existing, entry);
+        bool changed = false;
+        if (existing == providers.end() || !existing->is_object()) {
+            // 目标条目不在 live 里：补写一条并启用（避免「启用」指空）。
+            nlohmann::json entry = buildZcodeEntry(*target, baseUrl);
+            entry["enabled"] = true;
+            providers[entryKey] = std::move(entry);
+            changed = true;
+        } else if (!zcodeEntryOn(*existing)) {
+            (*existing)["enabled"] = true;
+            changed = true;
         }
-        entry["enabled"] = true;
-        providers[entryKey] = std::move(entry);
         for (auto it = providers.begin(); it != providers.end(); ++it) {
-            if (it.key() != entryKey && it.key().starts_with("llmswitch:") &&
-                it.value().is_object()) {
+            if (it.key() == entryKey || !it.key().starts_with("llmswitch:") ||
+                !it.value().is_object()) {
+                continue;
+            }
+            if (zcodeEntryOn(it.value())) {
                 it.value()["enabled"] = false;
+                changed = true;
             }
         }
-        atomicWrite(file, doc.dump(2) + "\n");
+        if (changed) {
+            backupLiveFile(tool, file);
+            atomicWrite(file, doc.dump(2) + "\n");
+        }
     } else if (tool == "claude") {
         // Claude Desktop 3p 直连（对齐 cc-switch）：Linux 不支持。
         const auto baseDir = cfg::claudeDesktopDir();
