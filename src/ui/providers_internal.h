@@ -276,4 +276,14 @@ huxerui::View ProviderCard(std::string tool, const models::Provider& provider,
                            huxerui::State<std::size_t> formToolIndex,
                            huxerui::State<std::string> formTarget);
 
+// ---- dsh 增量多供应商页（providers_dsh.cpp）----
+// ToolSpec::additiveProviders 的工具（当前 dsh）不走单列卡片列表，而是左右
+// 两列对照：左 = settings.yaml 的 live 实况，右 = 本应用留存。由 ProvidersPage
+// 按注册表标记分流进来（签名即它需要的那部分参数）。批量动作、逐条收编 /
+// 写入 / 设为默认都在这一页里。
+[[huxerui::composable]] huxerui::View DshProvidersPage(
+    huxerui::State<int> revision, UsageCache usageCache,
+    huxerui::State<std::size_t> formToolIndex,
+    huxerui::State<std::string> formTarget);
+
 } // namespace llmswitch::ui

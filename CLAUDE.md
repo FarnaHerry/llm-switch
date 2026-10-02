@@ -117,7 +117,7 @@ commit，不回滚已经验证的修改，并在最终回复中报告失败原�
 | 模块 | 文件 | 职责 |
 |------|------|------|
 | `llmswitch.config` | `src/config.cppm` | 数据目录（~/.local/share/llm-switch）/ config.json、backups/、mcp.json、skills-store/、router/requests.jsonl 路径 / live 配置与会话/技能目录解析（全部 LLMSWITCH_* 环境变量可覆盖）/ 深色检测 |
-| `llmswitch.models` | `src/models.cppm` | 工具注册表（ToolSpec/toolRegistry/findTool：claude-code/claude/codex/opencode/pi/dsh/hermes/gemini/qwen/zcode；needsModel/hasApiFormat/hasModelMappings 三标记驱动表单适配）+ Provider/ProviderGroup/AppConfig（groups 以注册表 id 为键的 map，旧格式顶层 claude/codex 自动迁移；router/usage 设置字段，Provider.usageEnabled 控制单个供应商是否查询，routerTools 保存逐 Agent 代理选择；Provider 含 modelFetchUrl、haiku/sonnet/opusModel 三档映射与 upstreamFormat/fullUrl URL 模式）+ JSON 序列化 + 内置预设（builtinPresets）+ 官方厂商名（officialVendorName：claude 系/codex/zcode/dsh 有官方常驻卡）+ apiFormat 三档归一（normalizeApiFormat/apiFormatLabel）+ 上游 URL 归一/后缀（normalizeUpstreamFormat/upstreamFormatSuffix/effectiveBaseUrl）+ dsh 模型条目的官方能力字段（档位表 reasoningLevels 规范升序 / reasoningLevelLabel / normalizeReasoningEfforts / 位掩码两函数；输入模态表 inputModalities = text+image / inputModalityLabel / normalizeInputModalities / 位掩码两函数，text 是底座；容量拼写 parseTokenCount / formatTokenCount，接受 256K、1M；Provider 的 reasoningEfforts / inputModalities / contextWindow / maxTokens 都是 per-供应商声明，0 与空清单 = 不声明）+ 用量模板表纯解析与匹配（parseUsageTemplates/suggestUsageQuery：数据在 resources/raw/usage_templates.json 资源包内置 + dataDir 用户覆盖，不硬编码） |
+| `llmswitch.models` | `src/models.cppm` | 工具注册表（ToolSpec/toolRegistry/findTool：claude-code/claude/codex/opencode/pi/dsh/hermes/gemini/qwen/zcode；needsModel/hasApiFormat/hasModelMappings 三标记驱动表单适配，additiveProviders 标记「live 是多供应商并存 + 一个默认指向」的增量工具（目前只有 dsh，页面走左右双列对照））+ Provider/ProviderGroup/AppConfig（groups 以注册表 id 为键的 map，旧格式顶层 claude/codex 自动迁移；router/usage 设置字段，Provider.usageEnabled 控制单个供应商是否查询，routerTools 保存逐 Agent 代理选择；Provider 含 modelFetchUrl、haiku/sonnet/opusModel 三档映射与 upstreamFormat/fullUrl URL 模式）+ JSON 序列化 + 内置预设（builtinPresets）+ 官方厂商名（officialVendorName：claude 系/codex/zcode/dsh 有官方常驻卡）+ apiFormat 三档归一（normalizeApiFormat/apiFormatLabel）+ 上游 URL 归一/后缀（normalizeUpstreamFormat/upstreamFormatSuffix/effectiveBaseUrl）+ dsh 模型条目的官方能力字段（档位表 reasoningLevels 规范升序 / reasoningLevelLabel / normalizeReasoningEfforts / 位掩码两函数；输入模态表 inputModalities = text+image / inputModalityLabel / normalizeInputModalities / 位掩码两函数，text 是底座；容量拼写 parseTokenCount / formatTokenCount，接受 256K、1M；Provider 的 reasoningEfforts / inputModalities / contextWindow / maxTokens 都是 per-供应商声明，0 与空清单 = 不声明）+ 用量模板表纯解析与匹配（parseUsageTemplates/suggestUsageQuery：数据在 resources/raw/usage_templates.json 资源包内置 + dataDir 用户覆盖，不硬编码） |
 | `llmswitch.store` | `src/store.cppm` + `src/store.cpp` | ProviderStore：config.json 读写、CRUD、switchTo 按工具 id 分发十个 writer（原子写+备份；gemini/qwen 走 <dir>/.env 行级 upsert + settings.json 深合并 auth 类型，zcode 走 provider map upsert + enabled 互斥，dsh 走 settings.yaml 行级 upsert（含推理档位，且写入前把 flow 风格的 providers 值摊平成块风格）+ .credentials.yaml 密钥库，hermes 走 config.yaml custom_providers 列表 upsert + model 节指向）、restoreOfficial 恢复厂商原生状态（claude-code/claude/codex/gemini/qwen/zcode/dsh）、detectCurrent/importLive、导出导入、theme/usage/router 与逐 Agent 路由设置 setter、用量模板用户覆盖表读取（loadUsageTemplatesOverride） |
 | `llmswitch.net` | `src/net.cppm` + `src/net.cpp` | 纯函数：模型列表 URL 拼接 `modelListUrl`/候选推导、响应解析 `parseModelIds`（data/models 两种形状，去重保序）和用量取值 `extractByPath`（点分路径+数组下标取标量）；实际网络请求不在此层——供应商页面走 HuxerUI HttpClient（provider_network.cpp），路由出站走 UpstreamSession |
 | `llmswitch.router` | `src/router.cppm` + `src/router.cpp` | LocalRouter：cpp-httplib 服务器监听 127.0.0.1，`/<tool>/` 前缀路由到该组 current 供应商的实际 URL（按 upstreamFormat 追加 /anthropic 或 /v1，fullUrl 时原样），替换鉴权头，线程安全的逐工具开关运行中即时生效（禁用返回 403，不访问上游/统计），可选故障转移（429/5xx/连接失败按组内顺序试下一个）；RequestLog/StatsSnapshot 统计，每请求追加 JSONL（dataDir()/router/requests.jsonl），启动回填内存环形缓冲（最多 1000 条） |
@@ -155,10 +155,19 @@ hover 时在屏幕中央展开径向导航盘，全部 8 个顶级页面图标�
   条目里已有的**其它模型清单原样保留**（本应用只声明主模型，清单裁成一条会
   让 pi 的模型菜单静默少几条），主模型缺失时按原元素形状补一条——裸标量与
   `{"id": ...}` 对象两种形状都认（`modelEntryId`/`modelListContains`）；
-  dsh = `~/.dsh/settings.yaml` 行级改写：llm-pi-ai.providers 下 upsert
-  `llmswitch-<id>` 手写路由条目（api 字段复用 pi 三档映射）+ 文件头
-  agent-default-model 指向，密钥只写 `~/.dsh/.credentials.yaml`（顶层
-  env 名→密钥 map，apiKeyEnv 引用，目录 0700、文件 0600）；条目首个模型
+  dsh = `~/.dsh/settings.yaml` 行级改写，**增量多路由**：llm-pi-ai.providers
+  是「多供应商并存 + agent-default-model 指默认」，所以每次写都是
+  `syncDshProviders` 的整组重建——把组内每个供应商写成 `llmswitch-<id>`
+  条目（api 字段复用 pi 三档映射，追加在 providers 块尾）、删掉文件里所有
+  `llmswitch-*`（不在组内的即孤儿）以及被收编的裸键，别家手写条目 / 内置
+  deepseek-official / 无关键 / 注释一律不动；`agent-default-model` 只在需要
+  时改（显式切换或清除、裸键接管改名后重指向、原默认指向已删供应商时清回
+  内置官方路由）。增 / 改 / 删供应商都即时同步 live，不必先切换；四个入口：
+  `syncDshProviders`（整组重建）/ `dshLiveProviders`（左列实况快照）/
+  `adoptDshProvider`（收编手写裸键 → 改名 `llmswitch-<id>` 接管）/
+  `removeDshProvider`（只删 live 那一条，含未纳管的 dsh 条目）。密钥只写
+  `~/.dsh/.credentials.yaml`（顶层 env 名→密钥 map，apiKeyEnv 引用，只增改、
+  不代清无引用的旧键，目录 0700、文件 0600）；条目首个模型
   条目按 Provider 的官方能力字段写：`contextWindow` / `maxTokens`（容量，
   0 = 不声明）、`input: [text, image]`（请求模态，声明 image 才让手工路由
   收图片附件；text 是底座，非空清单必然带 text）、`reasoningEfforts`

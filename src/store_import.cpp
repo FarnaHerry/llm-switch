@@ -39,13 +39,8 @@ void mergeGroup(models::ProviderGroup& dst, const models::ProviderGroup& src) {
     }
 }
 
-// 反映射（importLive / detectCurrent 用）。
-std::string piApiFormatValue(std::string_view api) {
-    if (api == "anthropic-messages") return "anthropic";
-    if (api == "openai-responses") return "openai-responses";
-    if (api == "openai-completions") return "openai-chat";
-    return "";
-}
+// pi/dsh 的 api 反映射（piApiFormatValue）是模块链接的：声明在 store.cppm、
+// 定义在 store_live.cpp，dsh 增量同步与本文件的收编/探测共用同一份。
 
 // hermes 的 api_mode 反映射（importLive 用；bedrock_converse 等非三档值
 // 归空串 = 未知）。
@@ -270,7 +265,8 @@ models::Provider ProviderStore::importLive(std::string_view tool) {
             return *existing;
         }
         if (p.id.empty()) p.id = generateId();
-        p.name = "当前配置";
+        // 工具侧自带显示名（dsh 条目的 displayName）优先，没有才用占位名。
+        if (p.name.empty()) p.name = "当前配置";
         p.createdAt = nowMillis();
         g.providers.push_back(p);
         g.current = p.id;
@@ -397,6 +393,7 @@ models::Provider ProviderStore::importLive(std::string_view tool) {
         }
         if (entry == nullptr) return {};
         models::Provider p;
+        p.name = entry->displayName;
         p.id = importId(g, entry->key.starts_with("llmswitch-")
                              ? std::string(entry->key.substr(10))
                              : entry->key);

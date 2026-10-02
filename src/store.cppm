@@ -18,6 +18,23 @@ import llmswitch.models;
 
 namespace store {
 
+// dsh live 实况条目：settings.yaml 的 llm-pi-ai.providers 下每条手写路由。
+// 供应商页左列直接展示它，右列是本应用留存（config.json 组）——两边对照。
+export struct DshLiveProvider {
+    std::string key;          // providers map 键（llmswitch-<id> / 用户手写键）
+    std::string displayName;  // 条目的 displayName（缺失为空）
+    std::string baseUrl;
+    std::string api;          // 原始 api 拼写（anthropic-messages 等）
+    std::string apiFormat;    // 归一到 models::normalizeApiFormat 三档
+    std::string apiKeyEnv;
+    std::string apiKey;       // 从 .credentials.yaml 按 apiKeyEnv 读回（可空）
+    std::string model;        // 首个模型条目 id（可空）
+    bool isDefault = false;   // agent-default-model.provider == key
+    // 已纳管（本应用条目 llmswitch-<id> 且组内存在该 id）时的组内 id；
+    // 空 = live 独有（未纳管），页面提供「收编」。
+    std::string providerId;
+};
+
 export class ProviderStore {
 public:
     ProviderStore() = default;
@@ -78,6 +95,34 @@ public:
     void removeProvider(std::string_view tool, const std::string& id);
     // 复制一份（新 id、名称加「（副本）」），插在原项之后并返回副本。
     models::Provider duplicateProvider(std::string_view tool, const std::string& id);
+
+    // ---- dsh 增量多供应商（settings.yaml 的 llm-pi-ai.providers）----
+    // dsh 的 live 配置是「多条手写路由并存」的累加列表：本应用把组内全部
+    // 供应商逐条写成 llmswitch-<id> 条目，切换只改 agent-default-model 指向。
+    // 供应商页用左右两列对照 live 实况与本地留存——live 会被 dsh 自己或其它
+    // 工具改动，两边本来就可能不同步。
+
+    // live settings.yaml 里 llm-pi-ai.providers 的实况列表（只读）。
+    [[nodiscard]] std::vector<DshLiveProvider> dshLiveProviders() const;
+    // 把组内全部供应商增量写入 live：逐条重建 llmswitch-<id> 条目（含模型
+    // 能力声明与 .credentials.yaml 密钥），清掉不再属于组内的孤儿 llmswitch-*
+    // 条目，并把被收编过来的裸键（键 == 组内 id）接管成 llmswitch-<id>；
+    // 其它手写条目（含 dsh 内置路由）一律原样保留。
+    // defaultProviderId 非空 = agent-default-model 指向它；clearDefault = 删掉
+    // 该块回到内置官方路由（两者同时给时 clearDefault 优先）。另外，live 里
+    // 指向已被删除供应商的悬空默认会自动清回官方路由。
+    void syncDshProviders(const std::string& defaultProviderId = {},
+                          bool clearDefault = false);
+    // 收编 live 里的一条手写条目成供应商卡：条目键映射成组内 id
+    // （llmswitch-<id> 剥前缀，裸键即 id），同 id 已存在则原位更新（以 live
+    // 为准，保留原 createdAt）。收编后该条目被接管成 llmswitch-<id>（键改名、
+    // 内容不变）；它正是 dsh 默认路由时 agent-default-model 同步改指。
+    // 条目不存在抛 std::runtime_error。
+    models::Provider adoptDshProvider(const std::string& key);
+    // 删除 live 里的一条条目（本应用的 llmswitch-<id> 或用户手写键都行），
+    // 只删这一条、组内其它供应商照常重建；被删的正是默认路由时
+    // agent-default-model 块一并清除。条目不存在抛 std::runtime_error。
+    void removeDshProvider(const std::string& key);
 
     // 切换激活供应商：先备份 live 文件再改写，成功后更新 current 并落盘。
     // 各工具写入策略：
@@ -181,6 +226,7 @@ std::filesystem::path claudeDesktopProfileFile();
 // store_live.cpp；写侧的行级改写是该文件私有）。
 struct DshProviderEntry {
     std::string key;
+    std::string displayName;
     std::string baseUrl;
     std::string api;
     std::string apiKeyEnv;
@@ -206,6 +252,9 @@ struct DshSettingsInfo {
 DshSettingsInfo parseDshSettings(std::string_view text);
 std::string readDshCredential(const std::filesystem::path& file,
                               std::string_view envName);
+// pi/dsh 的 api 字段反映射（三档，经 models::normalizeApiFormat 归一的反向；
+// 未知拼写返回空串）。定义在 store_live.cpp，import 侧与 dsh 增量同步共用。
+std::string piApiFormatValue(std::string_view api);
 
 // hermes（Hermes Agent）config.yaml 行级读取结果与助手（定义在
 // store_live.cpp；写侧的行级改写是该文件私有）。

@@ -373,6 +373,16 @@ std::string ProviderStore::addProvider(std::string_view tool,
     if (tool == "zcode") upsertZcodeEntry(provider);
     std::string id = provider.id;
     g.providers.push_back(std::move(provider));
+    // dsh 的 providers 是多路由并存的 map：新增即增量写入 live（llmswitch-<id>
+    // 条目），而非等切换时替换整个列表。写失败回滚内存态，不留半套状态。
+    if (tool == "dsh") {
+        try {
+            syncDshProviders({});
+        } catch (...) {
+            g.providers.pop_back();
+            throw;
+        }
+    }
     save();
     return id;
 }
@@ -382,7 +392,16 @@ void ProviderStore::updateProvider(std::string_view tool,
     auto& g = groupRef(tool);
     for (auto& cur : g.providers) {
         if (cur.id == provider.id) {
+            const models::Provider previous = cur;
             cur = provider;
+            if (tool == "dsh") {
+                try {
+                    syncDshProviders({});
+                } catch (...) {
+                    cur = previous;
+                    throw;
+                }
+            }
             save();
             if (tool == "zcode") upsertZcodeEntry(provider);
             return;
@@ -393,8 +412,20 @@ void ProviderStore::updateProvider(std::string_view tool,
 
 void ProviderStore::removeProvider(std::string_view tool, const std::string& id) {
     auto& g = groupRef(tool);
+    std::optional<models::ProviderGroup> snapshot;
+    if (tool == "dsh") snapshot = g;  // live 写失败 ⇒ 回滚删除
     std::erase_if(g.providers, [&](const models::Provider& p) { return p.id == id; });
     if (g.current == id) g.current.clear();
+    if (tool == "dsh") {
+        // 增量同步：组里已没有它，条目随之从 live 清掉；它正是 dsh 默认路由时
+        // 同步会把悬空的 agent-default-model 清回内置官方路由。
+        try {
+            syncDshProviders({});
+        } catch (...) {
+            if (snapshot) g = std::move(*snapshot);
+            throw;
+        }
+    }
     save();
 }
 
@@ -408,6 +439,15 @@ models::Provider ProviderStore::duplicateProvider(std::string_view tool,
         copy.name += "（副本）";
         copy.createdAt = nowMillis();
         g.providers.insert(g.providers.begin() + static_cast<std::ptrdiff_t>(i + 1), copy);
+        if (tool == "dsh") {
+            try {
+                syncDshProviders({});
+            } catch (...) {
+                g.providers.erase(g.providers.begin() +
+                                  static_cast<std::ptrdiff_t>(i + 1));
+                throw;
+            }
+        }
         save();
         return copy;
     }

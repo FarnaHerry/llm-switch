@@ -38,6 +38,13 @@ export struct ToolSpec {
     // （zcode 由发行版系统包提供，装法随平台而异）。
     // 包名在写入时逐个对 npm registry / PyPI 核实过，见下方注册表注释。
     std::string_view installCommand;
+    // live 配置是「多供应商并存」的累加列表（dsh 的 llm-pi-ai.providers 手写
+    // 路由 map）：本应用把组内全部供应商逐条增量写入（llmswitch-<id> 条目），
+    // 「切换」只改默认指向，而不是把选中项替换进 live。这类工具的供应商页用
+    // 左右两列对照「live 实况 / 本地留存」——live 配置会被 dsh 自己或其它工具
+    // 改动，两边本来就可能不同步，页面负责把差异显式暴露出来（收编 / 写入）。
+    // zcode 的 provider map 同属这一类（TODO：见仓库根 TODO.md）。
+    bool additiveProviders = false;
 };
 
 // 注册表顺序即 UI 侧栏/托盘菜单顺序。
@@ -99,9 +106,11 @@ export constexpr std::array<ToolSpec, 10> kToolRegistry{{
              .binary = "pi",
              .installCommand = "npm i -g @earendil-works/pi-coding-agent@latest"},
     // Harness（DeepSeek 出品，CLI 命令 dsh）：~/.dsh/settings.yaml 的
-    // llm-pi-ai.providers 手写 YAML upsert + agent-default-model 指向；密钥
-    // 只写 ~/.dsh/.credentials.yaml（apiKeyEnv 引用，热监听即时生效），
-    // settings.yaml 同样热重载 → 切换无需重启。
+    // llm-pi-ai.providers 是**多路由并存**的手写 YAML map——本应用把组内全部
+    // 供应商逐条增量 upsert 成 llmswitch-<id> 条目（绝不删别家条目），
+    // 「切换」只改 agent-default-model 指向；密钥只写 ~/.dsh/.credentials.yaml
+    // （apiKeyEnv 引用）。两份 YAML 都被热监听 → 切换无需重启。
+    // additiveProviders：供应商页用左右两列对照 live 实况与本应用留存。
     ToolSpec{.id = "dsh",
              .displayName = "DeepSeek Harness",
              .iconName = "deepseek",
@@ -110,7 +119,8 @@ export constexpr std::array<ToolSpec, 10> kToolRegistry{{
              .hasModelMappings = false,
              .needsRestart = false,
              .binary = "dsh",
-             .installCommand = "npm i -g @deepseek-ai/dsh@latest"},
+             .installCommand = "npm i -g @deepseek-ai/dsh@latest",
+             .additiveProviders = true},
     // Hermes Agent：~/.hermes/config.yaml 的 custom_providers 列表 upsert
     // llmswitch-<id> 条目 + 顶层 model 节指向（api_mode 与 apiFormat 三档
     // 映射：chat_completions / anthropic_messages / codex_responses）；

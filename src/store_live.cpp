@@ -207,6 +207,22 @@ std::string piApiValue(std::string_view apiFormat) {
     return "openai-completions";
 }
 
+// 小节结束：上面的映射是模块内（匿名命名空间）的写侧助手；反映射
+// piApiFormatValue 是模块链接的（store.cppm 声明、import 侧与 dsh 增量同步
+// 共用），所以定义在匿名命名空间之外。
+} // namespace
+
+// pi/dsh 的 api 字段反映射（读侧：live 的 api 拼写 → apiFormat 三档）。
+// 未知拼写返回空串（= 未知协议，不猜）。
+std::string piApiFormatValue(std::string_view api) {
+    if (api == "anthropic-messages") return "anthropic";
+    if (api == "openai-responses") return "openai-responses";
+    if (api == "openai-completions") return "openai-chat";
+    return "";
+}
+
+namespace {
+
 // opencode 的 npm 适配器映射（三档）：anthropic → @ai-sdk/anthropic；
 // openai-responses → @ai-sdk/openai；其余（openai-chat / 默认）→
 // @ai-sdk/openai-compatible。
@@ -834,16 +850,21 @@ std::string normalizeDshFlowProviders(std::string_view text) {
     return result;
 }
 
-// 行级改写 settings.yaml：删顶层 agent-default-model 块与
-// llm-pi-ai.providers 下的 llmswitch-* 条目；entryLines 非空时在 providers
-// 块尾插入（缩进随实际 providers 行调整，entryLines 以 4 列基准缩进生成）；
-// defaultProvider 非空时在文件头重建 agent-default-model 指向块。
-// restore 模式 = entryLines 空 + defaultProvider 空（只删不增）。
-std::string rewriteDshSettings(std::string_view text,
-                               const std::vector<std::string>& entryLines,
-                               std::string_view defaultProvider,
-                               std::string_view defaultModel,
-                               std::string_view defaultReasoningEffort) {
+// 行级改写 settings.yaml（dsh 增量多供应商）：
+//   - removeKeys 里的条目从 llm-pi-ai.providers 删除（调用方负责算全：
+//     本应用将重建的 llmswitch-* 键、被接管的裸键、孤儿 llmswitch-*）；
+//   - entries 非空时在 providers 块尾按顺序插入（每条以 4 列基准缩进生成，
+//     缩进随实际 providers 行调整）；
+//   - touchDefault 为真时删掉顶层 agent-default-model 块并在文件头重建
+//     （defaultProvider 为空 = 只删不建，回到内置官方路由）。
+// 其余键、手写条目、注释与顺序原样保留；flow 风格的 providers 值先摊平成
+// 块风格（行级逻辑只懂块风格）。
+std::string rewriteDshSettings(
+    std::string_view text,
+    const std::vector<std::vector<std::string>>& entries,
+    const std::set<std::string>& removeKeys, bool touchDefault,
+    std::string_view defaultProvider, std::string_view defaultModel,
+    std::string_view defaultReasoningEffort) {
     // flow 风格的 providers 值先摊平成块风格，后面的行级逻辑才成立。
     const std::string blockText = normalizeDshFlowProviders(text);
     text = blockText;
@@ -856,7 +877,7 @@ std::string rewriteDshSettings(std::string_view text,
         }
     }
     std::vector<std::string> out;
-    bool inserted = entryLines.empty();
+    bool inserted = entries.empty();
     bool inPi = false, inProv = false, sawPi = false, sawProv = false;
     int piIndent = -1, provIndent = -1, entryIndent = -1;
     bool skipping = false;
@@ -865,12 +886,14 @@ std::string rewriteDshSettings(std::string_view text,
     const auto insertEntries = [&](int baseIndent) {
         if (inserted) return;
         const int shift = baseIndent - 4;
-        for (const auto& e : entryLines) {
-            if (shift >= 0) {
-                out.push_back(std::string(static_cast<std::size_t>(shift), ' ') +
-                              e);
-            } else {
-                out.push_back(e.substr(static_cast<std::size_t>(-shift)));
+        for (const auto& e : entries) {
+            for (const auto& line : e) {
+                if (shift >= 0) {
+                    out.push_back(
+                        std::string(static_cast<std::size_t>(shift), ' ') + line);
+                } else {
+                    out.push_back(line.substr(static_cast<std::size_t>(-shift)));
+                }
             }
         }
         inserted = true;
@@ -901,7 +924,8 @@ std::string rewriteDshSettings(std::string_view text,
             if (inProv) {
                 if (entryIndent == -1 || dl.indent <= entryIndent) {
                     entryIndent = dl.indent;
-                    if (dl.key.starts_with("llmswitch-")) {
+                    if (removeKeys.find(std::string(dl.key)) !=
+                        removeKeys.end()) {
                         skipping = true;
                         skipIndent = dl.indent;
                         continue;
@@ -915,7 +939,7 @@ std::string rewriteDshSettings(std::string_view text,
                     entryIndent = -1;
                 }
             } else if (dl.indent == 0) {
-                if (dl.key == "agent-default-model") {
+                if (touchDefault && dl.key == "agent-default-model") {
                     skipping = true;
                     skipIndent = 0;
                     continue;
@@ -941,7 +965,7 @@ std::string rewriteDshSettings(std::string_view text,
         out.push_back("  providers:");
         insertEntries(4);
     }
-    if (!defaultProvider.empty()) {
+    if (touchDefault && !defaultProvider.empty()) {
         std::vector<std::string> head;
         head.push_back("agent-default-model:");
         head.push_back("  provider: " + std::string(defaultProvider));
@@ -964,6 +988,54 @@ std::string rewriteDshSettings(std::string_view text,
         result += '\n';
     }
     return result;
+}
+
+// 一条 llmswitch-<id> 条目的行（4 列基准缩进，写侧唯一来源）：模型条目写
+// dsh 官方能力字段（与官方设置页编辑的是同一组）——contextWindow / maxTokens
+// 容量、input 请求模态、reasoningEfforts 推理档位。档位键固定加引号
+// （off/low 在部分解析器里会被当成布尔字面量），"off" 留空 = 不发思考参数，
+// 与 dsh 官方文档示例一致。
+std::vector<std::string> dshEntryLines(const std::string& id,
+                                       const models::Provider& p,
+                                       const std::string& baseUrl) {
+    std::vector<std::string> entry;
+    entry.push_back("    llmswitch-" + id + ":");
+    entry.push_back("      displayName: " + yamlQuote(p.name));
+    entry.push_back("      api: " + piApiValue(p.apiFormat));
+    entry.push_back("      baseURL: " + yamlQuote(baseUrl));
+    entry.push_back("      apiKeyEnv: " + dshApiKeyEnv(id));
+    if (!p.model.empty()) {
+        entry.push_back("      models:");
+        entry.push_back("        - id: " + yamlQuote(p.model));
+        if (p.contextWindow > 0) {
+            entry.push_back("          contextWindow: " +
+                            std::to_string(p.contextWindow));
+        }
+        if (p.maxTokens > 0) {
+            entry.push_back("          maxTokens: " +
+                            std::to_string(p.maxTokens));
+        }
+        if (const auto modalities =
+                models::normalizeInputModalities(p.inputModalities);
+            !modalities.empty()) {
+            std::string list;
+            for (const auto& modality : modalities) {
+                if (!list.empty()) list += ", ";
+                list += modality;
+            }
+            entry.push_back("          input: [" + list + "]");
+        }
+        if (const auto efforts =
+                models::normalizeReasoningEfforts(p.reasoningEfforts);
+            !efforts.empty()) {
+            entry.push_back("          reasoningEfforts:");
+            for (const auto& level : efforts) {
+                entry.push_back("            " + yamlQuote(level) +
+                                (level == "off" ? ":" : ": " + level));
+            }
+        }
+    }
+    return entry;
 }
 
 // .credentials.yaml 行级 upsert `ENV: "key"`（顶层 map；version 等其它键、
@@ -1352,7 +1424,9 @@ DshSettingsInfo parseDshSettings(std::string_view text) {
             continue;
         }
         if (cur != nullptr) {
-            if (dl.key == "baseURL") {
+            if (dl.key == "displayName") {
+                cur->displayName = yamlScalar(dl.value);
+            } else if (dl.key == "baseURL") {
                 cur->baseUrl = yamlScalar(dl.value);
             } else if (dl.key == "api") {
                 cur->api = yamlScalar(dl.value);
@@ -1634,73 +1708,12 @@ void ProviderStore::switchTo(std::string_view tool, const std::string& id) {
         atomicWrite(settingsFile, settings.dump(2) + "\n");
         restrictPiFile(settingsFile);
     } else if (tool == "dsh") {
-        // settings.yaml：删旧 agent-default-model 与 llmswitch-* 路由后 upsert
-        // llmswitch-<id> 条目，并在文件头重建 agent-default-model 指向；密钥
-        // 只写 .credentials.yaml（apiKeyEnv 引用）。两份文件都被 dsh 热监听
-        // → 切换即时生效，无需重启。
-        const auto settingsFile = cfg::dshSettingsFile();
-        restrictPiDir(settingsFile.parent_path());
-        backupLiveFile(tool, settingsFile);
-        std::string text;
-        {
-            std::error_code ec;
-            if (std::filesystem::exists(settingsFile, ec)) {
-                text = readTextFile(settingsFile);
-            }
-        }
-        const std::string envName = dshApiKeyEnv(target->id);
-        // 模型条目写官方字段（与 dsh 官方设置页编辑的是同一组）：id 之下的
-        // contextWindow / maxTokens（容量声明，0 = 不声明）、input（请求模态，
-        // 声明 image 才让手工路由能收图片附件）、reasoningEfforts（推理档位）。
-        // 档位键固定加引号（off/low 等在部分解析器里会被当成布尔字面量），
-        // "off" 留空 = 「不发思考参数」，与 dsh 官方文档示例一致。
-        std::vector<std::string> entry;
-        entry.push_back("    llmswitch-" + target->id + ":");
-        entry.push_back("      displayName: " + yamlQuote(target->name));
-        entry.push_back("      api: " + piApiValue(target->apiFormat));
-        entry.push_back("      baseURL: " + yamlQuote(baseUrl));
-        entry.push_back("      apiKeyEnv: " + envName);
-        if (!target->model.empty()) {
-            entry.push_back("      models:");
-            entry.push_back("        - id: " + yamlQuote(target->model));
-            if (target->contextWindow > 0) {
-                entry.push_back("          contextWindow: " +
-                                std::to_string(target->contextWindow));
-            }
-            if (target->maxTokens > 0) {
-                entry.push_back("          maxTokens: " +
-                                std::to_string(target->maxTokens));
-            }
-            if (const auto modalities = models::normalizeInputModalities(
-                    target->inputModalities);
-                !modalities.empty()) {
-                std::string list;
-                for (const auto& modality : modalities) {
-                    if (!list.empty()) list += ", ";
-                    list += modality;
-                }
-                entry.push_back("          input: [" + list + "]");
-            }
-            if (const auto efforts =
-                    models::normalizeReasoningEfforts(target->reasoningEfforts);
-                !efforts.empty()) {
-                entry.push_back("          reasoningEfforts:");
-                for (const auto& level : efforts) {
-                    entry.push_back("            " + yamlQuote(level) +
-                                    (level == "off" ? ":" : ": " + level));
-                }
-            }
-        }
-        atomicWrite(settingsFile,
-                    rewriteDshSettings(
-                        text, entry, "llmswitch-" + target->id, target->model,
-                        parseDshSettings(text).defaultReasoningEffort));
-        if (!target->apiKey.empty()) {
-            const auto credFile = cfg::dshCredentialsFile();
-            backupLiveFile(tool, credFile);
-            upsertDshCredential(credFile, envName, target->apiKey);
-            restrictPiFile(credFile);
-        }
+        // settings.yaml：增量同步（组内全部供应商逐条 upsert 成
+        // llmswitch-<id> 条目，其它手写条目原样保留）并把 agent-default-model
+        // 指向目标；密钥只写 .credentials.yaml（apiKeyEnv 引用）。dsh 的
+        // providers 是多路由并存的 map——切换只改默认指向，不替换整个列表。
+        // 两份文件都被 dsh 热监听 → 切换即时生效，无需重启。
+        syncDshProviders(target->id);
     } else if (tool == "hermes") {
         // config.yaml：custom_providers 列表删旧 llmswitch-* 条目后追加新
         // 条目（api_mode 三档映射），顶层 model 节写 provider（总是）与
@@ -1987,15 +2000,23 @@ void ProviderStore::restoreOfficial(std::string_view tool) {
         }
     } else if (tool == "dsh") {
         // 回到内置 deepseek-official 路由：删 settings.yaml 的
-        // agent-default-model 块与 llmswitch-* 手写路由，其余键保留。
+        // agent-default-model 块与 llmswitch-* 手写路由（本应用条目再写就以
+        // 后一次同步为准），其余键与别家条目保留。
         // .credentials.yaml 里的 LLMSWITCH_* 密钥无引用即无害，不代清。
         const auto settingsFile = cfg::dshSettingsFile();
         std::error_code ec;
         if (std::filesystem::exists(settingsFile, ec)) {
+            const std::string text = readTextFile(settingsFile);
+            std::set<std::string> removeKeys;
+            for (const auto& entry : parseDshSettings(text).providers) {
+                if (entry.key.starts_with("llmswitch-")) {
+                    removeKeys.insert(entry.key);
+                }
+            }
             backupLiveFile(tool, settingsFile);
             atomicWrite(settingsFile,
-                        rewriteDshSettings(readTextFile(settingsFile), {}, "",
-                                           "", ""));
+                        rewriteDshSettings(text, {}, removeKeys, true, "", "",
+                                           ""));
         }
     } else if (tool == "claude") {
         // 撤掉 3p 直连：两份 claude_desktop_config.json 删 deploymentMode 键；
@@ -2048,6 +2069,219 @@ void ProviderStore::restoreOfficial(std::string_view tool) {
 
     g.current.clear();
     save();
+}
+
+// ---- dsh 增量多供应商 ---------------------------------------------------------
+// dsh 的 settings.yaml 里 llm-pi-ai.providers 是「多条手写路由并存」的 map：
+// 本应用把组内全部供应商逐条写成 llmswitch-<id> 条目（增量、不删别家条目），
+// 「切换」只改 agent-default-model 指向。下面四个 API 是这张表的全部入口；
+// 供应商页的左（live 实况）右（本地留存）两列对照就建立在这上面。
+
+std::vector<DshLiveProvider> ProviderStore::dshLiveProviders() const {
+    std::vector<DshLiveProvider> out;
+    const auto file = cfg::dshSettingsFile();
+    std::error_code ec;
+    if (!std::filesystem::exists(file, ec) || ec) return out;
+    const auto info = parseDshSettings(readTextFile(file));
+    const auto& g = group("dsh");
+    const auto credFile = cfg::dshCredentialsFile();
+    out.reserve(info.providers.size());
+    for (const auto& entry : info.providers) {
+        DshLiveProvider live;
+        live.key = entry.key;
+        live.displayName = entry.displayName;
+        live.baseUrl = entry.baseUrl;
+        live.api = entry.api;
+        live.apiFormat = piApiFormatValue(entry.api);
+        live.apiKeyEnv = entry.apiKeyEnv;
+        live.model = entry.firstModel;
+        live.isDefault = entry.key == info.defaultProvider;
+        if (!entry.apiKeyEnv.empty()) {
+            live.apiKey = readDshCredential(credFile, entry.apiKeyEnv);
+        }
+        if (entry.key.starts_with("llmswitch-")) {
+            const std::string id = entry.key.substr(10);
+            for (const auto& p : g.providers) {
+                if (p.id == id) {
+                    live.providerId = id;
+                    break;
+                }
+            }
+        }
+        out.push_back(std::move(live));
+    }
+    return out;
+}
+
+void ProviderStore::syncDshProviders(const std::string& defaultProviderId,
+                                     bool clearDefault) {
+    const auto& g = group("dsh");
+    const auto settingsFile = cfg::dshSettingsFile();
+    restrictPiDir(settingsFile.parent_path());
+    std::string text;
+    {
+        std::error_code ec;
+        if (std::filesystem::exists(settingsFile, ec)) {
+            text = readTextFile(settingsFile);
+        }
+    }
+    const auto info = parseDshSettings(text);
+
+    std::set<std::string> groupIds;
+    std::vector<std::vector<std::string>> entries;
+    entries.reserve(g.providers.size());
+    for (const auto& p : g.providers) {
+        groupIds.insert(p.id);
+        entries.push_back(dshEntryLines(p.id, p, models::effectiveBaseUrl(p)));
+    }
+    // 要删的键：全部 llmswitch-*（本应用条目一律重建，不在组内的即孤儿）、
+    // 被收编过来的裸键（键恰好等于组内 id → 接管成 llmswitch-<id>）。其它
+    // 手写条目（dsh 内置路由、别家工具写的键）一律不动。
+    std::set<std::string> removeKeys;
+    for (const auto& entry : info.providers) {
+        if (entry.key.starts_with("llmswitch-") ||
+            groupIds.find(entry.key) != groupIds.end()) {
+            removeKeys.insert(entry.key);
+        }
+    }
+    // agent-default-model 的处置：显式指定 / 显式清除 / 裸键接管后重指向 /
+    // 指向已被删除供应商时清回内置官方路由。
+    bool touchDefault = clearDefault || !defaultProviderId.empty();
+    std::string defaultKey =
+        clearDefault ? std::string{} : "llmswitch-" + defaultProviderId;
+    if (!touchDefault && !info.defaultProvider.empty()) {
+        if (info.defaultProvider.starts_with("llmswitch-")) {
+            const std::string id = info.defaultProvider.substr(10);
+            if (groupIds.find(id) == groupIds.end()) {
+                touchDefault = true;  // 悬空：指向的供应商已不在组内
+                defaultKey.clear();
+            }
+        } else if (groupIds.find(info.defaultProvider) != groupIds.end()) {
+            touchDefault = true;  // 裸键被接管改名 → 默认跟着改指新键
+            defaultKey = "llmswitch-" + info.defaultProvider;
+        }
+    }
+    std::string defaultModel;
+    if (!defaultKey.empty()) {
+        const std::string id = defaultKey.substr(10);
+        for (const auto& p : g.providers) {
+            if (p.id == id) defaultModel = p.model;
+        }
+    }
+    backupLiveFile("dsh", settingsFile);
+    atomicWrite(settingsFile,
+                rewriteDshSettings(text, entries, removeKeys, touchDefault,
+                                   defaultKey, defaultModel,
+                                   info.defaultReasoningEffort));
+    // 密钥：组内每个带密钥的供应商 upsert 进 .credentials.yaml（只增改，不代
+    // 清无引用的旧键；备份每轮只做一次）。
+    bool anyKey = false;
+    for (const auto& p : g.providers) {
+        if (!p.apiKey.empty()) anyKey = true;
+    }
+    if (anyKey) {
+        const auto credFile = cfg::dshCredentialsFile();
+        backupLiveFile("dsh", credFile);
+        for (const auto& p : g.providers) {
+            if (p.apiKey.empty()) continue;
+            upsertDshCredential(credFile, dshApiKeyEnv(p.id), p.apiKey);
+        }
+        restrictPiFile(credFile);
+    }
+}
+
+models::Provider ProviderStore::adoptDshProvider(const std::string& key) {
+    auto& g = groupRef("dsh");
+    const auto file = cfg::dshSettingsFile();
+    std::error_code ec;
+    if (!std::filesystem::exists(file, ec) || ec) {
+        throw std::runtime_error("dsh 配置文件不存在，无法收编条目");
+    }
+    const std::string text = readTextFile(file);
+    const auto info = parseDshSettings(text);
+    const DshProviderEntry* entry = nullptr;
+    for (const auto& candidate : info.providers) {
+        if (candidate.key == key) entry = &candidate;
+    }
+    if (entry == nullptr) {
+        throw std::runtime_error(std::format("dsh 配置里没有条目：{}", key));
+    }
+    const std::string id =
+        key.starts_with("llmswitch-") ? key.substr(10) : key;
+    const bool isDefault = key == info.defaultProvider;
+    models::Provider p;
+    p.id = id;
+    p.name = entry->displayName.empty() ? key : entry->displayName;
+    p.baseUrl = entry->baseUrl;
+    p.apiFormat = piApiFormatValue(entry->api);
+    p.model = isDefault && !info.defaultModel.empty() ? info.defaultModel
+                                                      : entry->firstModel;
+    p.reasoningEfforts = entry->reasoningEfforts;
+    p.contextWindow = entry->contextWindow;
+    p.maxTokens = entry->maxTokens;
+    p.inputModalities = entry->inputModalities;
+    if (!entry->apiKeyEnv.empty()) {
+        p.apiKey = readDshCredential(cfg::dshCredentialsFile(), entry->apiKeyEnv);
+    }
+    bool replaced = false;
+    for (auto& cur : g.providers) {
+        if (cur.id != id) continue;
+        const std::int64_t created = cur.createdAt;
+        cur = p;
+        cur.createdAt = created;
+        replaced = true;
+        break;
+    }
+    if (!replaced) {
+        p.createdAt = nowMillis();
+        g.providers.push_back(p);
+    }
+    if (isDefault) g.current = id;
+    // 先落盘本地列表（live 接管失败也不丢收编结果，页面会显示「未写入」），
+    // 再把该条目接管成 llmswitch-<id>：它正是默认路由时 agent-default-model
+    // 同步改指新键，dsh 侧行为不变。
+    save();
+    syncDshProviders(isDefault ? id : std::string{});
+    return p;
+}
+
+void ProviderStore::removeDshProvider(const std::string& key) {
+    const auto file = cfg::dshSettingsFile();
+    std::error_code ec;
+    if (!std::filesystem::exists(file, ec) || ec) {
+        throw std::runtime_error("dsh 配置文件不存在，没有可删除的条目");
+    }
+    const std::string text = readTextFile(file);
+    const auto info = parseDshSettings(text);
+    bool found = false;
+    for (const auto& entry : info.providers) {
+        if (entry.key == key) found = true;
+    }
+    if (!found) {
+        throw std::runtime_error(std::format("dsh 配置里没有条目：{}", key));
+    }
+    // 只删这一条：其余组内供应商照常重建（条目不在 entries 里就等于被清掉）。
+    const auto& g = group("dsh");
+    std::vector<std::vector<std::string>> entries;
+    std::set<std::string> groupIds;
+    for (const auto& p : g.providers) {
+        groupIds.insert(p.id);
+        if (key == "llmswitch-" + p.id) continue;  // 目标条目：不再重建
+        entries.push_back(dshEntryLines(p.id, p, models::effectiveBaseUrl(p)));
+    }
+    std::set<std::string> removeKeys;
+    for (const auto& entry : info.providers) {
+        if (entry.key.starts_with("llmswitch-") ||
+            groupIds.find(entry.key) != groupIds.end()) {
+            removeKeys.insert(entry.key);
+        }
+    }
+    removeKeys.insert(key);
+    const bool clearDefault = key == info.defaultProvider;
+    backupLiveFile("dsh", file);
+    atomicWrite(file,
+                rewriteDshSettings(text, entries, removeKeys, clearDefault, "",
+                                   "", ""));
 }
 
 } // namespace store
