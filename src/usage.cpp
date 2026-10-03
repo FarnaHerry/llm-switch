@@ -9,8 +9,6 @@
 //                只取 type=="token_usage_record" 的逐条 payload.usage；同一文件里
 //                的 event_msg/token_count.info.total_token_usage 是**会话累计值**，
 //                按行累加会严重虚高，一律不用。
-//   qwen         ~/.qwen/usage/token-usage-<年>-<月>.jsonl
-//                本身就是一张用量账本，每条一个 id。
 //   pi           ~/.pi/agent/sessions/**/*.jsonl
 //                type=="message" 的 message.usage{input,output,cacheRead,cacheWrite}。
 //   zcode        ~/.zcode/cli/rollout/model-io-*.jsonl
@@ -18,8 +16,8 @@
 //
 // 归一化（关键）：各家 input 字段是否含缓存不一致，混着加会重复计数——
 //   * claude / pi：input **不含**缓存 → 直接取用；
-//   * codex / qwen / zcode：input **含**缓存 → 输入 = input − 缓存，缓存单独成列。
-// 实测依据：codex/qwen/zcode 的 total = input + output；pi 的 total =
+//   * codex / zcode：input **含**缓存 → 输入 = input − 缓存，缓存单独成列。
+// 实测依据：codex/zcode 的 total = input + output；pi 的 total =
 // input + cacheWrite + cacheRead + output。
 module;
 
@@ -36,7 +34,6 @@ namespace {
 
 constexpr std::string_view kClaude = "claude-code";
 constexpr std::string_view kCodex = "codex";
-constexpr std::string_view kQwen = "qwen";
 constexpr std::string_view kPi = "pi";
 constexpr std::string_view kZcode = "zcode";
 
@@ -213,7 +210,6 @@ std::vector<std::filesystem::path> CollectJsonl(const std::filesystem::path& roo
 std::vector<UsageRecord> ParseFor(std::string_view agent, std::string_view chunk) {
     if (agent == kClaude) return ParseClaude(chunk);
     if (agent == kCodex) return ParseCodex(chunk);
-    if (agent == kQwen) return ParseQwen(chunk);
     if (agent == kPi) return ParsePi(chunk);
     if (agent == kZcode) return ParseZcode(chunk);
     return {};
@@ -277,29 +273,6 @@ std::vector<UsageRecord> ParseCodex(std::string_view jsonl) {
         r.cacheReadTokens = cached;
         r.cacheWriteTokens = JInt(*u, "cache_write_input_tokens");
         r.outputTokens = JInt(*u, "output_tokens");
-        Emit(out, std::move(r));
-    });
-    return ToVector(out);
-}
-
-std::vector<UsageRecord> ParseQwen(std::string_view jsonl) {
-    RecordMap out;
-    ForEachLine(jsonl, [&out](std::string_view line) {
-        const auto j = ParseLine(line);
-        if (j.is_discarded() || !j.is_object()) return;
-        const std::string id = JStr(j, "id");
-        if (id.empty()) return;
-        UsageRecord r;
-        r.agent = std::string(kQwen);
-        r.key = r.agent + ":" + id;
-        r.model = JStr(j, "model");
-        r.tsMillis = ParseIso(JStr(j, "timestamp"));
-        // 账本里 totalTokens = input + output，说明 input 含缓存（实测）。
-        const std::int64_t cached = JInt(j, "cachedTokens");
-        r.inputTokens = std::max<std::int64_t>(0, JInt(j, "inputTokens") - cached);
-        r.cacheReadTokens = cached;
-        r.outputTokens = JInt(j, "outputTokens");
-        // thoughtsTokens 不并进 output：账本自己的 totalTokens 也没算它。
         Emit(out, std::move(r));
     });
     return ToVector(out);
@@ -376,7 +349,6 @@ UsageScan ScanUsageLogs(const ScanState& state) {
     const std::vector<std::pair<std::string, std::filesystem::path>> roots{
         {std::string(kClaude), cfg::claudeProjectsDir()},
         {std::string(kCodex), cfg::codexSessionsDir()},
-        {std::string(kQwen), cfg::qwenUsageDir()},
         {std::string(kPi), cfg::piSessionsDir()},
         {std::string(kZcode), cfg::zcodeRolloutDir()},
     };

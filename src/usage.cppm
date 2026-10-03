@@ -23,7 +23,7 @@ namespace usage {
 
 // 一条用量记录 = 一次上游调用（去重后的最小单位）。
 export struct UsageRecord {
-    std::string agent;  // claude-code / codex / qwen / pi / zcode
+    std::string agent;  // claude-code / codex / pi / zcode
     std::string model;
     std::int64_t tsMillis = 0;
     std::int64_t inputTokens = 0;
@@ -102,7 +102,6 @@ export std::int64_t TodayStartMillis();
 // 合并后的记录；坏行跳过，缺字段按 0 处理。
 export std::vector<UsageRecord> ParseClaude(std::string_view jsonl);
 export std::vector<UsageRecord> ParseCodex(std::string_view jsonl);
-export std::vector<UsageRecord> ParseQwen(std::string_view jsonl);
 export std::vector<UsageRecord> ParsePi(std::string_view jsonl);
 export std::vector<UsageRecord> ParseZcode(std::string_view jsonl);
 

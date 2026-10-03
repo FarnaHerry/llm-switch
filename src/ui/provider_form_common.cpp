@@ -90,7 +90,7 @@ const AgentFormPolicy& AgentPolicyFor(std::string_view tool) {
     }
     if (tool == "dsh") return DshFormPolicy();
     if (tool == "zcode") return ZcodeFormPolicy();
-    // 未单列策略的 agent（gemini / qwen 等）：标签按注册表 flags 推导。
+    // 未单列策略的 agent（zcode 等）：标签按注册表 flags 推导。
     static std::map<std::string, AgentFormPolicy> generic;
     auto it = generic.find(std::string(tool));
     if (it == generic.end()) {

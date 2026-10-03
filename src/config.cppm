@@ -213,43 +213,6 @@ export std::filesystem::path piSettingsFile() {
     return piAgentDir() / "settings.json";
 }
 
-// gemini-cli 系 coding agent（Gemini CLI / Qwen Code）目录：认证与端点
-// 覆盖写在目录下的 .env（KEY=VALUE 行级 upsert），auth 类型写 settings.json。
-// LLMSWITCH_GEMINI_DIR / LLMSWITCH_QWEN_DIR 覆盖供测试与非常规安装。
-export std::filesystem::path geminiDir() {
-    if (const char* e = std::getenv("LLMSWITCH_GEMINI_DIR"); e && *e) {
-        return std::filesystem::path(e);
-    }
-    return homeDir() / ".gemini";
-}
-
-// Gemini CLI 的 .env（GEMINI_API_KEY / GOOGLE_GEMINI_BASE_URL / GEMINI_MODEL）。
-export std::filesystem::path geminiEnvFile() {
-    return geminiDir() / ".env";
-}
-
-// Gemini CLI 全局设置（security.auth.selectedType 深合并）。
-export std::filesystem::path geminiSettingsFile() {
-    return geminiDir() / "settings.json";
-}
-
-export std::filesystem::path qwenDir() {
-    if (const char* e = std::getenv("LLMSWITCH_QWEN_DIR"); e && *e) {
-        return std::filesystem::path(e);
-    }
-    return homeDir() / ".qwen";
-}
-
-// Qwen Code 的 .env（OPENAI_API_KEY / OPENAI_BASE_URL / OPENAI_MODEL）。
-export std::filesystem::path qwenEnvFile() {
-    return qwenDir() / ".env";
-}
-
-// Qwen Code 全局设置（security.auth.selectedType 深合并）。
-export std::filesystem::path qwenSettingsFile() {
-    return qwenDir() / "settings.json";
-}
-
 // ZCode 的 provider 注册表（provider map upsert + enabled 切换；样本字段
 // name/kind/options{apiKey,baseURL}/models）。LLMSWITCH_ZCODE_CONFIG 覆盖。
 export std::filesystem::path zcodeConfigFile() {
@@ -456,17 +419,9 @@ export std::filesystem::path codexSessionsDir() {
 }
 
 // ---- 用量导入（llmswitch.usage）的会话/账本根 ------------------------------
-// 各 agent 记录的 token 用量位置不同：Qwen 有专门的月度账本，pi / zcode 藏在
-// 会话或模型调用记录里，Claude / Codex 复用上面的会话根。全部可被 LLMSWITCH_*
-// 覆盖，测试可隔离到临时目录。
-
-// Qwen Code 用量账本目录（token-usage-<年>-<月>.jsonl）。
-export std::filesystem::path qwenUsageDir() {
-    if (const char* e = std::getenv("LLMSWITCH_QWEN_USAGE"); e && *e) {
-        return std::filesystem::path(e);
-    }
-    return homeDir() / ".qwen" / "usage";
-}
+// 各 agent 记录的 token 用量位置不同：pi / zcode 藏在会话或模型调用记录里，
+// Claude / Codex 复用上面的会话根。全部可被 LLMSWITCH_* 覆盖，测试可隔离到
+// 临时目录。
 
 // pi 会话根（~/.pi/agent/sessions/<项目>/*.jsonl）。
 export std::filesystem::path piSessionsDir() {
@@ -495,7 +450,7 @@ export std::filesystem::path zcodeRolloutDir() {
 //
 // 除 PATH 外补的回落目录都是实测见过的装法：官方安装脚本的 ~/.local/bin
 // （claude / codex）、opencode 自有的 ~/.opencode/bin、pnpm 全局的
-// ~/.local/share/pnpm/bin（dsh / qwen）。从桌面启动的应用 PATH 常常比登录 shell
+// ~/.local/share/pnpm/bin（dsh）。从桌面启动的应用 PATH 常常比登录 shell
 // 窄，只查 PATH 会误报未安装。
 export std::filesystem::path findExecutable(std::string_view name) {
     if (name.empty()) return {};

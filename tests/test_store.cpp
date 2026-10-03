@@ -138,12 +138,6 @@ int main() {
     const fs::path piDir = root / "pi-agent";
     const fs::path piModels = piDir / "models.json";
     const fs::path piSettings = piDir / "settings.json";
-    const fs::path geminiDir = root / "gemini";
-    const fs::path geminiEnv = geminiDir / ".env";
-    const fs::path geminiSettings = geminiDir / "settings.json";
-    const fs::path qwenDir = root / "qwen";
-    const fs::path qwenEnv = qwenDir / ".env";
-    const fs::path qwenSettings = qwenDir / "settings.json";
     const fs::path zcodeConfig = root / "zcode" / "config.json";
     const fs::path dshDir = root / "dsh";
     const fs::path dshSettings = dshDir / "settings.yaml";
@@ -154,8 +148,6 @@ int main() {
     testenv::setenv("LLMSWITCH_CODEX_CONFIG", codexConfig);
     testenv::setenv("LLMSWITCH_OPENCODE_CONFIG", opencodeConfig);
     testenv::setenv("LLMSWITCH_PI_DIR", piDir);
-    testenv::setenv("LLMSWITCH_GEMINI_DIR", geminiDir);
-    testenv::setenv("LLMSWITCH_QWEN_DIR", qwenDir);
     testenv::setenv("LLMSWITCH_ZCODE_CONFIG", zcodeConfig);
     testenv::setenv("LLMSWITCH_DSH_SETTINGS", dshSettings);
     testenv::setenv("LLMSWITCH_DSH_CREDENTIALS", dshCredentials);
@@ -176,8 +168,8 @@ int main() {
               s.config().routerTools.end());
         CHECK(s.detectCurrent("claude-code").empty());
         CHECK(s.detectCurrent("claude").empty());  // Linux 无桌面目录 → 空
-        // 注册表自检：10 个工具、id 可互查
-        CHECK(models::toolRegistry().size() == 10);
+        // 注册表自检：8 个工具、id 可互查
+        CHECK(models::toolRegistry().size() == 8);
         CHECK(models::findTool("claude-code") != nullptr);
         CHECK(models::findTool("opencode")->needsModel);
         CHECK(models::findTool("pi")->hasApiFormat);
@@ -196,9 +188,6 @@ int main() {
         CHECK(models::findTool("hermes")->needsModel);
         CHECK(models::findTool("hermes")->hasApiFormat);
         CHECK(models::findTool("hermes")->needsRestart);
-        CHECK(models::findTool("gemini")->needsModel);
-        CHECK(models::findTool("qwen")->needsModel);
-        CHECK(!models::findTool("gemini")->hasApiFormat);
         CHECK(models::findTool("zcode")->hasApiFormat);
         CHECK(!models::findTool("codex")->needsModel);
         CHECK(models::findTool("claude-code")->hasModelMappings);
@@ -500,75 +489,7 @@ int main() {
         CHECK(countBackups(cfg::backupsDir() / "pi", "models.json") == 1);
         CHECK(countBackups(cfg::backupsDir() / "pi", "settings.json") == 1);
     }
-    // 8b. gemini/qwen：.env 行级 upsert（保留既有变量与注释）、auth 类型
-    // 深合并、detect/import 往返、restore 删行不碰其他变量。
     {
-        writeFile(geminiEnv,
-                  "# gemini env\nGEMINI_API_KEY=old-key\nCUSTOM_FLAG=1\n");
-        writeFile(geminiSettings, R"json({"theme": "dark"}
-)json");
-        models::Provider pg{.name = "Gemini 中转",
-                            .baseUrl = "https://relay.example.com",
-                            .apiKey = "sk-gem",
-                            .model = "gemini-3-pro"};
-        s.addProvider("gemini", pg);
-        const std::string idG = s.group("gemini").providers.back().id;
-        s.switchTo("gemini", idG);
-        {
-            const std::string envText = readTextFile(geminiEnv);
-            CHECK(envText.find("GEMINI_API_KEY=sk-gem") != std::string::npos);
-            CHECK(envText.find("GOOGLE_GEMINI_BASE_URL=https://relay.example.com") !=
-                  std::string::npos);
-            CHECK(envText.find("GEMINI_MODEL=gemini-3-pro") != std::string::npos);
-            CHECK(envText.find("CUSTOM_FLAG=1") != std::string::npos);      // 无关变量保留
-            CHECK(envText.find("# gemini env") != std::string::npos);       // 注释保留
-            CHECK(envText.find("old-key") == std::string::npos);            // 旧值被替换
-            const auto settings = readJson(geminiSettings);
-            CHECK(settings["security"]["auth"]["selectedType"] == "gemini-api-key");
-            CHECK(settings["theme"] == "dark");  // 深合并保留无关字段
-            CHECK(s.detectCurrent("gemini") == idG);
-        }
-        // importLive 往返：改 .env 后收编为新供应商并置 current。
-        writeFile(geminiEnv,
-                  "GEMINI_API_KEY=sk-live\nGOOGLE_GEMINI_BASE_URL=https://live.example.com\n");
-        const auto imported = s.importLive("gemini");
-        CHECK(imported.apiKey == "sk-live");
-        CHECK(s.detectCurrent("gemini") == imported.id);
-        // restoreOfficial：三行删除、其他变量保留、selectedType 移除。
-        writeFile(geminiEnv, "GEMINI_API_KEY=sk-live\nGOOGLE_GEMINI_BASE_URL=https://live.example.com\nKEEP=1\n");
-        s.restoreOfficial("gemini");
-        {
-            const std::string envText = readTextFile(geminiEnv);
-            CHECK(envText.find("GEMINI_API_KEY") == std::string::npos);
-            CHECK(envText.find("GOOGLE_GEMINI_BASE_URL") == std::string::npos);
-            CHECK(envText.find("KEEP=1") != std::string::npos);
-            const auto settings = readJson(geminiSettings);
-            CHECK(!settings["security"]["auth"].contains("selectedType"));
-            CHECK(s.detectCurrent("gemini").empty());
-        }
-
-        // qwen：OPENAI_* 变量族 + openai 认证类型，同一路径的第二个实例。
-        models::Provider pq{.name = "Qwen 官方中转",
-                            .baseUrl = "https://dashscope.example.com/compatible-mode/v1",
-                            .apiKey = "sk-qwen",
-                            .model = "qwen3.7-plus"};
-        s.addProvider("qwen", pq);
-        const std::string idQ = s.group("qwen").providers.back().id;
-        s.switchTo("qwen", idQ);
-        {
-            const std::string envText = readTextFile(qwenEnv);
-            CHECK(envText.find("OPENAI_API_KEY=sk-qwen") != std::string::npos);
-            CHECK(envText.find("OPENAI_BASE_URL=https://dashscope.example.com/compatible-mode/v1") !=
-                  std::string::npos);
-            CHECK(envText.find("OPENAI_MODEL=qwen3.7-plus") != std::string::npos);
-            const auto settings = readJson(qwenSettings);
-            CHECK(settings["security"]["auth"]["selectedType"] == "openai");
-            CHECK(s.detectCurrent("qwen") == idQ);
-            const auto imported = s.importLive("qwen");
-            CHECK(imported.apiKey == "sk-qwen");
-            CHECK(s.detectCurrent("qwen") == imported.id);
-        }
-
         // 8c. zcode：provider upsert + enabled 互斥 + kind 映射 + detect/
         // import/restore。预置 builtin 与手填条目验证互斥与恢复。
         writeFile(zcodeConfig, R"json({"provider": {
@@ -2944,14 +2865,7 @@ int main() {
                   "base_url = \"https://api.stepfun.com/step_plan/v1\"") !=
                   std::string::npos &&
               cxStepfun->usageEnabled && cxStepfun->usagePath == "balance");
-        // gemini：新增预设分支（cc-switch geminiProviderPresets 同源），
-        // needsModel 工具的预设都带模型；qwen / zcode 仍无预设。
-        const auto gm = models::builtinPresets("gemini");
-        CHECK(!gm.subscription.empty() && gm.metered.empty());
-        CHECK(std::ranges::all_of(gm.subscription,
-            [](const models::Provider& p) { return !p.model.empty(); }));
-        const auto qw = models::builtinPresets("qwen");
-        CHECK(qw.subscription.empty() && qw.metered.empty());
+        // zcode：无预设（cc-switch 无对应来源）。
         const auto zc = models::builtinPresets("zcode");
         CHECK(zc.subscription.empty() && zc.metered.empty());
         // dsh：按量组 4 家直连（DeepSeek / Kimi / GLM / 千问），都带模型；

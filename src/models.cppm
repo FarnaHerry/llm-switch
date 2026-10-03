@@ -51,16 +51,15 @@ export struct ToolSpec {
 // 注册表顺序即 UI 侧栏/托盘菜单顺序。
 //
 // installCommand 的核实来源（2026-09-20 逐条对 registry 查过，不照抄文档）：
-//   npm ：@anthropic-ai/claude-code / @openai/codex / @google/gemini-cli /
-//         @qwen-code/qwen-code / @deepseek-ai/dsh /
+//   npm ：@anthropic-ai/claude-code / @openai/codex / @deepseek-ai/dsh /
 //         @earendil-works/pi-coding-agent / opencode-ai
 //         —— 均在 registry.npmjs.org/<包名> 上有 latest 标签。
 //   PyPI：hermes-agent（pypi.org/pypi/hermes-agent）。
 //   zcode 没有统一命令：实测由发行版系统包提供（/opt/ZCode/zcode，rpm zcode-*），
 //   装法随平台而异，故留空。
 // 参考：上游 cc-switch 的「手动安装命令」只列了 claude/codex/gemini/opencode/
-// openclaw/hermes；本项目另有 pi/dsh/qwen/zcode，不能照抄。
-export constexpr std::array<ToolSpec, 10> kToolRegistry{{
+// openclaw/hermes；本项目另有 pi/dsh/zcode，不能照抄。
+export constexpr std::array<ToolSpec, 8> kToolRegistry{{
     ToolSpec{.id = "claude-code",
              .displayName = "Claude Code",
              .iconName = "claudecode",
@@ -135,27 +134,6 @@ export constexpr std::array<ToolSpec, 10> kToolRegistry{{
              .needsRestart = true,
              .binary = "hermes",
              .installCommand = "python3 -m pip install --upgrade hermes-agent"},
-    // gemini-cli 系（Gemini CLI / Qwen Code）：认证与端点走 ~/.<dir>/.env
-    // 行级 upsert（GEMINI_API_KEY/GOOGLE_GEMINI_BASE_URL/GEMINI_MODEL 与
-    // OPENAI_API_KEY/OPENAI_BASE_URL/OPENAI_MODEL），auth 类型写 settings.json。
-    ToolSpec{.id = "gemini",
-             .displayName = "Gemini CLI",
-             .iconName = "gemini",
-             .needsModel = true,
-             .hasApiFormat = false,
-             .hasModelMappings = false,
-             .needsRestart = true,
-             .binary = "gemini",
-             .installCommand = "npm i -g @google/gemini-cli@latest"},
-    ToolSpec{.id = "qwen",
-             .displayName = "Qwen Code",
-             .iconName = "qwen",
-             .needsModel = true,
-             .hasApiFormat = false,
-             .hasModelMappings = false,
-             .needsRestart = true,
-             .binary = "qwen",
-             .installCommand = "npm i -g @qwen-code/qwen-code@latest"},
     // ZCode：provider map（~/.zcode/v2/config.json）upsert 自定义条目并置
     // enabled，apiFormat 决定 provider.kind（anthropic / openai）。
     // additiveProviders：provider map 同样是「多供应商并存 + enabled 指当前」，
@@ -484,7 +462,7 @@ export struct AppConfig {
     // 允许通过本地路由代理的工具 id；旧配置缺字段时默认全部启用，保持兼容。
     std::vector<std::string> routerTools{
         "claude-code", "claude", "codex", "opencode", "pi", "dsh", "hermes",
-        "gemini", "qwen", "zcode"};
+        "zcode"};
 
     bool operator==(const AppConfig&) const = default;
 };
@@ -747,8 +725,8 @@ export AppConfig fromJson(const nlohmann::json& j) {
 // subscription = 订阅制中转站（包月/订阅码；baseUrl 为各家文档给出的直连
 // 端点，不再追加格式后缀，因此 fullUrl=true）；metered = 按量计费官方 API。
 // 预设数据对齐 cc-switch（farion1231/cc-switch，MIT）2026-09 上游预设：
-// claude-code / codex 收录 cn_official 与知名中转条目，gemini 收录可核实
-// 中转条目；上游的 OAuth（requiresOAuth）、云厂商（cloud_provider）、自定义
+// claude-code / codex 收录 cn_official 与知名中转条目；上游的 OAuth
+// （requiresOAuth）、云厂商（cloud_provider）、自定义
 // 与 hidden 条目本应用无法表达，不收录。有可表达计费接口（GET + Bearer +
 // 标量取值路径，见 resources/raw/usage_templates.json）的 metered 预设直接
 // 带好用量查询配置，点选即用。
@@ -1390,59 +1368,6 @@ wire_api = "responses"
         };
         return groups;
     }
-    if (tool == "gemini") {
-        // gemini-cli 中转站（写 ~/.gemini/.env 的 GOOGLE_GEMINI_BASE_URL /
-        // GEMINI_MODEL；端点为各家文档直连地址，fullUrl=true）。来源：
-        // cc-switch 上游 geminiProviderPresets（2026-09 核实）；Google 官方
-        // 走 OAuth，不属于预设。
-        groups.subscription = {
-            Provider{.name = "PackyCode",
-                     .baseUrl = "https://www.packyapi.ai",
-                     .model = "gemini-3.6-flash",
-                     .website = "https://www.packyapi.ai",
-                     .fullUrl = true},
-            Provider{.name = "AICodeMirror",
-                     .baseUrl = "https://api.aicodemirror.ai/api/gemini",
-                     .model = "gemini-3.6-flash",
-                     .website = "https://www.aicodemirror.ai",
-                     .fullUrl = true},
-            Provider{.name = "Shengsuanyun",
-                     .baseUrl = "https://router.shengsuanyun.com/api",
-                     .model = "google/gemini-3.6-flash",
-                     .website = "https://www.shengsuanyun.com",
-                     .fullUrl = true},
-            Provider{.name = "Qiniu",
-                     .baseUrl = "https://api.qnaigc.com/bypass/vertex",
-                     .model = "gemini-3.6-flash",
-                     .website = "https://s.qiniu.com/nMvAvy",
-                     .fullUrl = true},
-            Provider{.name = "AICoding",
-                     .baseUrl = "https://api.aicoding.inc",
-                     .model = "gemini-3.6-flash",
-                     .website = "https://aicoding.inc",
-                     .fullUrl = true},
-            Provider{.name = "SubRouter",
-                     .baseUrl = "https://subrouter.ai/v1beta",
-                     .model = "gemini-3.6-flash",
-                     .website = "https://subrouter.ai",
-                     .fullUrl = true},
-            Provider{.name = "OpenRouter",
-                     .baseUrl = "https://openrouter.ai/api",
-                     .model = "gemini-3.6-flash",
-                     .website = "https://openrouter.ai",
-                     .usageEnabled = true,
-                     .usageUrl = "https://openrouter.ai/api/v1/key",
-                     .usagePath = "data.usage",
-                     .usageLabel = "USD 已用",
-                     .fullUrl = true},
-            Provider{.name = "CherryIN",
-                     .baseUrl = "https://open.cherryin.net",
-                     .model = "google/gemini-3.6-flash",
-                     .website = "https://open.cherryin.ai",
-                     .fullUrl = true},
-        };
-        return groups;
-    }
     if (tool == "dsh") {
         // DeepSeek Harness（dsh）：手写路由走 llm-pi-ai.providers，协议三档
         // 对应 apiFormat（"" / openai-chat → openai-completions，另两档同名
@@ -1568,7 +1493,7 @@ wire_api = "responses"
         return groups;
     }
     // claude（Claude Desktop 3p 直连）：暂无第三方预设（官方走常驻卡）。
-    // qwen / zcode：cc-switch 无对应预设来源，暂不预设。
+    // zcode：cc-switch 无对应预设来源，暂不预设。
     return groups;
 }
 

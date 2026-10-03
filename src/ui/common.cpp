@@ -43,12 +43,6 @@ huxerui::ImageResource ToolIcon(std::string_view iconName) {
     if (iconName == "hermes") {
         return app::images::hermes;
     }
-    if (iconName == "gemini") {
-        return app::images::gemini;
-    }
-    if (iconName == "qwen") {
-        return app::images::qwen;
-    }
     if (iconName == "zcode") {
         return app::images::zcode;
     }

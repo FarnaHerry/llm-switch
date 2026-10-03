@@ -1931,35 +1931,6 @@ void ProviderStore::switchTo(std::string_view tool, const std::string& id) {
                     rewriteHermesConfig(text, entry, "llmswitch-" + target->id,
                                         target->model));
         restrictPiFile(file);
-    } else if (tool == "gemini" || tool == "qwen") {
-        // gemini-cli 系（Gemini CLI / Qwen Code）：认证与端点写 <dir>/.env
-        // （行级 upsert，其余变量与注释原样保留），auth 类型写 settings.json
-        // 深合并。baseUrl 为空 = 回到官方端点（删除覆盖行）。.env 含密钥，
-        // 目录 0700 / 文件 0600。
-        const bool isGemini = tool == "gemini";
-        const auto dir = isGemini ? cfg::geminiDir() : cfg::qwenDir();
-        const auto envFile = isGemini ? cfg::geminiEnvFile() : cfg::qwenEnvFile();
-        const auto settingsFile =
-            isGemini ? cfg::geminiSettingsFile() : cfg::qwenSettingsFile();
-        const std::string keyVar = isGemini ? "GEMINI_API_KEY" : "OPENAI_API_KEY";
-        const std::string baseVar =
-            isGemini ? "GOOGLE_GEMINI_BASE_URL" : "OPENAI_BASE_URL";
-        const std::string modelVar = isGemini ? "GEMINI_MODEL" : "OPENAI_MODEL";
-        const std::string authType = isGemini ? "gemini-api-key" : "openai";
-        restrictPiDir(dir);
-        backupLiveFile(tool, envFile);
-        writeEnvValues(envFile,
-                       {{keyVar, target->apiKey},
-                        {baseVar, baseUrl},
-                        {modelVar, target->model}});
-        restrictPiFile(envFile);
-        nlohmann::json settings = readJsonOrNull(settingsFile);
-        if (!settings.is_object()) settings = nlohmann::json::object();
-        backupLiveFile(tool, settingsFile);
-        nlohmann::json patch;
-        patch["security"]["auth"]["selectedType"] = authType;
-        deepMerge(settings, patch);
-        atomicWrite(settingsFile, settings.dump(2) + "\n");
     } else if (tool == "zcode") {
         // 启用目标条目、停用其余本应用托管（llmswitch:*）条目——本应用只能
         // 保证自己这几条互斥；builtin:* 与 ZCode 原生自建条目的启停由用户在
@@ -2146,32 +2117,6 @@ void ProviderStore::restoreOfficial(std::string_view tool) {
                     std::filesystem::remove(tomlFile, ec);
                     break;
                 }
-            }
-        }
-    } else if (tool == "gemini" || tool == "qwen") {
-        // 回到官方认证：.env 删本应用写入的三行（其余变量与注释原样保留），
-        // settings.json 删 security.auth.selectedType（其余字段保留）。
-        const auto envFile = tool == "gemini" ? cfg::geminiEnvFile() : cfg::qwenEnvFile();
-        const std::string baseVar =
-            tool == "gemini" ? "GOOGLE_GEMINI_BASE_URL" : "OPENAI_BASE_URL";
-        const std::string keyVar = tool == "gemini" ? "GEMINI_API_KEY" : "OPENAI_API_KEY";
-        const std::string modelVar = tool == "gemini" ? "GEMINI_MODEL" : "OPENAI_MODEL";
-        std::error_code ec;
-        if (std::filesystem::exists(envFile, ec)) {
-            backupLiveFile(tool, envFile);
-            writeEnvValues(envFile, {{keyVar, ""}, {baseVar, ""}, {modelVar, ""}});
-        }
-        const auto settingsFile =
-            tool == "gemini" ? cfg::geminiSettingsFile() : cfg::qwenSettingsFile();
-        if (std::filesystem::exists(settingsFile, ec)) {
-            nlohmann::json settings = readJsonOrNull(settingsFile);
-            if (settings.is_object() && settings.contains("security") &&
-                settings["security"].is_object() &&
-                settings["security"].contains("auth") &&
-                settings["security"]["auth"].is_object()) {
-                backupLiveFile(tool, settingsFile);
-                settings["security"]["auth"].erase("selectedType");
-                atomicWrite(settingsFile, settings.dump(2) + "\n");
             }
         }
     } else if (tool == "zcode") {

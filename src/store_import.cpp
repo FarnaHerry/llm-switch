@@ -204,18 +204,6 @@ std::string ProviderStore::detectCurrent(std::string_view tool) const {
         }
         return "";
     }
-    if (tool == "gemini" || tool == "qwen") {
-        // .env 的端点+密钥匹配组内供应商；两者都空 = 官方登录，未切换。
-        const auto envFile = tool == "gemini" ? cfg::geminiEnvFile() : cfg::qwenEnvFile();
-        const std::string baseVar =
-            tool == "gemini" ? "GOOGLE_GEMINI_BASE_URL" : "OPENAI_BASE_URL";
-        const std::string keyVar = tool == "gemini" ? "GEMINI_API_KEY" : "OPENAI_API_KEY";
-        const std::string baseUrl = readEnvValue(envFile, baseVar);
-        const std::string apiKey = readEnvValue(envFile, keyVar);
-        if (baseUrl.empty() && apiKey.empty()) return "";
-        const auto* p = matchByUrlKey(g, baseUrl, apiKey);
-        return p != nullptr ? p->id : "";
-    }
     if (tool == "zcode") {
         // 启用中的条目命中组内 id：优先本应用托管（llmswitch:*）条目，
         // 其次 ZCode 原生自建条目（enabled 缺省视为启用）；builtin:* 是
@@ -442,20 +430,6 @@ models::Provider ProviderStore::importLive(std::string_view tool) {
         } else {
             p.model = entry->firstModel;
         }
-        return adopt(std::move(p));
-    }
-    if (tool == "gemini" || tool == "qwen") {
-        const auto envFile = tool == "gemini" ? cfg::geminiEnvFile() : cfg::qwenEnvFile();
-        if (!std::filesystem::exists(envFile, ec)) return {};
-        const std::string baseVar =
-            tool == "gemini" ? "GOOGLE_GEMINI_BASE_URL" : "OPENAI_BASE_URL";
-        const std::string keyVar = tool == "gemini" ? "GEMINI_API_KEY" : "OPENAI_API_KEY";
-        const std::string modelVar = tool == "gemini" ? "GEMINI_MODEL" : "OPENAI_MODEL";
-        models::Provider p;
-        p.baseUrl = readEnvValue(envFile, baseVar);
-        p.apiKey = readEnvValue(envFile, keyVar);
-        p.model = readEnvValue(envFile, modelVar);
-        if (p.baseUrl.empty() && p.apiKey.empty()) return {};
         return adopt(std::move(p));
     }
     if (tool == "zcode") {

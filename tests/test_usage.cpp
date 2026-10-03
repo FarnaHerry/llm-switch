@@ -4,7 +4,7 @@
 //
 // 覆盖重点全是「数字会不会算错」：
 //   * Claude 同一条 message.id 的流式重复追加 → 按字段取 max（不是最后一次）；
-//   * input 是否含缓存各家不同（claude/pi 不含，codex/qwen/zcode 含）→ 归一化后
+//   * input 是否含缓存各家不同（claude/pi 不含，codex/zcode 含）→ 归一化后
 //     总量必须等于各自日志里的 total；
 //   * Codex 的累计值事件（token_count.info.total_token_usage）不得被计入；
 //   * sync 幂等：同一批文件重扫不新增；追加半行不消费；新增完整行才入库；
@@ -128,26 +128,6 @@ void testCodex() {
     }
 }
 
-void testQwen() {
-    // 账本口径：totalTokens = inputTokens + outputTokens ⇒ input 含 cached。
-    const std::string jsonl =
-        R"({"schemaVersion":1,"id":"q1","timestamp":"2026-09-02T14:03:14.379Z","model":"qwen3.6-flash","inputTokens":12585,"outputTokens":340,"cachedTokens":12165,"thoughtsTokens":173,"totalTokens":12925})"
-        "\n";
-    const auto records = usage::ParseQwen(jsonl);
-    CHECK(records.size() == 1);
-    const auto* r = find(records, "qwen:q1");
-    CHECK(r != nullptr);
-    if (r != nullptr) {
-        CHECK(r->inputTokens == 12585 - 12165);
-        CHECK(r->cacheReadTokens == 12165);
-        CHECK(r->outputTokens == 340);
-        CHECK(r->model == "qwen3.6-flash");
-        CHECK(r->inputTokens + r->outputTokens + r->cacheReadTokens +
-                  r->cacheWriteTokens ==
-              12925);  // == totalTokens
-    }
-}
-
 void testPi() {
     // pi 口径：totalTokens = input + cacheWrite + cacheRead + output ⇒ input 不含缓存。
     const std::string jsonl =
@@ -198,7 +178,6 @@ void testScanIncremental() {
     std::filesystem::remove_all(root, ec);
     testenv::setenv("LLMSWITCH_CLAUDE_PROJECTS", (root / "claude"));
     testenv::setenv("LLMSWITCH_CODEX_SESSIONS", (root / "codex"));
-    testenv::setenv("LLMSWITCH_QWEN_USAGE", (root / "qwen"));
     testenv::setenv("LLMSWITCH_PI_SESSIONS", (root / "pi"));
     testenv::setenv("LLMSWITCH_ZCODE_ROLLOUT", (root / "zcode"));
 
@@ -257,7 +236,6 @@ void testScanIncremental() {
     std::filesystem::remove_all(root, ec);
     testenv::unsetenv("LLMSWITCH_CLAUDE_PROJECTS");
     testenv::unsetenv("LLMSWITCH_CODEX_SESSIONS");
-    testenv::unsetenv("LLMSWITCH_QWEN_USAGE");
     testenv::unsetenv("LLMSWITCH_PI_SESSIONS");
     testenv::unsetenv("LLMSWITCH_ZCODE_ROLLOUT");
 }
@@ -276,7 +254,6 @@ int main() {
     testIsoParsing();
     testClaude();
     testCodex();
-    testQwen();
     testPi();
     testZcode();
     testScanIncremental();
