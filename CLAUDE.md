@@ -176,6 +176,17 @@ hover 时在屏幕中央展开径向导航盘，全部 8 个顶级页面图标�
   删除。右列每行的「写入 / 更新」图标是 `write.svg`（文件 + 从边界插进去的一条
   墨块 = 只写这一条），不用 Icon Set 的 `upload.svg`（底座 + 竖箭头，24px 下认不
   出语义、和整组写入的批量动作混同）。
+  **两列的实况预算（别把 `CacheExtent` 调大）**：左右两个 VirtualList 都是
+  `CacheExtent(128.0F)`，每行只留**一条**等宽次要信息（`DshMetaLine` /
+  `ZcodeMetaLine` 把「键 · 模型 · 访问地址」连成一条 Text，不再是两个 Text）。
+  原因：这两列是全应用挂载节点最多的页面，而 linux 后端的 cairo/GSK 批次没有
+  跨帧缓存，任何一次重绘都按「已挂载节点」重新光栅，逐帧成本几乎正比于它。
+  实测（无头探针逐帧 Pump，claude-code 单列卡片页作对照）：`CacheExtent(480.0F)`
+  + 两个 Text 时一屏挂载 dsh 250 节点、zcode 256 节点（对照 180）；改成 128 +
+  合并一条后 dsh 201、zcode 193，同一次运行的静止帧中位数 dsh 10.4 → 8.8ms、
+  zcode 11.2 → 8.6ms（对照组 5.2ms 未变，即与对照页的比值从 ≈2.0 收到 ≈1.7）。
+  一屏实际落地的行数从 ~22 降到 ~14，行高也从 138pt 收到 117pt。预取调大并不能
+  消除滚动空白（新行本来就在同一帧内落地），只会放大逐帧成本。
   整组重建只剩 `syncDshProviders` 一个入口——供应商页的「全部写入 dsh」按钮
   与 restoreOfficial 的收尾；它把组内每条写成 `llmswitch-<id>`（api 字段复用
   pi 三档映射，追加在 providers 块尾）、清掉不在组内的孤儿 `llmswitch-*`。
@@ -883,5 +894,17 @@ I/O、解析和 JSON 函数默认保留在 `.cpp` 中。
   `removeProvider` 的 `eraseLive` 对 zcode 同样生效（右列删除确认的三键弹窗）。
   右列每行的「写入 / 更新」用 `write.svg`（与 dsh 同一枚：文件 + 插入的一条
   墨块 = 只写这一条）。
+- ✅ dsh / zcode 双列页减压（2026-10-03）：两个工具页是全应用挂载节点最多的
+  页面（一屏两个 VirtualList），而 linux 后端的 cairo/GSK 批次没有跨帧缓存——
+  任何重绘都按已挂载节点重新光栅，所以「特别卡顿」的根因是**预取太贪 + 行内
+  文本节点太多**，不是 store 读文件（`dshLiveProviders` 21 条 0.13ms、
+  `zcodeLiveProviders` 36 条 0.18ms；页面体实测每次挂载只跑一次，不是逐帧）。
+  两处改动：四个列表的 `CacheExtent(480.0F)` → `128.0F`；行内的「键 · 模型」与
+  「访问地址」两行合成一条 `DshMetaLine` / `ZcodeMetaLine`（一条 Text，URL 长了
+  照旧折行）。实测（无头探针逐帧 Pump，claude-code 单列页为对照）：一屏挂载
+  dsh 250 → 201 节点、zcode 256 → 193，静止帧中位数 dsh 10.4 → 8.8ms、
+  zcode 11.2 → 8.6ms（对照 5.2ms 未变），滚动帧均值 dsh 17.6 → 10.1ms、
+  zcode 14.5 → 8.9ms。绝对值随机器负载浮动，看的是与对照页的比值。探针留在
+  tests/（未跟踪，不进 CTest）。
 - ⬜ 待做：订阅站端点可能随各家调整，升级版本时需复核；无 CLI 分流、
   无单实例/开机自启；`usage.db` 的 WAL 一致性备份（当前不在 `backups/` 覆盖内）。

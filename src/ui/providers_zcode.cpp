@@ -82,6 +82,20 @@ huxerui::View ZcodeMonoLine(const std::string& text, huxerui::Color color) {
         huxerui::TextStyle{huxerui::Font::Monospace(font_size::kChip), color});
 }
 
+// 等宽次要行：把「键 / 模型 / 访问地址」各段用 · 连成**一条** Text。两列布局
+// 本来就只有半个页面宽，拆成多个 Text 只是多几个节点、多几份逐帧光栅；URL 长了
+// 仍然自然折行。
+huxerui::View ZcodeMetaLine(const std::vector<std::string>& parts,
+                            huxerui::Color color) {
+    std::string text;
+    for (const auto& part : parts) {
+        if (part.empty()) continue;
+        if (!text.empty()) text += " · ";
+        text += part;
+    }
+    return ZcodeMonoLine(text, color);
+}
+
 // 右列一条的删除动作：eraseLive=false 走 store 的「只删本应用留存」路径
 // （config.json 一字不动），true 才把条目也从 ZCode 里摘掉。
 void RemoveZcodeLocal(huxerui::ToastHandle toast, const std::string& name,
@@ -266,11 +280,8 @@ void ShowZcodeDeleteConfirm(huxerui::DialogHandle dialog,
             : live.model;
     return QuietCard(huxerui::Column {
         ZcodeRowTitle(name, badges, theme.colors.on_surface),
-        ZcodeMonoLine(modelText.empty()
-                          ? live.key
-                          : std::format("{} · {}", live.key, modelText),
+        ZcodeMetaLine({live.key, modelText, live.baseUrl},
                       theme.colors.on_surface_variant),
-        ZcodeMonoLine(live.baseUrl, theme.colors.on_surface_variant),
         huxerui::Row {
             huxerui::IconButton(app::images::swap, "在 ZCode 中启用")
                 .OnClick([enable] { enable(); })
@@ -575,7 +586,7 @@ void ShowZcodeDeleteConfirm(huxerui::DialogHandle dialog,
                                  return ZcodeLiveRow(entry, revision, toast);
                              })
             .EstimatedItemExtent(120.0F)
-            .CacheExtent(480.0F)
+            .CacheExtent(128.0F)
             .With(huxerui::Spacing(8.0F), huxerui::Grow(1.0F));
     huxerui::View liveColumn = huxerui::Column {
         huxerui::Text(liveCount).Style(
@@ -613,7 +624,7 @@ void ShowZcodeDeleteConfirm(huxerui::DialogHandle dialog,
                                            formToolIndex, formTarget);
                   })
                   .EstimatedItemExtent(120.0F)
-                  .CacheExtent(480.0F)
+                  .CacheExtent(128.0F)
                   .With(huxerui::Spacing(8.0F), huxerui::Grow(1.0F))};
     huxerui::View localColumn = huxerui::Column {
         huxerui::Text(localCount).Style(
