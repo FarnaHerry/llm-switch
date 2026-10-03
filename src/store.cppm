@@ -165,6 +165,12 @@ public:
     // 只删这一条、别的条目一字不动；被删的正是默认路由时
     // agent-default-model 块一并清除。条目不存在抛 std::runtime_error。
     void removeDshProvider(const std::string& key);
+    // 把 dsh 的默认路由指向 live 里的任意一条（左列每行的「设为 dsh 默认」）。
+    // key 为空 = 清掉 agent-default-model 块、回到内置官方路由（就是左列那条
+    // 合成官方行上的动作）；非空必须是 live 里已有的键——本应用条目、未纳管的
+    // 手写路由都可以，dsh 的默认本来就是一个键名，本应用不要求它是自己托管的。
+    // 只改这一块：providers 里的条目一字不动。键不存在抛 std::runtime_error。
+    void setDshDefaultKey(const std::string& key);
 
     // ---- ZCode 增量多供应商（config.json 的 provider map）----
     // 与 dsh 同一套模型，两个差别：
@@ -190,6 +196,10 @@ public:
     // 从 config.json 删掉这一条（别的条目原样保留）。builtin:* 抛错，
     // 条目不存在抛错。
     void removeZcodeProvider(const std::string& key);
+    // 在 ZCode 中启用 live 里的任意一条（左列每行的「在 ZCode 中启用」）：只翻
+    // 这一条（以及按本应用语义停用其余 llmswitch:* 条目），别的条目一字不动。
+    // builtin:* 抛错——官方套餐由 ZCode 自己管；键不存在抛 std::runtime_error。
+    void enableZcodeKey(const std::string& key);
     // 显式整组重建（「全部写入 ZCode」）：把组内每条写成 llmswitch:<id>
     // （原生键的条目原位更新、不另起重复条目），清掉不再属于组内的孤儿
     // llmswitch:* 条目；builtin:* 与 ZCode 原生条目一律不动。

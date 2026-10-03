@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+  <!-- 写入这一条：一条墨块从文件左边界跨进去，表示「只把这一条写进工具的
+       配置文件」。与 import/export 的「方框 + 竖箭头」区分开，笔画最少，
+       16px 下仍能认出「一条插进文件」。 -->
+  <g fill="none" stroke="#FFFFFF" stroke-width="1.7" stroke-linecap="round">
+    <path d="M11.8 3.6 H18.8 A2.2 2.2 0 0 1 21 5.8 V18.2 A2.2 2.2 0 0 1 18.8 20.4 H11.8 A2.2 2.2 0 0 1 9.6 18.2 V5.8 A2.2 2.2 0 0 1 11.8 3.6 Z"/>
+    <path d="M12.4 7.9 H16.9" stroke-opacity="0.5"/>
+    <path d="M12.4 16.5 H17.6" stroke-opacity="0.5"/>
+  </g>
+  <path d="M7.0 10.6 H14.6 A1.5 1.5 0 0 1 16.1 12.1 V12.5 A1.5 1.5 0 0 1 14.6 14.0 H7.0 A1.5 1.5 0 0 1 5.5 12.5 V12.1 A1.5 1.5 0 0 1 7.0 10.6 Z" fill="#FFFFFF" fill-opacity="0.95"/>
+</svg>

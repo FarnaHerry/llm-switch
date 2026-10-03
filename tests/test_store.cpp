@@ -987,6 +987,59 @@ int main() {
             CHECK(!providersOf().contains("native-x"));
             CHECK(providersOf()["builtin:zai"] == beforeBuiltin);
         }
+        // 左列「在 ZCode 中启用」（enableZcodeKey）：只翻 enabled——互斥只覆盖
+        // 本应用托管的 llmswitch:* 条目，ZCode 原生条目与 builtin 的启停不代管，
+        // 条目其它字段一字不动；启用未纳管的条目时组 current 清空（本应用没有
+        // 正在生效的供应商）；builtin:* 与不存在的键都抛错且不写文件。
+        {
+            auto doc = readJson(zcodeConfig);
+            doc["provider"]["native-y"] =
+                nlohmann::json{{"name", "原生Y"},
+                               {"kind", "anthropic"},
+                               {"options",
+                                {{"apiKey", "ky"},
+                                 {"baseURL", "https://ny.example.com"},
+                                 {"apiKeyRequired", true}}},
+                               {"enabled", false},
+                               {"models", {{"ny-1", nlohmann::json::object()}}}};
+            writeFile(zcodeConfig, doc.dump(2) + "\n");
+        }
+        s.enableZcodeKey("native-y");
+        {
+            const auto providers = providersOf();
+            CHECK(providers["native-y"]["enabled"] == true);
+            CHECK(providers["native-y"]["name"] == "原生Y");
+            CHECK(providers["native-y"]["options"]["apiKeyRequired"] == true);
+            CHECK(providers["llmswitch:" + idA]["enabled"] == false);
+            CHECK(providers["builtin:zai"] == beforeBuiltin);
+            CHECK(s.group("zcode").current.empty());  // 未纳管：已生效的供应商不明
+        }
+        s.enableZcodeKey("llmswitch:" + idA);
+        {
+            const auto providers = providersOf();
+            CHECK(providers["llmswitch:" + idA]["enabled"] == true);
+            CHECK(providers["llmswitch:" + idA]["handEdited"] == "keepA");
+            CHECK(providers["native-y"]["enabled"] == true);  // 原生条目不代管
+            CHECK(s.group("zcode").current == idA);
+        }
+        {
+            const std::string before = readTextFile(zcodeConfig);
+            bool threwBuiltin = false;
+            try {
+                s.enableZcodeKey("builtin:zai");
+            } catch (const std::exception&) {
+                threwBuiltin = true;
+            }
+            CHECK(threwBuiltin);
+            bool threwMissing = false;
+            try {
+                s.enableZcodeKey("ghost");
+            } catch (const std::exception&) {
+                threwMissing = true;
+            }
+            CHECK(threwMissing);
+            CHECK(readTextFile(zcodeConfig) == before);
+        }
         // 整组重建（「全部写入 ZCode」）：组内每条写成 llmswitch:<id>（原生键
         // 已删的这条就新建），清掉孤儿 llmswitch:*，builtin 与原生条目不动。
         {
@@ -1004,6 +1057,7 @@ int main() {
             CHECK(providers.contains("llmswitch:native-x"));
             CHECK(providers.contains("llmswitch:" + idA));
             CHECK(providers["builtin:zai"] == beforeBuiltin);
+            CHECK(providers["native-y"]["enabled"] == true);  // 整组重建不碰原生条目
             CHECK(providers["llmswitch:native-x"]["options"]["baseURL"] ==
                   "https://nx.example.com");
         }
@@ -2083,6 +2137,112 @@ int main() {
                 CHECK(topKeys(cred) ==
                       std::vector<std::string>({"version", "refs"}));
             }
+        }
+
+        // 8d11. 左列「设为 dsh 默认」（setDshDefaultKey）：动的只有
+        // agent-default-model 这一个块——providers 里的条目一字不动，包括把默认
+        // 指向一条**未纳管**的手写路由（dsh 的默认本来就是个键名，不要求它是本
+        // 应用托管的条目）。指向本应用条目时组 current 跟着走，指向未纳管/官方
+        // 条目时清空（本应用没有正在生效的供应商）；已经是该指向连文件都不碰；
+        // 清空 = 删掉那个块回到内置官方路由；键不存在抛错且不写文件。
+        {
+            while (!s.group("dsh").providers.empty()) {
+                s.removeProvider("dsh", s.group("dsh").providers.back().id);
+            }
+            writeFile(dshSettings,
+                      "agent-default-model:\n"
+                      "  provider: c\n"
+                      "  model: \"c-model\"\n"
+                      "  reasoningEffort: high\n"
+                      "llm-pi-ai:\n"
+                      "  providers:\n"
+                      "    c:\n"
+                      "      apiKeyEnv: C_API_KEY\n"
+                      "      api: openai-responses\n"
+                      "      baseURL: https://c.example.com/v1\n"
+                      "      models:\n"
+                      "        - id: c-model\n"
+                      "    hand-written:\n"
+                      "      api: openai-completions\n"
+                      "      baseURL: https://hand.example.com/v1\n"
+                      "      models:\n"
+                      "        - id: hand-model\n");
+            writeFile(dshCredentials,
+                      "version: 1\nrefs:\n  C_API_KEY: \"sk-c\"\n");
+            models::Provider pSet{.name = "纳管",
+                                  .baseUrl = "https://managed.example.com/v1",
+                                  .apiKey = "sk-managed",
+                                  .model = "managed-model"};
+            const std::string idSet = s.addProvider("dsh", pSet);
+            s.switchTo("dsh", idSet);
+            CHECK(s.group("dsh").current == idSet);
+            const std::string managedBlock = settingsEntryBlock(
+                readTextFile(dshSettings), "llmswitch-" + idSet);
+            // 指向未纳管的手写路由：条目一字不动、用户选的推理档位保留、
+            // current 清空（本应用没有正在生效的供应商）。
+            s.setDshDefaultKey("hand-written");
+            {
+                const std::string y = readTextFile(dshSettings);
+                CHECK(y.find("  provider: hand-written\n") != std::string::npos);
+                CHECK(y.find("  model: \"hand-model\"\n") != std::string::npos);
+                CHECK(y.find("  reasoningEffort: high\n") != std::string::npos);
+                CHECK(y.find("      apiKeyEnv: C_API_KEY") != std::string::npos);
+                CHECK(settingsEntryBlock(y, "llmswitch-" + idSet) ==
+                      managedBlock);
+                CHECK(s.group("dsh").current.empty());
+                bool handDefault = false;
+                bool officialDefault = false;
+                for (const auto& entry : s.dshLiveProviders()) {
+                    if (entry.key == "hand-written") handDefault = entry.isDefault;
+                    if (entry.key == "deepseek-official") {
+                        officialDefault = entry.isDefault;
+                    }
+                }
+                CHECK(handDefault);
+                CHECK(!officialDefault);
+            }
+            // 指回本应用条目：current 跟着走。
+            s.setDshDefaultKey("llmswitch-" + idSet);
+            CHECK(s.group("dsh").current == idSet);
+            CHECK(readTextFile(dshSettings).find(
+                      "  provider: llmswitch-" + idSet + "\n") !=
+                  std::string::npos);
+            // 已经是这个指向：文件一字不动。
+            {
+                const std::string before = readTextFile(dshSettings);
+                s.setDshDefaultKey("llmswitch-" + idSet);
+                CHECK(readTextFile(dshSettings) == before);
+            }
+            // 键不存在：抛错且不碰文件（不会顺手新建条目）。
+            {
+                const std::string before = readTextFile(dshSettings);
+                bool threw = false;
+                try {
+                    s.setDshDefaultKey("ghost");
+                } catch (const std::exception&) {
+                    threw = true;
+                }
+                CHECK(threw);
+                CHECK(readTextFile(dshSettings) == before);
+            }
+            // 清空 = 删掉 agent-default-model 块回到内置官方路由，条目不动。
+            s.setDshDefaultKey("");
+            {
+                const std::string y = readTextFile(dshSettings);
+                CHECK(y.find("agent-default-model") == std::string::npos);
+                CHECK(y.find("    hand-written:") != std::string::npos);
+                CHECK(settingsEntryBlock(y, "llmswitch-" + idSet) ==
+                      managedBlock);
+                CHECK(s.group("dsh").current.empty());
+                bool officialDefault = false;
+                for (const auto& entry : s.dshLiveProviders()) {
+                    if (entry.key == "deepseek-official") {
+                        officialDefault = entry.isDefault;
+                    }
+                }
+                CHECK(officialDefault);
+            }
+            s.removeProvider("dsh", idSet);
         }
     }
 

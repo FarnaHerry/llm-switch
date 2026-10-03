@@ -22,6 +22,14 @@
   凭据文档）。**收编不改写 live**：ZCode 原生条目保留它自己的键与内容，写入/
   更新原位合并、保留它自己维护的字段（options 其它键、systemDisabledReason），
   `builtin:*` 不收编不删除。
+- [x] 默认指向的动作放进**左列**（两列页共用一条规则）：它改的是 live 自己的
+  状态，不要求那一条已被本应用纳管。dsh 走 `setDshDefaultKey`（只改
+  agent-default-model，未纳管的手写路由也能设为默认；合成官方行上 = 清回内置
+  官方路由），zcode 走 `enableZcodeKey`（只翻 enabled，未纳管的原生条目也能
+  直接启用，builtin:* 的启停不代管）；右列只留写入 / 收编 / 删除。
+- [x] 右列「写入 / 更新」换自绘图标 `write.svg`（文件 + 从边界插进去的一条
+  墨块 = 只写这一条）：Icon Set v1.0 的 `upload.svg` 是「底座 + 竖箭头」，
+  24px 下认不出语义，也和整组写入的批量动作混同。
 
 ## 发布与分发
 

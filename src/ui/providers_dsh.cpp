@@ -216,6 +216,24 @@ void ShowDshDeleteConfirm(huxerui::DialogHandle dialog,
     const bool adoptable = live.providerId.empty() && !live.builtin &&
                            live.key != kDshOfficialKey;
 
+    // 「当前用哪条」是 live 自己的状态（agent-default-model），所以这个动作放在
+    // 左列：任何一条 live 条目都能被设为默认，不必先收编成本应用供应商；合成
+    // 官方行上的同一枚按钮则是「清回内置官方路由」（= 删掉那个块）。
+    const bool builtinOfficial = live.builtin || live.key == kDshOfficialKey;
+    const bool canSetDefault = !live.isDefault;
+    auto setDefault = [toast, live, name, bump] {
+        try {
+            providerStore().setDshDefaultKey(live.builtin ? std::string{}
+                                                          : live.key);
+            toast.Show(live.builtin
+                           ? "已清回 dsh 内置官方路由"
+                           : std::format("已把 {} 设为 dsh 默认路由", name));
+        } catch (const std::exception& e) {
+            toast.Show(e.what());
+        }
+        bump();
+    };
+
     // 收编：live 条目 → 本地供应商卡（store 负责把条目接管成 llmswitch-<id>）。
     auto adopt = [toast, live, bump] {
         try {
@@ -260,6 +278,16 @@ void ShowDshDeleteConfirm(huxerui::DialogHandle dialog,
                     theme.colors.on_surface_variant),
         DshMonoLine(live.baseUrl, theme.colors.on_surface_variant),
         huxerui::Row {
+            huxerui::IconButton(app::images::swap, "设为 dsh 默认")
+                .OnClick([setDefault] { setDefault(); })
+                .With(huxerui::Enabled(canSetDefault),
+                      huxerui::Tooltip(
+                          live.isDefault
+                              ? (builtinOfficial ? "已是 dsh 内置官方路由"
+                                                 : "已是 dsh 默认路由")
+                              : (builtinOfficial
+                                     ? "清掉 agent-default-model，回到内置官方路由"
+                                     : "改 agent-default-model 指向这一条"))),
             huxerui::IconButton(app::images::import, "收编到本应用")
                 .OnClick([adopt] { adopt(); })
                 .With(huxerui::Enabled(adoptable),
@@ -393,21 +421,7 @@ void ShowDshDeleteConfirm(huxerui::DialogHandle dialog,
                               ? theme.colors.error
                               : theme.colors.on_surface_variant),
             std::move(usageView),
-            huxerui::IconButton(app::images::swap, "设为 dsh 默认")
-                .OnClick([toast, id, name, bump] {
-                    try {
-                        providerStore().switchTo("dsh", id);
-                        toast.Show(std::format("已把 {} 设为 dsh 默认路由", name));
-                    } catch (const std::exception& e) {
-                        toast.Show(e.what());
-                    }
-                    bump();
-                })
-                .With(huxerui::Enabled(!isDefault),
-                      huxerui::Tooltip(isDefault
-                                           ? "已是 dsh 默认路由"
-                                           : "改 agent-default-model 指向它")),
-            huxerui::IconButton(app::images::upload, "写入 / 更新 dsh")
+            huxerui::IconButton(app::images::write, "写入 / 更新 dsh")
                 .OnClick([toast, name, id, bump] {
                     try {
                         providerStore().writeDshProvider(id);

@@ -2424,6 +2424,53 @@ std::vector<DshLiveProvider> ProviderStore::dshLiveProviders() const {
     return out;
 }
 
+// 把默认路由指向 live 里的某一条（左列每行的「设为 dsh 默认」）：key 为空 =
+// 清掉 agent-default-model 块回到内置官方路由。只改这一块，providers 里的
+// 条目一字不动——包括指向一条未纳管的手写路由：dsh 的默认本来就是个键名，
+// 本应用不要求它是自己托管的。
+void ProviderStore::setDshDefaultKey(const std::string& key) {
+    const auto settingsFile = cfg::dshSettingsFile();
+    std::error_code ec;
+    if (!std::filesystem::exists(settingsFile, ec)) {
+        throw std::runtime_error("dsh 配置文件不存在，无法设置默认路由");
+    }
+    const std::string text = readTextFile(settingsFile);
+    const auto info = parseDshSettings(text);
+    std::string defaultModel;
+    if (!key.empty()) {
+        bool found = false;
+        for (const auto& entry : info.providers) {
+            if (entry.key != key) continue;
+            found = true;
+            defaultModel = entry.firstModel;
+        }
+        if (!found) {
+            throw std::runtime_error(std::format("dsh 配置里没有条目：{}", key));
+        }
+    }
+    // 已经是这个指向：连文件都不碰。
+    if (info.defaultProvider == key &&
+        (key.empty() || info.defaultModel == defaultModel)) {
+        return;
+    }
+    restrictPiDir(settingsFile.parent_path());
+    backupLiveFile("dsh", settingsFile);
+    atomicWrite(settingsFile,
+                rewriteDshSettings(text, {}, {}, /*touchDefault=*/true, key,
+                                   defaultModel, info.defaultReasoningEffort));
+    // 组内 current 跟着走：指向的是本应用条目（或其裸键）就记成它，否则清空
+    // ——默认落在未纳管/官方路由上时，本应用没有「正在生效的供应商」。
+    auto& g = groupRef("dsh");
+    const std::string id = key.starts_with("llmswitch-") ? key.substr(10) : key;
+    std::string next;
+    for (const auto& p : g.providers) {
+        if (p.id == id) next = id;
+    }
+    if (g.current == next) return;
+    g.current = next;
+    save();
+}
+
 void ProviderStore::syncDshProviders(const std::string& defaultProviderId,
                                      bool clearDefault) {
     // 显式整体重建（供应商页「全部写入 dsh」按钮 + restoreOfficial 的收尾）：

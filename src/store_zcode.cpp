@@ -303,6 +303,55 @@ void ProviderStore::removeZcodeProvider(const std::string& key) {
     }
 }
 
+// 在 ZCode 中启用 live 里的某一条（左列每行的「在 ZCode 中启用」）：只翻
+// enabled——这一条置 true，其余本应用托管的 llmswitch:* 条目停用（本应用只能
+// 保证自己那几条互斥，ZCode 原生条目与 builtin:* 的启停不代管），其它字段
+// 一字不动。builtin:* 与不存在的键都抛错。
+void ProviderStore::enableZcodeKey(const std::string& key) {
+    if (key.starts_with("builtin:")) {
+        throw std::runtime_error(
+            std::format("ZCode 官方套餐条目不由本应用启用：{}", key));
+    }
+    const auto file = cfg::zcodeConfigFile();
+    nlohmann::json doc = readJsonOrNull(file);
+    if (!doc.is_object() || !doc.contains("provider") ||
+        !doc["provider"].is_object() || !doc["provider"].contains(key) ||
+        !doc["provider"][key].is_object()) {
+        throw std::runtime_error(std::format("ZCode 配置里没有条目：{}", key));
+    }
+    auto& providers = doc["provider"];
+    bool changed = false;
+    if (!zcodeEntryOn(providers[key])) {
+        providers[key]["enabled"] = true;
+        changed = true;
+    }
+    for (auto it = providers.begin(); it != providers.end(); ++it) {
+        if (it.key() == key || !it.key().starts_with("llmswitch:") ||
+            !it.value().is_object()) {
+            continue;
+        }
+        if (zcodeEntryOn(it.value())) {
+            it.value()["enabled"] = false;
+            changed = true;
+        }
+    }
+    if (changed) {
+        backupLiveFile("zcode", file);
+        atomicWrite(file, doc.dump(2) + "\n");
+    }
+    // 组内 current 跟着走：启用的是本应用条目（llmswitch:<id>）就记成它，
+    // 否则清空——启用了未纳管的原生条目时，本应用没有「正在生效的供应商」。
+    auto& g = groupRef("zcode");
+    const std::string id = zcodeProviderIdFor(key);
+    std::string next;
+    for (const auto& p : g.providers) {
+        if (p.id == id) next = id;
+    }
+    if (g.current == next) return;
+    g.current = next;
+    save();
+}
+
 // 只从 live 删掉这个键。builtin:* 抛错；键不存在返回 false（不写文件）。
 bool ProviderStore::eraseZcodeEntry(const std::string& key) {
     if (key.starts_with("builtin:")) {

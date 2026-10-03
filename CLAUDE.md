@@ -169,6 +169,12 @@ hover 时在屏幕中央展开径向导航盘，全部 8 个顶级页面图标�
   还是「连同 dsh 一起删」（true，默认 = 历史行为）；`dshLiveProviders` 是左列实况快照
   （settings.yaml 里没有内置 deepseek-official 时补一条 `builtin` 合成行，
   不能收编/删除；没有 agent-default-model 块时官方行就是「使用中」）。
+  **「当前用哪条」这个动作在左列**：`setDshDefaultKey` 只改
+  agent-default-model（未纳管的手写路由也能设为默认——dsh 的默认本来就是个
+  键名；合成官方行上是「清回内置官方路由」= 删掉那个块），右列只留写入 / 收编 /
+  删除。右列每行的「写入 / 更新」图标是 `write.svg`（文件 + 从边界插进去的一条
+  墨块 = 只写这一条），不用 Icon Set 的 `upload.svg`（底座 + 竖箭头，24px 下认不
+  出语义、和整组写入的批量动作混同）。
   整组重建只剩 `syncDshProviders` 一个入口——供应商页的「全部写入 dsh」按钮
   与 restoreOfficial 的收尾；它把组内每条写成 `llmswitch-<id>`（api 字段复用
   pi 三档映射，追加在 providers 块尾）、清掉不在组内的孤儿 `llmswitch-*`。
@@ -857,16 +863,21 @@ I/O、解析和 JSON 函数默认保留在 `.cpp` 中。
   两列（ToolSpec.additiveProviders，providers_zcode.cpp）。写侧单条增量：
   `writeZcodeEntry`（私有单条 upsert，原生条目走 mergeZcodeEntry 原位合并）与
   `eraseZcodeEntry`（私有单条删除）是全部实现，公开入口 `writeZcodeProvider` /
-  `adoptZcodeProvider` / `removeZcodeProvider` / `syncZcodeProviders`（整组重建
+  `adoptZcodeProvider` / `removeZcodeProvider` / `enableZcodeKey`（左列「在 ZCode
+  中启用」= 只翻 enabled）/ `syncZcodeProviders`（整组重建
   只此一处）+ 增改复制删与 `switchTo` 都走它们；`zcodeLiveProviders` 是左列
   实况快照（key / providerId / builtin / enabled / 模型清单）。与 dsh 的两处
   差别：**默认指向是条目自己的 enabled**（ZCode 允许多条同时启用，本应用只
-  保证自己托管的 llmswitch:* 互斥——切换只翻 enabled，内容一字不动）、
+  保证自己托管的 llmswitch:* 互斥——切换只翻 enabled，内容一字不动；正因它是
+  live 自己的状态，这个动作与 dsh 一样放在**左列**，未纳管的原生条目也能直接
+  启用，右列只留写入 / 收编 / 删除）、
   **密钥就在条目里**（没有独立凭据文档）。「保留 ZCode 自己的配置」是硬约束：
   原生条目（键由 ZCode 生成）收编时**不改名也不改写**、只是开始被本应用记录；
   写入/更新原位合并、保留它自己维护的字段（options 其它键、
-  systemDisabledReason 等）；builtin:* 不收编不删除；整组重建只写成
+  systemDisabledReason 等）；builtin:* 不收编不删除（启停也不代管）；整组重建只写成
   llmswitch:<id>（已有原生键的原位更新）并清孤儿 llmswitch:*。
   `removeProvider` 的 `eraseLive` 对 zcode 同样生效（右列删除确认的三键弹窗）。
+  右列每行的「写入 / 更新」用 `write.svg`（与 dsh 同一枚：文件 + 插入的一条
+  墨块 = 只写这一条）。
 - ⬜ 待做：订阅站端点可能随各家调整，升级版本时需复核；无 CLI 分流、
   无单实例/开机自启；`usage.db` 的 WAL 一致性备份（当前不在 `backups/` 覆盖内）。

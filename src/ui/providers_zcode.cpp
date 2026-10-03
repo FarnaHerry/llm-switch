@@ -211,6 +211,20 @@ void ShowZcodeDeleteConfirm(huxerui::DialogHandle dialog,
     const bool adoptable =
         live.providerId.empty() && !live.builtin && !live.apiKey.empty();
 
+    // 「当前用哪条」是条目自己的 enabled 开关，所以这个动作放在左列：ZCode
+    // 原生条目也能被启用，不必先收编成本应用供应商；反过来，只翻 enabled 就是
+    // 一次完整切换，条目内容一字不动。builtin:* 的启停由 ZCode 自己管。
+    const bool canEnable = !live.builtin && !live.enabled;
+    auto enable = [toast, live, name, bump] {
+        try {
+            providerStore().enableZcodeKey(live.key);
+            toast.Show(std::format("已在 ZCode 中启用 {}", name));
+        } catch (const std::exception& e) {
+            toast.Show(e.what());
+        }
+        bump();
+    };
+
     // 收编：记进本地列表。live 一字不动——ZCode 原生条目保持它自己的键与内容。
     auto adopt = [toast, live, bump] {
         try {
@@ -258,6 +272,16 @@ void ShowZcodeDeleteConfirm(huxerui::DialogHandle dialog,
                       theme.colors.on_surface_variant),
         ZcodeMonoLine(live.baseUrl, theme.colors.on_surface_variant),
         huxerui::Row {
+            huxerui::IconButton(app::images::swap, "在 ZCode 中启用")
+                .OnClick([enable] { enable(); })
+                .With(huxerui::Enabled(canEnable),
+                      huxerui::Tooltip(
+                          live.enabled
+                              ? "已在 ZCode 中启用"
+                              : (live.builtin
+                                     ? "ZCode 官方套餐条目的启停由 ZCode 自己管"
+                                     : "翻 config.json 里这一条的 enabled"
+                                       "（其余字段一字不动）"))),
             huxerui::IconButton(app::images::import, "收编到本应用")
                 .OnClick([adopt] { adopt(); })
                 .With(huxerui::Enabled(adoptable),
@@ -396,21 +420,7 @@ void ShowZcodeDeleteConfirm(huxerui::DialogHandle dialog,
                                 ? theme.colors.error
                                 : theme.colors.on_surface_variant),
             std::move(usageView),
-            huxerui::IconButton(app::images::swap, "在 ZCode 中启用")
-                .OnClick([toast, id, name, bump] {
-                    try {
-                        providerStore().switchTo("zcode", id);
-                        toast.Show(std::format("已在 ZCode 中启用 {}", name));
-                    } catch (const std::exception& e) {
-                        toast.Show(e.what());
-                    }
-                    bump();
-                })
-                .With(huxerui::Enabled(!(present && enabled)),
-                      huxerui::Tooltip(present && enabled
-                                           ? "已在 ZCode 中启用"
-                                           : "翻 config.json 里条目的 enabled")),
-            huxerui::IconButton(app::images::upload, "写入 / 更新 ZCode")
+            huxerui::IconButton(app::images::write, "写入 / 更新 ZCode")
                 .OnClick([toast, name, id, bump] {
                     try {
                         providerStore().writeZcodeProvider(id);
