@@ -174,15 +174,17 @@ std::string ProviderStore::detectCurrent(std::string_view tool) const {
         return "";
     }
     if (tool == "dsh") {
-        // settings.yaml 的 agent-default-model.provider：llmswitch-<id> 前缀
-        // 剥离后命中组内 id 视为已切换；内置 deepseek-official 等其它值
-        // （含未设置）视为官方状态。
+        // settings.yaml 的 agent-default-model.provider：`llmswitch-<id>` 剥
+        // 前缀、原生键即 id（收编不改名）命中组内 id 视为已切换；内置
+        // deepseek-official 等没被收编的值（含未设置）视为官方状态。
         const auto file = cfg::dshSettingsFile();
         std::error_code ec;
         if (!std::filesystem::exists(file, ec)) return "";
         const auto info = parseDshSettings(readTextFile(file));
-        if (!info.defaultProvider.starts_with("llmswitch-")) return "";
-        const std::string id = info.defaultProvider.substr(10);
+        if (info.defaultProvider.empty()) return "";
+        const std::string id = info.defaultProvider.starts_with("llmswitch-")
+                                   ? info.defaultProvider.substr(10)
+                                   : info.defaultProvider;
         for (const auto& p : g.providers) {
             if (p.id == id) return p.id;
         }

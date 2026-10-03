@@ -1367,56 +1367,72 @@ int main() {
 
             s.switchTo("dsh", "c");
             const std::string y = readTextFile(dshSettings);
-            // 摊平后不再有 flow 括号；收编过来的裸键被接管成 llmswitch-c
-            // （内容不变、不残留重复条目），其余无关键原样保留。
+            // 摊平后不再有 flow 括号；切换只改指针——收编来的裸键 c 保持它自己
+            // 的键、apiKeyEnv 与内容（收编/切换都不改名），不残留重复条目。
             CHECK(y.find('{') == std::string::npos);
             CHECK(y.find('}') == std::string::npos);
-            CHECK(y.find("\n    c:\n") == std::string::npos);
-            // 单条增量：切换只写自己这一条（裸键 c 被接管改名成块风格条目），
-            // 组内其它供应商不会被顺手推回 live——文件里本来没有它们。
+            CHECK(!settingsEntryBlock(y, "c").empty());
+            CHECK(settingsEntryBlock(y, "llmswitch-c").empty());
+            CHECK(y.find("      apiKeyEnv: C_API_KEY") != std::string::npos);
+            CHECK(y.find("provider: c\n") != std::string::npos);
+            // 单条增量：切换只写指针，组内其它供应商不会被顺手推回 live——
+            // 文件里本来没有它们。
             CHECK(settingsEntryBlock(y, "llmswitch-" + idS).empty());
             CHECK(settingsEntryBlock(y, "llmswitch-" + idS2).empty());
-            CHECK(!settingsEntryBlock(y, "llmswitch-c").empty());
-            CHECK(y.find("      apiKeyEnv: LLMSWITCH_C") != std::string::npos);
-            CHECK(y.find("      displayName: \"Command Code\"") !=
+            // 摊平保留了条目内容与能力声明（值原样、只改排版）。
+            CHECK(y.find("Command Code") != std::string::npos);
+            CHECK(y.find("openai-responses") != std::string::npos);
+            CHECK(y.find("https://api.commandcode.ai/provider/v1") !=
                   std::string::npos);
-            CHECK(y.find("      api: openai-responses") != std::string::npos);
-            CHECK(y.find("      baseURL: \"https://api.commandcode.ai/provider/v1\"") !=
-                  std::string::npos);
-            CHECK(y.find("        - id: \"deepseek/deepseek-v4.1-flash\"") !=
-                  std::string::npos);
-            CHECK(y.find("          contextWindow: 1000000") !=
-                  std::string::npos);
-            CHECK(y.find("          maxTokens: 256000") != std::string::npos);
-            // 嵌套 flow 值也摊平了：off 留空（原来的 null 不再出现），其余档位
-            // 按本应用写侧形状加引号、保留同名拼写。
-            CHECK(y.find("            \"off\":\n") != std::string::npos);
-            CHECK(y.find("            \"low\": low") != std::string::npos);
-            CHECK(y.find("            \"high\": high") != std::string::npos);
+            CHECK(y.find("deepseek/deepseek-v4.1-flash") != std::string::npos);
+            CHECK(y.find("contextWindow: 1000000") != std::string::npos);
+            CHECK(y.find("maxTokens: 256000") != std::string::npos);
+            CHECK(y.find("reasoningEfforts") != std::string::npos);
             CHECK(y.find("null") == std::string::npos);
-            // 新条目按块风格追加，pointer 指向它，无关键保留。
-            CHECK(y.find("    llmswitch-c:") != std::string::npos);
-            CHECK(y.find("provider: llmswitch-c") != std::string::npos);
             CHECK(y.find("agent-presets:") != std::string::npos);
             CHECK(y.find("  default: cordis") != std::string::npos);
+            // 「写入 / 更新」才按本应用的形状重建这一条——键与引用名仍然不改
+            // （c / C_API_KEY），只把内容换成写侧形状。
+            s.writeDshProvider("c");
+            const std::string yw = readTextFile(dshSettings);
+            CHECK(!settingsEntryBlock(yw, "c").empty());
+            CHECK(settingsEntryBlock(yw, "llmswitch-c").empty());
+            CHECK(yw.find("      apiKeyEnv: C_API_KEY") != std::string::npos);
+            CHECK(yw.find("      displayName: \"Command Code\"") !=
+                  std::string::npos);
+            CHECK(yw.find("      api: openai-responses") != std::string::npos);
+            CHECK(yw.find("      baseURL: \"https://api.commandcode.ai/provider/v1\"") !=
+                  std::string::npos);
+            CHECK(yw.find("        - id: \"deepseek/deepseek-v4.1-flash\"") !=
+                  std::string::npos);
+            CHECK(yw.find("          contextWindow: 1000000") !=
+                  std::string::npos);
+            CHECK(yw.find("          maxTokens: 256000") != std::string::npos);
+            // 嵌套 flow 值也摊平了：off 留空（原来的 null 不再出现），其余档位
+            // 按本应用写侧形状加引号、保留同名拼写。
+            CHECK(yw.find("            \"off\":\n") != std::string::npos);
+            CHECK(yw.find("            \"low\": low") != std::string::npos);
+            CHECK(yw.find("            \"high\": high") != std::string::npos);
+            CHECK(yw.find("null") == std::string::npos);
+            CHECK(yw.find("provider: c\n") != std::string::npos);
             // 档位声明跟着各自的条目走：单条「写入 / 更新」只重写这一条，
             // 收编来的 c 有档位、先写进来的 idS2 没有——各写各的，不互相串。
-            CHECK(settingsEntryBlock(y, "llmswitch-c")
-                      .find("reasoningEfforts") != std::string::npos);
+            CHECK(settingsEntryBlock(yw, "c").find("reasoningEfforts") !=
+                  std::string::npos);
             s.writeDshProvider(idS2);
             {
                 const std::string y2 = readTextFile(dshSettings);
                 CHECK(!settingsEntryBlock(y2, "llmswitch-" + idS2).empty());
                 CHECK(settingsEntryBlock(y2, "llmswitch-" + idS2)
                           .find("reasoningEfforts") == std::string::npos);
-                CHECK(settingsEntryBlock(y2, "llmswitch-c")
+                CHECK(settingsEntryBlock(y2, "c")
                           .find("reasoningEfforts") != std::string::npos);
             }
             // 增量语义：换默认路由不删别的本应用条目，只改 agent-default-model。
             s.switchTo("dsh", idS2);
             {
                 const std::string yOther = readTextFile(dshSettings);
-                CHECK(yOther.find("llmswitch-c:") != std::string::npos);
+                CHECK(!settingsEntryBlock(yOther, "c").empty());
                 CHECK(yOther.find("provider: llmswitch-" + idS2) !=
                       std::string::npos);
             }
@@ -1424,7 +1440,7 @@ int main() {
             // 稳定——flow 摊平只发生一次。
             s.switchTo("dsh", "c");
             const std::string yStable = readTextFile(dshSettings);
-            CHECK(yStable.find("provider: llmswitch-c") != std::string::npos);
+            CHECK(yStable.find("provider: c\n") != std::string::npos);
             s.switchTo("dsh", idS2);
             s.switchTo("dsh", "c");
             CHECK(readTextFile(dshSettings) == yStable);
@@ -1625,8 +1641,12 @@ int main() {
                   std::vector<std::string>({"text", "image"}));
             CHECK(rt.reasoningEfforts ==
                   std::vector<std::string>({"off", "medium"}));
-            s.switchTo("dsh", rt.id);
+            // 收编来的条目保持原生的键，内容要按本应用形状写回得走
+            // 「写入 / 更新」（切换只改 agent-default-model 指针）。
+            s.writeDshProvider(rt.id);
             const std::string yr = readTextFile(dshSettings);
+            CHECK(yr.find("  provider: roundtrip\n") != std::string::npos);
+            CHECK(yr.find("      apiKeyEnv: RT_KEY") != std::string::npos);
             CHECK(yr.find("        - id: \"roundtrip-model\"\n"
                           "          contextWindow: 1000000\n"
                           "          maxTokens: 256000\n"
@@ -1662,11 +1682,12 @@ int main() {
             CHECK(seq.maxTokens == 0);  // 没声明
             CHECK(seq.inputModalities ==
                   std::vector<std::string>({"text", "image"}));
-            // 块序列读完后接着切换：写回的是同一组官方字段。
-            s.switchTo("dsh", seq.id);
+            // 块序列读完后接着写回：写回的是同一组官方字段，键与引用名不变
+            // （收编条目不改名）。
+            s.writeDshProvider(seq.id);
             const std::string ys = readTextFile(dshSettings);
-            const std::string blockS =
-                settingsEntryBlock(ys, "llmswitch-" + seq.id);
+            const std::string blockS = settingsEntryBlock(ys, seq.id);
+            CHECK(ys.find("      apiKeyEnv: SEQ_KEY") != std::string::npos);
             CHECK(blockS.find("contextWindow: 128000") != std::string::npos);
             CHECK(blockS.find("input: [text, image]") != std::string::npos);
         }
@@ -1696,11 +1717,11 @@ int main() {
                   std::vector<std::string>({"text", "image"}));
             CHECK(flow.reasoningEfforts ==
                   std::vector<std::string>({"off", "medium"}));
-            // 再切换写回：同行 flow 值按块风格落盘（摊平只改排版）。
-            s.switchTo("dsh", flow.id);
+            // 再写回：同行 flow 值按块风格落盘（摊平只改排版），键不变。
+            s.writeDshProvider(flow.id);
             const std::string yf = readTextFile(dshSettings);
-            const std::string blockF =
-                settingsEntryBlock(yf, "llmswitch-" + flow.id);
+            const std::string blockF = settingsEntryBlock(yf, flow.id);
+            CHECK(yf.find("      apiKeyEnv: FLOW_KEY") != std::string::npos);
             CHECK(blockF.find("maxTokens: 64000") != std::string::npos);
             CHECK(blockF.find("input: [text, image]") != std::string::npos);
             CHECK(blockF.find("\"medium\": medium") != std::string::npos);
@@ -1736,7 +1757,7 @@ int main() {
         //   - 组内每条供应商写成 llmswitch-<id>；内置路由与别家手写条目一字不动；
         //   - 不在组内的 llmswitch-* 视为孤儿，同步时清掉；
         //   - add/update/remove 即时同步 live（不等切换）；
-        //   - adoptDshProvider 收编手写裸键（改名接管 + 默认路由跟着重指向）；
+        //   - adoptDshProvider 收编手写裸键（live 一字不动，id 就是那个键）；
         //   - removeDshProvider 只删 live 那一条（含未纳管的 dsh 条目）。
         {
             // 先把前面测试攒下的 dsh 供应商全部删掉，让本块从空组开始。
@@ -1805,12 +1826,15 @@ int main() {
                     }
                 }
             }
-            // 手写条目正是 dsh 默认路由时收编：本地建一份，live 侧改名接管，
-            // agent-default-model 同一次写入改指新键——行为不变。
+            // 手写条目正是 dsh 默认路由时收编：只把这一条记进本地列表，
+            // **live 一字不动**——键、apiKeyEnv、内容都还是它自己的（收编不改
+            // 名），本地 id 就等于那个键；它就是默认路由，current 跟着落上去。
             writeFile(dshSettings,
                       "agent-default-model:\n"
                       "  provider: hand-written\n"
                       "  model: \"hand-model\"\n" + readTextFile(dshSettings));
+            const std::string yBeforeAdopt = readTextFile(dshSettings);
+            const std::string credBeforeAdopt = readTextFile(dshCredentials);
             const auto adopted = s.adoptDshProvider("hand-written");
             CHECK(adopted.id == "hand-written");
             CHECK(adopted.baseUrl == "https://hand.example.com/v1");
@@ -1818,15 +1842,48 @@ int main() {
             CHECK(adopted.model == "hand-model");
             CHECK(s.group("dsh").current == "hand-written");
             CHECK(s.detectCurrent("dsh") == "hand-written");
+            CHECK(readTextFile(dshSettings) == yBeforeAdopt);
+            CHECK(readTextFile(dshCredentials) == credBeforeAdopt);
             const std::string yAd = readTextFile(dshSettings);
-            CHECK(yAd.find("\n    hand-written:") == std::string::npos);
-            CHECK(yAd.find("    llmswitch-hand-written:") != std::string::npos);
-            CHECK(yAd.find("  provider: llmswitch-hand-written") !=
-                  std::string::npos);
+            CHECK(yAd.find("\n    hand-written:") != std::string::npos);
+            CHECK(yAd.find("llmswitch-hand-written") == std::string::npos);
+            CHECK(yAd.find("  provider: hand-written\n") != std::string::npos);
             CHECK(yAd.find("deepseek-official:") != std::string::npos);
-            CHECK(readTextFile(dshCredentials).find("LLMSWITCH_HAND_WRITTEN") !=
+            CHECK(readTextFile(dshCredentials).find("HAND_KEY: \"sk-hand\"") !=
                   std::string::npos);
-            // 新增供应商即时落 live（不必等切换）：默认指向不变、两条并存。
+            CHECK(readTextFile(dshCredentials).find("LLMSWITCH_HAND_WRITTEN") ==
+                  std::string::npos);
+            // 实况列表把这条认成「已纳管」，键仍是原生的。
+            {
+                const auto live = s.dshLiveProviders();
+                for (const auto& entry : live) {
+                    if (entry.key == "hand-written") {
+                        CHECK(entry.providerId == "hand-written");
+                        CHECK(entry.isDefault);
+                    }
+                }
+            }
+            // 「写入 / 更新」才按本应用的形状重建：仍然原位写回原生的键，
+            // apiKeyEnv 也还是它自己的（不改写用户写的引用名），只把内容换成
+            // 本应用写侧形状；密钥更新在同一个引用名下。
+            s.writeDshProvider("hand-written");
+            {
+                const std::string yW = readTextFile(dshSettings);
+                CHECK(yW.find("    hand-written:") != std::string::npos);
+                CHECK(yW.find("llmswitch-hand-written") == std::string::npos);
+                CHECK(yW.find("      apiKeyEnv: HAND_KEY") != std::string::npos);
+                CHECK(yW.find("      displayName: \"hand-written\"") !=
+                      std::string::npos);
+                CHECK(settingsEntryBlock(yW, "hand-written")
+                          .find("- id: \"hand-model\"") != std::string::npos);
+                CHECK(yW.find("  provider: hand-written\n") != std::string::npos);
+                CHECK(readTextFile(dshCredentials).find("HAND_KEY: \"sk-hand\"") !=
+                      std::string::npos);
+                CHECK(readTextFile(dshCredentials).find("LLMSWITCH_HAND_WRITTEN") ==
+                      std::string::npos);
+            }
+            // 新增供应商即时落 live（不必等切换）：新条目一律带前缀（本应用
+            // 创建的），默认指向不变、两条并存。
             models::Provider pA{.name = "A",
                                 .baseUrl = "https://a.example.com/v1",
                                 .apiKey = "sk-a",
@@ -1837,12 +1894,11 @@ int main() {
             CHECK(yA.find("apiKeyEnv: " + keyEnvOf(idA)) != std::string::npos);
             CHECK(readTextFile(dshCredentials)
                       .find(keyEnvOf(idA) + ": \"sk-a\"") != std::string::npos);
-            CHECK(yA.find("  provider: llmswitch-hand-written") !=
-                  std::string::npos);
+            CHECK(yA.find("  provider: hand-written\n") != std::string::npos);
             CHECK(settingsEntryIndex(yA, "llmswitch-" + idA) >
-                  settingsEntryIndex(yA, "llmswitch-hand-written"));
+                  settingsEntryIndex(yA, "hand-written"));
             CHECK(settingsEntryIndex(yA, "deepseek-official") <
-                  settingsEntryIndex(yA, "llmswitch-hand-written"));
+                  settingsEntryIndex(yA, "hand-written"));
             // update 也即时同步（改 baseUrl 立刻反映到 live 条目）。
             models::Provider pA2 = pA;
             pA2.id = idA;
@@ -1852,10 +1908,12 @@ int main() {
             CHECK(yA2.find("https://a2.example.com/v1") != std::string::npos);
             CHECK(yA2.find("a.example.com") == std::string::npos);
             // 删除默认供应商：条目消失、悬空的 agent-default-model 清回内置路由，
-            // 其余条目（含未纳管的手写条目）不动。
+            // 其余条目不动。删的键要解析——收编条目的键就是它自己那个（不带
+            // 前缀），所以删的是 hand-written 而不是 llmswitch-hand-written。
             s.removeProvider("dsh", "hand-written");
             const std::string yRm = readTextFile(dshSettings);
-            CHECK(yRm.find("llmswitch-hand-written") == std::string::npos);
+            CHECK(yRm.find("    hand-written:") == std::string::npos);
+            CHECK(yRm.find("hand.example.com") == std::string::npos);
             CHECK(yRm.find("agent-default-model") == std::string::npos);
             CHECK(yRm.find("    llmswitch-" + idA + ":") != std::string::npos);
             CHECK(yRm.find("deepseek-official:") != std::string::npos);

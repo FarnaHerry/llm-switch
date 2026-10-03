@@ -27,6 +27,12 @@
   agent-default-model，未纳管的手写路由也能设为默认；合成官方行上 = 清回内置
   官方路由），zcode 走 `enableZcodeKey`（只翻 enabled，未纳管的原生条目也能
   直接启用，builtin:* 的启停不代管）；右列只留写入 / 收编 / 删除。
+- [x] 收编**不改名**（dsh 跟 zcode 对齐）：`llmswitch-` 前缀只属于本应用自己
+  创建的条目，收编进来的原生条目保持它自己的键与 `apiKeyEnv`，`adoptDshProvider`
+  只记进本地列表、settings.yaml 一字不动；写 / 切换 / 删除的目标键统一走
+  `dshEntryKeyFor`（带前缀的优先，否则原生键即 id）。文件里真有一条
+  `deepseek-official` 手写条目时也跟别的条目一样可收编（以前禁止是因为收编会
+  改名、把内置路由名从文件里抹掉，这条理由已经不存在）。
 - [x] 右列「写入 / 更新」换自绘图标 `write.svg`（文件 + 从边界插进去的一条
   墨块 = 只写这一条）：Icon Set v1.0 的 `upload.svg` 是「底座 + 竖箭头」，
   24px 下认不出语义，也和整组写入的批量动作混同。

@@ -157,10 +157,11 @@ hover 时在屏幕中央展开径向导航盘，全部 8 个顶级页面图标�
   `{"id": ...}` 对象两种形状都认（`modelEntryId`/`modelListContains`）；
   dsh = `~/.dsh/settings.yaml` 行级改写，**单条增量的多路由**：
   llm-pi-ai.providers 是「多供应商并存 + agent-default-model 指默认」的累加
-  map，写侧每个入口**只动自己那一条**——`writeDshEntry`（私有的单条 upsert/
-  改名接管与指针改指）与 `eraseDshEntry`（私有的单条删除）是全部实现，
+  map，写侧每个入口**只动自己那一条**——`writeDshEntry`（私有的单条原位 upsert
+  与指针改指，目标键由 `dshEntryKeyFor` 解析）与 `eraseDshEntry`（私有的单条
+  删除）是全部实现，
   公开入口 `writeDshProvider`（每行「写入 / 更新」）/ `adoptDshProvider`
-  （收编手写裸键 → 改名 `llmswitch-<id>` 接管，是默认路由时指针跟着改指）/
+  （收编手写裸键：**只记进本地列表，live 一字不动**）/
   `removeDshProvider`（只删 live 那一条，含未纳管的 dsh 条目）/ 增改复制删
   与 `switchTo`（切换 = 只改 agent-default-model；目标条目不在 live 里时补写
   一条，避免指针悬空）都走它们；右列删除走 `removeProvider` 的 `eraseLive`
@@ -181,8 +182,11 @@ hover 时在屏幕中央展开径向导航盘，全部 8 个顶级页面图标�
   **别把增删改做成整组重建**：那等于把本地全部供应商一次性推给 dsh，用户在
   左列删掉/整理过的条目下一次本地增删就会被补回来。别家手写条目 / 内置
   deepseek-official / 无关键 / 注释一律不动；`agent-default-model` 只在需要
-  时改（显式切换或清除、裸键接管改名后重指向、原默认指向已删供应商时清回
-  内置官方路由）。密钥只写
+  时改（显式切换或清除、原默认指向已删供应商时清回内置官方路由）。
+  **`llmswitch-` 前缀只属于本应用自己创建的条目**：收编不改名，原生条目保持
+  它自己的键与 `apiKeyEnv`（密钥照常更新在同一个引用名下），所以
+  `dshEntryKeyFor` 按「带前缀的优先、否则原生键即 id」解析目标键——写/切换/
+  删除都走它，谁写的两边一眼能分。密钥只写
   `~/.dsh/.credentials.yaml`（**version 1 布局：顶层只允许 version / refs /
   records，引用名写进 `refs:` 块内**（缩进 2）；写进顶层会被 dsh 判
   `unknown top-level key` 而拒绝整份文档、所有密钥一起失效——旧版本写到顶层的

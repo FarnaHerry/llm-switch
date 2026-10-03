@@ -9,16 +9,18 @@
 //   右列 = 本应用留存（config.json 组内供应商）
 // 左右各自的行显示同步状态（使用中 / 已纳管 / 未纳管 / 已同步 / 有差异 /
 // 未写入），并可逐条动作：
-//   左列：收编（live → 本地，条目被接管成 llmswitch-<id>，默认路由跟着改指）、
-//         从 dsh 删除（只删这一条，别的条目原样保留）；
-//   右列：设为 dsh 默认（只改 agent-default-model）、写入/更新 dsh（只写这一
-//         条）、编辑 / 用量 / 联通 / 复制 / 删除（条目同时在 live 里时先问
-//         「只删本应用」还是「连同 dsh 一起删」，单条增量，别的不动）。
+//   左列：设为 dsh 默认（只改 agent-default-model，live 里任何一条都能设，
+//         不必先收编）、收编（live → 本地留存，live 一字不动）、从 dsh 删除
+//         （只删这一条，别的条目原样保留）；
+//   右列：写入/更新 dsh（只写这一条）、编辑 / 用量 / 联通 / 复制 / 删除
+//         （条目同时在 live 里时先问「只删本应用」还是「连同 dsh 一起删」，
+//         单条增量，别的不动）。
 // 顶部另有「全部写入 dsh」「全部收编」两个批量动作。
 // 写入语义在 store（writeDshProvider / adoptDshProvider / removeDshProvider）：
-// 本应用条目恒为 llmswitch-<id>，别家条目一律不动；每个入口只动自己那一条，
-// 整组重建只发生在「全部写入 dsh」这一个显式按钮上——否则删掉/整理过一条
-// live 条目，下一次本地增删又会把全部本地供应商推回 dsh。
+// **本应用自己创建的条目恒为 llmswitch-<id>，收编进来的原生条目保持它原来的
+// 键与 apiKeyEnv**（前缀一眼区分谁创建的），别家条目一律不动；每个入口只动
+// 自己那一条，整组重建只发生在「全部写入 dsh」这一个显式按钮上——否则删掉/
+// 整理过一条 live 条目，下一次本地增删又会把全部本地供应商推回 dsh。
 #include <huxerui/huxerui.h>
 
 #include <format>
@@ -42,8 +44,9 @@ using provider_detail::FetchLatency;
 using provider_detail::FetchUsageText;
 using provider_detail::WriteUsageCache;
 
-// dsh 内置官方路由的键：它是 dsh 出厂自带的，不属于「可收编的第三方条目」，
-// 「全部收编」不能把它变成供应商卡（官方状态由列表首位的官方卡表达）。
+// dsh 内置官方路由的键：官方状态由列表首位的合成官方卡表达（settings.yaml 里
+// 没有它时补的行）；文件里真写了同名条目时它跟别的条目一样可收编/可删，只是
+// 徽章仍标「dsh 内置」，并且它的「设为默认」= 清掉 agent-default-model 块。
 constexpr std::string_view kDshOfficialKey = "deepseek-official";
 
 // 小徽章：品牌/语义底 + 小字。视觉与官方卡、供应商卡的「使用中」一致。
@@ -210,11 +213,10 @@ void ShowDshDeleteConfirm(huxerui::DialogHandle dialog,
     }
 
     auto bump = [revision] { revision = revision.Get() + 1; };
-    // 合成行（builtin）不在 settings.yaml 里：既没有可收编的条目，也没有可删
-    // 的键。文件里真有一条 deepseek-official 手写条目时同样不提供收编——那个
-    // 键属于 dsh 适配器注册的内置路由名，收编改名会把它从文件里抹掉。
-    const bool adoptable = live.providerId.empty() && !live.builtin &&
-                           live.key != kDshOfficialKey;
+    // 合成行（builtin）不在 settings.yaml 里，没有可收编的条目，也不可删；
+    // 文件里真有一条 deepseek-official 手写条目时它跟别的条目一样可收编——
+    // 收编不改名（原生键原样保留），所以不会把内置路由名从文件里抹掉。
+    const bool adoptable = live.providerId.empty() && !live.builtin;
 
     // 「当前用哪条」是 live 自己的状态（agent-default-model），所以这个动作放在
     // 左列：任何一条 live 条目都能被设为默认，不必先收编成本应用供应商；合成
@@ -292,9 +294,10 @@ void ShowDshDeleteConfirm(huxerui::DialogHandle dialog,
                 .OnClick([adopt] { adopt(); })
                 .With(huxerui::Enabled(adoptable),
                       huxerui::Tooltip(adoptable
-                                           ? "收编成本应用供应商（写成本应用"
-                                             "管理的条目，dsh 行为不变）"
-                                           : "该条目已在应用中或为 dsh 内置")),
+                                           ? "记进本应用列表（settings.yaml "
+                                             "一字不动，条目保留它自己的键）"
+                                           : "该条目已在应用中，或为 dsh 合成"
+                                             "内置行")),
             huxerui::IconButton(app::images::trash, "从 dsh 删除")
                 .OnClick([tasks, showDeleteConfirm] {
                     tasks.Launch([=]() -> huxerui::Task<void> {
@@ -547,8 +550,7 @@ void ShowDshDeleteConfirm(huxerui::DialogHandle dialog,
             try {
                 for (const auto& entry :
                      providerStore().dshLiveProviders()) {
-                    if (!entry.providerId.empty() ||
-                        entry.key == kDshOfficialKey) {
+                    if (!entry.providerId.empty() || entry.builtin) {
                         continue;
                     }
                     providerStore().adoptDshProvider(entry.key);

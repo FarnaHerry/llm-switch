@@ -990,20 +990,24 @@ std::string rewriteDshSettings(
     return result;
 }
 
-// 一条 llmswitch-<id> 条目的行（4 列基准缩进，写侧唯一来源）：模型条目写
+// 一条 providers 条目的行（4 列基准缩进，写侧唯一来源）：模型条目写
 // dsh 官方能力字段（与官方设置页编辑的是同一组）——contextWindow / maxTokens
 // 容量、input 请求模态、reasoningEfforts 推理档位。档位键固定加引号
 // （off/low 在部分解析器里会被当成布尔字面量），"off" 留空 = 不发思考参数，
 // 与 dsh 官方文档示例一致。
-std::vector<std::string> dshEntryLines(const std::string& id,
+//
+// key 由 dshEntryKeyFor 解析：本应用创建的条目是 `llmswitch-<id>`，收编进来的
+// 原生条目保持它自己的键；apiKeyEnv 同理（原生条目保留它原来的引用名）。
+std::vector<std::string> dshEntryLines(const std::string& key,
+                                       const std::string& apiKeyEnv,
                                        const models::Provider& p,
                                        const std::string& baseUrl) {
     std::vector<std::string> entry;
-    entry.push_back("    llmswitch-" + id + ":");
+    entry.push_back("    " + key + ":");
     entry.push_back("      displayName: " + yamlQuote(p.name));
     entry.push_back("      api: " + piApiValue(p.apiFormat));
     entry.push_back("      baseURL: " + yamlQuote(baseUrl));
-    entry.push_back("      apiKeyEnv: " + dshApiKeyEnv(id));
+    entry.push_back("      apiKeyEnv: " + apiKeyEnv);
     if (!p.model.empty()) {
         entry.push_back("      models:");
         entry.push_back("        - id: " + yamlQuote(p.model));
@@ -2279,6 +2283,37 @@ void ProviderStore::restoreOfficial(std::string_view tool) {
 // 整组重建会把本地全部供应商一次性推给 dsh（用户在左列删掉/整理过的那些会
 // 立刻被补回来），只有「全部写入 dsh」按钮才显式触发 syncDshProviders。
 
+// 组内 id → live 里的条目键（dsh 是「多路由并存」的 map，每条只有一个键）：
+//   - 本应用**自己创建**的条目键是 `llmswitch-<id>`；
+//   - 收编进来的原生条目保持它原来的键，id 就等于那个键——收编不改名，所以
+//     前缀能一眼区分「谁创建的」（用户在 dsh 侧建的条目永远不带这个前缀）。
+// 两个都在时以带前缀的为准（本应用的条目优先，同名原生键不动），都不在时返回
+// 带前缀的新键。声明见 store.cppm（store.cpp 的删除也走它）。
+std::string dshEntryKeyFor(const std::vector<DshProviderEntry>& providers,
+                           const std::string& id) {
+    const std::string prefixed = "llmswitch-" + id;
+    bool hasBare = false;
+    for (const auto& entry : providers) {
+        if (entry.key == prefixed) return prefixed;
+        if (entry.key == id) hasBare = true;
+    }
+    return hasBare ? id : prefixed;
+}
+
+namespace {
+// 目标条目的 apiKeyEnv：本应用创建的条目用 LLMSWITCH_<ID>；收编进来的原生条目
+// 保留它原来的引用名（不改写用户/别家工具写的键名），没有引用名时才补我们的。
+std::string dshEntryKeyEnvFor(const DshProviderEntry* entry,
+                              const std::string& key,
+                              const std::string& id) {
+    if (!key.starts_with("llmswitch-") && entry != nullptr &&
+        !entry->apiKeyEnv.empty()) {
+        return entry->apiKeyEnv;
+    }
+    return dshApiKeyEnv(id);
+}
+}  // namespace
+
 // 单条增量写入（私有；声明见 store.cppm）。
 void ProviderStore::writeDshEntry(const models::Provider& p, bool overwrite,
                                  bool makeDefault) {
@@ -2292,31 +2327,31 @@ void ProviderStore::writeDshEntry(const models::Provider& p, bool overwrite,
         }
     }
     const auto info = parseDshSettings(text);
-    const std::string key = "llmswitch-" + p.id;
-    bool hasEntry = false;    // llmswitch-<id> 已在 live 里
-    bool hasBareKey = false;  // 裸键 <id>（收编前的形状 / 用户手写的同名键）
+    // 目标键：收编进来的原生条目保持它自己的键（不改名），本应用创建的条目是
+    // llmswitch-<id>，都不在就新增一条带前缀的。
+    const std::string key = dshEntryKeyFor(info.providers, p.id);
+    const DshProviderEntry* existing = nullptr;
+    bool hasEntry = false;
     for (const auto& entry : info.providers) {
-        if (entry.key == key) hasEntry = true;
-        if (entry.key == p.id) hasBareKey = true;
+        if (entry.key != key) continue;
+        hasEntry = true;
+        existing = &entry;
     }
     const bool rebuild = overwrite || !hasEntry;
-    bool touchDefault = makeDefault;
-    std::string defaultKey = makeDefault ? key : std::string{};
-    if (!touchDefault && hasBareKey && info.defaultProvider == p.id) {
-        // 原默认正好指向这个裸键：它被改名接管成 llmswitch-<id>，指针跟着
-        // 改指同一个路由，dsh 侧行为不变。
-        touchDefault = true;
-        defaultKey = key;
-    }
+    // 指针改指只发生在显式切换上（makeDefault）：条目键不会再因为「改名接管」
+    // 而变化，所以没有别的理由动 agent-default-model。
+    const bool touchDefault = makeDefault;
+    const std::string defaultKey = makeDefault ? key : std::string{};
     // 条目已是最新形状（例如「设为默认」）：内容一字不动，只在指针需要改指时
     // 写一次；两者都不需要时连文件都不碰。
     if (!rebuild && !touchDefault) return;
+    const std::string keyEnv = dshEntryKeyEnvFor(existing, key, p.id);
     std::vector<std::vector<std::string>> entries;
     std::set<std::string> removeKeys;
     if (rebuild) {
-        entries.push_back(dshEntryLines(p.id, p, models::effectiveBaseUrl(p)));
+        entries.push_back(
+            dshEntryLines(key, keyEnv, p, models::effectiveBaseUrl(p)));
         removeKeys.insert(key);
-        if (hasBareKey) removeKeys.insert(p.id);
     }
     std::string defaultModel;
     if (!defaultKey.empty()) defaultModel = p.model;
@@ -2328,7 +2363,7 @@ void ProviderStore::writeDshEntry(const models::Provider& p, bool overwrite,
     if (!p.apiKey.empty()) {
         const auto credFile = cfg::dshCredentialsFile();
         backupLiveFile("dsh", credFile);
-        upsertDshCredential(credFile, dshApiKeyEnv(p.id), p.apiKey);
+        upsertDshCredential(credFile, keyEnv, p.apiKey);
         restrictPiFile(credFile);
     }
 }
@@ -2401,6 +2436,14 @@ std::vector<DshLiveProvider> ProviderStore::dshLiveProviders() const {
             for (const auto& p : g.providers) {
                 if (p.id == id) {
                     live.providerId = id;
+                    break;
+                }
+            }
+        } else {
+            // 原生键：收编进来的那条 id 就等于键本身（收编不改名）。
+            for (const auto& p : g.providers) {
+                if (p.id == entry.key) {
+                    live.providerId = p.id;
                     break;
                 }
             }
@@ -2489,42 +2532,56 @@ void ProviderStore::syncDshProviders(const std::string& defaultProviderId,
     const auto info = parseDshSettings(text);
 
     std::set<std::string> groupIds;
+    std::set<std::string> groupKeys;
     std::vector<std::vector<std::string>> entries;
+    std::vector<std::pair<std::string, std::string>> credentials;  // 引用名 + 密钥
     entries.reserve(g.providers.size());
     for (const auto& p : g.providers) {
         groupIds.insert(p.id);
-        entries.push_back(dshEntryLines(p.id, p, models::effectiveBaseUrl(p)));
+        // 收编进来的条目保持它原来的键原位重建（不改名），本应用的条目是
+        // llmswitch-<id>；密钥引用名同理。
+        const std::string key = dshEntryKeyFor(info.providers, p.id);
+        const DshProviderEntry* existing = nullptr;
+        for (const auto& entry : info.providers) {
+            if (entry.key == key) existing = &entry;
+        }
+        const std::string keyEnv = dshEntryKeyEnvFor(existing, key, p.id);
+        groupKeys.insert(key);
+        entries.push_back(dshEntryLines(key, keyEnv, p,
+                                        models::effectiveBaseUrl(p)));
+        if (!p.apiKey.empty()) credentials.emplace_back(keyEnv, p.apiKey);
     }
-    // 要删的键：全部 llmswitch-*（本应用条目一律重建，不在组内的即孤儿）、
-    // 被收编过来的裸键（键恰好等于组内 id → 接管成 llmswitch-<id>）。其它
-    // 手写条目（dsh 内置路由、别家工具写的键）一律不动。
+    // 要删的键：全部 llmswitch-*（本应用条目一律重建，不在组内的即孤儿）+
+    // 组内收编条目的原生键（原位重建）。其它手写条目（dsh 内置路由、别家工具
+    // 写的键）一律不动。
     std::set<std::string> removeKeys;
     for (const auto& entry : info.providers) {
         if (entry.key.starts_with("llmswitch-") ||
-            groupIds.find(entry.key) != groupIds.end()) {
+            groupKeys.find(entry.key) != groupKeys.end()) {
             removeKeys.insert(entry.key);
         }
     }
-    // agent-default-model 的处置：显式指定 / 显式清除 / 裸键接管后重指向 /
-    // 指向已被删除供应商时清回内置官方路由。
+    // agent-default-model 的处置：显式指定 / 显式清除 / 指向已被删除供应商时
+    // 清回内置官方路由。收编不改名，所以指针指向的键不会因为收编而变化；
+    // 指向别家手写键时也不动它（那是用户在 dsh 侧设的）。
     bool touchDefault = clearDefault || !defaultProviderId.empty();
-    std::string defaultKey =
-        clearDefault ? std::string{} : "llmswitch-" + defaultProviderId;
-    if (!touchDefault && !info.defaultProvider.empty()) {
-        if (info.defaultProvider.starts_with("llmswitch-")) {
-            const std::string id = info.defaultProvider.substr(10);
-            if (groupIds.find(id) == groupIds.end()) {
-                touchDefault = true;  // 悬空：指向的供应商已不在组内
-                defaultKey.clear();
-            }
-        } else if (groupIds.find(info.defaultProvider) != groupIds.end()) {
-            touchDefault = true;  // 裸键被接管改名 → 默认跟着改指新键
-            defaultKey = "llmswitch-" + info.defaultProvider;
+    std::string defaultKey;
+    if (!clearDefault && !defaultProviderId.empty()) {
+        defaultKey = dshEntryKeyFor(info.providers, defaultProviderId);
+    }
+    if (!touchDefault && !info.defaultProvider.empty() &&
+        info.defaultProvider.starts_with("llmswitch-")) {
+        const std::string id = info.defaultProvider.substr(10);
+        if (groupIds.find(id) == groupIds.end()) {
+            touchDefault = true;  // 悬空：指向的供应商已不在组内
+            defaultKey.clear();
         }
     }
     std::string defaultModel;
     if (!defaultKey.empty()) {
-        const std::string id = defaultKey.substr(10);
+        const std::string id = defaultKey.starts_with("llmswitch-")
+                                   ? defaultKey.substr(10)
+                                   : defaultKey;
         for (const auto& p : g.providers) {
             if (p.id == id) defaultModel = p.model;
         }
@@ -2535,17 +2592,13 @@ void ProviderStore::syncDshProviders(const std::string& defaultProviderId,
                                    defaultKey, defaultModel,
                                    info.defaultReasoningEffort));
     // 密钥：组内每个带密钥的供应商 upsert 进 .credentials.yaml（只增改，不代
-    // 清无引用的旧键；备份每轮只做一次）。
-    bool anyKey = false;
-    for (const auto& p : g.providers) {
-        if (!p.apiKey.empty()) anyKey = true;
-    }
-    if (anyKey) {
+    // 清无引用的旧键；备份每轮只做一次）。引用名沿用上面解析出来的那个——
+    // 收编条目的密钥写在它自己的引用名下，不另起 LLMSWITCH_<ID> 的重复键。
+    if (!credentials.empty()) {
         const auto credFile = cfg::dshCredentialsFile();
         backupLiveFile("dsh", credFile);
-        for (const auto& p : g.providers) {
-            if (p.apiKey.empty()) continue;
-            upsertDshCredential(credFile, dshApiKeyEnv(p.id), p.apiKey);
+        for (const auto& [envName, apiKey] : credentials) {
+            upsertDshCredential(credFile, envName, apiKey);
         }
         restrictPiFile(credFile);
     }
@@ -2598,12 +2651,11 @@ models::Provider ProviderStore::adoptDshProvider(const std::string& key) {
         g.providers.push_back(p);
     }
     if (isDefault) g.current = id;
-    // 先落盘本地列表（live 接管失败也不丢收编结果，页面会显示「未写入」），
-    // 再把这一条接管成 llmswitch-<id>：它正是默认路由时 agent-default-model
-    // 同步改指新键，dsh 侧行为不变。只动这一条——收编不该顺手把本地其它
-    // 供应商也推给 dsh。
+    // 只把这一条记进本地列表：**live 一字不动**——原生条目保持它自己的键、
+    // 引用名与内容（本应用创建的条目才带 llmswitch- 前缀，收编不改名，所以
+    // 两边一眼能分开谁写的）。想让它按本应用的形状重建时，页面上的
+    // 「写入 / 更新」是显式入口；想让它变成 dsh 默认则用左列的「设为 dsh 默认」。
     save();
-    writeDshEntry(p, /*overwrite=*/true, /*makeDefault=*/isDefault);
     return p;
 }
 

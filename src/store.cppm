@@ -142,23 +142,25 @@ public:
     // dsh 内置的 deepseek-official 路由时补一条 builtin 合成行（默认指向内置
     // 路由时，由它表达「当前用哪条」）。
     [[nodiscard]] std::vector<DshLiveProvider> dshLiveProviders() const;
-    // 显式整体重建（「全部写入 dsh」按钮）：把组内全部供应商逐条重建为
-    // llmswitch-<id> 条目（含模型能力声明与 .credentials.yaml 密钥），清掉不再
-    // 属于组内的孤儿 llmswitch-* 条目，并把被收编过来的裸键（键 == 组内 id）
-    // 接管成 llmswitch-<id>；其它手写条目（含 dsh 内置路由）一律原样保留。
+    // 显式整体重建（「全部写入 dsh」按钮）：把组内全部供应商逐条原位重建
+    // （含模型能力声明与 .credentials.yaml 密钥）——本应用的条目写 llmswitch-<id>，
+    // 收编进来的条目保持它原来的键与 apiKeyEnv（收编不改名）；清掉不再属于组内
+    // 的孤儿 llmswitch-* 条目，其它手写条目（含 dsh 内置路由）一律原样保留。
     // defaultProviderId 非空 = agent-default-model 指向它；clearDefault = 删掉
     // 该块回到内置官方路由（两者同时给时 clearDefault 优先）。另外，live 里
     // 指向已被删除供应商的悬空默认会自动清回官方路由。
     void syncDshProviders(const std::string& defaultProviderId = {},
                           bool clearDefault = false);
-    // 单条增量写入（供应商页每行的「写入 / 更新」）：只把该供应商重建为
-    // llmswitch-<id> 条目（含密钥 upsert），别的条目与默认指向一字不动。
+    // 单条增量写入（供应商页每行的「写入 / 更新」）：只重建该供应商那一条
+    // （含密钥 upsert）——键由 dshEntryKeyFor 解析，收编来的条目原位写回它自己
+    // 的键与 apiKeyEnv；别的条目与默认指向一字不动。
     // id 不在组内抛 std::runtime_error。
     void writeDshProvider(const std::string& id);
     // 收编 live 里的一条手写条目成供应商卡：条目键映射成组内 id
-    // （llmswitch-<id> 剥前缀，裸键即 id），同 id 已存在则原位更新（以 live
-    // 为准，保留原 createdAt）。收编后只重建这一条（键改名 llmswitch-<id>、
-    // 内容不变）；它正是 dsh 默认路由时 agent-default-model 同步改指。
+    // （llmswitch-<id> 剥前缀，原生键即 id），同 id 已存在则原位更新（以 live
+    // 为准，保留原 createdAt）。**只记进本地列表：live 一字不动**——条目保留
+    // 它自己的键、apiKeyEnv 与内容（收编不改名；本应用自己创建的条目才带
+    // llmswitch- 前缀）。它正是 dsh 默认路由时 current 跟着落上去。
     // 条目不存在抛 std::runtime_error。
     models::Provider adoptDshProvider(const std::string& key);
     // 删除 live 里的一条条目（本应用的 llmswitch-<id> 或用户手写键都行），
@@ -268,12 +270,13 @@ private:
     models::AppConfig config_;
 
     // ---- dsh 单条增量写入/删除（定义在 store_live.cpp）----
-    // 把 p 写成 llmswitch-<p.id> 条目：overwrite=false 且条目已在 live 里时内容
-    // 原样保留（「设为默认」不该覆盖用户在 dsh 侧的手改），true 时整条重建；
-    // 裸键 <p.id>（收编前的形状）在同一 id 的新条目写入时被移除。makeDefault
-    // = true 时 agent-default-model 指向新键，否则只在原默认正好指向被改名的
-    // 裸键时跟着改指。别的条目、无关键、注释一律不动；密钥 upsert 进
-    // .credentials.yaml。
+    // 把 p 写到它在 live 里的那一条：键由 dshEntryKeyFor 解析（本应用的条目是
+    // llmswitch-<id>，收编进来的条目保持它原来的键，都不在则新建带前缀的），
+    // apiKeyEnv 同理（原生条目保留它自己的引用名）。overwrite=false 且条目已在
+    // live 里时内容原样保留（「设为默认」不该覆盖用户在 dsh 侧的手改），true 时
+    // 整条原位重建。makeDefault = true 时 agent-default-model 指向那一条；收编
+    // 不改名，所以没有别的理由动指针。别的条目、无关键、注释一律不动；密钥
+    // upsert 进 .credentials.yaml 的同一个引用名下。
     void writeDshEntry(const models::Provider& p, bool overwrite,
                        bool makeDefault);
     // 只从 live 删掉这个键（别的条目与默认指向都不动）；它正是默认路由时
@@ -355,6 +358,12 @@ struct DshSettingsInfo {
     std::vector<DshProviderEntry> providers;
 };
 DshSettingsInfo parseDshSettings(std::string_view text);
+// 组内 id → live 里的条目键。本应用**自己创建**的条目键是 `llmswitch-<id>`
+// （唯一带前缀的形状）；收编进来的原生条目保持它原来的键，id 就等于那个键
+// ——收编不改名，所以前缀一眼就能区分「谁创建的」。两个都在时以带前缀的为准
+// （本应用的条目优先，同名原生键不动），都不在时返回带前缀的新键。
+std::string dshEntryKeyFor(const std::vector<DshProviderEntry>& providers,
+                           const std::string& id);
 std::string readDshCredential(const std::filesystem::path& file,
                               std::string_view envName);
 // pi/dsh 的 api 字段反映射（三档，经 models::normalizeApiFormat 归一的反向；

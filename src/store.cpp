@@ -432,13 +432,21 @@ void ProviderStore::removeProvider(std::string_view tool, const std::string& id,
     std::erase_if(g.providers, [&](const models::Provider& p) { return p.id == id; });
     if (g.current == id) g.current.clear();
     if (tool == "dsh" && eraseLive) {
-        // 单条增量删除：只把这一条 llmswitch-<id> 从 live 摘掉（条目不在 live
-        // 里时连文件都不碰），它正是 dsh 默认路由时指针一并清回内置官方路由。
-        // 别的供应商——包括还没写进 live 的那些——一律不受影响。
+        // 单条增量删除：只把这一条从 live 摘掉（条目不在 live 里时连文件都不
+        // 碰），它正是 dsh 默认路由时指针一并清回内置官方路由。别的供应商——
+        // 包括还没写进 live 的那些——一律不受影响。键要解析：本应用的条目是
+        // llmswitch-<id>，收编进来的原生条目保持它自己的键。
         // eraseLive=false 时连这里都不做：settings.yaml 一字不动，那一条留在
         // 左列当未纳管的手写路由（右列删除确认的「只删本应用」）。
         try {
-            eraseDshEntry("llmswitch-" + id);
+            std::error_code ec;
+            const auto file = cfg::dshSettingsFile();
+            std::string text;
+            if (std::filesystem::exists(file, ec) && !ec) {
+                text = readTextFile(file);
+            }
+            const auto info = parseDshSettings(text);
+            eraseDshEntry(dshEntryKeyFor(info.providers, id));
         } catch (...) {
             if (snapshot) g = std::move(*snapshot);
             throw;
