@@ -286,8 +286,8 @@ huxerui_use_library(llm-switch
 )
 
 if (WIN32 AND TARGET huxerui_core_objects)
-    # HuxerUI owns the Win32 window class; keep this project-specific icon binding
-    # as a compile-time patch instead of changing the third-party checkout.
+    # HuxerUI owns the Win32 window class; the fork (farna/main) reads this
+    # macro to bind the application icon resource into the window class.
     target_compile_definitions(huxerui_core_objects PRIVATE
         HUXERUI_WINDOWS_APPLICATION_ICON_RESOURCE_ID=101)
 endif ()

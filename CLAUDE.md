@@ -35,9 +35,9 @@ UI 工作先读 skill：`.claude/skills/huxerui-app-development/SKILL.md`（refe
   `third_party/tarballs` 的 Linux 0.2.0 离线包。源码通道缺 GTK ≥4.14 /
   libepoxy ≥1.5 / libsoup ≥3.0 开发包时自动回落 SDK。强制 SDK：
   `-DLLMSWITCH_HUXERUI_FORCE_SDK=ON`。本机走 **third_party/huxerui 源码**通道
-  （git clone 上游，跟主干拉取；当前钉在 `0c51262`，保留 `64264cb` 的 Linux
-  有界 LRU 文本布局缓存，并包含 Application/Window 所有权重构与跨平台 HTTP
-  流式请求修复；完整 SHA 见 `third_party/README.md`）。
+  （git clone 下游 fork `FarnaHerry/HuxerUI`，当前钉在 `farna/main` 的
+  `e31a61c`：上游 `0c51262` 基线 + 下游补丁集成；完整 SHA 见
+  `third_party/README.md`）。
 - 剪贴板通过 composable 内的 `UseApplication().Clipboard()` 获取；事件处理器可捕获
   service 并同步调用 `IsAvailable()` / `ReadText()` / `WriteText()`，不要从 worker
   线程调用。TreeView 使用 `TreeView<Node>(roots, factory, item_info)`，必须放在有界
@@ -476,7 +476,7 @@ I/O、解析和 JSON 函数默认保留在 `.cpp` 中。
   （package/src/，品牌面板 + 简中/繁中/英文 strings）接进构建；日常构建
   零开销（函数内 `if (NOT HUXERUI_PACKAGE) return()`）。需要含
   `huxerui_add_windows_installer` 的 HuxerUI 源码/SDK（0.2.0 之后；当前 CI
-  固定的 `0c51262` 已满足）。
+  固定的 fork `e31a61c` 已满足）。
 - **触发策略：推 main、开 PR、推 `v*` tag 都构建**（tag 额外触发 release job）。
   不要为"省额度"把 main 的构建收掉——本仓库是 public，**标准 GitHub-hosted
   runner 的 Actions 用量对 public 仓库免费**（计费文档：*usage is free for
@@ -491,15 +491,18 @@ I/O、解析和 JSON 函数默认保留在 `.cpp` 中。
   适配）：三个桌面 job + release。build-linux（ubuntu:26.04 容器 + clang-21/
   libc++-21 + pip cmake==4.4.2 + libc++.modules.json 路径改写 + gtk4/epoxy/
   libsoup3 开发包，正式）；build-windows（MSVC + choco ninja）与 build-macos
-  （brew llvm + 手写 libc++.modules.json + 仓库跟踪的 P0960 补丁）；三个平台均为
+  （brew llvm + 手写 libc++.modules.json）；三个平台均为
   发布门禁，必须完成编译、测试和打包。
-- 三个平台构建都把 HuxerUI 上游钉在 commit `0c5126235d43c2b703166bcc00781b850f2d1c39`
-  （含 Application/Window 所有权重构与跨平台 HTTP 流式请求修复）
+- 三个平台构建都把 HuxerUI 下游 fork（`FarnaHerry/HuxerUI` 的
+  `farna/main` 集成分支）钉在 commit `e31a61ce25868acd504c8294675144191b81e563`
+  （上游基线 0c51262 + acgu/Clash-Flux 补丁 + 本项目 Windows 图标与
+  macOS P0960 修正）
   clone 到 third_party/huxerui 走源码通道；TLS 由平台栈提供，CI 不再安装
   OpenSSL；无 mihomo/Android（蓝本相关步骤已删）。
-- Windows 主窗口图标和 macOS Objective-C++ `CrossAlign` 兼容修改分别保存在
-  `cmake/patches/huxerui-windows-icon.patch` 与
-  `cmake/patches/huxerui-macos-p0960.patch`；性能探针补丁仅按需手动应用。
+- 项目专属的 HuxerUI 修改已并入 fork：Windows 主窗口图标（编译宏
+  `HUXERUI_WINDOWS_APPLICATION_ICON_RESOURCE_ID=101`，顶层 CMakeLists 传入）
+  与 macOS Objective-C++ `CrossAlign` 兼容修正；性能探针维护在 fork 的
+  `probe/ui-perf` 分支，仅按需手动合入本地 checkout。
 - 打包：Linux tar.gz（二进制 + llm-switch.resources + lib/libhuxerui.so +
   libc++ 三件套 + patchelf `$ORIGIN/lib`）、Windows zip（exe + 旁挂 dll +
   resources）、macOS tar.gz（.app bundle）；push tag `v*` 时 release job

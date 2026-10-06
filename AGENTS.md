@@ -34,9 +34,11 @@ Claude、Codex、Gemini、Copilot、Cursor、Windsurf 及其他自动化 agent �
 - 保持用户已有改动，不顺手重排、格式化或重写无关代码。领域行为改变必须补充或
   更新相应测试。
 - HuxerUI 源码优先来自 `third_party/huxerui`，CI 固定版本见
-  `.github/workflows/build.yml`。当前基线 `0c51262` 包含 `64264cb` 的 Linux 有界
-  LRU 文本布局缓存，以及上游 Application/Window 所有权重构和跨平台 HTTP
-  流式请求修复；
+  `.github/workflows/build.yml`。当前基线是下游 fork `FarnaHerry/HuxerUI`
+  `farna/main` 的 `e31a61c`：上游 `0c51262`（含 `64264cb` 的 Linux 有界 LRU
+  文本布局缓存、Application/Window 所有权重构和跨平台 HTTP 流式请求修复）
+  加上 acgu/Clash-Flux 下游补丁与本项目 Windows 图标、macOS P0960 修正。
+  fork 维护规范见该仓库 `docs/development/farna-integration.md`；
   剪贴板只在 UI 线程通过
   `UseApplication().Clipboard()` 使用，TreeView
   必须位于有界垂直视口。

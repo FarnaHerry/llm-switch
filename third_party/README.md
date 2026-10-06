@@ -2,19 +2,21 @@
 
 nlohmann::json 以 single header 直接提交在 `json/`；cpp-httplib 以 single
 header 提交在 `httplib/`；HuxerUI 0.2.0 的 Linux 离线 SDK 包提交在
-`tarballs/` 兜底。日常源码构建跟随 HuxerUI v0.3.0 发布线之后的主干，CI 固定到
-已验证的 commit `0c5126235d43c2b703166bcc00781b850f2d1c39`。构建
+`tarballs/` 兜底。日常源码构建跟随下游 fork `FarnaHerry/HuxerUI` 的
+`farna/main` 集成分支（官方 `main` 只作上游基线镜像），CI 固定到
+已验证的 commit `e31a61ce25868acd504c8294675144191b81e563`。构建
 离线、可复现；清单与姊妹项目 Clash-Flux 对齐（无 IXWebSocket）；SQLite 只经由 HuxerUI 的
 Lib-SQLite 扩展引入（见顶层 CMakeLists 的 huxerui_use_library），不额外 vendor。
 网络（模型列表/用量/连通检测/本地路由出站）统一走 HuxerUI 平台 HttpClient
 （Linux libsoup / Windows WinHTTP / macOS NSURLSession，TLS 由平台栈负责），
 不 vendor curl/OpenSSL。
 
-项目保留独立的 HuxerUI 补丁：Windows 主窗口图标
-`cmake/patches/huxerui-windows-icon.patch`、macOS Objective-C++ 的 P0960
-兼容修正 `cmake/patches/huxerui-macos-p0960.patch`，都由对应 CI job 在检出后应用；
-不要把项目补丁直接提交到第三方仓库。可选的 Linux UI 性能探针补丁
-`cmake/patches/huxerui-ui-perf-probe.patch` 只在人工诊断时应用，不参与正常构建。
+项目专属的 HuxerUI 修改已并入 fork 的 `farna/main`：Windows 主窗口图标
+（`HUXERUI_WINDOWS_APPLICATION_ICON_RESOURCE_ID` 编译宏，本仓库顶层
+CMakeLists 传入 `=101`）与 macOS Objective-C++ 的 P0960 兼容修正，CI 不再
+检出后打补丁；不要把项目补丁直接提交到第三方 checkout。可选的 Linux UI 性能
+探针（`LLMSWITCH_PROBE_CLICK` 合成输入）维护在 fork 的 `probe/ui-perf`
+分支，只在人工诊断时合入本地 checkout，不参与正常构建。
 Linux 文本布局缓存
 （有界 LRU，修 VirtualList 每帧全量重排版）已由上游合入
 （HuxerUI/HuxerUI#137），不再需要本地补丁。
