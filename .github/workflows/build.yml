@@ -71,11 +71,11 @@ concurrency:
 env:
   HUXERUI_REPO: 'https://github.com/FarnaHerry/HuxerUI.git'
   # 该目录 gitignore，不入库，CI 必须自行 clone 并钉 commit，保证可复现。
-  # e31a61c 是下游 fork farna/main 的集成分支：上游基线 0c51262（含
+  # 22d7e3a 是下游 fork farna/main 的集成分支：上游基线 0c51262（含
   # Application/Window 所有权重构、跨平台 HTTP 流式修复与 64264cb 的
   # Linux 有界 LRU 文本布局缓存）+ acgu/Clash-Flux 下游补丁 + 本项目
   # Windows 图标与 macOS P0960 兼容修正（原 cmake/patches，已并入 fork）。
-  HUXERUI_COMMIT: 'e31a61ce25868acd504c8294675144191b81e563'
+  HUXERUI_COMMIT: '22d7e3ac55920865b7ff41cf02e989677ae20d5f'
 
 jobs:
   # ------------------------------------------------------------------ Linux
