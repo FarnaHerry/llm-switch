@@ -71,11 +71,12 @@ concurrency:
 env:
   HUXERUI_REPO: 'https://github.com/FarnaHerry/HuxerUI.git'
   # 该目录 gitignore，不入库，CI 必须自行 clone 并钉 commit，保证可复现。
-  # 22d7e3a 是下游 fork farna/main 的集成分支：上游基线 0c51262（含
+  # 3517ea2 是下游 fork farna/main 的集成分支：上游基线 0c51262（含
   # Application/Window 所有权重构、跨平台 HTTP 流式修复与 64264cb 的
   # Linux 有界 LRU 文本布局缓存）+ acgu/Clash-Flux 下游补丁 + 本项目
-  # Windows 图标与 macOS P0960 兼容修正（原 cmake/patches，已并入 fork）。
-  HUXERUI_COMMIT: '22d7e3ac55920865b7ff41cf02e989677ae20d5f'
+  # Windows 图标与 macOS P0960 兼容修正（原 cmake/patches，已并入 fork；
+  # 446a5a9 修正 22d7e3a 引入的 window_icon_ 成员错位，Windows SDK 构建恢复）。
+  HUXERUI_COMMIT: '3517ea2944662ca9c5ec59365d3c9f494e811d02'
 
 jobs:
   # ------------------------------------------------------------------ Linux

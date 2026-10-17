@@ -36,7 +36,7 @@ UI 工作先读 skill：`.claude/skills/huxerui-app-development/SKILL.md`（refe
   libepoxy ≥1.5 / libsoup ≥3.0 开发包时自动回落 SDK。强制 SDK：
   `-DLLMSWITCH_HUXERUI_FORCE_SDK=ON`。本机走 **third_party/huxerui 源码**通道
   （git clone 下游 fork `FarnaHerry/HuxerUI`，当前钉在 `farna/main` 的
-  `22d7e3a`：上游 `0c51262` 基线 + 下游补丁集成；完整 SHA 见
+  `3517ea2`：上游 `0c51262` 基线 + 下游补丁集成；完整 SHA 见
   `third_party/README.md`）。
 - 剪贴板通过 composable 内的 `UseApplication().Clipboard()` 获取；事件处理器可捕获
   service 并同步调用 `IsAvailable()` / `ReadText()` / `WriteText()`，不要从 worker
@@ -476,7 +476,7 @@ I/O、解析和 JSON 函数默认保留在 `.cpp` 中。
   （package/src/，品牌面板 + 简中/繁中/英文 strings）接进构建；日常构建
   零开销（函数内 `if (NOT HUXERUI_PACKAGE) return()`）。需要含
   `huxerui_add_windows_installer` 的 HuxerUI 源码/SDK（0.2.0 之后；当前 CI
-  固定的 fork `22d7e3a` 已满足）。
+  固定的 fork `3517ea2` 已满足）。
 - **触发策略：推 main、开 PR、推 `v*` tag 都构建**（tag 额外触发 release job）。
   不要为"省额度"把 main 的构建收掉——本仓库是 public，**标准 GitHub-hosted
   runner 的 Actions 用量对 public 仓库免费**（计费文档：*usage is free for
@@ -494,7 +494,7 @@ I/O、解析和 JSON 函数默认保留在 `.cpp` 中。
   （brew llvm + 手写 libc++.modules.json）；三个平台均为
   发布门禁，必须完成编译、测试和打包。
 - 三个平台构建都把 HuxerUI 下游 fork（`FarnaHerry/HuxerUI` 的
-  `farna/main` 集成分支）钉在 commit `22d7e3ac55920865b7ff41cf02e989677ae20d5f`
+  `farna/main` 集成分支）钉在 commit `3517ea2944662ca9c5ec59365d3c9f494e811d02`
   （上游基线 0c51262 + acgu/Clash-Flux 补丁 + 本项目 Windows 图标与
   macOS P0960 修正）
   clone 到 third_party/huxerui 走源码通道；TLS 由平台栈提供，CI 不再安装
