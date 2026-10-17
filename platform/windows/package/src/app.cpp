@@ -585,14 +585,30 @@ View InstallerContent() {
     ));
   }
 
+  // 自定义标题栏只铺在右侧表单列上：品牌面板保持整窗高度，并通过
+  // WindowDragRegion 整块承担拖拽；最小化/关闭等 caption 按钮由框架
+  // 按平台样式渲染，WindowTitleBar 自动预留其内边距。
   return Row {
-    BrandPanel(theme),
-    Column(std::move(content)).With(
-        Padding(EdgeInsets::Symmetric(36.0F, 32.0F)),
-        Spacing(24.0F),
-        CrossAlign(CrossAxisAlignment::Stretch),
-        Grow()
-    ),
+    BrandPanel(theme).With(WindowDragRegion{}),
+    Column {
+      WindowTitleBar {
+        InstallerMark(theme.colors.primary, theme.colors.error)
+            .With(Frame{.width = 18.0F, .height = 18.0F}),
+        Text("llm-switch")
+            .Style(TextStyle{Font::System(12.0F).WithWeight(FontWeight::SemiBold),
+                             theme.colors.on_surface}),
+        Spacer(),
+      }
+          .With(Padding(EdgeInsets::Symmetric(36.0F, 0.0F)), Spacing(8.0F)),
+      Column(std::move(content)).With(
+          // 标题栏已经提供顶部偏移，表单区顶部不再重复留 32pt。
+          Padding(EdgeInsets{.top = 16.0F, .right = 36.0F, .bottom = 32.0F, .left = 36.0F}),
+          Spacing(24.0F),
+          CrossAlign(CrossAxisAlignment::Stretch),
+          Grow()
+      ),
+    }
+        .With(CrossAlign(CrossAxisAlignment::Stretch), Grow()),
   }.With(CrossAlign(CrossAxisAlignment::Stretch), Background(theme.colors.surface), Grow());
 }
 
@@ -607,6 +623,7 @@ const Application application{
             .title = "llm-switch",
             .initial_size = {780.0F, 500.0F},
             .minimum_size = Size{720.0F, 460.0F},
+            .chrome_mode = WindowChromeMode::Custom,
         },
         .show_debug_overlay = false,
         .window_hooks = {InstallInstallerSession},
