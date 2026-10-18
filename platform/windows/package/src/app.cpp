@@ -346,6 +346,36 @@ View InstallerContent() {
   std::vector<View> actions;
   MainAxisAlignment panel_alignment = MainAxisAlignment::Start;
 
+  // 升级与同版本维护页共用同一条卸载入口：先弹确认框选"删数据/留数据"，
+  // 删数据走 RunWorker 离开 UI 线程且删除前校验目录名。
+  const auto show_uninstall_options = [dialog, tasks, installer] {
+    dialog.Show(
+        installer_strings::uninstall_title,
+        installer_strings::uninstall_message,
+        installer_strings::delete_data_and_uninstall,
+        installer_strings::keep_data_and_uninstall,
+        [dialog, tasks, installer] {
+          tasks.Launch([dialog, installer]() -> Task<void> {
+            try {
+              co_await RunWorker([] { RemoveUserData(); });
+              installer.Uninstall();
+            } catch (const std::exception& error) {
+              dialog.Show(
+                  installer_strings::data_delete_failed,
+                  error.what(),
+                  installer_strings::close,
+                  {},
+                  {},
+                  {},
+                  {}
+              );
+            }
+          });
+        },
+        [installer] { installer.Uninstall(); }
+    );
+  };
+
   if (status.prompt) {
     eyebrow = installer_strings::action_required;
     heading = installer_strings::setup_needs_attention;
@@ -373,6 +403,33 @@ View InstallerContent() {
     actions.push_back(
         Button(installer_strings::close).OnClick([window] { window.Close(); }).With(Frame{.min_width = 112.0F})
     );
+  } else if (status.phase == InstallerPhase::Ready &&
+             status.product == InstallerProductState::SameVersion) {
+    // 同一版本重复打开安装包：不再是"升级"，而是维护页（修复 / 重装 / 卸载）。
+    eyebrow = installer_strings::maintenance;
+    heading = installer_strings::same_version_installed;
+    details.push_back(
+        Text(installer_strings::already_installed).With(Foreground(theme.colors.on_surface_variant))
+    );
+    details.push_back(
+        Text(installer_strings::same_version_message).With(Foreground(theme.colors.on_surface_variant))
+    );
+    details.push_back(
+        Text(installer_strings::uninstall_options).With(Foreground(theme.colors.on_surface_variant))
+    );
+    actions.push_back(SecondaryAction(
+        Button(installer_strings::uninstall).OnClick(show_uninstall_options), theme
+    ));
+    actions.push_back(
+        Button(installer_strings::repair)
+            .OnClick([installer] { installer.Repair(); })
+            .With(Frame{.min_width = 96.0F})
+    );
+    actions.push_back(
+        Button(installer_strings::reinstall_keep_data)
+            .OnClick([installer] { installer.Install(); })
+            .With(Frame{.min_width = 152.0F})
+    );
   } else if (status.phase == InstallerPhase::Ready && status.product == InstallerProductState::Present) {
     eyebrow = installer_strings::upgrade;
     heading = installer_strings::existing_installation_detected;
@@ -385,34 +442,6 @@ View InstallerContent() {
     details.push_back(
         Text(installer_strings::uninstall_options).With(Foreground(theme.colors.on_surface_variant))
     );
-
-    const auto show_uninstall_options = [dialog, tasks, installer] {
-      dialog.Show(
-          installer_strings::uninstall_title,
-          installer_strings::uninstall_message,
-          installer_strings::delete_data_and_uninstall,
-          installer_strings::keep_data_and_uninstall,
-          [dialog, tasks, installer] {
-            tasks.Launch([dialog, installer]() -> Task<void> {
-              try {
-                co_await RunWorker([] { RemoveUserData(); });
-                installer.Uninstall();
-              } catch (const std::exception& error) {
-                dialog.Show(
-                    installer_strings::data_delete_failed,
-                    error.what(),
-                    installer_strings::close,
-                    {},
-                    {},
-                    {},
-                    {}
-                );
-              }
-            });
-          },
-          [installer] { installer.Uninstall(); }
-      );
-    };
 
     actions.push_back(SecondaryAction(
         Button(installer_strings::uninstall).OnClick(show_uninstall_options), theme

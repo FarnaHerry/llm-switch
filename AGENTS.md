@@ -35,7 +35,7 @@ Claude、Codex、Gemini、Copilot、Cursor、Windsurf 及其他自动化 agent �
   更新相应测试。
 - HuxerUI 源码优先来自 `third_party/huxerui`，CI 固定版本见
   `.github/workflows/build.yml`。当前基线是下游 fork `FarnaHerry/HuxerUI`
-  `farna/main` 的 `d5bd238`：上游 `0c51262`（含 `64264cb` 的 Linux 有界 LRU
+  `farna/main` 的 `929ebde`：上游 `0c51262`（含 `64264cb` 的 Linux 有界 LRU
   文本布局缓存、Application/Window 所有权重构和跨平台 HTTP 流式请求修复）
   加上 acgu/Clash-Flux 下游补丁与本项目 Windows 图标、macOS P0960 修正。
   Lib-SQLite 同样走 fork（`FarnaHerry/Lib-SQLite` `farna/main` 的 `88f610f`）。
