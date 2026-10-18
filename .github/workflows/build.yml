@@ -71,13 +71,14 @@ concurrency:
 env:
   HUXERUI_REPO: 'https://github.com/FarnaHerry/HuxerUI.git'
   # 该目录 gitignore，不入库，CI 必须自行 clone 并钉 commit，保证可复现。
-  # 929ebde 是下游 fork farna/main 的集成分支：上游基线 0c51262（含
+  # 42f0069 是下游 fork farna/main 的集成分支：上游基线 0c51262（含
   # Application/Window 所有权重构、跨平台 HTTP 流式修复与 64264cb 的
   # Linux 有界 LRU 文本布局缓存）+ acgu/Clash-Flux 下游补丁 + 本项目
   # Windows 图标与 macOS P0960 兼容修正（原 cmake/patches，已并入 fork；
-  # d5bd238 经 #5 合入安装器命令行静默运行修复；929ebde 增加同版本安装
-  # 检测（InstallerProductState::SameVersion），修复重复打开提示更新）。
-  HUXERUI_COMMIT: '929ebde93bb8cc8df9be50332a295bf6fae94796'
+  # d5bd238 经 #5 合入安装器命令行静默运行修复；929ebde/42f0069 增加
+  # 同版本安装检测（InstallerProductState::SameVersion）并加固版本比较
+  # 与 iOS 链接解析）。
+  HUXERUI_COMMIT: '42f0069d59e7e0295f6ed41cb512cf565817eb97'
 
 jobs:
   # ------------------------------------------------------------------ Linux
