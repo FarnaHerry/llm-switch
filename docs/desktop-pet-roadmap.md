@@ -134,25 +134,14 @@ PetController::Poll 纯逻辑驱动，实机验证随 P0-1 验收一起过。
   `*.model3.json` 异步加载，ModelView 渲染，streaming 时 playback_rate
   1.15、Ready 循环 Idle、点命中区播 TapBody；无模型/失败显示占位药丸
   而非静默回退）；窗口 300×420，模式互斥 live2d > compact > 球。
-  进行中 → **Linux 首编译已通过**（2026-10-24，build-live2d：Lib-Live2D +
-  Cubism Framework + Core 静态库全链路首验，ctest 9/9）。期间修掉三处：
-  ① Lib-Live2D v0.1.0 的 Linux 链接漏 OpenGL（Cubism Framework 用 GLES2
-  符号但只链 GLEW）——消费侧补链 `OpenGL::GL`，上游修复待 Lib-Live2D
-  后续版本；② `LLMSWITCH_LIVE2D_PATH` 本地检出覆盖（GitHub 拉取受限时
-  免网络）；③ 性能探针目标排除 pet_live2d 真实现、ON 时补 stub 符号。
-  待办 → **渲染打通进行中**（2026-10-24 夜，Linux bring-up 实录）：
-  已修三处（Lib-Live2D 本地克隆 `3655a1c`）：glewInit 在 Wayland 的
-  NO_GLX_DISPLAY 假阴性容错；内嵌着色器 Linux 改用 StandardES（GLSL ES
-  1.00，桌面 GLSL 1.20 在 ES 路径必崩 Mesa 26.2.4 链接器）；显式 ES 3.0
-  上下文 + Draw 错误码诊断。**剩余一个已精确定位的冲突**：框架外部纹理
-  契约要求纹理内部格式恰为 GL_RGBA8（ES3 风格），而 Cubism GLES2 渲染器
-  的 draw 用客户端内存索引数组（glDrawElements 第 4 参 = 指针）——ES3
-  规范禁止，报 GL_INVALID_OPERATION（实测 pre=0/draw=0x502，与驱动无关，
-  llvmpipe 同现）；ES 2.0 能合法化客户端数组但过不了 RGBA8 契约且缺
-  VAO/ sized internal format。修复方向：对 SDK Framework 的
-  DrawMeshOpenGL 做 VBO 化（上游手术，本地 SDK cache 可先行试验）或
-  放宽外部纹理契约。桌宠当前表现：Live2D 开关打开后窗口透明（渲染失败
-  静默），stderr 有 `live2d:` 诊断行与底部红色错误徽标。
+  **Linux 渲染已打通**（2026-10-24）：Lib-Live2D Linux 后端请求 ES 3.1，
+  Cubism Framework 的模型网格与离屏四边形改用 VBO/EBO，保留 HuxerUI
+  所需的 `GL_RGBA8` 外部纹理契约；Lib-Live2D 同时显式链接 OpenGL。SDK
+  补丁在 CMake 配置时应用到忽略的 Cubism SDK 解压缓存，带 marker 检查，
+  重复配置不会重复打补丁。Linux `LLMSWITCH_LIVE2D=ON` 全量构建成功，
+  ctest 9/9；使用隔离数据目录启动并打开内置 Hiyori 桌宠，16 秒运行探针
+  收到 `ModelEvents::Ready`，没有播放失败诊断。截图、像素、透明边缘和
+  点击命中区人工检查仍待补。
   背景评估（2026-10-24）：成本基线——Cubism Core 每平台 ~1-3MB + 模型
   磁盘 5-15MB / 显存 16-64MB（2048² RGBA 纹理即 16MB），参数/物理/姿态
   每帧 ~1-3ms 且持续更新（待机呼吸不静止）；同等内容下仍远省于帧序列

@@ -274,7 +274,7 @@ endforeach()
 # 构建期需要 GLEW（dnf install glew-devel）与 Cubism Native SDK 5-r.5：
 # 在 Lib-Live2D 检出里跑 `python3 tools/fetch_cubism.py --sdk native`，再传
 # -DLIVE2D_CUBISM_NATIVE_ROOT=<…>/CubismSdkForNative-5-r.5。Lib-Live2D 的
-# Windows/Linux 侧由本仓库首次验证（fork v0.1.0 只验证过 macOS arm64）。
+# Windows/Linux 侧由本仓库维护；Linux 使用 ES 3.1 + VBO 兼容补丁。
 # 默认 OFF：常规构建与 CI 不拉任何 Live2D 依赖，桌宠皮肤回退莲花球。
 # 源选择必须在下方 huxerui_add_app 消费 SOURCES 之前完成（二选一编译，
 # hcg codegen 按 target SOURCES 扫描）。
@@ -324,7 +324,7 @@ if (LLMSWITCH_LIVE2D)
         huxerui_use_library(llm-switch
                 TARGET HuxerUI::Live2D
                 URL "https://github.com/FarnaHerry/Lib-Live2D.git"
-                COMMIT "936694bcebddd8238e08ade1a8a8ea267dcdbb98"
+                COMMIT "5011ad8cb0110f200078861143c07417e85f7385"
         )
     endif ()
     if (NOT EXISTS "${LIVE2D_CUBISM_NATIVE_ROOT}/Core/include/Live2DCubismCore.h")
@@ -333,9 +333,7 @@ if (LLMSWITCH_LIVE2D)
                 "python3 tools/fetch_cubism.py --sdk native，并配置 "
                 "-DLIVE2D_CUBISM_NATIVE_ROOT=<CubismSdkForNative-5-r.5 的路径>")
     endif ()
-    # Lib-Live2D v0.1.0 的 Linux 链接漏了 OpenGL：Cubism Framework 用 GLES2
-    # 符号（glEnable…）但只链了 GLEW，DSO missing 报错。消费侧补链 OpenGL
-    # （上游修复待 Lib-Live2D 后续版本，见 docs/desktop-pet-roadmap.md）。
+    # Linux 的 GLES 3 VBO 补丁与 OpenGL 链接由钉定的 Lib-Live2D 版本负责。
     # 内置 Live2D 示例角色：借用 Lib-Live2D preview 的官方示例（Hiyori，
     # 含 model_licenses 许可声明），构建期暂存进 resources/raw/live2d/
     # （gitignore 不入库；资源打包 glob 是 CONFIGURE_DEPENDS，自动拾取）。
@@ -344,7 +342,7 @@ if (LLMSWITCH_LIVE2D)
         set(LLMSWITCH_LIVE2D_LIBRARY_ROOT "${LLMSWITCH_LIVE2D_PATH}")
     else ()
         string(SHA256 LLMSWITCH_LIVE2D_ORIGIN_HASH
-                "URL:https://github.com/FarnaHerry/Lib-Live2D.git@COMMIT:936694bcebddd8238e08ade1a8a8ea267dcdbb98")
+                "URL:https://github.com/FarnaHerry/Lib-Live2D.git@COMMIT:5011ad8cb0110f200078861143c07417e85f7385")
         string(SUBSTRING "${LLMSWITCH_LIVE2D_ORIGIN_HASH}" 0 16
                 LLMSWITCH_LIVE2D_ORIGIN_HASH)
         set(LLMSWITCH_LIVE2D_LIBRARY_ROOT
@@ -356,10 +354,6 @@ if (LLMSWITCH_LIVE2D)
             DESTINATION "${LLMSWITCH_LIVE2D_SAMPLES_DIR}")
     file(COPY "${LLMSWITCH_LIVE2D_LIBRARY_ROOT}/examples/preview/resources/raw/model_licenses"
             DESTINATION "${LLMSWITCH_LIVE2D_SAMPLES_DIR}")
-    if (UNIX AND NOT APPLE)
-        find_package(OpenGL REQUIRED)
-        target_link_libraries(llm-switch PRIVATE OpenGL::GL)
-    endif ()
 endif ()
 
 if (WIN32 AND TARGET huxerui_core_objects)
