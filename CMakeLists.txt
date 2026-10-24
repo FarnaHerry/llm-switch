@@ -39,7 +39,7 @@ if (HUXERUI_PROJECT_PLAN_ONLY)
     return()
 endif ()
 
-project(llm-switch VERSION 0.3.7 DESCRIPTION "Claude Code / Codex provider config switcher (cc-switch C++ rewrite)" LANGUAGES NONE)
+project(llm-switch VERSION 0.3.8 DESCRIPTION "Claude Code / Codex provider config switcher (cc-switch C++ rewrite)" LANGUAGES NONE)
 
 # HUXERUI_LIBRARY_GRAPH_ONLY：CLI 扫描 huxerui 库依赖图时的特殊配置——
 # 不启用语言、不构建，huxerui_add_app 只写出库图 JSON 即返回（见 SDK
@@ -641,7 +641,9 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
         # ---- 临时 UI 性能探针（诊断用，不进 CTest）------------------------------
         # 无头 UiTest 驱动真实 ProvidersPage 量化「新增订阅 → 取消/返回」的帧耗时。
         # 仅 Linux + HuxerUI 源码模式可用（依赖 HuxerUI::testing 与 hcg codegen）。
-        if (UNIX AND NOT APPLE AND LLMSWITCH_HUXERUI_FROM_SOURCE)
+        # 探针源文件按 AGENTS.md 约定不入库，存在才注册目标（CI checkout 没有它）。
+        if (UNIX AND NOT APPLE AND LLMSWITCH_HUXERUI_FROM_SOURCE
+                AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/ui_perf_probe.cpp")
             set(LLMSWITCH_PROBE_SOURCES ${APP_SOURCE_FILES})
             list(REMOVE_ITEM LLMSWITCH_PROBE_SOURCES
                 "${CMAKE_CURRENT_SOURCE_DIR}/src/app.cpp"

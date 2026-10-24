@@ -13,6 +13,7 @@
 
 #include <chrono>
 #include <cmath>
+#include <ctime>
 #include <format>
 #include <memory>
 #include <numbers>
@@ -263,16 +264,18 @@ huxerui::ThemeDefinition PetThemeDefinition(bool dark) {
 // ---- PetController ----------------------------------------------------------
 
 // 本地当天 0 点的毫秒时间戳（与路由统计 todayRequests 同一划分口径）。
+// 不用 std::chrono::zoned_time：Apple libc++ 未启用 tzdb（CI 实证），
+// 便携实现与 router.cpp 的 todayStartMillis 相同。
 std::int64_t localMidnightMillis() {
-    const auto now = std::chrono::system_clock::now();
-    const auto local =
-        std::chrono::zoned_time{std::chrono::current_zone(), now}.get_local_time();
-    const auto midnight = std::chrono::floor<std::chrono::days>(local);
-    const auto sys = std::chrono::zoned_time{std::chrono::current_zone(), midnight}
-                         .get_sys_time();
-    return std::chrono::duration_cast<std::chrono::milliseconds>(
-               sys.time_since_epoch())
-        .count();
+    const std::time_t t = std::time(nullptr);
+    std::tm tm{};
+#ifdef _WIN32
+    ::localtime_s(&tm, &t);  // MSVC 安全版（参数对调）
+#else
+    ::localtime_r(&t, &tm);
+#endif
+    tm.tm_hour = tm.tm_min = tm.tm_sec = 0;
+    return static_cast<std::int64_t>(std::mktime(&tm)) * 1000;
 }
 
 void PetController::Poll() {
