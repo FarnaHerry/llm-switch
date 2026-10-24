@@ -225,25 +225,29 @@ int main() {
                   .closeBehavior == "ask");
     }
 
-    // 1a-2. AI 桌宠偏好持久化：旧配置缺字段默认关闭 + 置顶 + 非轻量级，
-    // setter 立即落盘。
+    // 1a-2. AI 桌宠偏好持久化：旧配置缺字段默认关闭 + 置顶 + 非轻量级 +
+    //       非胶囊，setter 立即落盘。
     {
         auto petSettings = store::ProviderStore::load();
         CHECK(petSettings.config().petEnabled == false);
         CHECK(petSettings.config().petTopmost == true);
         CHECK(petSettings.config().petLightweight == false);
+        CHECK(petSettings.config().petCompact == false);
         const auto explicitPet = models::fromJson(nlohmann::json::parse(
-            R"json({"petEnabled":true,"petTopmost":false,"petLightweight":true})json"));
+            R"json({"petEnabled":true,"petTopmost":false,"petLightweight":true,"petCompact":true})json"));
         CHECK(explicitPet.petEnabled == true);
         CHECK(explicitPet.petTopmost == false);
         CHECK(explicitPet.petLightweight == true);
+        CHECK(explicitPet.petCompact == true);
         petSettings.setPetEnabled(true);
         petSettings.setPetTopmost(false);
         petSettings.setPetLightweight(true);
+        petSettings.setPetCompact(true);
         auto petReloaded = store::ProviderStore::load();
         CHECK(petReloaded.config().petEnabled == true);
         CHECK(petReloaded.config().petTopmost == false);
         CHECK(petReloaded.config().petLightweight == true);
+        CHECK(petReloaded.config().petCompact == true);
     }
 
     // 1b. Codex 官方订阅使用 OAuth auth.json（没有 OPENAI_API_KEY）时，不能

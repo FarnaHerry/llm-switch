@@ -105,6 +105,7 @@ public:
     void setPetEnabled(bool enabled);
     void setPetTopmost(bool topmost);
     void setPetLightweight(bool lightweight);
+    void setPetCompact(bool compact);
 
     // ---- CRUD（均立即落盘）----
     // id/createdAt 为空/0 时自动生成；返回实际使用的 id（zcode 保存流程

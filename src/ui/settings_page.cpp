@@ -224,6 +224,7 @@ bool ResolvesToDark(int mode) {
     auto petTopmost = huxerui::UseState(providerStore().config().petTopmost);
     auto petLightweight =
         huxerui::UseState(providerStore().config().petLightweight);
+    auto petCompact = huxerui::UseState(providerStore().config().petCompact);
 
     // ---- 本地环境检查 ----
     // 只做存在性检测：在 PATH 与几个已知安装目录里找可执行文件（纯文件系统，
@@ -442,6 +443,22 @@ bool ResolvesToDark(int mode) {
                                     }
                                 })
                             .With(huxerui::Enabled(petTrayAvailable))),
+                    // 胶囊模式：信息量压缩到「状态点 + 今日次数」，点击同样
+                    // 展开信息卡；切换即按新尺寸重建窗口（位置保留）。
+                    SettingRow(
+                        "胶囊模式",
+                        "桌宠缩为小胶囊：状态点 + 今日请求数",
+                        huxerui::Switch(petCompact.Get())
+                            .OnChanged(
+                                [pet, application, petCompact, toast](bool on) {
+                                    try {
+                                        providerStore().setPetCompact(on);
+                                        pet->SetCompact(on, application);
+                                        petCompact = on;
+                                    } catch (const std::exception& e) {
+                                        toast.Show(e.what());
+                                    }
+                                })),
                 }.With(huxerui::Spacing(10.0F),
                        huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))),
 

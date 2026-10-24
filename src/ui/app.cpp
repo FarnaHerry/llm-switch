@@ -832,12 +832,17 @@ void InstallApplication(huxerui::ApplicationContext& context) {
     const huxerui::ApplicationHandle application = huxerui::UseApplication();
     application.SystemTray().OnActivate([activation] { activation->Activate(); });
 
+    // 主窗口页面导航目标（桌宠信息卡「跳页 + 激活主窗」用）：与
+    // TrayActivationTarget 同一模式，主窗口组合期绑定 navPage。
+    context.Provide(std::make_shared<MainNavTarget>());
+
     // AI 桌宠：控制器注册为应用级服务（桌宠窗口 / 设置页 / 托盘菜单共用），
     // 配置开启时在应用服务冻结后开窗（与框架桌宠示例同一装配路径；不支持
     // 被动显示的平台由 PetController::Show 回退到合成器默认策略）。
     auto pet = std::make_shared<PetController>();
     pet->topmost = providerStore().config().petTopmost;
     pet->lightweight = providerStore().config().petLightweight;
+    pet->compact = providerStore().config().petCompact;
     {
         const std::string& mode = providerStore().config().themeMode;
         pet->darkTheme =
@@ -880,6 +885,15 @@ void InstallApplication(huxerui::ApplicationContext& context) {
     // AppRoot 本身不读取它，切页只重组这两个局部子树。
     auto navPage = huxerui::UseState<std::size_t>(pages::kAgents);
     auto selectedAgentTool = huxerui::UseState<std::size_t>(0);
+    // 把 navPage 绑进应用级导航目标：桌宠信息卡等窗口外入口经
+    // MainNavTarget::RequestPage 跳页并激活主窗口（主窗口卸载时解绑）。
+    {
+        const auto nav = huxerui::UseService<MainNavTarget>();
+        huxerui::Lifecycle([nav, navPage] {
+            nav->Bind(navPage);
+            return [nav] { nav->Unbind(); };
+        });
+    }
     auto addProviderRequest = huxerui::UseState<std::string>({});
     // 标题栏莲花与根级径向浮层共享开合状态；AppRoot 不读取它，避免 Hover
     // 让整套窗口内容重组。
@@ -1060,12 +1074,16 @@ void InstallApplication(huxerui::ApplicationContext& context) {
 
 huxerui::View AppRoot() {
     // 多窗口分发：主窗口（key 为空）走应用壳；桌宠窗口（key=="pet"，透明
-    // Utility）走 PetContent。WindowIdentity 由框架按窗口种入 Environment。
+    // Utility）走 PetContent；信息卡（key=="pet-card"，桌宠的 owner 窗口）走
+    // PetCardContent。WindowIdentity 由框架按窗口种入 Environment。
     return huxerui::Scope([] -> huxerui::View {
         const huxerui::WindowIdentity identity =
             huxerui::UseEnvironment<huxerui::WindowIdentity>();
         if (identity.key == llmswitch::ui::kPetWindowKey) {
             return llmswitch::ui::PetContent();
+        }
+        if (identity.key == llmswitch::ui::kPetCardWindowKey) {
+            return llmswitch::ui::PetCardContent();
         }
         return llmswitch::ui::AppContent();
     });

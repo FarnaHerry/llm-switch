@@ -88,17 +88,19 @@ PetController::Poll 纯逻辑驱动，实机验证随 P0-1 验收一起过。
 
 **P1-1 胶囊 / 信息卡双形态（白龙同款精髓）**
 
-- [ ] 胶囊模式（AppConfig.petCompact，默认关）：桌宠缩为小胶囊（状态点 +
-  今日请求数），经右键菜单/设置页切换；胶囊仍是同一窗口的另一种组合
-  （小尺寸窗口重建），保留拖拽/右键/点击穿透外全部交互。
-- [ ] 信息卡：点击（胶囊或球）在桌宠旁展开锚定卡片窗口（HuxerUI owner
-  window，框架 desktop_pet 示例的 settings 同款机制）：各 Agent 今日
-  请求 / tokens / 当前生效供应商（`routerInstance().snapshot()` +
-  `providerStore()`，UI 线程读），再点收起。卡片遵循主题与 UI 视觉硬约束
-  （PageSection 风格、10pt 浮层圆角）。
-- [ ] 卡片行点击 → 激活主窗口并跳转对应页面（Agent 管理页 / 统计页）。
+- [x] 胶囊模式（AppConfig.petCompact，默认关）：桌宠缩为小胶囊（状态点 +
+  今日请求数，状态点随 streaming/failure/done 变色），右键菜单/设置页切换；
+  胶囊是同一窗口的另一种组合（小尺寸窗口重建），保留拖拽/右键/点击全套交互。
+- [x] 信息卡：点击（胶囊或球）在桌宠旁展开锚定卡片窗口（owner =
+  桌宠、随桌宠退役，工作区夹取定位）：各 Agent 今日请求 / tokens / 失败数
+  （Poll 按本地 0 点聚合 recentLogs）与当前生效供应商，再点收起；卡片遵循
+  应用主题（深浅随 Poll 跟随）。完成提醒挂起时点击仍是消解提醒。
+- [x] 卡片行 / 底部按钮点击 → 激活主窗口并跳转对应页面（Agent 管理页 /
+  统计页）：新增应用级 `MainNavTarget` 服务（TrayActivationTarget 同模式，
+  主窗口 Lifecycle 绑定 navPage）。
 
-验收：三平台窗口行为（置顶、锚定、收起）；卡片数据与统计页一致。
+验收：三平台窗口行为（置顶、锚定、收起）——CI 三平台构建回执 + 实机
+验证随下个发布版；卡片数据与统计页一致（同一 recentLogs 聚合口径）。
 
 **P1-2 用量面板贯通**
 
@@ -166,6 +168,11 @@ PetController::Poll 纯逻辑驱动，实机验证随 P0-1 验收一起过。
 
 ## 5. 批次推进记录
 
+- 2026-10-24：**P1-1 完成**。胶囊模式（petCompact，状态点变色 + 今日次数，
+  小尺寸重建）；信息卡（owner 锚定窗口，每 Agent 今日请求/tokens/失败数 +
+  当前供应商，点击桌宠展开/收起）；`MainNavTarget` 应用级导航服务（卡片
+  跳页 + 激活主窗）。轻量级退役/隐藏同步处理信息卡（双句柄代次）。
+  store 往返测试覆盖 petCompact。
 - 2026-10-24：**P0-1 + P0-2 完成**。`LocalRouter::inflight()`（atomic +
   RAII 守卫，AbortInFlight/异常不泄漏）；Poll 重写为真 streaming + 批次
   状态机（静默 8s 挂 ✓，点击/右键/新批次消解）+ 活跃 Agent 聚合（60s 窗、

@@ -3,6 +3,7 @@
 
 #include <huxerui/huxerui.h>
 
+#include <cstddef>
 #include <optional>
 
 namespace llmswitch::ui {
@@ -24,6 +25,23 @@ public:
 
 private:
     std::optional<huxerui::WindowHandle> window_;
+};
+
+// 主窗口页面导航目标：AppContent 持有 navPage State（组合期局部），而
+// 桌宠信息卡等窗口外入口需要「跳到某页面并激活主窗口」。与
+// TrayActivationTarget 同一模式：ApplicationHook 里 Provide 一次，主窗口
+// Lifecycle 里绑定/解绑，外部只读调用。注册、绑定、调用都在应用线程。
+class MainNavTarget final {
+public:
+    void Bind(huxerui::State<std::size_t> page) { page_ = std::move(page); }
+    void Unbind() noexcept { page_ = {}; }
+    // 写入页面下标（pages::kXxx）；未绑定（主窗口未组合）时为 no-op。
+    void RequestPage(std::size_t index) const {
+        if (page_.has_value()) *page_ = index;
+    }
+
+private:
+    std::optional<huxerui::State<std::size_t>> page_;
 };
 
 // ApplicationHook：每个 Runtime 调用一次，注册应用级托盘激活处理器。

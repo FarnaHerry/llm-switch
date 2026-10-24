@@ -28,20 +28,40 @@ namespace llmswitch::ui {
 
 // 桌宠窗口的 WindowOptions::key；AppRoot 按 key 把组合分发到 PetContent。
 inline constexpr std::string_view kPetWindowKey = "pet";
+// 桌宠信息卡窗口的 key；AppRoot 按它分发到 PetCardContent。
+inline constexpr std::string_view kPetCardWindowKey = "pet-card";
 
 // 桌宠窗口参数：透明、无边框 Utility，创建时请求置顶与被动显示
-// （Wayland 拒绝时由 Show 回退到合成器默认策略）。
-inline huxerui::WindowOptions PetOptions(bool topmost) {
+// （Wayland 拒绝时由 Show 回退到合成器默认策略）。compact 时缩为胶囊尺寸。
+inline huxerui::WindowOptions PetOptions(bool topmost, bool compact) {
     return {
         .title = "llm-switch 桌宠",
         .key = std::string(kPetWindowKey),
-        .initial_size = {200.0F, 200.0F},
+        .initial_size = compact ? huxerui::Size{150.0F, 44.0F}
+                                : huxerui::Size{200.0F, 200.0F},
         .presentation = huxerui::WindowPresentation::Utility,
         .transparent_surface = true,
         .show_without_activation = true,
         .topmost = topmost,
     };
 }
+
+// 信息卡的每 Agent 今日行（Poll 聚合，进 State 需 operator==）。
+struct PetAgentRow {
+    std::string tool;
+    std::int64_t requests = 0;
+    std::int64_t promptTokens = 0;     // -1 计数不计入
+    std::int64_t completionTokens = 0;
+    std::int64_t errors = 0;
+    bool operator==(const PetAgentRow&) const = default;
+};
+
+// 信息卡快照：今日总数 + 按 tool 的今日聚合（注册表序）。
+struct PetCardSnapshot {
+    std::int64_t todayRequests = 0;
+    std::vector<PetAgentRow> rows;
+    bool operator==(const PetCardSnapshot&) const = default;
+};
 
 // 桌宠控制器：持有桌宠窗口句柄与 AI 活动状态。线程约定同框架示例——
 // 句柄管理与状态读写都发生在 UI 线程（组合 / 事件 / Task 续体），不加锁。
@@ -67,6 +87,11 @@ struct PetController {
     // 的工具，桌宠顶部浮标展示（白龙同款「最多两个会话」语义）。
     huxerui::State<std::vector<std::string>> activeTools{};
     huxerui::State<std::int64_t> todayRequests{0};  // 今日路由请求数（角标）
+    // 信息卡快照（每 Agent 今日请求 / tokens / 失败数，Poll 聚合）。
+    huxerui::State<PetCardSnapshot> cardSnapshot{};
+    // 胶囊模式：桌宠缩为「状态点 + 今日次数」的小胶囊（同一窗口的另一种
+    // 组合，切换经 Retire + 按新尺寸重建）。
+    huxerui::State<bool> compact{false};
     // 窗口存活性代次：Show/Retire 自增，托盘菜单以它为依赖跟随重建勾选态
     // （轻量级模式下隐藏即退役，托盘勾选必须随之消失）。
     huxerui::State<std::uint64_t> epoch{0};
@@ -83,10 +108,20 @@ struct PetController {
     bool batchAnySuccess = false;
 
     // 每秒由 PetContent 的 Delay 循环调用：读在途计数与最近日志，推进
-    // streaming / failure / donePendingAck / activeTools / todayRequests。
+    // streaming / failure / donePendingAck / activeTools / todayRequests /
+    // cardSnapshot。
     void Poll();
     // 消解完成提醒（点击桌宠或右键菜单入口）。
     void AckDone() { donePendingAck = false; }
+    // 切换信息卡（点击桌宠 / 右键菜单）：在桌宠旁开锚定卡片窗口（owner =
+    // 桌宠，随桌宠退役），再点收起。配置持久化由调用方负责。
+    void ToggleCard(const huxerui::ApplicationHandle& application);
+    // 胶囊模式切换（配置持久化由调用方负责）：存活时按新尺寸重建窗口，
+    // 位置保留；信息卡随 owner 重建自动退役，不搬旧卡。
+    void SetCompact(bool value, const huxerui::ApplicationHandle& application);
+
+    std::optional<huxerui::WindowHandle> card;
+    std::uint64_t cardGeneration = 0;
 
     void Show(const huxerui::ApplicationHandle& application);
     void Retire();
@@ -100,6 +135,9 @@ struct PetController {
 
 // 桌宠窗口内容组合与窗口句柄绑定（生命周期挂载 / 卸载）。
 [[huxerui::composable]] huxerui::View PetContent();
+
+// 信息卡窗口内容组合（owner 锚定在桌宠旁的小窗）。
+[[huxerui::composable]] huxerui::View PetCardContent();
 
 inline void UsePetAttachment(const std::shared_ptr<PetController>& controller) {
     const auto window = huxerui::UseWindow();
@@ -116,6 +154,17 @@ inline void UsePetAttachment(const std::shared_ptr<PetController>& controller) {
             // 退役先于新窗口挂载时（Retire++generation 已使代次失配），
             // 旧附件的清理不得清掉新窗口的句柄。
             if (controller->generation == current) controller->pet.reset();
+        };
+    });
+}
+
+inline void UseCardAttachment(const std::shared_ptr<PetController>& controller) {
+    const auto window = huxerui::UseWindow();
+    huxerui::Lifecycle([controller, window] {
+        const auto current = ++controller->cardGeneration;
+        controller->card = window;
+        return [controller, current] {
+            if (controller->cardGeneration == current) controller->card.reset();
         };
     });
 }

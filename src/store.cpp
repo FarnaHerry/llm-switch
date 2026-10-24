@@ -318,6 +318,11 @@ void ProviderStore::setPetLightweight(bool lightweight) {
     save();
 }
 
+void ProviderStore::setPetCompact(bool compact) {
+    config_.petCompact = compact;
+    save();
+}
+
 bool ProviderStore::claudeCodeSkipInstallationChecks() const {
     const auto settings = readJsonPassive(cfg::claudeSettingsFile());
     const std::string value =

@@ -467,8 +467,10 @@ export struct AppConfig {
     bool petEnabled = false;      // 应用启动时自动打开桌宠窗口
     bool petTopmost = true;       // 桌宠窗口置顶
     // 轻量级模式（对齐 Clash-Flux tray.lightweight）：隐藏桌宠时退役窗口、
-    // 释放 UI 树与渲染资源，托盘/菜单唤出时重建（位置与偏好保留）。
+    // 释放 UI 树与渲染资源，托盘/菜单唤出时重新创建（位置与偏好保留）。
     bool petLightweight = false;
+    // 胶囊模式：桌宠缩为小胶囊（状态点 + 今日请求数），点击同样展开信息卡。
+    bool petCompact = false;
 
     bool operator==(const AppConfig&) const = default;
 };
@@ -671,6 +673,7 @@ export nlohmann::json toJson(const AppConfig& c) {
     j["petEnabled"] = c.petEnabled;
     j["petTopmost"] = c.petTopmost;
     j["petLightweight"] = c.petLightweight;
+    j["petCompact"] = c.petCompact;
     return j;
 }
 
@@ -713,6 +716,7 @@ export AppConfig fromJson(const nlohmann::json& j) {
     c.petEnabled = j.value("petEnabled", false);
     c.petTopmost = j.value("petTopmost", true);
     c.petLightweight = j.value("petLightweight", false);
+    c.petCompact = j.value("petCompact", false);
     // 字段存在且为数组时尊重显式选择（包括空数组）；过滤未知 id 与重复项。
     // 字段缺失则保留 AppConfig 的“全部启用”默认值，兼容旧配置。
     if (j.contains("routerTools") && j["routerTools"].is_array()) {
