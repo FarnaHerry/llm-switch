@@ -448,7 +448,12 @@ void PetController::ToggleCard(const huxerui::ApplicationHandle& application) {
     huxerui::WindowOptions options{
         .title = "llm-switch 信息卡",
         .key = std::string(kPetCardWindowKey),
-        .initial_size = {330.0F, 420.0F},
+        .initial_size = {330.0F, 440.0F},
+        .minimum_size = huxerui::Size{280.0F, 320.0F},
+        // 与主应用同款自定义标题栏（24pt，莲花 + 应用名），不出现平台
+        // 原生标题栏（见 AGENTS.md UI 视觉硬约束）。
+        .chrome_mode = huxerui::WindowChromeMode::Custom,
+        .title_bar_height = 24.0F,
     };
     // 锚定在桌宠旁：优先右侧，越过工作区右沿则放左侧，纵向夹进工作区。
     if (pet) {
@@ -507,7 +512,6 @@ huxerui::View PetContent() {
     const auto controller = huxerui::UseService<PetController>();
     const auto activation = huxerui::UseService<TrayActivationTarget>();
     const auto menu = huxerui::UseMenu();
-    const auto toast = huxerui::UseToast();
     const auto tasks = huxerui::UseTaskScope();
     UsePetAttachment(controller);
 
@@ -601,7 +605,7 @@ huxerui::View PetContent() {
             .role = huxerui::SemanticRole::Button,
             .label = donePending
                          ? "llm-switch AI 桌宠。有任务完成：点击消解提醒。"
-                         : "llm-switch AI 桌宠。点击展开信息卡；拖拽移动；右键打开菜单。"})
+                         : "llm-switch AI 桌宠。点击展开信息卡；拖拽移动；右键快捷操作。"})
         .OnClick([controller, application, donePending] {
             // 完成提醒挂起时点击 = 消解标记（白龙同款）；否则切换信息卡。
             if (donePending) {
@@ -613,14 +617,19 @@ huxerui::View PetContent() {
         .On<huxerui::DragEvents::Started>(
             [window](const huxerui::DragEvent&) { static_cast<void>(window.BeginMove()); })
         .On<huxerui::ViewEvents::ContextMenuRequested>(
-            [controller, activation, application, menu, toast,
+            [controller, activation, application, menu,
              trayAvailable](huxerui::Point position) {
-                const int routerPort = providerStore().config().routerPort;
+                // 框架的 Menu 是**窗口内浮层**（LayerAnchorMode::
+                // FixedWindowPoint），会被窗口边界裁剪——菜单必须装得进
+                // 本窗口：胶囊（44pt 高）装不下任何菜单，右键直接展开信息卡
+                // （真窗口，有空间）；球形态（200×200）也只放恰好装下的
+                // 5 项无分隔菜单（≈188pt）。路由开关在托盘菜单/设置页，
+                // 完成提醒点击即消解，都不进这里。
+                if (controller->compact.Get()) {
+                    controller->ToggleCard(application);
+                    return;
+                }
                 menu.ShowAt(position, {
-                    huxerui::MenuItem(
-                        "消解完成提醒",
-                        [controller] { controller->AckDone(); })
-                        .Enabled(controller->donePendingAck.Get()),
                     huxerui::MenuItem(
                         "信息卡",
                         [controller, application] {
@@ -634,41 +643,18 @@ huxerui::View PetContent() {
                             try {
                                 providerStore().setPetCompact(next);
                                 controller->SetCompact(next, application);
-                            } catch (const std::exception& e) {
-                                static_cast<void>(e);
+                            } catch (const std::exception&) {
                             }
                         })
                         .Checked(controller->compact.Get()),
-                    huxerui::MenuSection{},
-                    huxerui::MenuItem(
-                        std::format("本地路由（127.0.0.1:{}）", routerPort),
-                        [toast] {
-                            try {
-                                if (routerInstance().running()) {
-                                    routerInstance().stop();
-                                    toast.Show("本地路由已停止");
-                                } else {
-                                    routerInstance().start(
-                                        providerStore().config().routerPort);
-                                    toast.Show(std::format(
-                                        "本地路由已启动（127.0.0.1:{}）",
-                                        providerStore().config().routerPort));
-                                }
-                            } catch (const std::exception& e) {
-                                toast.Show(e.what());
-                            }
-                        })
-                            .Checked(routerInstance().running()),
                     huxerui::MenuItem("打开主窗口",
                                       [activation] { activation->Activate(); }),
-                    huxerui::MenuSection{},
                     huxerui::MenuItem(
                         "隐藏桌宠",
                         [controller, trayAvailable] {
                             controller->Hide(trayAvailable);
                         })
                             .Enabled(trayAvailable),
-                    huxerui::MenuSection{},
                     huxerui::MenuItem("退出 llm-switch",
                                       [application] { application.Quit(); }),
                 });
@@ -683,17 +669,16 @@ huxerui::View PetContent() {
 namespace {
 
 // 一行 Agent 今日统计：图标 + 名称 + 当前供应商 + 「N 次 · 输入/输出 tok」。
+// 颜色由调用方按当前主题传入（本函数是普通函数，不能 UseTheme）。
 huxerui::View CardAgentRow(const PetAgentRow& row, const std::string& providerName,
-                           bool hasActivity) {
-    const Color onSurface = Color::Rgb(232, 234, 237);
-    const Color onSurfaceVariant = Color::Rgb(154, 161, 170);
+                           bool hasActivity, Color onSurface, Color onSurfaceVariant) {
     const std::string meta = hasActivity
                                  ? std::format("{} 次 · ↑{} ↓{} tok", row.requests,
                                                row.promptTokens, row.completionTokens)
                                  : std::string("今日无请求");
     return huxerui::Row {
         huxerui::Image(ToolIcon(row.tool))
-            .Tint(hasActivity ? Color::Rgb(224, 242, 254) : onSurfaceVariant)
+            .Tint(hasActivity ? onSurface : onSurfaceVariant)
             .With(huxerui::Frame{.width = 16.0F, .height = 16.0F}),
         huxerui::Column {
             huxerui::Text(ToolName(row.tool))
@@ -717,12 +702,15 @@ huxerui::View PetCardContent() {
     const auto controller = huxerui::UseService<PetController>();
     const auto activation = huxerui::UseService<TrayActivationTarget>();
     const auto nav = huxerui::UseService<MainNavTarget>();
+    const huxerui::ApplicationHandle application = huxerui::UseApplication();
     UseCardAttachment(controller);
 
+    const bool dark = controller->darkTheme.Get();
+    const huxerui::ThemeSpec spec = dark ? AppDarkThemeSpec() : AppLightThemeSpec();
     const PetCardSnapshot snapshot = controller->cardSnapshot.Get();
     const bool streaming = controller->streaming.Get();
-    const Color onSurface = Color::Rgb(232, 234, 237);
-    const Color onSurfaceVariant = Color::Rgb(154, 161, 170);
+    const Color onSurface = spec.colors.on_surface;
+    const Color onSurfaceVariant = spec.colors.on_surface_variant;
 
     std::vector<huxerui::View> rows;
     for (const auto& row : snapshot.rows) {
@@ -741,49 +729,79 @@ huxerui::View PetCardContent() {
             continue;  // 工具不在注册表（不应发生）：跳过该行
         }
         const bool hasActivity = row.requests > 0;
-        rows.push_back(CardAgentRow(row, providerName, hasActivity)
+        rows.push_back(CardAgentRow(row, providerName, hasActivity, onSurface,
+                                    onSurfaceVariant)
                            .OnClick([nav, activation] {
                                nav->RequestPage(pages::kAgents);
                                activation->Activate();
                            }));
     }
 
-    huxerui::View content = huxerui::ScrollView {
-        huxerui::Column {
-            huxerui::Row {
-                huxerui::Text("今日总览")
-                    .Style(huxerui::TextStyle{
-                        huxerui::Font::System(font_size::kTitle)
-                            .WithWeight(huxerui::FontWeight::Bold),
-                        onSurface}),
-                huxerui::Spacer(),
-                huxerui::Text(streaming ? "进行中" : "空闲")
+    // 自定义标题栏与主应用同款：莲花 + 应用名 + 拖拽区/关闭按钮（框架按
+    // 平台解析的 24pt 高度渲染 caption 控件）；左右边距与正文同为 24，
+    // 应用名与页面标题共享同一条边线（AGENTS.md UI 视觉硬约束）。
+    huxerui::View content = huxerui::Column {
+        huxerui::WindowTitleBar {
+            huxerui::Image(app::images::lotus_bloom)
+                .Tint(onSurface)
+                .With(huxerui::Frame{.width = 16.0F, .height = 16.0F}),
+            huxerui::Text("llm-switch")
+                .Style(huxerui::TextStyle{
+                    huxerui::Font::System(font_size::kChip)
+                        .WithWeight(huxerui::FontWeight::Bold),
+                    onSurface}),
+            huxerui::Spacer(),
+        }.With(huxerui::Padding(
+            huxerui::EdgeInsets::Symmetric(spec.spacing.large, 0.0F))),
+        huxerui::ScrollView {
+            huxerui::Column {
+                huxerui::Row {
+                    huxerui::Text("今日总览")
+                        .Style(huxerui::TextStyle{
+                            huxerui::Font::System(font_size::kTitle)
+                                .WithWeight(huxerui::FontWeight::Bold),
+                            onSurface}),
+                    huxerui::Spacer(),
+                    huxerui::Text(streaming ? "进行中" : "空闲")
+                        .Style(huxerui::TextStyle{
+                            huxerui::Font::System(font_size::kChip), onSurfaceVariant}),
+                }.With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
+                huxerui::Text(std::format("本地路由今日转发 {} 次请求",
+                                          snapshot.todayRequests))
                     .Style(huxerui::TextStyle{
                         huxerui::Font::System(font_size::kChip), onSurfaceVariant}),
-            }.With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
-            huxerui::Text(std::format("本地路由今日转发 {} 次请求",
-                                      snapshot.todayRequests))
-                .Style(huxerui::TextStyle{
-                    huxerui::Font::System(font_size::kChip), onSurfaceVariant}),
-            huxerui::Column{std::move(rows)}
-                .With(huxerui::Spacing(4.0F),
-                      huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)),
-            huxerui::Row {
-                huxerui::Button("Agent 管理").OnClick([nav, activation] {
-                    nav->RequestPage(pages::kAgents);
-                    activation->Activate();
-                }),
-                huxerui::Button("使用统计").OnClick([nav, activation] {
-                    nav->RequestPage(pages::kStats);
-                    activation->Activate();
-                }),
-            }.With(huxerui::Spacing(10.0F)),
-        }.With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(20.0F, 16.0F)),
-               huxerui::Spacing(14.0F),
-               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)),
-    };
-    return huxerui::Theme(PetThemeDefinition(controller->darkTheme.Get()),
-                          std::move(content));
+                huxerui::Column{std::move(rows)}
+                    .With(huxerui::Spacing(4.0F),
+                          huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)),
+                huxerui::Row {
+                    huxerui::Button("Agent 管理").OnClick([nav, activation] {
+                        nav->RequestPage(pages::kAgents);
+                        activation->Activate();
+                    }),
+                    huxerui::Button("使用统计").OnClick([nav, activation] {
+                        nav->RequestPage(pages::kStats);
+                        activation->Activate();
+                    }),
+                    // 胶囊/球互切：胶囊右键没有菜单空间，这个按钮是胶囊态
+                    // 回到球形态的主入口（切换会退役桌宠与这张卡）。
+                    huxerui::Button(controller->compact.Get() ? "球形态"
+                                                              : "胶囊模式")
+                        .OnClick([controller, application] {
+                            const bool next = !controller->compact.Get();
+                            try {
+                                providerStore().setPetCompact(next);
+                                controller->SetCompact(next, application);
+                            } catch (const std::exception&) {
+                            }
+                        }),
+                }.With(huxerui::Spacing(10.0F)),
+            }.With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(24.0F, 16.0F)),
+                   huxerui::Spacing(14.0F),
+                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)),
+        }.With(huxerui::Grow(1.0F)),
+    }.With(huxerui::Grow(1.0F),
+           huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
+    return huxerui::Theme(PetThemeDefinition(dark), std::move(content));
 }
 
 } // namespace llmswitch::ui
