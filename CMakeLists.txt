@@ -139,6 +139,11 @@ if (LLMSWITCH_HUXERUI_SOURCE_DIR)
     # 上游顶层作为子项目时 tests/examples/CLI 默认 OFF；static 切片必须关掉——
     # _huxerui_select_framework_target 偏好 static，留着会让 app 链到静态库。
     set(HUXERUI_BUILD_STATIC OFF)
+    # UI 性能探针（tests/ui_perf_probe.cpp）需要无头 UiTest 测试库；默认随源码
+    # 模式在 Linux 上开启，SDK 模式没有该组件，探针目标自动跳过。
+    if (UNIX AND NOT APPLE)
+        set(HUXERUI_BUILD_TESTING_LIBRARY ON)
+    endif ()
     # 上游预置宿主工具可能落后于源码（linux 预置 hrc 旧 → 新运行时解旧资源包直接
     # 抛 "unknown path operation"）。本地若有用当前源码编出的工具
     # （third_party/huxerui-tools/<platform>/<arch>/{hcg,hrc}），优先使用；
@@ -265,6 +270,23 @@ foreach(UI_ICON_FILE IN LISTS UI_ICON_FILES)
     endif()
 endforeach()
 
+# ---- 可选：Live2D 桌宠皮肤（默认 OFF）----------------------------------------
+# 构建期需要 GLEW（dnf install glew-devel）与 Cubism Native SDK 5-r.5：
+# 在 Lib-Live2D 检出里跑 `python3 tools/fetch_cubism.py --sdk native`，再传
+# -DLIVE2D_CUBISM_NATIVE_ROOT=<…>/CubismSdkForNative-5-r.5。Lib-Live2D 的
+# Windows/Linux 侧由本仓库首次验证（fork v0.1.0 只验证过 macOS arm64）。
+# 默认 OFF：常规构建与 CI 不拉任何 Live2D 依赖，桌宠皮肤回退莲花球。
+# 源选择必须在下方 huxerui_add_app 消费 SOURCES 之前完成（二选一编译，
+# hcg codegen 按 target SOURCES 扫描）。
+option(LLMSWITCH_LIVE2D "Enable the optional Live2D pet skin (Lib-Live2D + Cubism SDK + GLEW)" OFF)
+if (LLMSWITCH_LIVE2D)
+    list(REMOVE_ITEM APP_SOURCE_FILES
+            "${CMAKE_CURRENT_SOURCE_DIR}/src/ui/pet_live2d_stub.cpp")
+else ()
+    list(REMOVE_ITEM APP_SOURCE_FILES
+            "${CMAKE_CURRENT_SOURCE_DIR}/src/ui/pet_live2d.cpp")
+endif ()
+
 huxerui_add_app(llm-switch
     SOURCES
         ${APP_SOURCE_FILES}
@@ -286,6 +308,21 @@ huxerui_use_library(llm-switch
     URL "https://github.com/FarnaHerry/Lib-SQLite.git"
     COMMIT "88f610fe66c57260b1ac38e676fc36b23c900fc2"
 )
+
+# Live2D 皮肤的库接入与 SDK 检查（源选择见上方 huxerui_add_app 之前）。
+if (LLMSWITCH_LIVE2D)
+    huxerui_use_library(llm-switch
+        TARGET HuxerUI::Live2D
+        URL "https://github.com/FarnaHerry/Lib-Live2D.git"
+        COMMIT "936694bcebddd8238e08ade1a8a8ea267dcdbb98"
+    )
+    if (NOT EXISTS "${LIVE2D_CUBISM_NATIVE_ROOT}/Core/include/Live2DCubismCore.h")
+        message(FATAL_ERROR
+                "LLMSWITCH_LIVE2D=ON 需要先获取 Cubism SDK：在 Lib-Live2D 检出运行 "
+                "python3 tools/fetch_cubism.py --sdk native，并配置 "
+                "-DLIVE2D_CUBISM_NATIVE_ROOT=<CubismSdkForNative-5-r.5 的路径>")
+    endif ()
+endif ()
 
 if (WIN32 AND TARGET huxerui_core_objects)
     # HuxerUI owns the Win32 window class; the fork (farna/main) reads this
@@ -567,6 +604,38 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
                 "${CMAKE_CURRENT_SOURCE_DIR}/src")
             target_link_libraries(test_single_instance PRIVATE Threads::Threads)
             add_test(NAME single_instance COMMAND test_single_instance)
+        endif ()
+
+        # ---- 临时 UI 性能探针（诊断用，不进 CTest）------------------------------
+        # 无头 UiTest 驱动真实 ProvidersPage 量化「新增订阅 → 取消/返回」的帧耗时。
+        # 仅 Linux + HuxerUI 源码模式可用（依赖 HuxerUI::testing 与 hcg codegen）。
+        if (UNIX AND NOT APPLE AND LLMSWITCH_HUXERUI_FROM_SOURCE)
+            set(LLMSWITCH_PROBE_SOURCES ${APP_SOURCE_FILES})
+            list(REMOVE_ITEM LLMSWITCH_PROBE_SOURCES
+                "${CMAKE_CURRENT_SOURCE_DIR}/src/app.cpp"
+                "${CMAKE_CURRENT_SOURCE_DIR}/platform/linux/main.cpp")
+            add_executable(ui_perf_probe ${LLMSWITCH_PROBE_SOURCES}
+                tests/ui_perf_probe.cpp)
+            target_sources(ui_perf_probe PRIVATE FILE_SET llmswitch_modules
+                TYPE CXX_MODULES
+                BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+                FILES ${LLMSWITCH_MODULE_UNITS})
+            set_target_properties(ui_perf_probe PROPERTIES
+                CXX_MODULE_STD ON CXX_SCAN_FOR_MODULES ON)
+            target_compile_features(ui_perf_probe PRIVATE cxx_std_23)
+            target_compile_definitions(ui_perf_probe PRIVATE
+                LLMSWITCH_VERSION="${PROJECT_VERSION}")
+            target_include_directories(ui_perf_probe PRIVATE
+                "${CMAKE_CURRENT_SOURCE_DIR}/src"
+                "${LLMSWITCH_HUXERUI_SOURCE_DIR}/src"
+                "${CMAKE_BINARY_DIR}/huxerui-resources/llm-switch/include")
+            # 探针编译同一份 src/ui/*.cpp（含 stats_page.cpp 的用量账本），所以要
+            # 复用应用已经取到的 HuxerUI::SQLite；这里不重复给 URL/COMMIT。
+            huxerui_use_library(ui_perf_probe TARGET HuxerUI::SQLite)
+            target_link_libraries(ui_perf_probe PRIVATE
+                HuxerUI::huxerui HuxerUI::testing
+                llmswitch_json llmswitch_httplib Threads::Threads)
+            huxerui_enable_codegen(ui_perf_probe)
         endif ()
     endif ()
 endif ()

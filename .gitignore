@@ -28,3 +28,6 @@ third_party/huxerui-tools/
 
 # 运行时 trace 转储
 traces/
+
+# Live2D 桌宠皮肤的本地依赖前缀（GLEW RPM 解包等，不入库）
+third_party/deps/

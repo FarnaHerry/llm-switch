@@ -471,6 +471,9 @@ export struct AppConfig {
     bool petLightweight = false;
     // 胶囊模式：桌宠缩为小胶囊（状态点 + 今日请求数），点击同样展开信息卡。
     bool petCompact = false;
+    // Live2D 皮肤：桌宠用 Live2D 模型渲染（构建需开 LLMSWITCH_LIVE2D，且
+    // dataDir()/live2d/ 下放有模型；任一不满足回退莲花球）。
+    bool petLive2D = false;
 
     bool operator==(const AppConfig&) const = default;
 };
@@ -674,6 +677,7 @@ export nlohmann::json toJson(const AppConfig& c) {
     j["petTopmost"] = c.petTopmost;
     j["petLightweight"] = c.petLightweight;
     j["petCompact"] = c.petCompact;
+    j["petLive2D"] = c.petLive2D;
     return j;
 }
 
@@ -717,6 +721,7 @@ export AppConfig fromJson(const nlohmann::json& j) {
     c.petTopmost = j.value("petTopmost", true);
     c.petLightweight = j.value("petLightweight", false);
     c.petCompact = j.value("petCompact", false);
+    c.petLive2D = j.value("petLive2D", false);
     // 字段存在且为数组时尊重显式选择（包括空数组）；过滤未知 id 与重复项。
     // 字段缺失则保留 AppConfig 的“全部启用”默认值，兼容旧配置。
     if (j.contains("routerTools") && j["routerTools"].is_array()) {

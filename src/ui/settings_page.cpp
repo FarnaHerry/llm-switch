@@ -225,6 +225,8 @@ bool ResolvesToDark(int mode) {
     auto petLightweight =
         huxerui::UseState(providerStore().config().petLightweight);
     auto petCompact = huxerui::UseState(providerStore().config().petCompact);
+    const bool petLive2DBuilt = PetLive2DAvailable();
+    auto petLive2D = huxerui::UseState(providerStore().config().petLive2D);
 
     // ---- 本地环境检查 ----
     // 只做存在性检测：在 PATH 与几个已知安装目录里找可执行文件（纯文件系统，
@@ -459,6 +461,27 @@ bool ResolvesToDark(int mode) {
                                         toast.Show(e.what());
                                     }
                                 })),
+                    // Live2D 皮肤：构建期需 LLMSWITCH_LIVE2D=ON（默认构建没有
+                    // 此能力，开关禁用）；模型包放 数据目录/live2d/ 下任一
+                    // 子目录（.model3.json），无模型时桌宠显示占位提示。
+                    SettingRow(
+                        "Live2D 皮肤",
+                        std::string(petLive2DBuilt
+                                        ? "用 Live2D 模型渲染桌宠（模型放 数据目录/live2d/ 下）"
+                                        : "此构建未启用（需要 -DLLMSWITCH_LIVE2D=ON + Cubism SDK）"),
+                        huxerui::Switch(petLive2D.Get())
+                            .OnChanged(
+                                [pet, application, petLive2D, toast,
+                                 petLive2DBuilt](bool on) {
+                                    try {
+                                        providerStore().setPetLive2D(on);
+                                        pet->SetLive2D(on, application);
+                                        petLive2D = on;
+                                    } catch (const std::exception& e) {
+                                        toast.Show(e.what());
+                                    }
+                                })
+                            .With(huxerui::Enabled(petLive2DBuilt))),
                 }.With(huxerui::Spacing(10.0F),
                        huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))),
 

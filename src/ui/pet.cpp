@@ -383,7 +383,8 @@ void PetController::Poll() {
 
 void PetController::Show(const huxerui::ApplicationHandle& application) {
     if (!pet) {
-        auto options = PetOptions(topmost.Get(), compact.Get());
+        auto options = PetOptions(topmost.Get(), compact.Get(),
+                                  live2d.Get() && PetLive2DAvailable());
         options.initial_position = saved_position;
         try {
             pet = application.OpenWindow(options);
@@ -459,10 +460,13 @@ void PetController::ToggleCard(const huxerui::ApplicationHandle& application) {
     if (pet) {
         constexpr float kCardWidth = 330.0F;
         constexpr float kCardGap = 16.0F;
+        const float petWidth = live2d.Get() && PetLive2DAvailable()
+                                   ? 300.0F
+                                   : (compact.Get() ? 150.0F : 200.0F);
         const std::optional<huxerui::Point> anchor = pet->Position();
         if (anchor && pet->WorkArea()) {
             const huxerui::Rect work = *pet->WorkArea();
-            float x = anchor->x + 216.0F + kCardGap;
+            float x = anchor->x + petWidth + kCardGap;
             if (x + kCardWidth > work.x + work.width) {
                 x = anchor->x - kCardWidth - kCardGap;
             }
@@ -483,6 +487,18 @@ void PetController::SetCompact(bool value,
     if (!pet) return;
     // 同一窗口不能改尺寸约定：退役后按新尺寸重建，位置保留；信息卡随
     // owner 退役，用户需要时再点开（不试图把旧卡搬到新锚点旁）。
+    const bool wasVisible =
+        pet->LifecycleState() != huxerui::WindowLifecycleState::Background;
+    Retire();
+    if (wasVisible || !saved_position) Show(application);
+}
+
+void PetController::SetLive2D(bool value,
+                              const huxerui::ApplicationHandle& application) {
+    if (live2d.Get() == value) return;
+    live2d = value;
+    if (!pet) return;
+    // 与胶囊切换同一套重建语义（live2d 优先于 compact 决定窗口尺寸）。
     const bool wasVisible =
         pet->LifecycleState() != huxerui::WindowLifecycleState::Background;
     Retire();
@@ -557,11 +573,12 @@ huxerui::View PetContent() {
     const bool donePending = controller->donePendingAck.Get();
     const bool compact = controller->compact.Get();
 
-    // 主体两种形态共用同一组交互（拖拽 / 点击分流 / 右键 / 语义）：
-    //   球形：Orb 修饰器整窗作画，角标与活跃 Agent 浮标是 Stack 子节点；
-    //   胶囊：固定深色玻璃药丸（状态点 + 今日次数），信息量压缩到极简。
+    // 主体形态（互斥，live2d 优先）：Live2D 皮肤 / 胶囊 / 莲花球。三种形态
+    // 共用同一组交互（拖拽 / 点击分流 / 右键 / 语义）。
     huxerui::View body;
-    if (compact) {
+    if (controller->live2d.Get() && PetLive2DAvailable()) {
+        body = PetLive2DBody(controller);
+    } else if (compact) {
         // 状态点：streaming 青蓝 / failure 误差红 / done 冷白 / 空闲冷灰。
         Color dot = Color::Rgb(154, 161, 170, 0.9F);
         if (controller->streaming.Get()) {
@@ -805,19 +822,24 @@ huxerui::View PetCardContent() {
                     .With(huxerui::Spacing(4.0F),
                           huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)),
                 huxerui::Row {
-                    huxerui::Button("Agent 管理").OnClick([nav, activation] {
-                        nav->RequestPage(pages::kAgents);
-                        activation->Activate();
-                    }),
-                    huxerui::Button("使用统计").OnClick([nav, activation] {
-                        nav->RequestPage(pages::kStats);
-                        activation->Activate();
-                    }),
+                    huxerui::Button("Agent 管理")
+                        .With(huxerui::Frame{.min_width = 60.0F})
+                        .OnClick([nav, activation] {
+                            nav->RequestPage(pages::kAgents);
+                            activation->Activate();
+                        }),
+                    huxerui::Button("使用统计")
+                        .With(huxerui::Frame{.min_width = 60.0F})
+                        .OnClick([nav, activation] {
+                            nav->RequestPage(pages::kStats);
+                            activation->Activate();
+                        }),
                     // 胶囊/球互切：胶囊右键没有菜单空间，这个按钮是胶囊态
                     // 回到球形态的主入口（切换会退役桌宠与这张卡——包括
                     // 正被点击的本窗口，推迟执行）。
                     huxerui::Button(controller->compact.Get() ? "球形态"
                                                               : "胶囊模式")
+                        .With(huxerui::Frame{.min_width = 60.0F})
                         .OnClick([controller, application, appTasks] {
                             const bool next = !controller->compact.Get();
                             appTasks.Post([controller, application, next] {
@@ -828,7 +850,23 @@ huxerui::View PetCardContent() {
                                 }
                             });
                         }),
-                }.With(huxerui::Spacing(10.0F)),
+                    // Live2D 皮肤互切（构建可用时才显示；切换同样退役本卡）。
+                    PetLive2DAvailable()
+                        ? huxerui::Button(controller->live2d.Get() ? "莲花球"
+                                                                   : "Live2D")
+                              .With(huxerui::Frame{.min_width = 60.0F})
+                              .OnClick([controller, application, appTasks] {
+                                  const bool next = !controller->live2d.Get();
+                                  appTasks.Post([controller, application, next] {
+                                      try {
+                                          providerStore().setPetLive2D(next);
+                                          controller->SetLive2D(next, application);
+                                      } catch (const std::exception&) {
+                                      }
+                                  });
+                              })
+                        : huxerui::View{},
+                }.With(huxerui::Spacing(8.0F)),
             }.With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(24.0F, 16.0F)),
                    huxerui::Spacing(14.0F),
                    huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)),

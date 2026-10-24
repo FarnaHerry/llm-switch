@@ -32,13 +32,16 @@ inline constexpr std::string_view kPetWindowKey = "pet";
 inline constexpr std::string_view kPetCardWindowKey = "pet-card";
 
 // 桌宠窗口参数：透明、无边框 Utility，创建时请求置顶与被动显示
-// （Wayland 拒绝时由 Show 回退到合成器默认策略）。compact 时缩为胶囊尺寸。
-inline huxerui::WindowOptions PetOptions(bool topmost, bool compact) {
+// （Wayland 拒绝时由 Show 回退到合成器默认策略）。compact 缩为胶囊，
+// live2d 用更高的窗口容纳立绘。
+inline huxerui::WindowOptions PetOptions(bool topmost, bool compact, bool live2d) {
+    huxerui::Size size{200.0F, 200.0F};
+    if (compact) size = {150.0F, 44.0F};
+    if (live2d) size = {300.0F, 420.0F};
     return {
         .title = "llm-switch 桌宠",
         .key = std::string(kPetWindowKey),
-        .initial_size = compact ? huxerui::Size{150.0F, 44.0F}
-                                : huxerui::Size{200.0F, 200.0F},
+        .initial_size = size,
         .presentation = huxerui::WindowPresentation::Utility,
         .transparent_surface = true,
         .show_without_activation = true,
@@ -94,6 +97,9 @@ struct PetController {
     // 胶囊模式：桌宠缩为「状态点 + 今日次数」的小胶囊（同一窗口的另一种
     // 组合，切换经 Retire + 按新尺寸重建）。
     huxerui::State<bool> compact{false};
+    // Live2D 皮肤（config.petLive2D 的运行时镜像）：开启且编译可用
+    // （LLMSWITCH_LIVE2D）且模型存在时，桌宠用 Live2D 模型渲染；窗口更高。
+    huxerui::State<bool> live2d{false};
     // 窗口存活性代次：Show/Retire 自增，托盘菜单以它为依赖跟随重建勾选态
     // （轻量级模式下隐藏即退役，托盘勾选必须随之消失）。
     huxerui::State<std::uint64_t> epoch{0};
@@ -121,6 +127,9 @@ struct PetController {
     // 胶囊模式切换（配置持久化由调用方负责）：存活时按新尺寸重建窗口，
     // 位置保留；信息卡随 owner 重建自动退役，不搬旧卡。
     void SetCompact(bool value, const huxerui::ApplicationHandle& application);
+    // Live2D 皮肤切换（配置持久化由调用方负责）：与胶囊切换同一套重建
+    // 语义（live2d 优先于 compact 决定窗口尺寸）。
+    void SetLive2D(bool value, const huxerui::ApplicationHandle& application);
 
     std::optional<huxerui::WindowHandle> card;
     std::uint64_t cardGeneration = 0;
@@ -140,6 +149,15 @@ struct PetController {
 
 // 信息卡窗口内容组合（owner 锚定在桌宠旁的小窗）。
 [[huxerui::composable]] huxerui::View PetCardContent();
+
+// ---- Live2D 皮肤（pet_live2d.cpp / pet_live2d_stub.cpp 二选一编译）----
+// 构译期可用性：LLMSWITCH_LIVE2D=ON 时 true。禁用时配置里的 petLive2D
+// 不生效，桌宠回退莲花球。
+bool PetLive2DAvailable();
+// Live2D 皮肤主体（组合内调用）：扫描 dataDir()/live2d/ 下的第一个
+// *.model3.json 异步加载渲染；无模型/失败显示占位提示。
+[[huxerui::composable]] huxerui::View PetLive2DBody(
+    const std::shared_ptr<PetController>& controller);
 
 inline void UsePetAttachment(const std::shared_ptr<PetController>& controller) {
     const auto window = huxerui::UseWindow();

@@ -843,6 +843,7 @@ void InstallApplication(huxerui::ApplicationContext& context) {
     pet->topmost = providerStore().config().petTopmost;
     pet->lightweight = providerStore().config().petLightweight;
     pet->compact = providerStore().config().petCompact;
+    pet->live2d = providerStore().config().petLive2D;
     {
         const std::string& mode = providerStore().config().themeMode;
         pet->darkTheme =

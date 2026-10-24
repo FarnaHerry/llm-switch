@@ -125,23 +125,23 @@ PetController::Poll 纯逻辑驱动，实机验证随 P0-1 验收一起过。
   让本地脚本/其它 Agent 驱动桌宠说话/换状态；仅本机、默认关。
 - [ ] 视频全屏让位（白龙借鉴）：依赖平台级全屏检测，HuxerUI 暂无公开
   API——挂起，等框架能力。
-- [ ] **Live2D 可选皮肤**（2026-10-24 评估后定为可选，非默认）：经
-  [FarnaHerry/Lib-Live2D](https://github.com/FarnaHerry/Lib-Live2D)
-  （Cubism SDK 包装层，`huxerui_use_library` 同 Lib-SQLite 模式）引入
-  角色形象，但只作为**运行时可下载的皮肤**，不进主安装包：
-  - 成本基线（评估结论）：Cubism Core 每平台 ~1-3MB + 模型磁盘
-    5-15MB / **显存 16-64MB**（2048² RGBA 纹理即 16MB），参数/物理/
-    姿态每帧 ~1-3ms 且**持续更新**（待机呼吸不静止）；Windows 分层
-    透明表面每帧整面 CPU 回读，皮肤窗口 400-600px 时 ~30MB/s 拷贝。
-    同等内容下仍远省于帧序列路线（白龙优化后 RSS 峰值仍高 60MiB 级）。
-  - 启动前置：① Lib-Live2D v0.1.0 的 Windows/Linux **只有实现、
-    构建与运行时未验证**（仅 macOS arm64 成熟），等平台验证；②
-    Cubism SDK 与模型资产不归包装层 MIT 覆盖，发行前过许可
-    （皮肤分发形态天然规避主包捆绑）；③ 桌宠透明 Utility 表面上
-    PlatformView 不可用，ModelView 需走 ExternalTexture 喂帧——
-    未验证的集成点，先做技术验证 spike。
-  - 皮肤架构：默认始终是程序化莲花（零资产零额外库）；Live2D 为
-    可选档，状态语义/交互/数据中心能力与莲花完全同构（换皮不换脑）。
+- [~] **Live2D 可选皮肤**（2026-10-24 评估后定为可选，非默认；同日提前
+  启动集成）：经 [FarnaHerry/Lib-Live2D](https://github.com/FarnaHerry/Lib-Live2D)
+  （钉 `936694b`，`huxerui_use_library` 同 Lib-SQLite 模式）引入。
+  已落地：`LLMSWITCH_LIVE2D` 构建选项（默认 OFF，OFF 时 stub 顶替、
+  构建零依赖）；`petLive2D` 配置 + 设置页/信息卡切换（禁用构建里开关
+  灰掉并说明）；`pet_live2d.cpp` 皮肤主体（扫 `dataDir()/live2d/` 首个
+  `*.model3.json` 异步加载，ModelView 渲染，streaming 时 playback_rate
+  1.15、Ready 循环 Idle、点命中区播 TapBody；无模型/失败显示占位药丸
+  而非静默回退）；窗口 300×420，模式互斥 live2d > compact > 球。
+  进行中：Linux 首次编译验证（GLEW + Cubism SDK 下载受 CDN 网络阻碍）；
+  Windows 验证待 CI；许可注意：模型与 Cubism SDK 不入仓库不分发，
+  用户自放 dataDir（Hiyori 样例已拷入本机 dataDir 供实测）。
+  背景评估（2026-10-24）：成本基线——Cubism Core 每平台 ~1-3MB + 模型
+  磁盘 5-15MB / 显存 16-64MB（2048² RGBA 纹理即 16MB），参数/物理/姿态
+  每帧 ~1-3ms 且持续更新（待机呼吸不静止）；同等内容下仍远省于帧序列
+  路线。皮肤架构——默认始终是程序化莲花（零资产零额外库），Live2D 为
+  可选档，状态语义/交互/数据中心能力与莲花完全同构（换皮不换脑）。
 
 ### 非目标（明确不做）
 

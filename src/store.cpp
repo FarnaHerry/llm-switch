@@ -323,6 +323,11 @@ void ProviderStore::setPetCompact(bool compact) {
     save();
 }
 
+void ProviderStore::setPetLive2D(bool enabled) {
+    config_.petLive2D = enabled;
+    save();
+}
+
 bool ProviderStore::claudeCodeSkipInstallationChecks() const {
     const auto settings = readJsonPassive(cfg::claudeSettingsFile());
     const std::string value =

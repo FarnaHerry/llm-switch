@@ -233,21 +233,25 @@ int main() {
         CHECK(petSettings.config().petTopmost == true);
         CHECK(petSettings.config().petLightweight == false);
         CHECK(petSettings.config().petCompact == false);
+        CHECK(petSettings.config().petLive2D == false);
         const auto explicitPet = models::fromJson(nlohmann::json::parse(
-            R"json({"petEnabled":true,"petTopmost":false,"petLightweight":true,"petCompact":true})json"));
+            R"json({"petEnabled":true,"petTopmost":false,"petLightweight":true,"petCompact":true,"petLive2D":true})json"));
         CHECK(explicitPet.petEnabled == true);
         CHECK(explicitPet.petTopmost == false);
         CHECK(explicitPet.petLightweight == true);
         CHECK(explicitPet.petCompact == true);
+        CHECK(explicitPet.petLive2D == true);
         petSettings.setPetEnabled(true);
         petSettings.setPetTopmost(false);
         petSettings.setPetLightweight(true);
         petSettings.setPetCompact(true);
+        petSettings.setPetLive2D(true);
         auto petReloaded = store::ProviderStore::load();
         CHECK(petReloaded.config().petEnabled == true);
         CHECK(petReloaded.config().petTopmost == false);
         CHECK(petReloaded.config().petLightweight == true);
         CHECK(petReloaded.config().petCompact == true);
+        CHECK(petReloaded.config().petLive2D == true);
     }
 
     // 1b. Codex 官方订阅使用 OAuth auth.json（没有 OPENAI_API_KEY）时，不能
