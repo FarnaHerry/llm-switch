@@ -85,10 +85,12 @@ struct PetController {
     huxerui::State<bool> donePendingAck{false};
     // 活跃 Agent（tool id，最近时间序，最多 2 个）：最近 60s 有路由请求
     // 的工具，桌宠顶部浮标展示（白龙同款「最多两个会话」语义）。
-    huxerui::State<std::vector<std::string>> activeTools{};
+    // 注意 State 必须带初值构造：默认构造是空句柄，Get() 抛
+    // logic_error("HuxerUI state is empty")。
+    huxerui::State<std::vector<std::string>> activeTools{std::vector<std::string>{}};
     huxerui::State<std::int64_t> todayRequests{0};  // 今日路由请求数（角标）
     // 信息卡快照（每 Agent 今日请求 / tokens / 失败数，Poll 聚合）。
-    huxerui::State<PetCardSnapshot> cardSnapshot{};
+    huxerui::State<PetCardSnapshot> cardSnapshot{PetCardSnapshot{}};
     // 胶囊模式：桌宠缩为「状态点 + 今日次数」的小胶囊（同一窗口的另一种
     // 组合，切换经 Retire + 按新尺寸重建）。
     huxerui::State<bool> compact{false};
