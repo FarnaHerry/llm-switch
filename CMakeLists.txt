@@ -324,7 +324,7 @@ if (LLMSWITCH_LIVE2D)
         huxerui_use_library(llm-switch
                 TARGET HuxerUI::Live2D
                 URL "https://github.com/FarnaHerry/Lib-Live2D.git"
-                COMMIT "5011ad8cb0110f200078861143c07417e85f7385"
+                COMMIT "875e3188b214061ddcd42ac9778ab0e63f92d0db"
         )
     endif ()
     if (NOT EXISTS "${LIVE2D_CUBISM_NATIVE_ROOT}/Core/include/Live2DCubismCore.h")
@@ -342,7 +342,7 @@ if (LLMSWITCH_LIVE2D)
         set(LLMSWITCH_LIVE2D_LIBRARY_ROOT "${LLMSWITCH_LIVE2D_PATH}")
     else ()
         string(SHA256 LLMSWITCH_LIVE2D_ORIGIN_HASH
-                "URL:https://github.com/FarnaHerry/Lib-Live2D.git@COMMIT:5011ad8cb0110f200078861143c07417e85f7385")
+                "URL:https://github.com/FarnaHerry/Lib-Live2D.git@COMMIT:875e3188b214061ddcd42ac9778ab0e63f92d0db")
         string(SUBSTRING "${LLMSWITCH_LIVE2D_ORIGIN_HASH}" 0 16
                 LLMSWITCH_LIVE2D_ORIGIN_HASH)
         set(LLMSWITCH_LIVE2D_LIBRARY_ROOT
