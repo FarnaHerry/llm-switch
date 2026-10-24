@@ -364,8 +364,11 @@ huxerui::View PetContent() {
 
     const bool visible = window.LifecycleState() != huxerui::WindowLifecycleState::Background;
     const std::int64_t today = controller->todayRequests.Get();
-    // 品牌莲花在组合期解析成光栅资源，经 Orb 修饰器带进保留绘制。
-    const huxerui::ImageAsset lotus = huxerui::UseImage(app::images::lotus_bloom);
+    // 品牌莲花在组合期解析成光栅资源（UseImage 只收光栅——SVG 资源会抛
+    // invalid_argument，故走 lotus_bloom_raster 家族），经 Orb 修饰器带进
+    // 保留绘制。
+    const huxerui::ImageAsset lotus =
+        huxerui::UseImage(app::images::lotus_bloom_raster);
 
     // Orb 是保留型节点修饰器（NodeExtension，挂在 Stack 节点上整窗作画），
     // 角标是 Stack 的普通子节点（底缘居中悬浮在球体下沿）。
