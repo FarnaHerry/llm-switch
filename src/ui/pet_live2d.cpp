@@ -16,6 +16,7 @@
 #include <huxerui/huxerui.h>
 #include <huxerui/live2d.h>
 
+#include <cstdio>  // stderr（std 模块不导出 stdout/stderr 宏）
 #include <filesystem>
 #include <map>
 #include <memory>
@@ -203,21 +204,45 @@ huxerui::View PetLive2DBody(const std::shared_ptr<PetController>& controller) {
         }
     };
 
-    return live2d::ModelView(current,
-                             {
-                                 .controller = command,
-                                 .fit = huxerui::ImageFit::Contain,
-                                 // streaming 时播放速率 +15%：与莲花球
-                                 // 「呼吸加速」同语义的思考态。
-                                 .playback_rate = controller->streaming.Get() ? 1.15F : 1.0F,
-                             })
-        .On<live2d::ModelEvents::Ready>([play_idle] { play_idle(); })
-        .On<live2d::ModelEvents::HitAreaTapped>([play_tap](std::string) { play_tap(); })
-        .On<live2d::ModelEvents::PlaybackFailed>(
-            [status](live2d::PlaybackError error) {
-                status = std::string("渲染失败：") + error.message;
+    // 诊断（临时）：Live2D 栈在 Linux 透明表面属首次验证，Ready/失败
+    // 都打到 stderr 并在底部徽标显示状态，便于定位「纯透明」类问题。
+    huxerui::View body =
+        live2d::ModelView(current,
+                          {
+                              .controller = command,
+                              .fit = huxerui::ImageFit::Contain,
+                              // streaming 时播放速率 +15%：与莲花球
+                              // 「呼吸加速」同语义的思考态。
+                              .playback_rate =
+                                  controller->streaming.Get() ? 1.15F : 1.0F,
+                          })
+            .On<live2d::ModelEvents::Ready>([play_idle] {
+                std::fprintf(stderr, "live2d: Ready\n");
+                play_idle();
             })
-        .With(huxerui::Grow(1.0F));
+            .On<live2d::ModelEvents::HitAreaTapped>([play_tap](std::string) { play_tap(); })
+            .On<live2d::ModelEvents::PlaybackFailed>(
+                [status](live2d::PlaybackError error) {
+                    std::fprintf(stderr, "live2d: PlaybackFailed: %s\n",
+                                 error.message.c_str());
+                    status = std::string("渲染失败：") + error.message;
+                })
+            .With(huxerui::Grow(1.0F));
+    if (!status.Get().empty()) {
+        body = huxerui::Stack {
+            std::move(body),
+            huxerui::Text(status.Get())
+                .Style(huxerui::TextStyle{huxerui::Font::System(font_size::kCaption),
+                                          huxerui::Color::Rgb(240, 115, 108)})
+                .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(10.0F, 4.0F)),
+                      huxerui::Background(huxerui::Color::Rgb(16, 18, 20, 0.86F)),
+                      huxerui::CornerRadius(9.0F),
+                      huxerui::Align(huxerui::HorizontalAlignment::Center,
+                                     huxerui::VerticalAlignment::End),
+                      huxerui::Padding(huxerui::EdgeInsets{.bottom = 6.0F})),
+        }.With(huxerui::Grow(1.0F));
+    }
+    return body;
 }
 
 } // namespace llmswitch::ui

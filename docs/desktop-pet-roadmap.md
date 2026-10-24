@@ -140,15 +140,19 @@ PetController::Poll 纯逻辑驱动，实机验证随 P0-1 验收一起过。
   符号但只链 GLEW）——消费侧补链 `OpenGL::GL`，上游修复待 Lib-Live2D
   后续版本；② `LLMSWITCH_LIVE2D_PATH` 本地检出覆盖（GitHub 拉取受限时
   免网络）；③ 性能探针目标排除 pet_live2d 真实现、ON 时补 stub 符号。
-  待办：实机运行验证；Windows 验证待 CI；CI 接入需先解决 Cubism SDK 的
-  获取（官方 CDN 对不稳链路不友好，需缓存 artifact 或文档化手动步骤）。
-  **内置示例已接入**（2026-10-24）：构建期把 Lib-Live2D preview 的官方
-  示例 Hiyori + model_licenses 暂存进 `resources/raw/live2d/`（gitignore
-  不入库，选项关闭时移除），加载优先级 = 用户 dataDir 模型 → 内置 Hiyori →
-  占位提示；RawResource 开启器在组合期解析成 map（`UseRawResource` 是
-  组合期 API，回调内不可调用——preview 同款模式）。资源包 +4.8MB 仅在
-  ON 构建存在。许可注意：模型与 Cubism SDK 不入 git、不随发布包分发
-  （发布包是否带示例待许可确认，当前仅本地构建）。
+  待办 → **渲染打通进行中**（2026-10-24 夜，Linux bring-up 实录）：
+  ① 已修（Lib-Live2D 本地克隆 `3655a1c`，待推上游）：glewInit 在 Wayland
+  的 NO_GLX_DISPLAY 假阴性容错；内嵌着色器表 Linux 改用 StandardES
+  （GLSL ES 1.00）——桌面 GLSL 1.20 在 ES 路径必崩 Mesa 链接器
+  （cross_validate_globals，26.2.4）；显式 ES 3.0 上下文；Draw 错误码
+  诊断。② 剩余一个上游级问题：Cubism DrawModel 在 ES 3.0 上抛
+  GL_INVALID_OPERATION（pre=0 / draw=0x502，我们的调用全干净）——
+  需要 compat-profile 桌面上下文（经 EGL 自建，GTK core 不支持）或
+  对 GLES2 渲染器 draw 路径做 ES3 二分。桌宠当前表现：Live2D 开关
+  打开后窗口透明（渲染失败静默），stderr 有 `live2d:` 诊断行与底部
+  红色错误徽标。③ 用户 dataDir 的 Hiyori 与内置示例均经加载路径验证
+  可达（前两处路径 bug 已修：extension() 只返回 ".json"、RawResource
+  key 需 raw/ 前缀）。
   背景评估（2026-10-24）：成本基线——Cubism Core 每平台 ~1-3MB + 模型
   磁盘 5-15MB / 显存 16-64MB（2048² RGBA 纹理即 16MB），参数/物理/姿态
   每帧 ~1-3ms 且持续更新（待机呼吸不静止）；同等内容下仍远省于帧序列
