@@ -1,8 +1,9 @@
 // pet.cpp — AI 桌宠实现：莲花球视觉（NodeExtension 逐帧重绘）、活动状态轮询、
 // 指针交互与右键菜单。视觉为 llm-switch 冷调石板族的固定深色玻璃球，品牌莲花
-// （lotus_bloom，白色 alpha-mask）居中慢旋：空闲 ~11s/圈，路由请求完成后 3s
-// 内进入 thinking（提速到 ~3.3s/圈 + 提亮 + 高亮弧线），最近一次请求失败 6s
-// 内叠加误差红脉冲外环；底部角标显示今日请求数。
+// （lotus_bloom_raster，冷白 alpha-mask）居中呼吸：辉光与缩放随相位起伏，
+// 空闲 ~6s 一个呼吸周期，路由请求完成后 3s 内进入 thinking（呼吸更深更快 +
+// 装饰弧提亮），最近一次请求失败 6s 内叠加误差红脉冲外环；底部角标显示今日
+// 请求数。
 // 动画走 NodeExtension 的保留绘制（30fps 上限，reduced-motion 下静止），统计
 // 轮询走 TaskScope + Delay（每秒一次，窗口退役时随作用域取消）。右键菜单经
 // PetThemeDefinition 套主应用同款主题（深浅随 Poll 跟随）。
@@ -56,7 +57,9 @@ void PaintOrb(huxerui::PaintContext& paint, huxerui::Size size, float phase,
     if (radius <= 0.0F) return;
     const Rect bounds{center.x - radius, center.y - radius, radius * 2.0F, radius * 2.0F};
     const huxerui::Path circle = huxerui::Path::RoundedRect(bounds, huxerui::CornerRadii{radius});
-    const float intensity = orb.thinking ? 1.0F : 0.6F;
+    // 辉光随呼吸起伏；thinking 时基准更亮。
+    const float intensity =
+        (orb.thinking ? 1.0F : 0.6F) * (1.0F + 0.12F * std::sin(phase));
 
     // 球外环境辉光：透明窗口上形成一圈淡青晕。
     paint.DrawRect({center.x - radius * 1.24F, center.y - radius * 1.24F,
@@ -89,25 +92,14 @@ void PaintOrb(huxerui::PaintContext& paint, huxerui::Size size, float phase,
         },
     });
 
-    // 品牌莲花居中慢旋（白色 alpha-mask 资源，衬深色玻璃球；thinking 时
-    // 加速——OnFrame 的 phase 步长控制转速）。变换为中心旋转：先平移回
-    // 原点旋转再放回，避免公转。
+    // 品牌莲花居中呼吸（白色 alpha-mask 栅格，衬深色玻璃球）：缩放随相位
+    // 起伏，thinking 时呼吸更深更快——OnFrame 的 phase 步长控制呼吸周期。
     if (orb.lotus.HasValue()) {
-        const float lotus_radius = radius * 0.58F;
+        const float breathe = 1.0F + (orb.thinking ? 0.060F : 0.035F) * std::sin(phase);
+        const float lotus_radius = radius * 0.58F * breathe;
         const Rect lotus_bounds{center.x - lotus_radius, center.y - lotus_radius,
                                 lotus_radius * 2.0F, lotus_radius * 2.0F};
-        const float s = std::sin(phase);
-        const float c = std::cos(phase);
-        huxerui::Transform2D spin;
-        spin.m11 = c;
-        spin.m12 = s;
-        spin.m21 = -s;
-        spin.m22 = c;
-        spin.translate_x = center.x - (c * center.x - s * center.y);
-        spin.translate_y = center.y - (s * center.x + c * center.y);
-        paint.PushTransform(spin);
         paint.DrawImage(orb.lotus, lotus_bounds);
-        paint.PopTransform();
     }
 
     // 顶部冷白高光。
@@ -128,17 +120,18 @@ void PaintOrb(huxerui::PaintContext& paint, huxerui::Size size, float phase,
         },
     }, bounds, huxerui::StrokeStyle{.width = 0.8F});
 
-    // failure：误差红外环，随相位呼吸（红脉冲在莲花转速恢复后仍停留 6s）。
+    // failure：误差红外环，随相位脉冲（红脉冲在莲花呼吸恢复后仍停留 6s）。
     if (orb.failure) {
         const float pulse = 0.38F + 0.28F * std::sin(phase * 2.4F);
         paint.DrawArc(center, radius * 1.06F, 0.0F, 6.28318F,
                       Color::Rgb(240, 115, 108, pulse),
                       huxerui::StrokeStyle{.width = 2.2F, .cap = huxerui::StrokeCap::Round});
     }
-    // thinking：旋转弧线；空闲退化为固定装饰弧。
+    // thinking：装饰弧随呼吸提亮；空闲退化为固定低亮弧。
     if (orb.thinking) {
-        paint.DrawArc(center, radius * 0.94F, phase * 1.9F, 1.1F,
-                      Color::Rgb(224, 242, 254, 0.45F),
+        const float breathe = 0.34F + 0.22F * (0.5F + 0.5F * std::sin(phase));
+        paint.DrawArc(center, radius * 0.94F, 3.80F, 0.86F,
+                      Color::Rgb(224, 242, 254, breathe),
                       huxerui::StrokeStyle{.width = 1.4F, .cap = huxerui::StrokeCap::Round});
     } else {
         paint.DrawArc(center, radius * 0.94F, 3.80F, 0.86F,
@@ -163,8 +156,8 @@ public:
         const float delta = static_cast<float>(std::clamp(frame.delta_time, 0.0, 0.1));
         if (delta > 0.0F) {
             constexpr float wave_cycle = 20.0F * std::numbers::pi_v<float>;
-            // 转速：空闲 ~11s/圈，thinking ~3.3s/圈。
-            phase_ = std::fmod(phase_ + delta * (orb_.thinking ? 1.9F : 0.55F), wave_cycle);
+            // 呼吸周期：空闲 ~6s，thinking ~2.5s。
+            phase_ = std::fmod(phase_ + delta * (orb_.thinking ? 2.5F : 1.0F), wave_cycle);
             InvalidatePaint();
         }
         return {.wake_after = 1.0 / 30.0};
