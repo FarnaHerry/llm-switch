@@ -120,7 +120,7 @@ UI 工作先读当前实际使用版本的 `huxerui-app-development` skill 主�
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release  # 配置
 cmake --build build --parallel 4                         # 编译（app + 7 个测试目标）
 ctest --test-dir build             # 冒烟 + 领域层测试（smoke/store/net/router/mcp/skills/sessions）
-./run.sh                           # 启动 GUI（INTEL_FORCE_PROBE=1）
+./run.sh                           # 优先启动已启用 Live2D 的 build-live2d，否则用 build
 huxerui run linux                  # HuxerUI CLI 流程（构建到 .huxerui/build/linux/）
 ```
 

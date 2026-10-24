@@ -77,6 +77,10 @@ ctest --test-dir build --output-on-failure
 项目也提供了 Ninja 预设：`cmake --preset ninja-release`、
 `cmake --build --preset ninja-release`。
 
+`./run.sh` 会优先启动已配置为 `LLMSWITCH_LIVE2D=ON` 的
+`build-live2d/llm-switch`，否则启动 `build/llm-switch`；可用
+`LLMSWITCH_BIN=/path/to/llm-switch` 显式指定程序。
+
 CI（GitHub Actions，`.github/workflows/build.yml`）提供 Linux / Windows /
 macOS 三平台构建产物：日常构建在 Actions 页面下载压缩包，Windows 另含
 HuxerUI 安装器（保留 14 天），
