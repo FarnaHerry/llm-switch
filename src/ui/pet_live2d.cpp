@@ -111,10 +111,10 @@ huxerui::View PetLive2DBody(const std::shared_ptr<PetController>& controller) {
     const auto play_idle = [current, command] {
         if (const auto group = FindMotionGroup(current, "Idle")) {
             static_cast<void>(command.PlayMotion(group->name, 0,
-                                                 {.priority = 1, .looping = true}));
+                                                 {.priority = 1, .loop = true}));
         }
     };
-    const auto play_tap = [current, command] {
+    const auto play_tap = [current, command, play_idle] {
         if (const auto group = FindMotionGroup(current, "TapBody")) {
             static_cast<void>(command.PlayMotion(group->name, 0, {.priority = 3, .force = true}));
         } else {

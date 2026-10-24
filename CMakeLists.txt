@@ -310,17 +310,33 @@ huxerui_use_library(llm-switch
 )
 
 # Live2D 皮肤的库接入与 SDK 检查（源选择见上方 huxerui_add_app 之前）。
+# LLMSWITCH_LIVE2D_PATH：本地 Lib-Live2D 检出路径（离线开发/网络受限时
+# 替代 URL 拉取；缺省走 URL+COMMIT 保证可复现）。
 if (LLMSWITCH_LIVE2D)
-    huxerui_use_library(llm-switch
-        TARGET HuxerUI::Live2D
-        URL "https://github.com/FarnaHerry/Lib-Live2D.git"
-        COMMIT "936694bcebddd8238e08ade1a8a8ea267dcdbb98"
-    )
+    if (DEFINED LLMSWITCH_LIVE2D_PATH)
+        huxerui_use_library(llm-switch
+                TARGET HuxerUI::Live2D
+                PATH "${LLMSWITCH_LIVE2D_PATH}"
+        )
+    else ()
+        huxerui_use_library(llm-switch
+                TARGET HuxerUI::Live2D
+                URL "https://github.com/FarnaHerry/Lib-Live2D.git"
+                COMMIT "936694bcebddd8238e08ade1a8a8ea267dcdbb98"
+        )
+    endif ()
     if (NOT EXISTS "${LIVE2D_CUBISM_NATIVE_ROOT}/Core/include/Live2DCubismCore.h")
         message(FATAL_ERROR
                 "LLMSWITCH_LIVE2D=ON 需要先获取 Cubism SDK：在 Lib-Live2D 检出运行 "
                 "python3 tools/fetch_cubism.py --sdk native，并配置 "
                 "-DLIVE2D_CUBISM_NATIVE_ROOT=<CubismSdkForNative-5-r.5 的路径>")
+    endif ()
+    # Lib-Live2D v0.1.0 的 Linux 链接漏了 OpenGL：Cubism Framework 用 GLES2
+    # 符号（glEnable…）但只链了 GLEW，DSO missing 报错。消费侧补链 OpenGL
+    # （上游修复待 Lib-Live2D 后续版本，见 docs/desktop-pet-roadmap.md）。
+    if (UNIX AND NOT APPLE)
+        find_package(OpenGL REQUIRED)
+        target_link_libraries(llm-switch PRIVATE OpenGL::GL)
     endif ()
 endif ()
 
@@ -613,7 +629,14 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
             set(LLMSWITCH_PROBE_SOURCES ${APP_SOURCE_FILES})
             list(REMOVE_ITEM LLMSWITCH_PROBE_SOURCES
                 "${CMAKE_CURRENT_SOURCE_DIR}/src/app.cpp"
-                "${CMAKE_CURRENT_SOURCE_DIR}/platform/linux/main.cpp")
+                "${CMAKE_CURRENT_SOURCE_DIR}/platform/linux/main.cpp"
+                # 探针只量化供应商页，不测桌宠皮肤：排除需要 HuxerUI::Live2D
+                # 头与链接的真实现；ON 时把 stub 加回来供 PetLive2DAvailable 符号。
+                "${CMAKE_CURRENT_SOURCE_DIR}/src/ui/pet_live2d.cpp")
+            if (LLMSWITCH_LIVE2D)
+                list(APPEND LLMSWITCH_PROBE_SOURCES
+                        "${CMAKE_CURRENT_SOURCE_DIR}/src/ui/pet_live2d_stub.cpp")
+            endif ()
             add_executable(ui_perf_probe ${LLMSWITCH_PROBE_SOURCES}
                 tests/ui_perf_probe.cpp)
             target_sources(ui_perf_probe PRIVATE FILE_SET llmswitch_modules

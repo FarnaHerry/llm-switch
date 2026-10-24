@@ -134,9 +134,15 @@ PetController::Poll 纯逻辑驱动，实机验证随 P0-1 验收一起过。
   `*.model3.json` 异步加载，ModelView 渲染，streaming 时 playback_rate
   1.15、Ready 循环 Idle、点命中区播 TapBody；无模型/失败显示占位药丸
   而非静默回退）；窗口 300×420，模式互斥 live2d > compact > 球。
-  进行中：Linux 首次编译验证（GLEW + Cubism SDK 下载受 CDN 网络阻碍）；
-  Windows 验证待 CI；许可注意：模型与 Cubism SDK 不入仓库不分发，
-  用户自放 dataDir（Hiyori 样例已拷入本机 dataDir 供实测）。
+  进行中 → **Linux 首编译已通过**（2026-10-24，build-live2d：Lib-Live2D +
+  Cubism Framework + Core 静态库全链路首验，ctest 9/9）。期间修掉三处：
+  ① Lib-Live2D v0.1.0 的 Linux 链接漏 OpenGL（Cubism Framework 用 GLES2
+  符号但只链 GLEW）——消费侧补链 `OpenGL::GL`，上游修复待 Lib-Live2D
+  后续版本；② `LLMSWITCH_LIVE2D_PATH` 本地检出覆盖（GitHub 拉取受限时
+  免网络）；③ 性能探针目标排除 pet_live2d 真实现、ON 时补 stub 符号。
+  待办：实机运行验证（Hiyori 已在 dataDir）；Windows 验证待 CI；CI 接入
+  需先解决 Cubism SDK 的获取（官方 CDN 对不稳链路不友好，需缓存 artifact
+  或文档化手动步骤）。许可注意：模型与 Cubism SDK 不入仓库不分发。
   背景评估（2026-10-24）：成本基线——Cubism Core 每平台 ~1-3MB + 模型
   磁盘 5-15MB / 显存 16-64MB（2048² RGBA 纹理即 16MB），参数/物理/姿态
   每帧 ~1-3ms 且持续更新（待机呼吸不静止）；同等内容下仍远省于帧序列
