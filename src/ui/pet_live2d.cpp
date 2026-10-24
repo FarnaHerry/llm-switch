@@ -63,6 +63,7 @@ constexpr std::string_view kBundledFiles[] = {
 using BundledResources = std::map<std::string, huxerui::RawAsset>;
 
 // 扫描 dataDir()/live2d 下第一个 *.model3.json（文件 IO 放 worker 线程）。
+// 注意 extension() 只返回最后一个后缀（".json"），必须按完整文件名后缀判。
 std::optional<std::string> FindModelEntry() {
     std::error_code ec;
     const fs::path root = cfg::dataDir() / "live2d";
@@ -71,7 +72,8 @@ std::optional<std::string> FindModelEntry() {
     for (const auto& dir : fs::directory_iterator(root, ec)) {
         if (!dir.is_directory()) continue;
         for (const auto& file : fs::directory_iterator(dir.path(), ec)) {
-            if (file.is_regular_file(ec) && file.path().extension() == ".model3.json") {
+            if (file.is_regular_file(ec) &&
+                file.path().filename().string().ends_with(".model3.json")) {
                 return file.path().string();
             }
         }
@@ -103,7 +105,9 @@ huxerui::View PetLive2DBody(const std::shared_ptr<PetController>& controller) {
     const auto tasks = huxerui::UseTaskScope();
 
     // 内置示例在组合期解析（UseRawResource 是组合期 API，开启回调不能调）。
-    // 任一文件缺失则整体放弃内置（用户仍可自放模型）。
+    // RawResource 的 key 带 raw/ 前缀（生成标识符 app::raw::<key>）；开启器
+    // 收到的路径则不带前缀（包相对）。任一文件缺失则整体放弃内置（用户仍可
+    // 自放模型）。
     std::shared_ptr<const BundledResources> bundled;
     {
         auto resources = std::make_shared<BundledResources>();
@@ -111,7 +115,7 @@ huxerui::View PetLive2DBody(const std::shared_ptr<PetController>& controller) {
         try {
             for (const std::string_view key : kBundledFiles) {
                 (*resources)[std::string(key)] = huxerui::UseRawResource(
-                    huxerui::RawResource{"app", key});
+                    huxerui::RawResource{"app", std::string("raw/") + std::string(key)});
             }
         } catch (const std::exception&) {
             complete = false;
@@ -136,10 +140,12 @@ huxerui::View PetLive2DBody(const std::shared_ptr<PetController>& controller) {
                 status = std::string("模型加载失败：") + loaded.Error().message;
                 co_return;
             }
-            // ② 内置示例（RawResource 重载 + 捕获的解析结果）。
+            // ② 内置示例（RawResource 重载 + 捕获的解析结果；entry 同样带
+            // raw/ 前缀，开启器收到的依赖路径不带）。
             if (bundled) {
                 auto loaded = co_await live2d::LoadModelAsync(
-                    huxerui::RawResource{"app", kBundledEntryKey},
+                    huxerui::RawResource{"app",
+                                         std::string("raw/") + kBundledEntryKey},
                     [bundled](std::string path)
                         -> huxerui::Task<
                             huxerui::IoResult<huxerui::AsyncInputStream>> {
