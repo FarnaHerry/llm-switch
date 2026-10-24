@@ -511,7 +511,6 @@ huxerui::View PetContent() {
     const auto window = huxerui::UseWindow();
     const auto controller = huxerui::UseService<PetController>();
     const auto activation = huxerui::UseService<TrayActivationTarget>();
-    const auto menu = huxerui::UseMenu();
     const auto tasks = huxerui::UseTaskScope();
     UsePetAttachment(controller);
 
@@ -615,53 +614,62 @@ huxerui::View PetContent() {
             }
         })
         .On<huxerui::DragEvents::Started>(
-            [window](const huxerui::DragEvent&) { static_cast<void>(window.BeginMove()); })
-        .On<huxerui::ViewEvents::ContextMenuRequested>(
-            [controller, activation, application, menu,
-             trayAvailable](huxerui::Point position) {
-                // 框架的 Menu 是**窗口内浮层**（LayerAnchorMode::
-                // FixedWindowPoint），会被窗口边界裁剪——菜单必须装得进
-                // 本窗口：胶囊（44pt 高）装不下任何菜单，右键直接展开信息卡
-                // （真窗口，有空间）；球形态（200×200）也只放恰好装下的
-                // 5 项无分隔菜单（≈188pt）。路由开关在托盘菜单/设置页，
-                // 完成提醒点击即消解，都不进这里。
-                if (controller->compact.Get()) {
-                    controller->ToggleCard(application);
-                    return;
-                }
-                menu.ShowAt(position, {
-                    huxerui::MenuItem(
-                        "信息卡",
-                        [controller, application] {
-                            controller->ToggleCard(application);
-                        })
-                        .Checked(controller->card.has_value()),
-                    huxerui::MenuItem(
-                        "胶囊模式",
-                        [controller, application] {
-                            const bool next = !controller->compact.Get();
-                            try {
-                                providerStore().setPetCompact(next);
-                                controller->SetCompact(next, application);
-                            } catch (const std::exception&) {
-                            }
-                        })
-                        .Checked(controller->compact.Get()),
-                    huxerui::MenuItem("打开主窗口",
-                                      [activation] { activation->Activate(); }),
-                    huxerui::MenuItem(
-                        "隐藏桌宠",
-                        [controller, trayAvailable] {
-                            controller->Hide(trayAvailable);
-                        })
+            [window](const huxerui::DragEvent&) { static_cast<void>(window.BeginMove()); });
+
+    // MenuHandle 必须在 Theme 的子作用域内获取：Theme 包在本函数的返回值
+    // 上，函数体顶层 UseMenu() 捕获的是默认环境（右键菜单落回框架默认浅色
+    // 样式）——与 app.cpp 的 DialogHandle 同款坑（AGENTS.md UI 视觉硬约束）。
+    // Scope 的工厂在组合期执行，Use* 合法（app.cpp windowBehavior 同款）。
+    return huxerui::Theme(
+        PetThemeDefinition(controller->darkTheme.Get()),
+        huxerui::Scope([controller, activation, application, trayAvailable,
+                        content = std::move(content)]() mutable -> huxerui::View {
+            const auto menu = huxerui::UseMenu();
+            return std::move(content).On<huxerui::ViewEvents::ContextMenuRequested>(
+                [controller, activation, application, menu,
+                 trayAvailable](huxerui::Point position) {
+                    // 框架的 Menu 是**窗口内浮层**（LayerAnchorMode::
+                    // FixedWindowPoint），会被窗口边界裁剪，宽度也受视口
+                    // （= 本窗口 200pt）夹取：胶囊（44pt 高）装不下任何菜单，
+                    // 右键直接展开信息卡（真窗口，有空间）；球形态只放 5 项
+                    // 无分隔短标签菜单（高度 ≈188pt、自然宽度 ≤180pt 最小值
+                    // 都装得下）。「退出 llm-switch」这类长标签会被截断，路由
+                    // 开关在托盘菜单/设置页，完成提醒点击即消解，都不进这里。
+                    if (controller->compact.Get()) {
+                        controller->ToggleCard(application);
+                        return;
+                    }
+                    menu.ShowAt(position, {
+                        huxerui::MenuItem(
+                            "信息卡",
+                            [controller, application] {
+                                controller->ToggleCard(application);
+                            })
+                            .Checked(controller->card.has_value()),
+                        huxerui::MenuItem(
+                            "胶囊模式",
+                            [controller, application] {
+                                const bool next = !controller->compact.Get();
+                                try {
+                                    providerStore().setPetCompact(next);
+                                    controller->SetCompact(next, application);
+                                } catch (const std::exception&) {
+                                }
+                            })
+                            .Checked(controller->compact.Get()),
+                        huxerui::MenuItem("打开主窗口",
+                                          [activation] { activation->Activate(); }),
+                        huxerui::MenuItem(
+                            "隐藏桌宠",
+                            [controller, trayAvailable] {
+                                controller->Hide(trayAvailable);
+                            })
                             .Enabled(trayAvailable),
-                    huxerui::MenuItem("退出 llm-switch",
-                                      [application] { application.Quit(); }),
+                        huxerui::MenuItem("退出",
+                                          [application] { application.Quit(); }),
+                    });
                 });
-            });
-    // 右键菜单与桌宠窗口主题套应用同款配色（深浅随 darkTheme 跟随）。
-    return huxerui::Theme(PetThemeDefinition(controller->darkTheme.Get()),
-                          std::move(content));
+        }));
 }
 
 // ---- 信息卡 -------------------------------------------------------------------
