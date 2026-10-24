@@ -31,3 +31,6 @@ traces/
 
 # Live2D 桌宠皮肤的本地依赖前缀（GLEW RPM 解包等，不入库）
 third_party/deps/
+
+# Live2D 内置示例（构建期从 Lib-Live2D 检出暂存，选项关闭时移除）
+resources/raw/live2d/

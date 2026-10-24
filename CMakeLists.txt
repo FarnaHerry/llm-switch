@@ -285,6 +285,8 @@ if (LLMSWITCH_LIVE2D)
 else ()
     list(REMOVE_ITEM APP_SOURCE_FILES
             "${CMAKE_CURRENT_SOURCE_DIR}/src/ui/pet_live2d.cpp")
+    # 撤销可能残留的内置示例暂存（gitignore，不入库；见下方 ON 分支）。
+    file(REMOVE_RECURSE "${CMAKE_CURRENT_SOURCE_DIR}/resources/raw/live2d")
 endif ()
 
 huxerui_add_app(llm-switch
@@ -334,6 +336,26 @@ if (LLMSWITCH_LIVE2D)
     # Lib-Live2D v0.1.0 的 Linux 链接漏了 OpenGL：Cubism Framework 用 GLES2
     # 符号（glEnable…）但只链了 GLEW，DSO missing 报错。消费侧补链 OpenGL
     # （上游修复待 Lib-Live2D 后续版本，见 docs/desktop-pet-roadmap.md）。
+    # 内置 Live2D 示例角色：借用 Lib-Live2D preview 的官方示例（Hiyori，
+    # 含 model_licenses 许可声明），构建期暂存进 resources/raw/live2d/
+    # （gitignore 不入库；资源打包 glob 是 CONFIGURE_DEPENDS，自动拾取）。
+    # 用户自放的 dataDir()/live2d/ 模型优先于内置示例（运行时判定）。
+    if (DEFINED LLMSWITCH_LIVE2D_PATH)
+        set(LLMSWITCH_LIVE2D_LIBRARY_ROOT "${LLMSWITCH_LIVE2D_PATH}")
+    else ()
+        string(SHA256 LLMSWITCH_LIVE2D_ORIGIN_HASH
+                "URL:https://github.com/FarnaHerry/Lib-Live2D.git@COMMIT:936694bcebddd8238e08ade1a8a8ea267dcdbb98")
+        string(SUBSTRING "${LLMSWITCH_LIVE2D_ORIGIN_HASH}" 0 16
+                LLMSWITCH_LIVE2D_ORIGIN_HASH)
+        set(LLMSWITCH_LIVE2D_LIBRARY_ROOT
+                "${CMAKE_BINARY_DIR}/_deps/huxerui_library_${LLMSWITCH_LIVE2D_ORIGIN_HASH}-src")
+    endif ()
+    set(LLMSWITCH_LIVE2D_SAMPLES_DIR "${CMAKE_CURRENT_SOURCE_DIR}/resources/raw/live2d")
+    file(REMOVE_RECURSE "${LLMSWITCH_LIVE2D_SAMPLES_DIR}")
+    file(COPY "${LLMSWITCH_LIVE2D_LIBRARY_ROOT}/examples/preview/resources/raw/Hiyori"
+            DESTINATION "${LLMSWITCH_LIVE2D_SAMPLES_DIR}")
+    file(COPY "${LLMSWITCH_LIVE2D_LIBRARY_ROOT}/examples/preview/resources/raw/model_licenses"
+            DESTINATION "${LLMSWITCH_LIVE2D_SAMPLES_DIR}")
     if (UNIX AND NOT APPLE)
         find_package(OpenGL REQUIRED)
         target_link_libraries(llm-switch PRIVATE OpenGL::GL)

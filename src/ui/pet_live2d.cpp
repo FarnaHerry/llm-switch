@@ -1,21 +1,23 @@
 // pet_live2d.cpp — Live2D 桌宠皮肤（LLMSWITCH_LIVE2D=ON 才编译；禁用时由
 // pet_live2d_stub.cpp 顶替，PetLive2DAvailable() 恒 false）。
 //
-// 资产约定：模型包放在 dataDir()/live2d/<目录>/<名>.model3.json，取目录
-// 扫描到的第一个（官方 Cubism 示例角色 Hiyori/Haru/Mao 的目录结构直接可
-// 用）。模型不随本仓库分发（Cubism SDK 与模型资产各有自己的许可），由用户
-// 自行放入；缺模型或加载失败时显示占位提示（不静默回退成莲花球，避免
-// 「开关打开了却没有效果」的困惑）。
+// 模型解析优先级：① dataDir()/live2d/<目录>/<名>.model3.json（用户自放，
+// 扫描到的第一个，File 重载）；② 内置示例 Hiyori（构建期从 Lib-Live2D
+// preview 暂存进资源包 resources/raw/live2d/，含 model_licenses 许可声明；
+// RawResource 重载 + 组合期解析的 map 开启器——UseRawResource 是组合期
+// API，不能在加载任务的开启回调里调用，故组合期把 18 个文件全部解析成
+// RawAsset 捕获，与 Lib-Live2D preview 的模式一致）。模型与 Cubism SDK
+// 不随本仓库分发；缺模型/失败显示占位提示，不静默回退。
 //
 // 渲染：HuxerUI::Live2D 的 ModelView 经 ExternalTexture 发布帧——透明
-// Utility 表面支持的外部纹理路径（desktop_pet README 同款机制）。模型自带
-// 自动眨眼/呼吸；路由 streaming 时 playback_rate 提到 1.15（「思考变快」，
-// 与莲花球的呼吸加速同语义）；Ready 后循环播放 Idle 组；点击命中区播
-// TapBody（或首个动作组）。
+// Utility 表面支持的外部纹理路径。模型自带自动眨眼/呼吸；路由 streaming
+// 时 playback_rate 提到 1.15（「思考变快」）；Ready 后循环 Idle 组；点击
+// 命中区播 TapBody。
 #include <huxerui/huxerui.h>
 #include <huxerui/live2d.h>
 
 #include <filesystem>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -32,8 +34,35 @@ namespace {
 namespace fs = std::filesystem;
 namespace live2d = huxerui::live2d;
 
-// 扫描 dataDir()/live2d 下第一个 *.model3.json（浅层目录即可；文件 IO
-// 放 worker 线程执行）。找不到返回 nullopt。
+// 内置示例（Lib-Live2D preview 的 Hiyori，钉版文件清单——Lib-Live2D
+// 钉 commit，文件集固定）。key 相对资源包 raw 根，与开启器收到的路径同构。
+constexpr const char* kBundledEntryKey = "live2d/Hiyori/Hiyori.model3.json";
+constexpr std::string_view kBundledFiles[] = {
+    "live2d/Hiyori/Hiyori.model3.json",
+    "live2d/Hiyori/Hiyori.moc3",
+    "live2d/Hiyori/Hiyori.cdi3.json",
+    "live2d/Hiyori/Hiyori.physics3.json",
+    "live2d/Hiyori/Hiyori.pose3.json",
+    "live2d/Hiyori/Hiyori.userdata3.json",
+    "live2d/Hiyori/Hiyori.2048/texture_00.png",
+    "live2d/Hiyori/Hiyori.2048/texture_01.png",
+    "live2d/Hiyori/motions/Hiyori_m01.motion3.json",
+    "live2d/Hiyori/motions/Hiyori_m02.motion3.json",
+    "live2d/Hiyori/motions/Hiyori_m03.motion3.json",
+    "live2d/Hiyori/motions/Hiyori_m04.motion3.json",
+    "live2d/Hiyori/motions/Hiyori_m05.motion3.json",
+    "live2d/Hiyori/motions/Hiyori_m06.motion3.json",
+    "live2d/Hiyori/motions/Hiyori_m07.motion3.json",
+    "live2d/Hiyori/motions/Hiyori_m08.motion3.json",
+    "live2d/Hiyori/motions/Hiyori_m09.motion3.json",
+    "live2d/Hiyori/motions/Hiyori_m10.motion3.json",
+};
+
+// 组合期解析出的内置示例资源（key → RawAsset）。解析失败（资源缺失等）
+// 为空，加载任务据此跳过内置回退。
+using BundledResources = std::map<std::string, huxerui::RawAsset>;
+
+// 扫描 dataDir()/live2d 下第一个 *.model3.json（文件 IO 放 worker 线程）。
 std::optional<std::string> FindModelEntry() {
     std::error_code ec;
     const fs::path root = cfg::dataDir() / "live2d";
@@ -73,22 +102,68 @@ huxerui::View PetLive2DBody(const std::shared_ptr<PetController>& controller) {
     auto status = huxerui::UseState<std::string>({});
     const auto tasks = huxerui::UseTaskScope();
 
+    // 内置示例在组合期解析（UseRawResource 是组合期 API，开启回调不能调）。
+    // 任一文件缺失则整体放弃内置（用户仍可自放模型）。
+    std::shared_ptr<const BundledResources> bundled;
+    {
+        auto resources = std::make_shared<BundledResources>();
+        bool complete = true;
+        try {
+            for (const std::string_view key : kBundledFiles) {
+                (*resources)[std::string(key)] = huxerui::UseRawResource(
+                    huxerui::RawResource{"app", key});
+            }
+        } catch (const std::exception&) {
+            complete = false;
+        }
+        if (complete) bundled = std::move(resources);
+    }
+
     // 首次挂载触发一次加载（重组不重载；窗口退役随作用域取消任务）。
-    huxerui::Lifecycle([tasks, asset, controller2d, status] {
-        tasks.Launch([asset, controller2d, status]() -> huxerui::Task<void> {
+    huxerui::Lifecycle([tasks, asset, controller2d, status, bundled] {
+        tasks.Launch([asset, controller2d, status,
+                      bundled]() -> huxerui::Task<void> {
+            // ① 用户自放模型（dataDir，File 重载）。
             const std::optional<std::string> entry =
                 co_await huxerui::RunWorker([] { return FindModelEntry(); });
-            if (!entry.has_value()) {
-                status = std::string("未找到模型：把 Live2D 模型目录放到 数据目录/live2d/ 下");
+            if (entry.has_value()) {
+                auto loaded = co_await live2d::LoadModelAsync(huxerui::File(*entry));
+                if (loaded.Succeeded()) {
+                    controller2d = live2d::ModelController{};
+                    asset = std::move(loaded).Value();
+                    co_return;
+                }
+                status = std::string("模型加载失败：") + loaded.Error().message;
                 co_return;
             }
-            auto loaded = co_await live2d::LoadModelAsync(huxerui::File(*entry));
-            if (loaded.Succeeded()) {
-                controller2d = live2d::ModelController{};
-                asset = std::move(loaded).Value();
-            } else {
-                status = std::string("模型加载失败：") + loaded.Error().message;
+            // ② 内置示例（RawResource 重载 + 捕获的解析结果）。
+            if (bundled) {
+                auto loaded = co_await live2d::LoadModelAsync(
+                    huxerui::RawResource{"app", kBundledEntryKey},
+                    [bundled](std::string path)
+                        -> huxerui::Task<
+                            huxerui::IoResult<huxerui::AsyncInputStream>> {
+                        const auto it = bundled->find(path);
+                        if (it == bundled->end()) {
+                            co_return huxerui::IoResult<
+                                huxerui::AsyncInputStream>::
+                                Failure({huxerui::IoErrorCode::NotFound,
+                                         "内置示例资源缺失：" + path});
+                        }
+                        co_return huxerui::IoResult<
+                            huxerui::AsyncInputStream>::
+                            Success(co_await it->second.OpenReadAsync());
+                    });
+                if (loaded.Succeeded()) {
+                    controller2d = live2d::ModelController{};
+                    asset = std::move(loaded).Value();
+                    co_return;
+                }
+                status = std::string("内置示例加载失败：") + loaded.Error().message;
+                co_return;
             }
+            status = std::string(
+                "未找到模型：把 Live2D 模型目录放到 数据目录/live2d/ 下");
         });
     });
 
