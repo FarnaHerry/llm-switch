@@ -219,8 +219,11 @@ bool ResolvesToDark(int mode) {
         huxerui::UseState(providerStore().config().radialNavAutoClose);
     const auto pet = huxerui::UseService<PetController>();
     const huxerui::ApplicationHandle application = huxerui::UseApplication();
+    const bool petTrayAvailable = application.SystemTray().IsAvailable();
     auto petEnabled = huxerui::UseState(providerStore().config().petEnabled);
     auto petTopmost = huxerui::UseState(providerStore().config().petTopmost);
+    auto petLightweight =
+        huxerui::UseState(providerStore().config().petLightweight);
 
     // ---- 本地环境检查 ----
     // 只做存在性检测：在 PATH 与几个已知安装目录里找可执行文件（纯文件系统，
@@ -385,7 +388,8 @@ bool ResolvesToDark(int mode) {
                 SectionDivider(),
 
                 // AI 桌宠：透明小球实时反映本地路由的 AI 请求活动。开关即时
-                // 开/退役窗口（不仅是下次启动）；置顶切换同步到现存窗口。
+                // 开/退役窗口（不仅是下次启动）；置顶切换同步到现存窗口；
+                // 轻量级模式下隐藏即退役、唤出重建。
                 PageSection(SectionTitle("AI 桌宠"),
                             huxerui::Column {
                     SettingRow(
@@ -418,6 +422,26 @@ bool ResolvesToDark(int mode) {
                                     toast.Show(e.what());
                                 }
                             })),
+                    // 轻量级模式（对齐 Clash-Flux 的同名托盘选项）：隐藏时
+                    // 退役窗口释放资源，托盘/菜单唤出时重建。托盘不可用时
+                    // 没有唤出入口，不允许开启（框架桌宠示例同款守卫）。
+                    SettingRow(
+                        "轻量级模式",
+                        "隐藏桌宠时销毁窗口与界面，唤出时重新创建（位置与偏好保留）",
+                        huxerui::Switch(petLightweight.Get())
+                            .OnChanged(
+                                [pet, petLightweight, toast,
+                                 petTrayAvailable](bool on) {
+                                    try {
+                                        providerStore().setPetLightweight(on);
+                                        pet->SetLightweight(on,
+                                                            petTrayAvailable);
+                                        petLightweight = on;
+                                    } catch (const std::exception& e) {
+                                        toast.Show(e.what());
+                                    }
+                                })
+                            .With(huxerui::Enabled(petTrayAvailable))),
                 }.With(huxerui::Spacing(10.0F),
                        huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))),
 

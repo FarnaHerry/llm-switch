@@ -200,17 +200,18 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(
                 revision = revision.Get() + 1;
             })
             .Checked(routerInstance().running()));
-    // AI 桌宠开关：勾选 = 配置开启且桌宠窗口在跑；点击切换并即时开/退役窗口。
+    // AI 桌宠开关：勾选 = 窗口存活（轻量级模式下隐藏即退役，勾选随之消失）；
+    // 点击在「退役 + 关闭开机自启」与「重建 + 开启」间切换——已被轻量级退役
+    // 的桌宠从托盘唤出时按保留的位置与偏好重建。
     entries.push_back(
         huxerui::MenuItem("AI 桌宠",
                           [pet, application, toast, revision] {
-                              const bool enabled =
-                                  providerStore().config().petEnabled;
                               try {
-                                  providerStore().setPetEnabled(!enabled);
-                                  if (enabled) {
+                                  if (pet->pet) {
+                                      providerStore().setPetEnabled(false);
                                       pet->Retire();
                                   } else {
+                                      providerStore().setPetEnabled(true);
                                       pet->Show(application);
                                   }
                               } catch (const std::exception& e) {
@@ -218,7 +219,7 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(
                               }
                               revision = revision.Get() + 1;
                           })
-                            .Checked(providerStore().config().petEnabled));
+                            .Checked(pet->pet.has_value()));
     entries.push_back(huxerui::MenuSection{});
     entries.push_back(huxerui::MenuItem("显示主窗口", [window] { window.Activate(); }));
     entries.push_back(huxerui::MenuSection{});
@@ -709,7 +710,7 @@ constexpr double kCollapseSeconds = 0.12;
                                                 revision, pet)});
             return [tray] { tray.Hide(); };
         },
-        revision);
+        revision, pet->epoch);
 
     return huxerui::Row {};
 }
@@ -836,6 +837,7 @@ void InstallApplication(huxerui::ApplicationContext& context) {
     // 被动显示的平台由 PetController::Show 回退到合成器默认策略）。
     auto pet = std::make_shared<PetController>();
     pet->topmost = providerStore().config().petTopmost;
+    pet->lightweight = providerStore().config().petLightweight;
     context.Provide(pet);
     if (providerStore().config().petEnabled) {
         huxerui::UseApplicationTaskScope().Post(

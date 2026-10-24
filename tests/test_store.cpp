@@ -225,23 +225,25 @@ int main() {
                   .closeBehavior == "ask");
     }
 
-    // 1a-2. AI 桌宠偏好持久化：旧配置缺字段默认关闭 + 置顶，setter 立即落盘。
+    // 1a-2. AI 桌宠偏好持久化：旧配置缺字段默认关闭 + 置顶 + 非轻量级，
+    // setter 立即落盘。
     {
         auto petSettings = store::ProviderStore::load();
         CHECK(petSettings.config().petEnabled == false);
         CHECK(petSettings.config().petTopmost == true);
-        CHECK(models::fromJson(nlohmann::json::object()).petEnabled == false);
-        CHECK(models::fromJson(nlohmann::json::parse(
-                  R"json({"petEnabled":true,"petTopmost":false})json"))
-                  .petEnabled == true);
-        CHECK(models::fromJson(nlohmann::json::parse(
-                  R"json({"petEnabled":true,"petTopmost":false})json"))
-                  .petTopmost == false);
+        CHECK(petSettings.config().petLightweight == false);
+        const auto explicitPet = models::fromJson(nlohmann::json::parse(
+            R"json({"petEnabled":true,"petTopmost":false,"petLightweight":true})json"));
+        CHECK(explicitPet.petEnabled == true);
+        CHECK(explicitPet.petTopmost == false);
+        CHECK(explicitPet.petLightweight == true);
         petSettings.setPetEnabled(true);
         petSettings.setPetTopmost(false);
+        petSettings.setPetLightweight(true);
         auto petReloaded = store::ProviderStore::load();
         CHECK(petReloaded.config().petEnabled == true);
         CHECK(petReloaded.config().petTopmost == false);
+        CHECK(petReloaded.config().petLightweight == true);
     }
 
     // 1b. Codex 官方订阅使用 OAuth auth.json（没有 OPENAI_API_KEY）时，不能

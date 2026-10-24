@@ -313,6 +313,11 @@ void ProviderStore::setPetTopmost(bool topmost) {
     save();
 }
 
+void ProviderStore::setPetLightweight(bool lightweight) {
+    config_.petLightweight = lightweight;
+    save();
+}
+
 bool ProviderStore::claudeCodeSkipInstallationChecks() const {
     const auto settings = readJsonPassive(cfg::claudeSettingsFile());
     const std::string value =

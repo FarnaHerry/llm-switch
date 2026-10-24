@@ -259,6 +259,7 @@ void PetController::Show(const huxerui::ApplicationHandle& application) {
         }
     }
     pet->Show();
+    epoch = epoch.Get() + 1;
 }
 
 void PetController::Retire() {
@@ -267,11 +268,25 @@ void PetController::Retire() {
     ++generation;
     if (pet) pet->Retire();
     pet.reset();
+    epoch = epoch.Get() + 1;
 }
 
 void PetController::Hide(bool trayAvailable) {
     if (!trayAvailable) return;
-    if (pet) pet->Hide();
+    if (lightweight.Get()) {
+        Retire();
+    } else if (pet) {
+        pet->Hide();
+    }
+}
+
+void PetController::SetLightweight(bool value, bool trayAvailable) {
+    if (!trayAvailable) return;
+    lightweight = value;
+    if (value && pet &&
+        pet->LifecycleState() == huxerui::WindowLifecycleState::Background) {
+        Hide(true);
+    }
 }
 
 void PetController::SetTopmost(bool value) {

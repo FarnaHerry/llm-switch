@@ -45,10 +45,17 @@ struct PetController {
     std::uint64_t generation = 0;
     huxerui::State<bool> topmost{true};
     huxerui::State<bool> animate{true};
+    // 轻量级模式（对齐 Clash-Flux 的轻量级托盘）：隐藏时退役窗口、释放
+    // UI 树与渲染资源（应用状态/托盘/进程继续运行），唤出时按进程内保留的
+    // 位置与偏好重建，波纹相位从头开始。
+    huxerui::State<bool> lightweight{false};
     // AI 活动状态（Poll 写、组合读；State 变更驱动桌宠重组）：
     huxerui::State<bool> thinking{false};      // 最近有路由请求完成
     huxerui::State<bool> failure{false};       // 最近一次路由请求失败
     huxerui::State<std::int64_t> todayRequests{0};  // 今日路由请求数（角标）
+    // 窗口存活性代次：Show/Retire 自增，托盘菜单以它为依赖跟随重建勾选态
+    // （轻量级模式下隐藏即退役，托盘勾选必须随之消失）。
+    huxerui::State<std::uint64_t> epoch{0};
 
     // 每秒由 PetContent 的 Delay 循环调用：读本地路由统计并刷新状态。
     void Poll();
@@ -57,6 +64,9 @@ struct PetController {
     void Retire();
     void Hide(bool trayAvailable);
     void SetTopmost(bool value);
+    // 轻量级开关：对已经藏起的桌宠启用时立即退役（释放资源）；托盘不可用
+    // 时无唤出入口，拒绝开启。
+    void SetLightweight(bool value, bool trayAvailable);
     void RecoverPosition();
 };
 
