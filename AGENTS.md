@@ -354,7 +354,12 @@ I/O、解析和 JSON 函数默认保留在 `.cpp` 中。
    组合卸载自动取消）——**不要**从 Clash-Flux 复制 task_bridge.h，那是它
    在 SDK 提供 RunWorker 之前的自造轮子。**事件处理器内禁止同步写会导致
    点击节点被卸载的 State**——经 `tasks.Launch` + `co_await Delay(0)` 推迟
-   （开弹窗、切页同理）。
+   （开弹窗、切页同理）。**窗口级同款规则**：任何会隐藏/退役「当前正被
+   点击的窗口」的操作（自定义标题栏关闭按钮的默认关闭、窗口内菜单里的
+   隐藏/切换形态）必须拦截 `OnCloseRequest` 或经 `TaskScope::Post` 推迟——
+   同步退役会让指针 Up 派发返回后访问已释放的 PointerInteraction，
+   直接段错误（桌宠信息卡关闭按钮 coredump 实证；主窗口的关闭拦截与
+   推迟隐藏就是为此）。
 5. **占位不能用 Spacer().With(Frame)**（Spacer 自带 Grow(1) 会平分空间）——
    用空 `Row{}`/`Column{}`；页面根要 `Grow(1.0F)` + `CrossAlign(Stretch)`。
 6. **全局 revision 计数**：AppRoot 持有 `State<int> revision`，任何写库操作

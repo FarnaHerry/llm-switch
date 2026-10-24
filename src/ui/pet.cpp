@@ -526,19 +526,27 @@ huxerui::View PetContent() {
     });
 
     const bool trayAvailable = application.SystemTray().IsAvailable();
+    // 隐藏/退役当前正在派发点击的窗口是 use-after-free：指针 Up 派发还没
+    // 返回，窗口先被销毁，PointerInteraction 的会话表跟着失效（coredump
+    // 实证：HandlePointerUp 内 hashtable erase 段错误）。所有会动到本窗口
+    // 存活态的操作（关闭请求、菜单里的隐藏/胶囊切换）一律经应用级
+    // TaskScope 推迟到派发返回之后执行。
+    const huxerui::TaskScope appTasks = huxerui::UseApplicationTaskScope();
     // 托盘不可用时关闭请求不能收起桌宠（没有再打开的入口），保持显示。
     huxerui::Lifecycle([window, trayAvailable] {
         if (!trayAvailable) window.Show();
     }, trayAvailable);
     window.OnCloseRequest(
-        [controller, trayAvailable] {
+        [controller, appTasks, trayAvailable] {
             // 关闭桌宠 = 收起（应用与托盘继续运行）；无托盘时退役，设置页
             // 与托盘菜单可随时重建。
-            if (trayAvailable) {
-                controller->Hide(true);
-            } else {
-                controller->Retire();
-            }
+            appTasks.Post([controller, trayAvailable] {
+                if (trayAvailable) {
+                    controller->Hide(true);
+                } else {
+                    controller->Retire();
+                }
+            });
             return true;
         },
         trayAvailable);
@@ -622,11 +630,11 @@ huxerui::View PetContent() {
     // Scope 的工厂在组合期执行，Use* 合法（app.cpp windowBehavior 同款）。
     return huxerui::Theme(
         PetThemeDefinition(controller->darkTheme.Get()),
-        huxerui::Scope([controller, activation, application, trayAvailable,
+        huxerui::Scope([controller, activation, application, appTasks, trayAvailable,
                         content = std::move(content)]() mutable -> huxerui::View {
             const auto menu = huxerui::UseMenu();
             return std::move(content).On<huxerui::ViewEvents::ContextMenuRequested>(
-                [controller, activation, application, menu,
+                [controller, activation, application, menu, appTasks,
                  trayAvailable](huxerui::Point position) {
                     // 框架的 Menu 是**窗口内浮层**（LayerAnchorMode::
                     // FixedWindowPoint），会被窗口边界裁剪，宽度也受视口
@@ -648,21 +656,26 @@ huxerui::View PetContent() {
                             .Checked(controller->card.has_value()),
                         huxerui::MenuItem(
                             "胶囊模式",
-                            [controller, application] {
+                            [controller, application, appTasks] {
                                 const bool next = !controller->compact.Get();
-                                try {
-                                    providerStore().setPetCompact(next);
-                                    controller->SetCompact(next, application);
-                                } catch (const std::exception&) {
-                                }
+                                // 切换会退役本窗口（点击正在派发中），推迟执行。
+                                appTasks.Post([controller, application, next] {
+                                    try {
+                                        providerStore().setPetCompact(next);
+                                        controller->SetCompact(next, application);
+                                    } catch (const std::exception&) {
+                                    }
+                                });
                             })
                             .Checked(controller->compact.Get()),
                         huxerui::MenuItem("打开主窗口",
                                           [activation] { activation->Activate(); }),
                         huxerui::MenuItem(
                             "隐藏桌宠",
-                            [controller, trayAvailable] {
-                                controller->Hide(trayAvailable);
+                            [controller, appTasks, trayAvailable] {
+                                appTasks.Post([controller, trayAvailable] {
+                                    controller->Hide(trayAvailable);
+                                });
                             })
                             .Enabled(trayAvailable),
                         huxerui::MenuItem("退出",
@@ -711,7 +724,17 @@ huxerui::View PetCardContent() {
     const auto activation = huxerui::UseService<TrayActivationTarget>();
     const auto nav = huxerui::UseService<MainNavTarget>();
     const huxerui::ApplicationHandle application = huxerui::UseApplication();
+    const auto window = huxerui::UseWindow();
+    const huxerui::TaskScope appTasks = huxerui::UseApplicationTaskScope();
     UseCardAttachment(controller);
+
+    // 自定义标题栏的关闭按钮是窗口内视图：点击在指针派发中同步退役本窗口
+    // 会在派发返回后访问已释放的 PointerInteraction（use-after-free，与
+    // 桌宠窗口同款坑）。拦截关闭请求并推迟退役。
+    window.OnCloseRequest([window, appTasks] {
+        appTasks.Post([window] { window.Retire(); });
+        return true;
+    });
 
     const bool dark = controller->darkTheme.Get();
     const huxerui::ThemeSpec spec = dark ? AppDarkThemeSpec() : AppLightThemeSpec();
@@ -791,16 +814,19 @@ huxerui::View PetCardContent() {
                         activation->Activate();
                     }),
                     // 胶囊/球互切：胶囊右键没有菜单空间，这个按钮是胶囊态
-                    // 回到球形态的主入口（切换会退役桌宠与这张卡）。
+                    // 回到球形态的主入口（切换会退役桌宠与这张卡——包括
+                    // 正被点击的本窗口，推迟执行）。
                     huxerui::Button(controller->compact.Get() ? "球形态"
                                                               : "胶囊模式")
-                        .OnClick([controller, application] {
+                        .OnClick([controller, application, appTasks] {
                             const bool next = !controller->compact.Get();
-                            try {
-                                providerStore().setPetCompact(next);
-                                controller->SetCompact(next, application);
-                            } catch (const std::exception&) {
-                            }
+                            appTasks.Post([controller, application, next] {
+                                try {
+                                    providerStore().setPetCompact(next);
+                                    controller->SetCompact(next, application);
+                                } catch (const std::exception&) {
+                                }
+                            });
                         }),
                 }.With(huxerui::Spacing(10.0F)),
             }.With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(24.0F, 16.0F)),
