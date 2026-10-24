@@ -4,9 +4,15 @@
 
 #include "single_instance.h"
 
+#include <cstdlib>
+
 int main(int argc, char** argv) {
     (void)argc;
     (void)argv;
+    // Match run.sh when the binary is launched directly. Set this before GDK
+    // or OpenGL initializes; preserve an explicit caller-provided override.
+    const char* forceProbe = std::getenv("INTEL_FORCE_PROBE");
+    if (!forceProbe || !*forceProbe) ::setenv("INTEL_FORCE_PROBE", "1", 0);
     if (!llmswitch::single_instance::StartOrActivate()) return 0;
 
     struct SingleInstanceCleanup {
