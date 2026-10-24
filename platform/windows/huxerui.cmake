@@ -89,6 +89,11 @@ function(huxerui_configure_windows_project_package target_name install_component
     set_target_properties(${target_name}_installer PROPERTIES
             OUTPUT_NAME "llm-switch-Installer"
     )
+    # 安装器壳子复用 src/ui/theme_colors.h 的产品配色（深浅两态），
+    # 只加只读 include，不引入其它应用源码依赖。
+    target_include_directories(${target_name}_installer PRIVATE
+            "${PROJECT_SOURCE_DIR}/src/ui"
+    )
     file(GENERATE
             OUTPUT "${HUXERUI_WINDOWS_PACKAGE_DIRECTORY}/$<CONFIG>/package.json"
             CONTENT "{\n  \"schema\": 1,\n  \"name\": \"@PROJECT_NAME@\",\n  \"target\": \"llm-switch\",\n  \"version\": \"${PROJECT_VERSION}\",\n  \"installComponent\": \"${install_component}\",\n  \"packageSource\": \"${HUXERUI_WINDOWS_PACKAGE_DIRECTORY}/Package.wxs\",\n  \"bundleSource\": \"${HUXERUI_WINDOWS_PACKAGE_DIRECTORY}/Bundle.wxs\",\n  \"installerPlan\": \"${HUXERUI_WINDOWS_PACKAGE_DIRECTORY}/$<CONFIG>/installer.json\"\n}\n"

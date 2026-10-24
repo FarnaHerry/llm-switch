@@ -1,3 +1,10 @@
+// Windows 安装器 UI —— 流程与结构对齐姊妹项目 Clash-Flux 的安装器（同框架同
+// 状态机：检测 → 升级 / 同版本维护 / 新版本拦截 / 全新安装 → 计划与事务应用
+// （可取消回滚）→ 完成/失败；embedded/quiet 无窗执行由框架
+// windows_installer.cpp 承担）。视觉沿用 llm-switch 冷调石板风：深浅两态配色
+// 与字号取自共享的 src/ui/theme_colors.h（与主应用单一入口，不再手工同步两份），
+// 品牌面板为海面渐变 + 莲花标志；llm-switch 特有的卸载前「删数据/留数据」
+// 确认框保留。
 #include <algorithm>
 #include <cstdlib>
 #include <filesystem>
@@ -18,6 +25,7 @@
 #include <installer_resources.h>
 #include <huxerui/huxerui.h>
 #include <huxerui/windows/installer.h>
+#include <theme_colors.h>
 
 using namespace huxerui;
 using namespace huxerui::windows;
@@ -49,82 +57,11 @@ bool SystemPrefersDark() {
   return result == ERROR_SUCCESS && apps_use_light_theme == 0;
 }
 
-// 与主程序 src/ui/app.cpp 的 AppDarkThemeSpec 保持同一套冷调色板（安装器
-// 不共享源码，只能手工同步；改色时两处必须一起改）。
-ThemeSpec InkDarkThemeSpec() {
-  ThemeSpec spec = MaterialDarkThemeSpec();
-  spec.typography = TypographyScheme{
-      .body_large = 16.0F,
-      .body_medium = 14.0F,
-      .body_small = 12.0F,
-      .label_large = 14.0F,
-      .title_large = 20.0F,
-      .headline_small = 24.0F,
-  };
-  spec.colors.primary = Color::Rgb(56, 189, 248);            // 青蓝强调
-  spec.colors.on_primary = Color::Rgb(6, 34, 49);
-  spec.colors.primary_container = Color::Rgb(27, 58, 80);
-  spec.colors.on_primary_container = Color::Rgb(190, 231, 251);
-  spec.colors.secondary = Color::Rgb(154, 161, 170);
-  spec.colors.on_secondary = Color::Rgb(16, 18, 20);
-  spec.colors.secondary_container = Color::Rgb(35, 40, 46);
-  spec.colors.on_secondary_container = Color::Rgb(232, 234, 237);
-  spec.colors.tertiary_container = Color::Rgb(33, 38, 45);
-  spec.colors.on_tertiary_container = Color::Rgb(190, 199, 208);
-  spec.colors.background = Color::Rgb(16, 18, 20);             // 石墨海面
-  spec.colors.surface = Color::Rgb(23, 26, 29);
-  spec.colors.surface_container_low = Color::Rgb(20, 23, 26);
-  spec.colors.surface_container = Color::Rgb(26, 30, 34);
-  spec.colors.surface_container_high = Color::Rgb(33, 37, 41);
-  spec.colors.surface_container_highest = Color::Rgb(39, 44, 49);
-  spec.colors.on_surface = Color::Rgb(232, 234, 237);          // 冷白正文
-  spec.colors.on_surface_variant = Color::Rgb(154, 161, 170);
-  spec.colors.outline = Color::Rgb(45, 51, 58);
-  spec.colors.inverse_surface = Color::Rgb(232, 234, 237);
-  spec.colors.inverse_on_surface = Color::Rgb(16, 18, 20);
-  spec.colors.scrim = Color::Rgb(5, 7, 10, 0.55F);
-  spec.colors.error = Color::Rgb(240, 115, 108);
-  return spec;
-}
-
-ThemeSpec InkLightThemeSpec() {
-  ThemeSpec spec = MaterialLightThemeSpec();
-  spec.typography = TypographyScheme{
-      .body_large = 16.0F,
-      .body_medium = 14.0F,
-      .body_small = 12.0F,
-      .label_large = 14.0F,
-      .title_large = 20.0F,
-      .headline_small = 24.0F,
-  };
-  spec.colors.primary = Color::Rgb(40, 112, 214);            // 天蓝强调 #2870D6
-  spec.colors.on_primary = Color::Rgb(255, 255, 255);
-  spec.colors.primary_container = Color::Rgb(220, 234, 253);
-  spec.colors.on_primary_container = Color::Rgb(18, 58, 107);
-  spec.colors.secondary = Color::Rgb(91, 108, 129);
-  spec.colors.on_secondary = Color::Rgb(255, 255, 255);
-  spec.colors.secondary_container = Color::Rgb(233, 240, 248);
-  spec.colors.on_secondary_container = Color::Rgb(30, 42, 58);
-  spec.colors.tertiary_container = Color::Rgb(228, 236, 245);
-  spec.colors.on_tertiary_container = Color::Rgb(43, 59, 78);
-  spec.colors.background = Color::Rgb(253, 253, 253);         // 冷白海面
-  spec.colors.surface = Color::Rgb(246, 249, 252);
-  spec.colors.surface_container_low = Color::Rgb(243, 247, 251);
-  spec.colors.surface_container = Color::Rgb(241, 245, 250);
-  spec.colors.surface_container_high = Color::Rgb(233, 240, 248);
-  spec.colors.surface_container_highest = Color::Rgb(255, 255, 255);
-  spec.colors.on_surface = Color::Rgb(30, 42, 58);           // 深石板蓝正文
-  spec.colors.on_surface_variant = Color::Rgb(85, 103, 125);
-  spec.colors.outline = Color::Rgb(220, 227, 235);
-  spec.colors.inverse_surface = Color::Rgb(30, 42, 58);
-  spec.colors.inverse_on_surface = Color::Rgb(245, 248, 252);
-  spec.colors.scrim = Color::Rgb(9, 18, 30, 0.38F);
-  spec.colors.error = Color::Rgb(198, 58, 58);  // 语义红 #C63A3A
-  return spec;
-}
-
+// 配色唯一入口在 src/ui/theme_colors.h（与主应用共享）；这里只按系统注册表
+// 选择深浅态。
 ThemeSpec InstallerThemeSpec() {
-  return SystemPrefersDark() ? InkDarkThemeSpec() : InkLightThemeSpec();
+  return SystemPrefersDark() ? llmswitch::ui::AppDarkThemeSpec()
+                             : llmswitch::ui::AppLightThemeSpec();
 }
 
 Color WithAlpha(Color color, float alpha) {
@@ -132,8 +69,10 @@ Color WithAlpha(Color color, float alpha) {
   return color;
 }
 
-View InstallerTheme(View content) {
-  const ThemeSpec spec = InstallerThemeSpec();
+// 主题边界：MaterialThemeDefinition(spec) 之上用 typed style 覆盖组件样式——
+// 按钮 8pt 圆角对齐主应用（M3 默认全圆胶囊）；弹窗样式供卸载确认框使用，
+// 叠加层用 on_surface 半透明（深色下黑叠黑、浅色黑底上白叠加不可见）。
+ThemeDefinition InstallerThemeDefinition(const ThemeSpec& spec) {
   ThemeDefinition definition = MaterialThemeDefinition(spec);
 
   ButtonStyle buttons = ButtonStyle::Default();
@@ -145,7 +84,7 @@ View InstallerTheme(View content) {
   DialogStyle dialogs = DialogStyle::Default();
   dialogs.background = spec.colors.surface_container_high;
   dialogs.title_style = TextStyle{Font::System(spec.typography.title_large).WithWeight(FontWeight::Bold),
-                                   spec.colors.on_surface};
+                                  spec.colors.on_surface};
   dialogs.message_style = TextStyle{Font::System(spec.typography.body_medium), spec.colors.on_surface};
   dialogs.positive_action_background = spec.colors.primary;
   dialogs.positive_action_style = TextStyle{Font::System(spec.typography.body_medium), spec.colors.on_primary};
@@ -153,7 +92,7 @@ View InstallerTheme(View content) {
   dialogs.action_separator_color = spec.colors.outline;
   definition.Set(dialogs);
 
-  return Theme(std::move(definition), std::move(content));
+  return definition;
 }
 
 } // namespace
@@ -206,6 +145,8 @@ void RemoveUserData() {
 
 } // namespace
 
+// 莲花标志：双弧对环 + 上下圆点，与主应用图标同源的程序化绘制（安装器资源
+// 包不带位图，颜色随主题深浅态）。
 View InstallerMark(Color foreground, Color detail) {
   return Canvas([foreground, detail](PaintContext& paint, Size size) {
     const float extent = std::min(size.width, size.height);
@@ -241,7 +182,9 @@ View BrandPanel(const ThemeSpec& theme) {
         .Style(TextStyle{Font::System(11.0F).WithWeight(FontWeight::SemiBold), secondary_text}),
   }.With(
       Frame{.width = 236.0F},
-      Padding(28.0F),
+      // 左内边距与标题栏 inset（spacing.large）同值：应用名与品牌面板内容
+      // 共享同一条左右边线。
+      Padding(24.0F),
       Spacing(26.0F),
       Background(LinearGradient{
           .start = {0.0F, 0.0F},
@@ -279,7 +222,7 @@ View SecondaryAction(View action, const ThemeSpec& theme) {
       .padding = EdgeInsets::Symmetric(20.0F, 8.0F),
       .minimum_width = 72.0F,
       .minimum_height = 40.0F,
-      .corner_radii = CornerRadii{theme.shapes.full},
+      .corner_radii = CornerRadii{8.0F},
       .indication = theme.interactions.indication,
   });
   return Theme {std::move(definition), std::move(action)};
@@ -404,55 +347,42 @@ View InstallerContent() {
         Button(installer_strings::close).OnClick([window] { window.Close(); }).With(Frame{.min_width = 112.0F})
     );
   } else if (status.phase == InstallerPhase::Ready &&
-             status.product == InstallerProductState::SameVersion) {
-    // 同一版本重复打开安装包：不再是"升级"，而是维护页（修复 / 重装 / 卸载）。
-    eyebrow = installer_strings::maintenance;
-    heading = installer_strings::same_version_installed;
-    details.push_back(
-        Text(installer_strings::already_installed).With(Foreground(theme.colors.on_surface_variant))
-    );
-    details.push_back(
-        Text(installer_strings::same_version_message).With(Foreground(theme.colors.on_surface_variant))
-    );
-    details.push_back(
-        Text(installer_strings::uninstall_options).With(Foreground(theme.colors.on_surface_variant))
-    );
-    actions.push_back(SecondaryAction(
-        Button(installer_strings::uninstall).OnClick(show_uninstall_options), theme
-    ));
-    actions.push_back(
-        Button(installer_strings::repair)
-            .OnClick([installer] { installer.Repair(); })
-            .With(Frame{.min_width = 96.0F})
-    );
-    actions.push_back(
-        Button(installer_strings::reinstall_keep_data)
-            .OnClick([installer] { installer.Install(); })
-            .With(Frame{.min_width = 152.0F})
-    );
-  } else if (status.phase == InstallerPhase::Ready && status.product == InstallerProductState::Present) {
+             status.product == InstallerProductState::Present) {
+    // 旧版本升级页：单行说明，主操作按已注册位置重铺新版本（Install 不触碰
+    // 用户数据），修复与卸载降为次级选项。
     eyebrow = installer_strings::upgrade;
     heading = installer_strings::existing_installation_detected;
     details.push_back(
-        Text(installer_strings::already_installed).With(Foreground(theme.colors.on_surface_variant))
-    );
-    details.push_back(
         Text(installer_strings::upgrade_keep_data_message).With(Foreground(theme.colors.on_surface_variant))
     );
-    details.push_back(
-        Text(installer_strings::uninstall_options).With(Foreground(theme.colors.on_surface_variant))
-    );
-
     actions.push_back(SecondaryAction(
         Button(installer_strings::uninstall).OnClick(show_uninstall_options), theme
     ));
-    actions.push_back(
-        Button(installer_strings::repair)
-            .OnClick([installer] { installer.Repair(); })
-            .With(Frame{.min_width = 96.0F})
-    );
+    actions.push_back(SecondaryAction(
+        Button(installer_strings::repair).OnClick([installer] { installer.Repair(); }), theme
+    ));
     actions.push_back(
         Button(installer_strings::upgrade_keep_data)
+            .OnClick([installer] { installer.Install(); })
+            .With(Frame{.min_width = 152.0F})
+    );
+  } else if (status.phase == InstallerPhase::Ready &&
+             status.product == InstallerProductState::SameVersion) {
+    // 同一版本重复打开安装包：不再是"升级"，而是维护页（修复 / 重装 / 卸载），
+    // 主操作按已注册位置重装并保留数据。
+    eyebrow = installer_strings::maintenance;
+    heading = installer_strings::same_version_installed;
+    details.push_back(
+        Text(installer_strings::same_version_message).With(Foreground(theme.colors.on_surface_variant))
+    );
+    actions.push_back(SecondaryAction(
+        Button(installer_strings::uninstall).OnClick(show_uninstall_options), theme
+    ));
+    actions.push_back(SecondaryAction(
+        Button(installer_strings::repair).OnClick([installer] { installer.Repair(); }), theme
+    ));
+    actions.push_back(
+        Button(installer_strings::reinstall_keep_data)
             .OnClick([installer] { installer.Install(); })
             .With(Frame{.min_width = 152.0F})
     );
@@ -614,35 +544,34 @@ View InstallerContent() {
     ));
   }
 
-  // 自定义标题栏只铺在右侧表单列上：品牌面板保持整窗高度，并通过
-  // WindowDragRegion 整块承担拖拽；最小化/关闭等 caption 按钮由框架
-  // 按平台样式渲染，WindowTitleBar 自动预留其内边距。
   return Row {
-    BrandPanel(theme).With(WindowDragRegion{}),
-    Column {
-      WindowTitleBar {
-        InstallerMark(theme.colors.primary, theme.colors.error)
-            .With(Frame{.width = 18.0F, .height = 18.0F}),
-        Text("llm-switch")
-            .Style(TextStyle{Font::System(12.0F).WithWeight(FontWeight::SemiBold),
-                             theme.colors.on_surface}),
-        Spacer(),
-      }
-          .With(Padding(EdgeInsets::Symmetric(36.0F, 0.0F)), Spacing(8.0F)),
-      Column(std::move(content)).With(
-          // 标题栏已经提供顶部偏移，表单区顶部不再重复留 32pt。
-          Padding(EdgeInsets{.top = 16.0F, .right = 36.0F, .bottom = 32.0F, .left = 36.0F}),
-          Spacing(24.0F),
-          CrossAlign(CrossAxisAlignment::Stretch),
-          Grow()
-      ),
-    }
-        .With(CrossAlign(CrossAxisAlignment::Stretch), Grow()),
+    BrandPanel(theme),
+    Column(std::move(content)).With(
+        Padding(EdgeInsets::Symmetric(36.0F, 32.0F)),
+        Spacing(24.0F),
+        CrossAlign(CrossAxisAlignment::Stretch),
+        Grow()
+    ),
   }.With(CrossAlign(CrossAxisAlignment::Stretch), Background(theme.colors.surface), Grow());
 }
 
 View InstallerPage() {
-  return InstallerTheme(InstallerContent());
+  // 自定义标题栏横贯整窗（对齐 Clash-Flux 安装器结构）：品牌面板从标题栏
+  // 下沿铺满左列，拖拽与 caption 按钮由 WindowTitleBar/框架统一处理；高度
+  // 由平台按 AppOptions.window.title_bar_height 解析，不硬编码测量值。
+  const ThemeSpec spec = InstallerThemeSpec();
+  return Theme(InstallerThemeDefinition(spec), Column {
+      WindowTitleBar {
+        Text(installer_strings::application_setup)
+            .Style(TextStyle{Font::System(12.0F).WithWeight(FontWeight::SemiBold),
+                             spec.colors.on_surface_variant}),
+        Spacer(),
+      }
+          .With(Padding(EdgeInsets::Symmetric(spec.spacing.large, 0.0F)),
+                Background(spec.colors.surface)),
+      InstallerContent(),
+    }
+        .With(Grow(), CrossAlign(CrossAxisAlignment::Stretch)));
 }
 
 const Application application{
@@ -653,6 +582,7 @@ const Application application{
             .initial_size = {780.0F, 500.0F},
             .minimum_size = Size{720.0F, 460.0F},
             .chrome_mode = WindowChromeMode::Custom,
+            .title_bar_height = 24.0F,
         },
         .show_debug_overlay = false,
         .window_hooks = {InstallInstallerSession},

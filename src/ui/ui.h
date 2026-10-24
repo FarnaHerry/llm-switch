@@ -12,6 +12,8 @@
 import llmswitch.router;  // 任务E：routerInstance() 声明需要 router::LocalRouter
 import llmswitch.store;
 
+#include "theme_colors.h"  // 配色唯一入口：字号阶梯 + 深浅两态 ThemeSpec
+
 namespace llmswitch::ui {
 
 namespace pages {
@@ -26,14 +28,6 @@ enum PageIndex : std::size_t {
     kAbout = 7,
 };
 } // namespace pages
-
-// 全项目统一字号阶梯（pt）：控件/正文跟随 SDK 默认 14，不再散落硬编码字面量。
-namespace font_size {
-inline constexpr float kCaption = 11.0F;  // 徽标、状态小字
-inline constexpr float kChip = 12.0F;     // 紧凑部件文字
-inline constexpr float kBody = 14.0F;     // 正文/按钮/输入框（SDK 默认）
-inline constexpr float kTitle = 20.0F;    // 页面/弹窗标题
-} // namespace font_size
 
 // 标题栏内容统一高度（= AppOptions.window.title_bar_height）。
 inline constexpr float kTitleBarContentHeight = 24.0F;

@@ -1,7 +1,12 @@
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <Package Name="llm-switch" Manufacturer="dev.farna.llmswitch" Version="@HUXERUI_WINDOWS_PROJECT_VERSION@"
            UpgradeCode="@HUXERUI_WINDOWS_MSI_UPGRADE_CODE@" Scope="perMachine">
-    <MajorUpgrade AllowSameVersionUpgrades="yes"
+    <!-- afterInstallInitialize：旧版移除排在 InstallInitialize 之后、加入
+         MSI 事务——升级失败可整体回滚，不会留下卸了旧版装不上新版的半成品。
+         AllowSameVersionUpgrades 保持开启：同版本"重新安装"走干净的先卸后装
+         （框架 SameVersion 维护页的主人路径）。 -->
+    <MajorUpgrade Schedule="afterInstallInitialize"
+                  AllowSameVersionUpgrades="yes"
                   DowngradeErrorMessage="A newer version of llm-switch is already installed." />
     <MediaTemplate EmbedCab="yes" />
     <Icon Id="ApplicationIcon" SourceFile="!(bindpath.Project)\app.ico" />

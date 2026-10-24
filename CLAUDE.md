@@ -473,7 +473,9 @@ I/O、解析和 JSON 函数默认保留在 `.cpp` 中。
   huxerui.cmake 定义 `huxerui_configure_windows_project_package`，
   `huxerui package windows`（HUXERUI_PACKAGE=ON）时把 MSI + Burn 捆绑包
   （package/Package.wxs.in / Bundle.wxs.in）与 HuxerUI 托管安装器 UI
-  （package/src/，品牌面板 + 简中/繁中/英文 strings）接进构建；日常构建
+  （package/src/，品牌面板 + 简中/繁中/英文 strings）接进构建；安装器深浅
+  配色经 `src/ui/theme_colors.h` 与主应用共享（单一配色入口，不再手工同步
+  两份 spec）；日常构建
   零开销（函数内 `if (NOT HUXERUI_PACKAGE) return()`）。需要含
   `huxerui_add_windows_installer` 的 HuxerUI 源码/SDK（0.2.0 之后；当前 CI
   固定的 fork `501e8ca` 已满足）。
