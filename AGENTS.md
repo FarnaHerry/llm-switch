@@ -3,34 +3,27 @@
 本文件是项目内 AI 编程工具的唯一权威规范，适用于仓库根目录及全部子目录。
 Claude、Codex、Gemini、Copilot、Cursor、Windsurf 及其他自动化 agent 修改本项目时
 都必须遵守。各工具专用入口只能引用或补充本文件，不得复制出相互冲突的规则；
-子目录中的 `AGENTS.md` 可以对其作用域增加更严格的约束。
+子目录中的 `AGENTS.md` 可以对其作用域增加更严格的约束。Claude Code 的入口
+`CLAUDE.md` 首行以 `@AGENTS.md` 引入本文件，自身不再另持一份规范。
+
+llm-switch 是 **cc-switch**（GitHub: farion1231/cc-switch）的 **C++23 模块化重写**：
+管理多款 AI agent 工具的供应商配置切换——领域层已泛化到 8 个工具
+（claude-code / claude desktop / codex / opencode / pi / dsh / hermes / zcode，
+注册表见 `models::toolRegistry()`），把选中的供应商写进工具的 live 配置文件，
+并提供收编、备份、导入导出。在此之上还有：本地路由引擎（127.0.0.1 反代到当前
+供应商 + 请求统计）、供应商用量查询、MCP 服务器统一清单、Skills 中央库同步、
+历史会话管理、AI 桌宠。用 **HuxerUI**（组件式声明 UI）做桌面壳，全程 C++；
+构建系统 CMake（脚手架与姊妹项目 `../Clash-Flux` 同源）。分层：UI（src/ui/*.cpp
+普通源走 hcg codegen）/ 领域层（llmswitch.config/models/store/net/router/mcp/
+skills/sessions 八个 C++23 模块）。
 
 ## 项目与代码边界
 
 - 项目是 C++23 modules + HuxerUI 桌面应用；UI 普通源在 `src/ui/*.cpp`，领域模块
   在 `src/*.cppm` 与对应实现文件。不要引入 Electron、数据库或新的大型依赖来
   绕过现有架构。
-- **高频日志直接写文件，不进 SQLite**：逐事件、只追加的日志（本地路由的
-  `router/requests.jsonl`）保持 `std::ofstream(..., ios::app)` + 自带保留策略
-  （内存环形缓冲 1000 条、文件超 5000 行压到 2500 行）。HuxerUI/Lib-SQLite 的
-  `Database` 是**单连接串行 worker**，逐请求写库会和用量账本的同步/查询抢同
-  一条队，把两边都拖慢。
-  持久化载体按三条判据选，不要默认上 SQLite：写入频率是「每请求」还是「每轮
-  同步 / 每次用户操作」；是否真的需要索引或 GROUP BY；能否批量进一次事务。
-  SQLite 目前只承载用量账本——它每轮同步攒一批、一次事务落库、查询走 SQL 聚合。
-- C++23 命名模块约定：`.cppm` 命名模块 purview 中定义在 class 体内的成员函数
-  不继承 `#include` 头文件在全局模块中的隐式 `inline` 规则；如果成员函数定义
-  保留在模块接口中且希望作为接口内联函数使用，必须显式声明 `inline`
-  （`constexpr` / `consteval` 除外）。普通命名空间函数不因 `.cppm` 或头文件
-  自动 inline，不得全量添加 `inline`；`inline` 也不保证实际内联替换，性能判断
-  需结合编译器、LTO/IPO 和反汇编验证。
-- 开始修改前先读与任务相关的现有代码和文档。HuxerUI 开发细节、架构和已知取舍
-  见 `CLAUDE.md`；图标资源规则与来源许可见 `resources/README.md`。
-- 修改 HuxerUI 应用 UI 前，必须读取当前实际使用版本的
-  `huxerui-app-development` skill 主文档，并按任务查阅其 `references/`；源码模式
-  优先读取 `third_party/huxerui/skills/huxerui-app-development/SKILL.md`，SDK 模式
-  读取当前 SDK 的 `share/huxerui/skills/huxerui-app-development/SKILL.md`，实现以该
-  版本的公开 API 约定为准。
+- 开始修改前先读与任务相关的现有代码和文档；架构、领域层设计要点与已知取舍
+  见下文各节，图标资源规则与来源许可见 `resources/README.md`。
 - 保持用户已有改动，不顺手重排、格式化或重写无关代码。领域行为改变必须补充或
   更新相应测试。
 - HuxerUI 源码优先来自 `third_party/huxerui`，CI 固定版本见
@@ -51,6 +44,343 @@ Claude、Codex、Gemini、Copilot、Cursor、Windsurf 及其他自动化 agent �
 - 本地路由包含总开关和逐 Agent 代理开关。逐 Agent 选择必须持久化到
   `AppConfig.routerTools`，旧配置缺字段时默认全部启用；运行中切换应即时生效，
   被禁用路径不得访问 resolver、上游或写入请求统计。
+
+## HuxerUI 开发参考
+
+UI 工作先读当前实际使用版本的 `huxerui-app-development` skill 主文档（源码模式读 `third_party/huxerui/skills/huxerui-app-development/SKILL.md`，SDK 模式读当前 SDK 的 `share/huxerui/skills/huxerui-app-development/SKILL.md`，实现以该版本的公开 API 约定为准；references/
+含 dsl-style、components、fundamentals、layout-and-ui 等分册）。要点：
+
+- HuxerUI 双通道（顶层 CMakeLists 固定优先级）：显式 `HUXERUI_HOME` 源码 →
+  `third_party/huxerui` 源码（git clone 上游，add_subdirectory 编译，不入库）→
+  已安装 SDK（`HUXERUI_HOME` 指向含 lib/cmake/HuxerUI 的前缀）→
+  `third_party/tarballs` 的 Linux 0.2.0 离线包。源码通道缺 GTK ≥4.14 /
+  libepoxy ≥1.5 / libsoup ≥3.0 开发包时自动回落 SDK。强制 SDK：
+  `-DLLMSWITCH_HUXERUI_FORCE_SDK=ON`。本机走 **third_party/huxerui 源码**通道
+  （git clone 下游 fork `FarnaHerry/HuxerUI`，当前钉在 `farna/main` 的
+  `501e8ca`：上游 `0c51262` 基线 + 下游补丁集成；完整 SHA 见
+  `third_party/README.md`）。
+- 剪贴板通过 composable 内的 `UseApplication().Clipboard()` 获取；事件处理器可捕获
+  service 并同步调用 `IsAvailable()` / `ReadText()` / `WriteText()`，不要从 worker
+  线程调用。TreeView 使用 `TreeView<Node>(roots, factory, item_info)`，必须放在有界
+  的垂直视口中，并通过状态重组声明来反映节点变化。
+- 源码通道优先用本地构建的宿主工具（`third_party/huxerui-tools/linux/x86_64/
+  {hcg,hrc}`；本仓库暂无此目录，缺失时自然回落上游预置，逻辑保留）。
+- UI 层是**普通 .cpp**（不要 .cppm：codegen 只扫 .cpp/.cc/.cxx）；composable
+  函数不加 `inline`；入口根在 src/app.cpp + src/ui/app.cpp。
+- **composable 函数体内不能有条件编译**（hcg 不支持 #ifdef 穿行）——版本号等
+  宏在文件作用域先展开成常量（settings_page.cpp 的 kAboutText）。
+- 供应商编辑/用量配置的进入、取消、返回属于纯 State 导航，点击回调直接写
+  `formTarget`；State 通知仅标记重组并请求后续帧，不同步卸载点击节点。
+  不要为纯导航套 `TaskScope::Launch` / `Delay(0)`：Linux dispatcher 使用低优先级
+  idle 队列，可能被持续绘制推迟；网络和文件 IO 仍使用相应异步 API。该机制
+  已上游报告 HuxerUI issue #144（调度优先级/公平性复查）；若新版 baseline 重做
+  调度，需重测饥饿风险，但直写规则与是否饥饿无关。
+- **hcg 的组合函数限制**：`UseTheme()` 等只能在 `[[huxerui::composable]]` 函数
+  体内调用；普通函数里的 dialog 工厂 lambda 也不行。解法见
+  providers_page.cpp：内容拆成 `ProviderFormContent` composable，普通函数
+  `ShowProviderForm` 的工厂 lambda 只做转发。
+- `nlohmann::json` 经 `import nlohmann.json` 模块：**不要用 `.items()` 结构化
+  绑定**（迭代代理的 `get<>` 不在导出集里，模块下编译失败），用迭代器
+  `it.key()`/`it.value()`。
+- 存进 `State<T>` 的类型需要 `operator==`（`= default` 即可），否则 State
+  写回时编译失败。注意 `router::RequestLog` **没有** operator==（领域层刻意
+  不加），`State<std::vector<RequestLog>>` 编译不过——页面要包一层自定义
+  包装/只存标量快照（router_page 的处理方式可作参考）。
+- **Runtime 生命周期的一次性注册只能放 `AppOptions::application_hooks`，不能放
+  composable**：0c51262 的 `08acc36 refactor(runtime): separate application and
+  window ownership` 之后，`SystemTrayHandle::OnActivate` 保留单个处理器直到
+  Runtime 关闭并**拒绝重复注册**（`std::logic_error "system tray activation
+  handler is already connected"`），`ApplicationContext::Provide` 同样按类型
+  拒绝重复。composable 体会随订阅的 State 重组，放进去必然第二次注册并
+  直接 terminate。托盘激活的落点是 `TrayActivationTarget`（`src/ui/app.h`）：
+  ApplicationHook 里 `Provide` + 注册一次，`SystemTrayPresentation` 用
+  `UseService` 取回并在 Lifecycle 里绑定/解绑当前 `WindowHandle`——这也是
+  skill `navigation-and-window.md` 要求的「不要捕获组合期窗口上下文」。
+
+## 构建 / 运行 / 测试
+
+```bash
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release  # 配置
+cmake --build build --parallel 4                         # 编译（app + 7 个测试目标）
+ctest --test-dir build             # 冒烟 + 领域层测试（smoke/store/net/router/mcp/skills/sessions）
+./run.sh                           # 启动 GUI（INTEL_FORCE_PROBE=1）
+huxerui run linux                  # HuxerUI CLI 流程（构建到 .huxerui/build/linux/）
+```
+
+调试构建把配置命令中的 `Release` 改为 `Debug`。项目默认生成器是 Ninja，
+也可使用 `cmake --preset ninja-release` 和对应的 build preset。
+
+每批修改的强制收尾流程见下文「修改完成后的固定流程」：完整编译、运行测试、
+`git diff --check`、创建本地 commit，并尝试推送当前分支。推送失败时保留本地
+commit，不回滚已经验证的修改，并在最终回复中报告失败原因。
+
+- 工具链：系统 GCC（本机 16.2.1）+ libstdc++，CMake ≥ 4.4（`import std` 仍是
+  experimental：UUID 表在 `cmake/CxxImportStdGate.cmake`）。
+- **依赖极简**：nlohmann::json 3.12.0 以 single header 提交在
+  `third_party/json/`（配 `cmake/nlohmann.json.cppm` 提供 `import nlohmann.json`，
+  静态库目标 `llmswitch_json`）；cpp-httplib 0.56.0 单头提交在
+  `third_party/httplib/`（INTERFACE 目标 `llmswitch_httplib`，仅
+  llmswitch.router 用）；HuxerUI 0.2.0 走双通道（见上）。
+  网络（模型列表/用量/连通检测/路由出站转发）统一走 HuxerUI 平台
+  HttpClient，不 vendor curl/OpenSSL。持久化用 HuxerUI 的 SQLite 扩展
+  （Lib-SQLite，独立仓库，经 `huxerui_use_library` 从下游 fork 钉 commit 引入；
+  自带 SQLite 3.53.4 amalgamation）；无 IXWebSocket。
+- 测试目标独立（7 个，均无框架、断言失败计数非零即败）：`test_smoke`
+  （编译+运行冒烟）、`test_store`（领域层；全程 setenv 隔离到临时目录）、
+  `test_net`（parseModelIds / extractByPath 纯函数；不测真实网络）、
+  `test_router`（httplib 假上游：转发/换 key/故障转移/统计日志）、
+  `test_mcp` / `test_skills` / `test_sessions`。测试目标经 FILE_SET 显式
+  追加领域模块接口 + 对应实现单元（glob 只进 app 目标），链接
+  `llmswitch_json`（test_router 另链 `llmswitch_httplib`）。
+
+## 架构
+
+| 模块 | 文件 | 职责 |
+|------|------|------|
+| `llmswitch.config` | `src/config.cppm` | 数据目录（~/.local/share/llm-switch）/ config.json、backups/、mcp.json、skills-store/、router/requests.jsonl 路径 / live 配置与会话/技能目录解析（全部 LLMSWITCH_* 环境变量可覆盖）/ 深色检测 |
+| `llmswitch.models` | `src/models.cppm` | 工具注册表（ToolSpec/toolRegistry/findTool：claude-code/claude/codex/opencode/pi/dsh/hermes/zcode；needsModel/hasApiFormat/hasModelMappings 三标记驱动表单适配，additiveProviders 标记「live 是多供应商并存 + 一个默认指向」的增量工具（dsh 与 zcode，供应商页走左右双列对照））+ Provider/ProviderGroup/AppConfig（groups 以注册表 id 为键的 map，旧格式顶层 claude/codex 自动迁移；router/usage 设置字段，Provider.usageEnabled 控制单个供应商是否查询，routerTools 保存逐 Agent 代理选择；Provider 含 modelFetchUrl、haiku/sonnet/opusModel 三档映射与 upstreamFormat/fullUrl URL 模式）+ JSON 序列化 + 内置预设（builtinPresets）+ 官方厂商名（officialVendorName：claude 系/codex/zcode/dsh 有官方常驻卡）+ apiFormat 三档归一（normalizeApiFormat/apiFormatLabel）+ 上游 URL 归一/后缀（normalizeUpstreamFormat/upstreamFormatSuffix/effectiveBaseUrl）+ dsh 模型条目的官方能力字段（档位表 reasoningLevels 规范升序 / reasoningLevelLabel / normalizeReasoningEfforts / 位掩码两函数；输入模态表 inputModalities = text+image / inputModalityLabel / normalizeInputModalities / 位掩码两函数，text 是底座；容量拼写 parseTokenCount / formatTokenCount，接受 256K、1M；Provider 的 reasoningEfforts / inputModalities / contextWindow / maxTokens 都是 per-供应商声明，0 与空清单 = 不声明）+ 用量模板表纯解析与匹配（parseUsageTemplates/suggestUsageQuery：数据在 resources/raw/usage_templates.json 资源包内置 + dataDir 用户覆盖，不硬编码） |
+| `llmswitch.store` | `src/store.cppm` + `src/store.cpp` | ProviderStore：config.json 读写、CRUD、switchTo 按工具 id 分发八个 writer（原子写+备份；zcode 走 config.json 的 provider map 单条增量 upsert + enabled 互斥（收编保留原生条目键、不改写），dsh 走 settings.yaml 行级 upsert（含推理档位，且写入前把 flow 风格的 providers 值摊平成块风格）+ .credentials.yaml 密钥库，hermes 走 config.yaml custom_providers 列表 upsert + model 节指向）、restoreOfficial 恢复厂商原生状态（claude-code/claude/codex/zcode/dsh）、detectCurrent/importLive、导出导入、theme/usage/router 与逐 Agent 路由设置 setter、用量模板用户覆盖表读取（loadUsageTemplatesOverride） |
+| `llmswitch.net` | `src/net.cppm` + `src/net.cpp` | 纯函数：模型列表 URL 拼接 `modelListUrl`/候选推导、响应解析 `parseModelIds`（data/models 两种形状，去重保序）和用量取值 `extractByPath`（点分路径+数组下标取标量）；实际网络请求不在此层——供应商页面走 HuxerUI HttpClient（provider_network.cpp），路由出站走 UpstreamSession |
+| `llmswitch.router` | `src/router.cppm` + `src/router.cpp` | LocalRouter：cpp-httplib 服务器监听 127.0.0.1，`/<tool>/` 前缀路由到该组 current 供应商的实际 URL（按 upstreamFormat 追加 /anthropic 或 /v1，fullUrl 时原样），替换鉴权头，线程安全的逐工具开关运行中即时生效（禁用返回 403，不访问上游/统计），可选故障转移（429/5xx/连接失败按组内顺序试下一个）；RequestLog/StatsSnapshot 统计，每请求追加 JSONL（dataDir()/router/requests.jsonl），启动回填内存环形缓冲（最多 1000 条） |
+| `llmswitch.mcp` | `src/mcp.cppm` + `src/mcp.cpp` | MCP 服务器统一清单（SSOT = dataDir()/mcp.json）；启停 = 写/删工具 live 配置条目：claude-code → ~/.claude.json 顶层 mcpServers 深合并、codex → config.toml 行级 [mcp_servers.*] section 重写、opencode → opencode.json 顶层 mcp；claude/pi 不支持（抛中文错） |
+| `llmswitch.skills` | `src/skills.cppm` + `src/skills.cpp` | Skills 中央库（dataDir()/skills-store/<name>/：SKILL.md + 附带文件）+ create_symlink 同步到 ~/.claude/skills 与 ~/.codex/skills；合并视图（中央库/已链接/仅工具侧） |
+| `llmswitch.sessions` | `src/sessions.cppm` + `src/sessions.cpp` | 历史会话扫描：~/.claude/projects/<项目>/*.jsonl 与 ~/.codex/sessions/<年>/<月>/<日>/*.jsonl；列表 Worker 在一次批次中枚举 mtime/size 并读取每个文件头尾固定大小摘要，VirtualList 行只展示已完成的摘要；删除（限已知 sessions 根之下，越界抛错）/导出/详情从文件尾反向分页读取；摘要 best-effort，详情按需解析 |
+| `llmswitch::ui`（普通 C++） | `src/ui/*.cpp` | app（壳：冷调石板主题 AppDark「深海」/AppLight「晴石」+程序化环境光 AmbientGlow+带对称线条节点与 Hover 辉光的标题栏莲花导航+顶级 8 区块径向导航+IndexedPages+莲花托盘图标（单一盛放态）+关闭最小化到托盘+路由自启）/ agent_page（薄宿主：持 selectedTool State + 工具栏/Pager 宿主；新增/编辑与用量配置是同一宿主内的第二个页面，整页覆盖工具栏与 Pager）/ router_page（路由总开关+逐 Agent 代理开关+已启用接入地址+最近请求日志，含 routerInstance() 单例）/ stats_page（统计汇总）/ mcp_page / skills_page / sessions_page（会话管理：右上角 Agent 图标组与 Agent 管理页同一注册表、无“全部”混合页；Pager 切换独立 Agent 历史，只有当前 Agent 扫描对应历史，单次 Worker 批量读取头尾固定大小摘要并缓存 30 秒，可见行只展示已完成的摘要，切换时丢弃过期结果；扫描/导出/删除/详情分页读取全程 RunWorker 入 worker 线程；详情首次从文件尾读取最近 50 条并定位末条，实际向上滚动接近顶部时才反向加载上一页并保持视口锚点，消息通过 StateList + VirtualList 虚拟化且以文件偏移保持稳定身份，行使用无阴影的不透明轻量表面）/ about_page（关于：头部莲花 + 版本 + 简介直接平铺在页面上，无卡片；下接链接/技术栈/许可三段 PageSection）/ common（岛屿原语、页面骨架/卡片/弹窗卡片、providerStore() 全局实例、ToolIcon/PresetIcon 图标资源映射）/ providers_page（各工具共用供应商列表页：官方常驻卡首位 + 卡片列表及操作图标组，模型列表/用量/连通检测经 HuxerUI HttpClient；表单入口只写 AgentPage 的 formTool/formTarget（表单由 AgentPage 换页渲染，订阅/按量模板与厂商图标在新表单页内），模型行内 Select 下拉 + 卡片用量显示/轮询）/ settings_page（主题/路径/导入导出/关于）/ ui.h（内部声明） |
+| `src/app.cpp` | 普通 TU | `Application{AppRoot, AppOptions}`（Custom chrome，标题栏 24pt，1080×720 / min 800×600） |
+| 平台入口 | `platform/{linux,windows,macos}/main.cpp` | 薄入口 `huxerui::RunApplication()`（无 CLI 分流；顶层 CMake 按 WIN32/APPLE/Linux 分支选用） |
+
+顶级页面导航已从左侧图标栏收拢到自定义标题栏：莲花锚点在标题栏正中，
+hover 时在屏幕中央展开径向导航盘，全部 8 个顶级页面图标围绕莲花排列，
+点击更新共享的 `navPage` 并由 `IndexedPages` 切换页面；主内容区不再为侧栏
+预留宽度。
+
+## 领域层设计要点
+
+- **live 文件**（被切换工具实际读取的文件）：claude-code 切换 = 深合并
+  `~/.claude/settings.json` 的 `env.ANTHROPIC_BASE_URL` / `ANTHROPIC_AUTH_TOKEN`
+  （model 非空时写 `ANTHROPIC_MODEL`；haiku/sonnet/opusModel 三档映射非空时
+  写 `ANTHROPIC_DEFAULT_HAIKU/SONNET/OPUS_MODEL`），permissions 等其余字段
+  原样保留；codex
+  切换 = 深合并 `~/.codex/auth.json` 的 `OPENAI_API_KEY`，且
+  `Provider.codexConfigToml` 非空时**整体替换** `~/.codex/config.toml`（TOML
+  不做结构化合并，原文即模板），`Provider.model` 非空时再**行级重写**
+  config.toml 顶层 `model` 键（只动第一个 `[` 节之前：替换未注释行/注释行，
+  都没有则开头插入；`applyCodexModel`/`parseCodexModel`，importLive 也会
+  收回顶层 model）。opencode = opencode.json 顶层 provider map
+  additive upsert（npm 段按 apiFormat 三档选 `@ai-sdk/anthropic` /
+  `@ai-sdk/openai` / `@ai-sdk/openai-compatible`；官方文件允许 JSON5 注释，
+  改写用 readJsonStrict 解析失败抛错、绝不碰原文件）；pi = models.json
+  providers upsert（api 字段三档映射 anthropic→anthropic-messages /
+  openai-responses→openai-responses / 其余→openai-completions）+
+  settings.json 深合并 defaultProvider/defaultModel（目录 0700、文件 0600）；
+  条目里已有的**其它模型清单原样保留**（本应用只声明主模型，清单裁成一条会
+  让 pi 的模型菜单静默少几条），主模型缺失时按原元素形状补一条——裸标量与
+  `{"id": ...}` 对象两种形状都认（`modelEntryId`/`modelListContains`）；
+  dsh = `~/.dsh/settings.yaml` 行级改写，**单条增量的多路由**：
+  llm-pi-ai.providers 是「多供应商并存 + agent-default-model 指默认」的累加
+  map，写侧每个入口**只动自己那一条**——`writeDshEntry`（私有的单条原位 upsert
+  与指针改指，目标键由 `dshEntryKeyFor` 解析）与 `eraseDshEntry`（私有的单条
+  删除）是全部实现，
+  公开入口 `writeDshProvider`（每行「写入 / 更新」）/ `adoptDshProvider`
+  （收编手写裸键：**只记进本地列表，live 一字不动**）/
+  `removeDshProvider`（只删 live 那一条，含未纳管的 dsh 条目）/ 增改复制删
+  与 `switchTo`（切换 = 只改 agent-default-model；目标条目不在 live 里时补写
+  一条，避免指针悬空）都走它们；右列删除走 `removeProvider` 的 `eraseLive`
+  参数——条目同时在 live 里时页面先用三键确认框问「只删本应用」（false = 只
+  收回本地留存，settings.yaml 一字不动，那条随即成为左列的未纳管手写路由）
+  还是「连同 dsh 一起删」（true，默认 = 历史行为）；`dshLiveProviders` 是左列实况快照
+  （settings.yaml 里没有内置 deepseek-official 时补一条 `builtin` 合成行，
+  不能收编/删除；没有 agent-default-model 块时官方行就是「使用中」）。
+  **「当前用哪条」这个动作在左列**：`setDshDefaultKey` 只改
+  agent-default-model（未纳管的手写路由也能设为默认——dsh 的默认本来就是个
+  键名；合成官方行上是「清回内置官方路由」= 删掉那个块），右列只留写入 / 收编 /
+  删除。右列每行的「写入 / 更新」图标是 `write.svg`（文件 + 从边界插进去的一条
+  墨块 = 只写这一条），不用 Icon Set 的 `upload.svg`（底座 + 竖箭头，24px 下认不
+  出语义、和整组写入的批量动作混同）。
+  **两列的实况预算（别把 `CacheExtent` 调大）**：左右两个 VirtualList 都是
+  `CacheExtent(128.0F)`，每行只留**一条**等宽次要信息（`DshMetaLine` /
+  `ZcodeMetaLine` 把「键 · 模型 · 访问地址」连成一条 Text，不再是两个 Text）。
+  原因：这两列是全应用挂载节点最多的页面，而 linux 后端的 cairo/GSK 批次没有
+  跨帧缓存，任何一次重绘都按「已挂载节点」重新光栅，逐帧成本几乎正比于它。
+  实测（无头探针逐帧 Pump，claude-code 单列卡片页作对照）：`CacheExtent(480.0F)`
+  + 两个 Text 时一屏挂载 dsh 250 节点、zcode 256 节点（对照 180）；改成 128 +
+  合并一条后 dsh 201、zcode 193，同一次运行的静止帧中位数 dsh 10.4 → 8.8ms、
+  zcode 11.2 → 8.6ms（对照组 5.2ms 未变，即与对照页的比值从 ≈2.0 收到 ≈1.7）。
+  一屏实际落地的行数从 ~22 降到 ~14，行高也从 138pt 收到 117pt。预取调大并不能
+  消除滚动空白（新行本来就在同一帧内落地），只会放大逐帧成本。
+  整组重建只剩 `syncDshProviders` 一个入口——供应商页的「全部写入 dsh」按钮
+  与 restoreOfficial 的收尾；它把组内每条写成 `llmswitch-<id>`（api 字段复用
+  pi 三档映射，追加在 providers 块尾）、清掉不在组内的孤儿 `llmswitch-*`。
+  **别把增删改做成整组重建**：那等于把本地全部供应商一次性推给 dsh，用户在
+  左列删掉/整理过的条目下一次本地增删就会被补回来。别家手写条目 / 内置
+  deepseek-official / 无关键 / 注释一律不动；`agent-default-model` 只在需要
+  时改（显式切换或清除、原默认指向已删供应商时清回内置官方路由）。
+  **`llmswitch-` 前缀只属于本应用自己创建的条目**：收编不改名，原生条目保持
+  它自己的键与 `apiKeyEnv`（密钥照常更新在同一个引用名下），所以
+  `dshEntryKeyFor` 按「带前缀的优先、否则原生键即 id」解析目标键——写/切换/
+  删除都走它，谁写的两边一眼能分。密钥只写
+  `~/.dsh/.credentials.yaml`（**version 1 布局：顶层只允许 version / refs /
+  records，引用名写进 `refs:` 块内**（缩进 2）；写进顶层会被 dsh 判
+  `unknown top-level key` 而拒绝整份文档、所有密钥一起失效——旧版本写到顶层的
+  `LLMSWITCH_*` 残留会在下一次写入时迁回 refs 块；没有 version 的预发布 flat
+  布局仍写顶层，空文件直接建 version 1 骨架。apiKeyEnv 引用，只增改、
+  不代清无引用的旧键，目录 0700、文件 0600）；条目首个模型
+  条目按 Provider 的官方能力字段写：`contextWindow` / `maxTokens`（容量，
+  0 = 不声明）、`input: [text, image]`（请求模态，声明 image 才让手工路由
+  收图片附件；text 是底座，非空清单必然带 text）、`reasoningEfforts`
+  （键固定加引号，"off" 留空 = 不发思考参数，其余写成同名拼写）——三者与
+  dsh 官方设置页编辑的是同一组（PiAiModelProfile），不声明时 dsh 依次退回
+  已装 catalog 的值、再退回路由默认（上下文 262144 / 输出 32768 / 模态
+  [text]），所以 0 与空清单一律当「不声明」不猜；agent-default-model 块
+  重写时保留用户在里面选的 `reasoningEffort`（dsh 的模型选择状态，不属本
+  应用的模型，但每切一次都被清掉就是丢官方设置）；两份 YAML 都被 dsh
+  热监听 → 切换即时生效
+  （needsRestart=false），restoreOfficial 删 agent-default-model 块与
+  llmswitch-* 条目回到内置 deepseek-official 路由；**行级改写只懂块风格**，
+  所以读（detectCurrent/importLive）写（switchTo/restoreOfficial）之前都先
+  把 providers 的 flow 风格值摊平成块风格（flow 里带引号的 `"null"` 是字符串、
+  裸 null/~/Null 与空值同义，摊平后统一写空值），否则往 flow 块后插块条目会
+  写出非法 YAML 且切换静默失效；hermes = `~/.hermes/config.yaml` 行级改写：
+  custom_providers 列表删旧 llmswitch-* 条目后追加新条目（api_mode 三档映射
+  anthropic→anthropic_messages / openai-responses→codex_responses /
+  其余→chat_completions），顶层 model 节写 provider（总是）与
+  default（model 非空时），agent / mcp_servers / v12+ providers dict
+  等其余节原样保留（目录 0700、文件 0600）；hermes 无官方默认态，
+  restoreOfficial 抛错；
+  claude desktop = 3p 直连（两份 claude_desktop_config.json 置
+  deploymentMode=3p + configLibrary 固定 id profile/_meta.json，
+  **Linux 不支持**）。inferenceModels = 主模型 + 三档映射条目：模型名是
+  白名单 route id（claude-(sonnet|opus|haiku|fable)-*）直写 name，否则借
+  该档安全 route id（haiku-4-5/sonnet-4-6/opus-4-8）；菜单显示名写入
+  labelOverride，1M 能力按 supports1m 声明，实际请求模型保存在 Provider 的
+  三档 *Model 字段（`claudeDesktopModelEntry`）。
+- **apiFormat 三档**（models.cppm）：`openai-chat`（默认；`""`/旧值
+  `"openai"`/未知值都归此档）/ `openai-responses` / `anthropic`。序列化存
+  原值，判定/显示/映射一律经 `models::normalizeApiFormat` 归一 +
+  `apiFormatLabel` 显示名，各处不各自解释字符串。
+- **上游 URL 格式**：Provider 的 `upstreamFormat` 归一为 `anthropic` 或
+  `openai`，关闭 `fullUrl` 时 `effectiveBaseUrl` 分别追加 `/anthropic` 或
+  `/v1`；`fullUrl` 打开时保留输入地址原样。缺少新字段的旧配置按完整 URL
+  兼容，避免历史地址重复追加。
+- **用量查询**：Provider.usageEnabled + usageRefreshMinutes + usageUrl/usagePath/usageLabel
+  （开关关闭或 usageUrl 空 = 不查，刷新间隔 0 = 仅手动，旧配置缺字段自动取默认
+  10）；每个供应商在独立用量配置页控制开关和刷新间隔，HuxerUI HttpClient 异步 GET 后由 `extractByPath` 按点分
+  路径（支持数组下标）取标量；官方用量模板表不写在代码里——数据随资源包发布
+  （`resources/raw/usage_templates.json`，只收有官方文档的端点），用户可在
+  `dataDir()/usage_templates.json` 放同格式文件整体覆盖（设置页展示路径），
+  `models::parseUsageTemplates` 容错解析、`suggestUsageQuery` 按 baseUrl
+  子串匹配。UI 侧：用量三字段在独立的 UsageFormPage
+  （卡片 gauge 图标进入，formTarget = "usage:" + id；启用开关 + 编辑表单只保留其余
+  字段、保存时沿用原用量配置），卡片显示 + 惰性 HuxerUI HTTP 查询：仅当前 Agent 列表进入或配置变更时
+  检查刷新间隔，隐藏页与表单不查询，离开列表取消任务；返回时复用未到期缓存，
+  持续停留可手动刷新。路由/统计页的定时刷新仅在对应顶级导航可见时运行
+  （State 只在 UI 线程写）。
+- **本地路由设置**：AppConfig.routerEnabled（启动自启）/ routerPort（默认
+  15731）/ routerFailover / routerTools（逐 Agent 代理选择，旧配置默认全开），
+  store 有对应 setter；AppRoot 首组合时自启（见 src/ui/app.cpp 的 Lifecycle）。
+  LocalRouter 内部以 mutex 保护启用集合，运行中切换无需重启；禁用路径返回 403，
+  且在 resolver、上游与统计之前短路。
+- **文件安全约定**（store.cpp 匿名命名空间三件套）：`atomicWrite`（`.tmp` →
+  rename，失败回落 remove+rename）；`readJsonOrNull`（解析失败把坏文件挪到
+  `<file>.corrupt-<毫秒>` 再按无内容继续，绝不崩溃）；`backupLiveFile`（改写
+  任何 live 文件前复制到 `backups/<tool>/<文件名>.<毫秒>.bak`，每工具每文件
+  只留最近 10 份）。importFrom 前额外备份 config.json 本体。
+- **首次导入**：`ProviderStore::load()` 在组为空且 live 文件存在时自动
+  `importLive`——把当前生效配置收编成名为「当前配置」的 provider 并设为
+  current（已有匹配项则复用不重复建）。
+- **detectCurrent**：读 live 文件与组内 provider 匹配（claude 按
+  baseUrl+apiKey，codex 按 apiKey，opencode 按顶层 model 前缀，dsh/hermes
+  按默认路由键），只读不改配置。pi 特殊：先看 settings.json 的
+  defaultProvider 是否就是组内 id；是别家的键（用户手写路由）时**只按那一条
+  条目**的 baseUrl+apiKey 匹配，不遍历 models.json 的其它条目——本应用切换
+  只 upsert、从不删旧条目，历史条目会一直留在文件里，扫全部会把「pi 实际用着
+  别的路由」误判成某个历史供应商正在生效；只有 defaultProvider 为空或悬空
+  （指向不存在的条目）才退回遍历全部条目。pi 的探测走 readJsonPassive（解析
+  失败按无内容，不挪文件），与「只读」契约一致。
+- **restoreOfficial**：恢复厂商原生状态（UI 入口 = 供应商列表首位的
+  「官方」常驻卡，claude-code / claude / codex / zcode / dsh 等
+  officialVendorName 非空的工具；opencode / pi / hermes 无官方
+  默认态抛错）——claude-code 删 settings.json env 块的 ANTHROPIC_* 六键；
+  codex 删 auth.json 的 OPENAI_API_KEY（删完为空对象则删文件），
+  config.toml 仅当内容与组内某 provider 的模板（应用 model 后）完全一致
+  才删除（用户手改过的文件不动）；claude desktop 删两份 config 的
+  deploymentMode 键 + _meta.json 移除本应用条目/清 appliedId；dsh 删
+  settings.yaml 的 agent-default-model 块与 llmswitch-* 手写路由条目，
+  回到内置 deepseek-official 路由（.credentials.yaml 的密钥不代清）。
+  改前照常备份，组 current 清空。
+- **内置预设**：只收第三方兼容端点（官方厂商由常驻卡承担，不进预设）；
+  opencode / pi / hermes 无官方厂商故只有第三方。
+- **测试友好**：live 路径全部支持环境变量覆盖——
+  `LLMSWITCH_CLAUDE_SETTINGS` / `LLMSWITCH_CODEX_AUTH` / `LLMSWITCH_CODEX_CONFIG`
+  / `LLMSWITCH_OPENCODE_CONFIG` / `LLMSWITCH_PI_DIR` /
+  `LLMSWITCH_DSH_SETTINGS` / `LLMSWITCH_DSH_CREDENTIALS` /
+  `LLMSWITCH_HERMES_CONFIG` /
+  `LLMSWITCH_CLAUDE_DESKTOP_DIR`（live 配置）；
+  `LLMSWITCH_CLAUDE_JSON`（~/.claude.json，MCP）/
+  `LLMSWITCH_SKILLS_STORE` / `LLMSWITCH_CLAUDE_SKILLS` / `LLMSWITCH_CODEX_SKILLS`
+  （skills）/ `LLMSWITCH_CLAUDE_PROJECTS` / `LLMSWITCH_CODEX_SESSIONS`
+  （会话）/ `LLMSWITCH_STATS_DIR`（路由统计目录，默认 dataDir()/router/）
+  ——`~` 展开只认 HOME，dataDir 走 XDG_DATA_HOME/HOME；test_store 等用
+  setenv 指到 `temp/llmswitch-test-<pid>` 即可完全隔离。
+- ProviderStore **不强制单例**（测试可实例化）；UI 侧的全局实例在
+  `src/ui/common.cpp::providerStore()`（首次访问即 load）。
+
+## C++23 命名模块内联约定
+
+`.cppm` 的命名模块 purview 不使用 `#include` 头文件的全局模块语义。class 体内定义的
+成员函数不会自动获得全局模块下的隐式 `inline`；如果成员函数定义留在模块接口中且
+希望作为接口内联函数使用，必须显式写 `inline`（`constexpr` / `consteval` 除外）。
+普通命名空间函数在头文件和 `.cppm` 中都不会自动 `inline`，不能据此给所有函数加关键字。
+`inline` 不是性能保证，实际是否内联需结合 `-O`、LTO/IPO、反汇编和基准确认。重量级
+I/O、解析和 JSON 函数默认保留在 `.cpp` 中。
+
+## 关键约定（改代码前必读）
+
+1. **`import std;` 后禁止再 `#include` 标准头**。C/系统头放全局模块片段
+   （`module;` 与 `module llmswitch.x;` 之间）。普通 UI .cpp / ui.h 头用哪个
+   std 设施就自己 `#include` 哪个（注意 `std::println(stderr,...)` 的 `stderr`
+   不在 std 模块里，需 `<cstdio>`）。
+2. **UI 层遵守 skill 的 DSL 风格**：普通 .cpp、composable 不加 inline、View 按值
+   传递、具名 View 链式调用前 `std::move`（`.With` 等是右值限定）。
+3. **受控值以应用状态为权威**；`UseState` 只能在 `[[huxerui::composable]]`
+   函数体内调用（普通函数/dialog 工厂 lambda 里建 State 是未定义行为），
+   `State::Get()` 只读不改、改值走 `operator=` 写回；TextField 保留完整
+   TextEditingValue；动态兄弟用稳定 `.Key(...)`（供应商卡 `.Key(id)`）。
+4. **线程契约**：State 只在 UI 线程读写。store 无内部锁，**UI 线程独占**是
+   设计前提——live 文件读写是微秒级本地 IO，CRUD/切换/导入导出直接在 UI
+   线程回调里做；FilePicker 的 async API 恢复点本就在 UI 线程。阻塞网络调用
+   （llmswitch.net 的 fetchModels / fetchUsage）经 SDK 自带的
+   `huxerui::RunWorker` 派到 worker 线程（co_await 恢复点恒为 UI 线程，
+   组合卸载自动取消）——**不要**从 Clash-Flux 复制 task_bridge.h，那是它
+   在 SDK 提供 RunWorker 之前的自造轮子。**事件处理器内禁止同步写会导致
+   点击节点被卸载的 State**——经 `tasks.Launch` + `co_await Delay(0)` 推迟
+   （开弹窗、切页同理）。
+5. **占位不能用 Spacer().With(Frame)**（Spacer 自带 Grow(1) 会平分空间）——
+   用空 `Row{}`/`Column{}`；页面根要 `Grow(1.0F)` + `CrossAlign(Stretch)`。
+6. **全局 revision 计数**：AppRoot 持有 `State<int> revision`，任何写库操作
+   （含托盘切换、设置页导入）后 +1，驱动供应商页重读与托盘菜单重建
+   （托盘 Lifecycle 以 revision 为依赖）。
+7. **岛屿风**：视觉规则（页面无卡片、shellInset 同值、圆角分档、强调色语义、
+   太极选择器等）统一见下文「UI 视觉硬约束」；主题常量唯一入口是
+   `src/ui/theme_colors.h`（深色「石墨」= 中性石墨海面 #101214 + 青蓝强调
+   #38BDF8 / 浅色「晴石」= 冷白海面 #FDFDFD + 天蓝强调 #2870D6；Windows
+   安装器共享同一份）。设置页以单个太极选择器循环切换，存值仍
+   system/dark/light。删除确认用内置
+   `dialog.Show(title, message, positive, negative, ...)`（DialogStyle 已在
+   AppThemed 里主题化）。
+8. **图标契约**：所有 24×24 功能 SVG 必须遵守
+   `resources/README.md` 的规范——每个语义只保留一套 `#FFFFFF` 无色
+   alpha-mask，深浅主题由运行时 tint 自适应，选中态由承载底块表达；禁止
+   `_selected/_dark/_light` 重复轮廓；品牌图标不得改变官方轮廓。
+   CMake 配置期强制校验（无色 mask + 无重复轮廓）。
+9. **响应式**：`UseViewportClass()` Compact(<600) 收窄页面内边距
+   （`PageScaffold` / `AgentPage` 的 medium↔large，顶部恒为 0）与壳层
+   `shellInset`（app.cpp，必须同值）；窗口最小 800×600。
+10. **资源一律 RAII 包裹**（规则与盘点见下节「资源与 RAII 硬约束」）：
+    禁止裸 `new`/`delete`/`malloc`/`free`；锁只用 `lock_guard`/`unique_lock`/
+    `scoped_lock`；POSIX fd、`popen` 管道、Windows `HKEY`、临时文件、线程都
+    必须先有所有者再使用，错误分支只 `return`，由析构释放。盘点与范本见下节
+    「资源与 RAII 硬约束」。
 
 ## 资源与 RAII 硬约束
 
@@ -87,6 +417,553 @@ Claude、Codex、Gemini、Copilot、Cursor、Windsurf 及其他自动化 agent �
 - **不要用「文档里写着记得关」代替 RAII**：漏掉一条错误分支就是泄漏；新增资源
   类型时先写所有者，再写使用它的代码。
 
+全项目盘点（2026-09 复核）：**所有获取即需释放的资源都有 RAII 所有者**，
+新增资源类型必须照此先写所有者再写使用者。
+
+| 资源 | 所有者 | 位置 |
+|------|--------|------|
+| 堆内存 | `std::unique_ptr<Impl>` / `shared_ptr` / 标准容器（无裸 new/delete） | `router.cpp`、`usage.cpp`、`ui/router_transport.cpp` |
+| POSIX fd（open/socket/accept/connect） | `UniqueFd`（析构 `close`，可移动、禁拷贝；`Valid()` 判失败） | `src/single_instance.cpp` |
+| `popen` 管道 | `UniquePipe = unique_ptr<FILE, PipeCloser>`（析构 `pclose`） | `src/config.cppm` 的 `systemPrefersDark()` |
+| Windows 注册表键 | `UniqueRegKey`（析构 `RegCloseKey`） | `src/config.cppm`、`platform/windows/package/src/app.cpp` |
+| 临时文件 `<file>.tmp` | `TempFileGuard`（成功 rename 后 `Release()`，否则析构删除） | `src/store.cpp`、`src/mcp.cpp`、`src/skills.cpp`、`src/router.cpp` |
+| SQLite 连接 | `huxerui::sqlite::Database`（可拷贝句柄，单连接串行 worker；持有在统计页组合的 `State` 里，随组合卸载关闭） | `src/ui/stats_page.cpp` |
+| 线程 | 持有者析构 `stop()` + `join()`；创建失败回滚绑定状态 | `LocalRouter::Impl`（`src/router.cpp`）、`single_instance::Coordinator`、测试 `FakeUpstream` |
+| 锁 / 条件变量 | `std::lock_guard` / `std::unique_lock`（永不手写 lock/unlock） | `router.cpp`、`usage.cpp`、`ui/router_transport.cpp`、`single_instance.cpp` |
+| HuxerUI 句柄 / 任务 / 订阅 | SDK 的 `TaskScope`、`ApplicationHandle`、`WindowHandle`、`SystemTrayHandle` 与 `Lifecycle` 返回的 disposer；composable 卸载自动取消 | `src/ui/*.cpp`（`UseTaskScope`、`Lifecycle`、`UseApplication().Clipboard()`） |
+
+要点与易错处：
+
+- 文件流 `std::ifstream` / `std::ofstream` 本身就是 RAII，不要为了「统一」再包一层；
+  真正需要守卫的是它们的**副作用残留**（`.tmp` 半成品、备份、锁文件）。
+- 平台句柄优先「带自定义 deleter 的 `unique_ptr`」，只有需要 `Out()` 参数风格
+  （如 `RegOpenKeyExA` 的 `HKEY*`）才写极小 Guard 类；不要引入堆分配以外开销。
+- **平台专用 closer 必须和它的 `#if` 分支绑在一起**：`UniquePipe` 调用的
+  `popen`/`pclose` 是 POSIX，MSVC 全局命名空间里没有这两个名字。0.1.37 首轮
+  CI 就是把 `PipeCloser` 提到 `#if` 之外，导致 `config.cppm` 在
+  `test_store` 里编译失败（`C2039` / `C3861`），两个 Windows job 全挂而
+  Linux/macOS 全绿——本地是 Linux 时这类错误只能靠 CI 暴露，改动跨平台
+  代码后要人工核对每个 `#if` 分支里的符号在目标平台是否存在。
+- 线程创建本身可能抛（资源耗尽）：`LocalRouter::Impl::start` 在 catch 里复位
+  `isRunning` / `boundPort` 并 `server.stop()`，避免「报错但端口已占」的假运行态。
+- `UniqueFd::Reset(int fd = -1)` 先关旧的再接管新的，`StartOrActivate` 重入安全由此保证。
+- 已知的有意例外：`window.OnCloseRequest` 消费关闭、`Lifecycle` 返回清理闭包这类
+  回调注册，必须返回可逆的 disposer（如 `single_instance::ClearActivationHandler`），
+  不得注册后无人撤销。
+
+## 持久化载体的选择
+
+**高频日志直接写文件，不进 SQLite**：逐事件、只追加的日志（本地路由的
+`router/requests.jsonl`）保持 `std::ofstream(..., ios::app)` + 自带保留策略
+（内存环形缓冲 1000 条、文件超 5000 行压到 2500 行）。HuxerUI/Lib-SQLite 的
+`Database` 是**单连接串行 worker**，逐请求写库会和用量账本的同步/查询抢同一
+条队，把两边都拖慢。持久化载体按三条判据选，不要默认上 SQLite：写入频率是
+「每请求」还是「每轮同步 / 每次用户操作」；是否真的需要索引或 GROUP BY；能否
+批量进一次事务。取舍细节：
+| 数据 | 载体 | 写入频率 | 理由 |
+|------|------|----------|------|
+| 供应商配置 / 主题 / 路由设置 | `config.json` | 每次用户操作 | 要能 `cat` 和手改；整文件原子写 + 备份 |
+| MCP 清单 | `mcp.json` | 每次用户操作 | 同上 |
+| live 快照 | `backups/<tool>/*.bak` | 每次改写前 | 单文件副本，每文件留 10 份 |
+| **本地路由请求日志** | `router/requests.jsonl` | **每请求** | **不进 SQLite**：httplib worker 逐请求触发，写库要排队抢 SQLite 单连接 |
+| 用量账本 | `usage/usage.db`（SQLite） | 每轮同步一批 | 需要索引与 GROUP BY 聚合；一次事务批量落库，天然低频 |
+| 扫描位点 | 同上，`scan_state` 表 | 同上 | 与账本同事务提交，位点推进和记录写入原子 |
+
+判据（新增持久化时先过一遍）：**写入频率**是「每请求 / 每事件」还是「每轮同步 /
+每次用户操作」；**是否真的需要索引或聚合查询**；**能否批量进一次事务**。
+三条都偏后者才考虑 SQLite，否则直接写文件。
+
+`router/requests.jsonl` 的保留策略保持不变：内存环形缓冲最多 1000 条，
+文件超 `kMaxJsonlLines`(5000) 行时压到 `kJsonlLinesAfterCompact`(2500) 行
+（`src/router.cpp`）。这条策略与 SQLite 无关，不要因为「有数据库了」就把它搬过去。
+
+**已知待办**：WAL 模式下只拷主库会丢 `-wal` 里已提交的数据（Lib-SQLite README
+明确警告），所以 `usage.db` 目前**不在** `backups/` 的文件级备份覆盖内。要备份
+必须先关连接，或另做一致性方案——别直接 `copy` 那个 `.db`。
+
+
+## 已知取舍（读代码遇到别当 bug 修）
+
+- **store 无锁与 router resolver 竞态窗口**：ProviderStore 无内部锁、UI 线程
+  独占是全局契约；router_page.cpp 的 routerInstance() resolver 会被 router
+  的 httplib 后台线程调用，此刻对 providerStore() 做只读组快照拷贝，与 UI
+  线程写操作存在理论并发窗口（已知的极小概率取舍，router.cpp 要求 resolver
+  线程安全且快速；代码注释已标记）。
+- **codex MCP 的 TOML 重写会丢未收编的手写 [mcp_servers.*] 节**：llmswitch.mcp
+  按行级 section 重写 config.toml——丢弃全部既有 [mcp_servers.*] 节后按当前
+  启用清单重新生成（其余内容原样保留）。用户手写的 mcp_servers 若未先
+  importFromTool 收编进 mcp.json，首次启停后丢失。
+- **opencode 配置不支持 JSON5 注释**：opencode.json / 顶层 mcp 改写都走严格
+  JSON 解析，带注释的官方文件会抛中文错且绝不碰原文件（让用户手动去注释）。
+- **dsh 的 flow→块摊平会丢掉 flow 区域内的注释**：settings.yaml 的
+  `llm-pi-ai.providers` 若是 flow 风格（用户手写或其它工具写入），本应用在读写
+  之前会把这整段摊平成块风格——只改排版、键值与顺序原样保留，但 flow 区域内部
+  的行尾注释不保留（dsh 自己生成的文件没有注释）。不摊平的话，往 flow 块后插
+  块条目会写出非法 YAML，dsh 的 watcher 会保留上一份好文档、切换静默失效。
+- **MCP 不支持 claude desktop / pi / dsh / hermes**：setEnabled/importFromTool 对这些
+  工具抛「该工具暂不支持 MCP 管理」。
+- **尚未接入剪贴板 / 打开浏览器交互**：上游 `d1d2daa` 已提供应用层
+  `Clipboard` 服务，但路由页的各工具接入地址目前仍是等宽纯文本；关于页链接
+  也仍不可点击跳转（尚无应用层打开浏览器入口）。接入复制按钮时使用
+  `UseApplication().Clipboard()`，并按 `IsAvailable()` 控制可用状态。
+
+## 多平台 / CI
+
+- 平台入口：platform/{linux,windows,macos}/main.cpp 均为薄 GUI 入口（无 CLI
+  分流）；顶层 CMakeLists 的 WIN32/APPLE 分支按平台把对应入口追加进 SOURCES。
+- Windows 自定义安装向导（蓝本 Clash-Flux 同名机制）：platform/windows/
+  huxerui.cmake 定义 `huxerui_configure_windows_project_package`，
+  `huxerui package windows`（HUXERUI_PACKAGE=ON）时把 MSI + Burn 捆绑包
+  （package/Package.wxs.in / Bundle.wxs.in）与 HuxerUI 托管安装器 UI
+  （package/src/，品牌面板 + 简中/繁中/英文 strings）接进构建；安装器深浅
+  配色经 `src/ui/theme_colors.h` 与主应用共享（单一配色入口，不再手工同步
+  两份 spec）；日常构建
+  零开销（函数内 `if (NOT HUXERUI_PACKAGE) return()`）。需要含
+  `huxerui_add_windows_installer` 的 HuxerUI 源码/SDK（0.2.0 之后；当前 CI
+  固定的 fork `501e8ca` 已满足）。
+- **触发策略：推 main、开 PR、推 `v*` tag 都构建**（tag 额外触发 release job）。
+  不要为"省额度"把 main 的构建收掉——本仓库是 public，**标准 GitHub-hosted
+  runner 的 Actions 用量对 public 仓库免费**（计费文档：*usage is free for
+  self-hosted runners and for public repositories that use standard
+  GitHub-hosted runners*；额度表里的 500MB artifact / 2000 minutes 是 private
+  仓库的 plan 配额），收费的是 **larger runners**（4-core 起，*not free for
+  public repositories*）——本仓库只用标准 runner。所以每次 push 构建的边际成本
+  是 0，换来 main 上每笔提交的三平台回执；只有 `docs/**`、`**.md` 走
+  `paths-ignore` 跳过。`workflow_dispatch` 手动触发只构建（release job 自带
+  `startsWith(github.ref, 'refs/tags/v')` 判断，不会因为手动跑而发布）。
+- `.github/workflows/build.yml`（蓝本 Clash-Flux 同名文件，按其已跑通配方
+  适配）：三个桌面 job + release。build-linux（ubuntu:26.04 容器 + clang-21/
+  libc++-21 + pip cmake==4.4.2 + libc++.modules.json 路径改写 + gtk4/epoxy/
+  libsoup3 开发包，正式）；build-windows（MSVC + choco ninja）与 build-macos
+  （brew llvm + 手写 libc++.modules.json）；三个平台均为
+  发布门禁，必须完成编译、测试和打包。
+- 三个平台构建都把 HuxerUI 下游 fork（`FarnaHerry/HuxerUI` 的
+  `farna/main` 集成分支）钉在 commit `501e8ca0f5473139568d874aac96324bae33e1ac`
+  （上游基线 0c51262 + acgu/Clash-Flux 补丁 + 本项目 Windows 图标与
+  macOS P0960 修正 + fork 侧多窗口/透明工具窗口、桌面宠物托盘、
+  玻璃材质与安装器无窗执行集成；明细见 build.yml 的 pin 注释）
+  clone 到 third_party/huxerui 走源码通道；TLS 由平台栈提供，CI 不再安装
+  OpenSSL；无 mihomo/Android（蓝本相关步骤已删）。
+- 项目专属的 HuxerUI 修改已并入 fork：Windows 主窗口图标（编译宏
+  `HUXERUI_WINDOWS_APPLICATION_ICON_RESOURCE_ID=101`，顶层 CMakeLists 传入）
+  与 macOS Objective-C++ `CrossAlign` 兼容修正；性能探针维护在 fork 的
+  `probe/ui-perf` 分支，仅按需手动合入本地 checkout。
+- 打包：Linux tar.gz（二进制 + llm-switch.resources + lib/libhuxerui.so +
+  libc++ 三件套 + patchelf `$ORIGIN/lib`）、Windows zip（exe + 旁挂 dll +
+  resources）、macOS tar.gz（.app bundle）；push tag `v*` 时 release job
+  （job 级 `contents: write`）下载三个平台产物，经
+  softprops/action-gh-release 挂到 release；只有三个平台 job 全部成功且产物存在
+  时才发布。
+
+## 里程碑状态（历史记录，按时间序）
+
+- ✅ M1：构建脚手架（HuxerUI 双通道、llmswitch_json、test_smoke/test_store）+
+  领域层三模块（config/models/store）+ 领域层测试全绿。
+- ✅ M2：完整 UI（应用壳+托盘切换菜单、Claude/Codex 供应商页 CRUD/切换/预设
+  模板、设置页主题/路径/导入导出）、GUI 冒烟通过。
+- ✅ M3：跨平台 CI（三桌面 job + tag release）+ Windows/macOS 平台入口补齐。
+- ✅ 阶段A（2026-09-06）：领域层泛化到 5 工具注册表（claude-code / claude
+  desktop / codex / opencode / pi / gemini / qwen / zcode），config.json 改 groups map（旧格式自动
+  迁移），store 按工具 id 分发八个 writer + 各自 detectCurrent/importLive，
+  UI 仅做最小适配（侧栏/供应商页仍只有 Claude Code / Codex，托盘菜单已
+  通用列出全部组）——导航重写属阶段B。
+- ✅ 阶段B（2026-09-06）：两级侧边栏导航（顶级 Agent 管理/设置 + Agent 页内
+  二级工具图标栏，遍历注册表）、5 工具图标补齐（claudecode 自绘终端 /
+  claude 官方星芒 / codex 结绳不动 / opencode simple-icons / pi pi.dev
+  logo）、表单按 ToolSpec 适配（API 协议分段选择、needsModel 必填）。
+  另修正阶段A 遗留：Claude Desktop profile 的 inferenceModels name 必须是
+  桌面端白名单 route id（claude-(sonnet|opus|haiku|fable)-*，对齐 cc-switch
+  上游 is_claude_safe_model_id），非白名单模型名借用 claude-sonnet-4-6 并把
+  真名放 labelOverride。
+- ✅ 拉模型列表 阶段A（2026-09-06）：curl/OpenSSL 依赖回归（vendor curl
+  8.22.0 静态库 + OpenSSL 系统优先/Linux x86_64 静态包回落；Windows
+  POST_BUILD 补 OpenSSL/CRT/huxerui.dll 旁挂，抄自 apitab）；新模块
+  llmswitch.net（fetchModels 阻塞调用 + parseModelIds 纯函数）+ test_net。
+  UI 入口（表单「拉取模型」按钮、任务线程包裹）属阶段B。
+- ✅ 拉模型列表 阶段B（2026-09-06）：供应商表单模型字段旁加「获取模型」
+  按钮——用表单当前 baseUrl/apiKey/apiFormat（无 apiFormat 字段的工具按
+  工具推断：claude-code/claude→anthropic，codex→OpenAI 兼容）经
+  `huxerui::RunWorker` 调 llmswitch.net::fetchModels（阻塞调用全程不在 UI
+  线程）；拉取中按钮转「获取中…」禁用态，baseUrl/apiKey 空缺时禁用 +
+  tooltip 提示；成功弹 ModelPickerContent 选择列表点选回填 model，失败
+  toast 中文错误。未复制 Clash-Flux 的 task_bridge.h——SDK 0.2.0 自带的
+  RunWorker 就是同一语义（skill fundamentals.md 推荐），task_bridge 是
+  Clash-Flux 在 RunWorker 出现前的自造轮子。
+- ✅ 大版本（2026-09-06，并行任务 A–G 整合）：
+  - 新领域模块四个：`llmswitch.router`（本地路由引擎：cpp-httplib 服务器
+    监听 127.0.0.1，`/<tool>/` 前缀转发到当前供应商 + 鉴权头替换 + 故障
+    转移 + RequestLog/StatsSnapshot 统计，JSONL 落盘
+    dataDir()/router/requests.jsonl）、`llmswitch.mcp`（MCP 统一清单
+    dataDir()/mcp.json + claude-code/codex/opencode 三工具 live 写入，
+    codex 走 TOML 行级 section 重写）、`llmswitch.skills`（中央库
+    skills-store/ + 符号链接同步到 ~/.claude/skills 与 ~/.codex/skills）、
+    `llmswitch.sessions`（扫描 ~/.claude/projects 与 ~/.codex/sessions 的
+    jsonl 会话，列表/删除/导出，删除限已知根之下）。
+  - apiFormat 三档化（openai-chat / openai-responses / anthropic，
+    models::normalizeApiFormat + apiFormatLabel；opencode npm 与 pi api
+    映射同步三档）。
+  - 用量查询：Provider.usageEnabled + usageRefreshMinutes + usageUrl/usagePath/usageLabel +
+    net::fetchUsage / extractByPath + 各供应商独立轮询 + DeepSeek 内置
+    模板 suggestUsageQuery + 卡片用量显示与页面轮询（RunWorker）。
+  - AppConfig 新增 routerEnabled / routerPort（15731）/ routerFailover +
+    store setter；路由自启在 AppRoot 首组合 Lifecycle。
+  - UI 顶级侧边栏扩为 8 区块（Agent 管理 / 本地路由 / 使用统计 /
+    MCP 服务器 / Skills / 会话 / 设置 / 关于），新增 router_page /
+    stats_page / mcp_page / skills_page / sessions_page / about_page 六个
+    页面与 router/stats/mcp/skills/sessions/about 六对自绘图标。
+  - 依赖新增 cpp-httplib 0.20.1（third_party/httplib 单头，INTERFACE 目标
+    llmswitch_httplib）；测试目标增至 7 个（smoke/store/net/router/mcp/
+    skills/sessions）。
+- ✅ 恢复官方 + 官方预设 + codex 模型（2026-09-06）：store 新增
+  restoreOfficial（claude-code / claude / codex 撤掉本应用写入的 live
+  覆盖回到厂商原生状态，供应商页「恢复官方」确认按钮）；builtinPresets
+  各组首位加官方条目（Anthropic 官方 / OpenAI 官方 wire_api=responses）；
+  codex 表单补齐模型字段与「获取模型」（模型切换时行级重写 config.toml
+  顶层 model 键，importLive 收回）。
+- ✅ 表单按 agent 区分 + 下拉选模型（2026-09-06）：Provider 新增
+  haiku/sonnet/opusModel 三档映射字段 + ToolSpec.hasModelMappings
+  （claude-code / claude）——claude-code 切换写 ANTHROPIC_DEFAULT_*_MODEL
+  env（restoreOfficial 一并擦除、importLive 收回）；claude desktop 每档
+  映射写成 inferenceModels 条目（非白名单借该档 route id + labelOverride，
+  claudeDesktopModelEntry）。表单模型选择从弹窗改为行内 Select 下拉
+  （获取模型成功后出现在「获取模型」按钮前，主模型与三档映射行共享一份
+  fetchedModels）；ModelPickerContent 弹窗删除。注：hcg 要求 composable
+  返回 View（不能抽返回表单状态结构的 composable 辅助），两处 UseState
+  初始化靠 LLMSWITCH_FORM_STATES_INIT 宏在调用点展开。
+- ✅ Agent 页结构重排（2026-09-06）：编辑/新增供应商从弹窗改为整页表单
+  （ProviderFormPage，ProvidersPage 内 formTarget State 双模式切换 +
+  .Key("form:" + target) 重建状态）；agent 二级图标栏从左侧移到 Agent 页
+  顶部横排；「恢复官方」按钮删除，官方订阅改为列表首位常驻卡
+  （models::officialVendorName，切换 = restoreOfficial；官方条目同时撤出
+  builtinPresets）；预设模板并入新增页顶部预设区（点选 FillForm 预填）；
+  新增供应商按钮改为自绘加号图标（resources/images/add.svg）。
+- ✅ 卡片操作图标化 + 托盘增强（2026-09-06）：供应商卡/官方卡操作组移到
+  卡片右侧（左信息右操作、垂直居中），文字按钮换自绘图标 + Tooltip
+  （swap/edit/copy/trash.svg，用量刷新 refresh.svg；命名避开 C++ 关键字
+  switch/delete）；窗口最小分辨率 560×480 → 800×600；托盘菜单扩充（组头
+  显示当前生效名、官方条目入菜单勾选 = restoreOfficial、本地路由开关项
+  start/stop routerInstance）；关闭最小化到托盘（AppRoot 注册
+  window.OnCloseRequest：托盘可用时 window.Hide() + return true 消费关闭，
+  托盘「显示主窗口」经 Activate 召回，「退出」走 application.Quit() 绕过
+  关闭处理器；托盘不可用返回 false 走平台默认关闭）。
+- ✅ 工具栏入岛 + 连通检测 + 用量配置页（2026-09-06）：agent 工具图标栏从
+  页面顶部移到供应商岛屿内部顶部（ToolBar 在 providers_page；AgentPage 变
+  薄宿主持 currentTool State，点击图标经 Launch+Delay(0) 推迟写——写它会
+  让 .Key(tool) 重建含被点击图标的整棵子树）；选中图标垫 raised 圆角底块
+  作选中态，岛屿标题文字「X 供应商」删除（列表模式改自定义一级岛：头部
+  一行 = 工具图标栏左 + 新增按钮右）；卡片操作组新增联通检测
+  （activity 图标 → net::pingLatencyMs，连通显示「延迟 N ms」、失败
+  「不可达：…」error 色，baseUrl 空禁用）与用量查询配置入口（gauge 图标 →
+  独立整页 UsageFormPage，formTarget = "usage:"+id；用量三字段 +
+  自动填充从编辑表单迁入，编辑保存保留原用量配置）；API Key 输入框加
+  眼睛图标切换明文/掩码（eye/eye_off.svg）。上游 `3eb827d` 后改用 SDK 内置
+  可交互 TrailingIcon（TrailingIcon(icon, 语义标签) + OnTrailingIconClick +
+  Secure(bool)），不再外裹 Row + 独立 IconButton；且眼睛仅悬停输入框
+  （ViewEvents::Hover，只在 Enter/Leave 写 State）或已明文时挂载显示。
+- ✅ 会话页异步加载 + 过滤图标组（2026-09-07）：会话扫描从 UI 线程同步改为
+  RunWorker 入 worker 线程（首载/切过滤/刷新/删除后重载；此前 countLines
+  getline 逐行读全文件 + 标题提取都在 UI 线程，文件一多切换即卡顿），
+  请求代次保证快速切过滤时旧结果不会覆盖新选择，异常路径会正确结束 loading
+  并反馈原因；导出/删除文件 IO 也移入 RunWorker，成功删除后才触发重载。
+  重载期间旧列表保持显示 + 刷新图标自转指示（无限 Tween 360°，无文字提示）；countLines 改 64KB 块读数
+  换行（口径不变：末行无换行算一行、10000 封顶）；过滤 SegmentedButton
+  改为图标组（全部=agents / claudecode / codex，选中态 raised 底块，与
+  Agent 管理页一致）；ToolIcon/IconPair 从 providers_page 提到
+  common.cpp + ui.h 共享。
+- ✅ 本地路由逐 Agent 开关（2026-09-07）：保留服务总开关，新增 Claude Code /
+  Claude Desktop / Codex / opencode / Pi 五个独立代理开关；选择持久化到
+  AppConfig.routerTools（旧配置缺字段默认全开，显式空数组允许全部关闭），
+  LocalRouter 以 mutex 保护运行时启用集合，切换不重启服务。禁用工具请求返回
+  403，且不调用 resolver、不访问上游、不计入统计；接入地址只展示已启用项。
+- ✅ 太极八卦水墨风（2026-09-06）：主题从极简黑白重构为水墨配色——InkDark
+  「玄墨」（暖调近黑海面 #161411 + 宣纸白主色 #E6E0D2）/ InkLight「宣纸」
+  （米白纸面 #EFEAE0 + 浓墨主色 #2B2823），文本/描边全部暖调墨色阶
+  （浓墨/淡墨），error 改朱砂红；自绘太极图 taiji.svg（resources/images，
+  宣纸底 + 玄墨双鱼反色眼），标题栏与关于页顶部卡各一枚，并 rasterize 为
+  tray.png/@2x/@3x 替换灰色双向箭头占位托盘图标；设置页主题选项改名
+  跟随系统/玄墨（深色）/宣纸（浅色）。按「墨韵 INK UI」参考图深化：
+  浅色纸面再亮一档、二级岛近白 + 一级岛/卡片细墨边（Border outline_soft
+  1pt + ClipChildren）、整窗背景改用深浅两套全景水墨画卷
+  （ink_backdrop_dark/light.svg：远山、朱砂落日、归鸟、竹枝和飞瀑；
+  Stack 底层以 Cover 覆盖窗口边缘，中央留白，轻岛屿允许环境景物隐约透出）。
+  书法标题字未做：系统无 CJK 衬线字体，
+  不为标题打包字体文件。
+- ✅ 退役 curl/OpenSSL（2026-09-13）：网络统一 HuxerUI 平台 HttpClient
+  （Linux libsoup / Windows WinHTTP / macOS NSURLSession，TLS 由平台栈负责）。
+  net 同步 curl 接口（fetchModels/fetchUsage/pingLatencyMs）删除，只留纯
+  函数；router 出站新增 `UpstreamSession` 抽象（Send + AbortInFlight），
+  生产实现是 UI 层 PlatformUpstreamSession（httplib 工作线程经
+  TaskScope::Post + Launch 桥到 UI 线程 SendAsync，条件变量 + 截止时间
+  等待），app.cpp 根组合 `BindRouterUpstreamSession()` 绑定，测试注入
+  httplib::Client 版会话。vendor 只剩 json/httplib（curl/openssl tarball
+  与 huxerui-linux-openssl-system.patch 删除），CI 三平台不再安装 OpenSSL，
+  Windows 打包不再带 libssl/libcrypto。
+- ✅ 订阅供应商预设（2026-09-13）：builtinPresets 改为 PresetGroups 两分组
+  （subscription 订阅制中转 / metered 按量官方 API），供应商新增页预设区
+  分两行展示（Row 不换行）。claude-code 订阅组新增 PackyCode / AICodeMirror /
+  88code / DuckCoding / Kimi For Coding（端点核实自 cc-switch 官方预设与各家
+  官方客户端源码；Kimi For Coding 主模型与三档映射都填端点别名
+  kimi-for-coding）；codex 订阅组新增 PackyCode（Responses 协议中转）。
+- ✅ Canvas 泼墨伪元素（2026-09-13）：src/ui/ink_splash.cpp 用 Canvas+Path
+  程序化泼墨（副墨团/主墨团 Catmull-Rom Blob + DrawPathShadow 洇边 + 浓墨
+  内斑 + 飞白细枝 + 圆点/旋转椭圆飞墨），固定种子 splitmix32 保证同 seed
+  形态恒定；墨色取主题 on_surface 深浅自适应。app.cpp 根 Stack 在画卷与
+  内容之间叠两处（右上 TopEnd 为主、左下 BottomStart 呼应）。坑：Canvas
+  外再包 Align 修饰符会被撑满父约束——画布本身铺满宿主，落点用 anchor
+  参数在画布内定位，尺度与窗口高度解耦限幅。
+- ✅ 会话详情卡顿修复（2026-09-13）：19MB 合成会话实测复现（UI 线程 99.5%
+  冻结，gdb 定位在 VirtualList 重测量 + Pango 全量重排）——loadOlder 逐项
+  `Insert(0)` 的每次通知都同步触发一次页面重组。详情页消息列表改不可变
+  快照（`shared_ptr<const vector>`，与列表页同模式），worker 结果一次 O(1)
+  写入；`parseMessageLine` 对进入 UI 的文本设 16KB 上限（UTF-8 安全截断，
+  完整内容走导出）。复测：每页 50 条历史在 UI 线程合并 0.0-0.1ms。
+  SDK 层遗留问题（VirtualList 每帧重新 factory 可视行且 PangoTextLayout
+  无跨帧缓存，详情页静止即 99% CPU）已报上游 HuxerUI/HuxerUI#136 并经
+  PR HuxerUI/HuxerUI#137 合入（有界 LRU 文本布局缓存 + ScopedTextLayout
+  跟进修复），本地补丁已撤、基线升至 64264cb。
+- ✅ 新增 ZCode（2026-09-13；同批加入的 Gemini CLI / Qwen Code 已于
+  2026-10-03 移除，见后）：`~/.zcode/v2/config.json` provider map upsert
+  `llmswitch:<id>` 条目（apiFormat 映射 kind）并 enabled 互斥停用其余，
+  restoreOfficial 重启 builtin:*。接入 detect/import/restore 与 router
+  逐工具开关；MCP/技能/会话暂不涉及（页面自动优雅降级）。新增自绘
+  图标（zcode Z 字）。zcode 的 load() 首次
+  自动收编为**全量**（liveFileExists 补 zcode 分支；importLive 把每个带
+  凭据的 provider 条目都收进列表——同端点+密钥原位更新保留 id，enabled
+  条目设为 current，无凭据的 OAuth 条目跳过），避免打开页面为空。
+  zcode 的 models 是**不定长清单**：Provider 新增 `models` 字段（序列化为
+  每供应商 `models` 数组；空 = 仅 model 一个）——导入全量读出、切换全量
+  写回（默认模型保证在列）、表单「获取模型」拉到的列表整体写入（未拉取
+  则保留原清单），多模型条目不再丢模型。
+- ✅ 冷调石板主题重构（2026-09-17）：按参考图把两套主题从暖调水墨换成冷调
+  石板/海军蓝——`AppDarkThemeSpec`「深海」（海面 #101923 + 青蓝 #38BDF8）/
+  `AppLightThemeSpec`「晴石」（海面 #FDFDFD + 天蓝 #2F7BE6），并补齐此前
+  一直沿用 Material 紫色默认值的 `primary_container` / `on_primary_container`
+  / `tertiary_container` / `on_tertiary_container` / `scrim`。强调色语义收紧：
+  `primary` 只用于可交互状态，四处 SectionTitle 从 primary 改到
+  `on_surface_variant`。标题栏莲花本体固定 `on_surface`（浅色深石板/深色冷
+  白），强调色只走悬停圆底 + 描边 + 三层同心环与加宽底描边构成的辉光。
+  水墨身份退役：删除 `src/ui/ink_splash.cpp`（泼墨）与 `ink_backdrop_dark/
+  light.svg`（含早已无引用的 `ink_landscape.svg`），环境层改为程序化
+  `AmbientGlow(dark)`（RadialGradient 冷调光晕）。太极选择器三枚 glyph 重新
+  配色（冷白 #E8F0F8 / 深蓝 #1B2836），主题名改「深海/晴石」（仅悬停提示）。
+  `Card` 增加 1pt `outline_soft` 描边（冷调下卡片与页面色差小，靠描边划界）。
+  资源同步冷调化：托盘 10 张 PNG 重渲染、`platform/windows/app.ico` 与
+  `platform/linux/package/llm-switch.svg` 重新生成、Windows 安装器重复的
+  主题定义同步。实测取值：浅色底 #FDFDFD、hover #E9F0F8、亮蓝 #4595F7；
+  深色底 #101923、卡片 #1A2431、hover #22303F、青蓝辉光 #287AA9~#38BDF8。
+  注：参考图标题栏圆角实测 ≈26px/条高 105px ≈ 0.25，映射到 24 DIP 标题栏
+  就是 ~6pt，即现有 nested_radius——**未放宽** AGENTS.md 的圆角约束。
+- ✅ 主体配色对比度达标（2026-09-19）：量化评估两套主题（岛屿表面按 alpha
+  合成到海面后算 WCAG 对比度）后收紧浅色「晴石」——primary #2F7BE6→#2870D6
+  （白字 4.12→4.80:1、作描边 3.94→4.58:1，过 AA 正文线）、error
+  #D64545→#C63A3A（4.18→4.93:1）；AmbientGlow 浅色洗色与 Windows 安装器
+  重复主题定义同步。语义状态色进 `IslandTheme`（success/on_success/warning，
+  按 `ResolveIslandTheme` 内海面亮度分深浅取值）：router 页 `StatusColor`
+  与「运行中」徽章改走语义层，删除硬编码绿/黄（浅色下警告黄仅 2.81:1、
+  徽章白字绿底 3.3:1，深色徽章改翻墨青字 4.97:1）。内置确认框底色
+  surface_container_high→highest，与 `DialogCard` overlay 同源，两套弹窗底色
+  一致。深色「深海」全项 ≥6:1，未改动。
+- ✅ 深色主题换「石墨」中性灰阶（2026-09-19）：深色「深海」的海军蓝底
+  （#101923 一族）整体换为中性石墨冷灰阶（海面 #101214、卡片 #1A1E22、
+  描边 #2D333A、正文 #E8EAED、次要 #9AA1AA），强调青蓝 #38BDF8 与语义红
+  不变——表面去蓝后强调色成为唯一彩色源。对比度全项过 AA 且余量优于旧值
+  （正文 15.3:1、次要 7.1:1）。主题名「深海」→「石墨」（悬停提示），太极
+  三枚 glyph 去蓝（#1D222B/#E9ECEE），Windows 安装器暗色 spec 同步。
+  应用图标（linux svg / windows ico 的品牌底色）保持不动。
+- ✅ 切页动画减压（2026-09-19）：针对 GTK 后端「动画期间全窗内容逐帧
+  重光栅化、无跨帧缓存」的实测结论（无头探针：运行时侧每帧亚毫秒，卡顿
+  全在后端光栅），切页收合 0.18→0.12s、展开 0.30→0.18s（昂贵帧数 -38%）；
+  `AmbientGlow` 只把光斑实际覆盖的顶部画进 cairo 批次（深 72%/浅 56% 窗高，
+  渐变按裁剪矩形归一化、在裁剪线上恰好衰减到 0），削减每帧最大单件光栅
+  面积。根治（cairo 批次按 PaintSequence revision 缓存为 GSK 纹理）待上游
+  PR。切页时序常量：`kCollapseSeconds`（app.cpp）。
+- ✅ 卡片减负（2026-09-19）：诊断是卡片滥用而非线宽——描边保持 1pt/
+  0.62α 不动。新增 `PageSection`（标题+内容平铺）+ `SectionDivider`（主题
+  Divider 发丝线），router（4）/settings（3）/stats（2）/about（3，头部
+  英雄卡保留）分区卡全部拍平；重复列表条目换无边框 `QuietCard`：供应商
+  卡 ×2、Skills 行、MCP 行、会话行。
+- ✅ 0.2.0 用量账本迁 SQLite（2026-09-26）：会话用量账本从 append-only 的
+  `usage.jsonl` + `scan-state.json` 换成 SQLite，经 `huxerui_use_library` 引入
+  **Lib-SQLite**（独立仓库，不在主仓也不在 SDK 里；经下游 fork
+  `FarnaHerry/Lib-SQLite` 的 `farna/main` 钉 commit
+  `88f610f`，FetchContent 在 configure 期拉取，CI 无需改动）。因为 Lib-SQLite
+  的公开 API 只有异步（`Database::*Async` 返回 `Task`，同步入口只在
+  `Transaction` 回调内），而 `llmswitch.usage` 是只 `import std` 的纯模块，
+  所以切分成：域模块只留解析/`ScanUsageLogs`/聚合口径，`usage.db`
+  （`usage_records` 主键 key + `(agent,ts)` 索引、`scan_state` 表）与异步编排
+  放在 `stats_page.cpp`。跨轮次合并靠 `ON CONFLICT(key) DO UPDATE SET
+  x=max(x,excluded.x)`，与原「字段级取 max」一致；**不兼容旧数据**（旧 JSONL
+  不再读）。代价（v0.1.38 → v0.2.0 同工具链实测）：Linux tar.gz/deb +19.8%/
+  +19.6%（+832/+823KB）、rpm +22.3%、Windows zip +15.2%、setup.exe +7.7%、
+  macOS tar.gz +47.8%（基数仅 1.53MB）。同时定下「高频日志直接写文件、
+  不进 SQLite」的载体规则（见该节）。
+- ✅ 表单页脱离 Pager（2026-09-29）：新增/编辑供应商与用量查询配置从
+  ProvidersPage 的页内模式提升为 AgentPage 自己的第二个页面（IndexedPages
+  双页，只有选中页参与测量与摆放）——表单打开时工具栏 + Pager 不参与布局
+  与命中，横向拖动既滑不走表单也切不了 Agent；Pager 与各列表页仍保持挂载，
+  返回列表保留列表滚动位置、卡片状态与用量刷新时间戳。表单在 Agent 页这一
+  层只缩进一次，标题与工具栏、其他页面标题同一条左边线（此前叠在已带壳层
+  内边距的 Pager 页里，缩进两次）。无头 UiTest 实测量：列表模式横向拖动
+  仍能切 Agent（0↔1），表单打开后同一拖动被表单页挡住（selectedTool 不变、
+  返回/取消仍在）。
+- ✅ 新增供应商页的目标 Agent 选择器（2026-09-29）：新增页左上角的标题换成
+  与 Agent 页完全相同的注册表工具栏（AgentToolButton/AgentToolBar 提到
+  agent_page.cpp 共用），但行为是「这份配置写给谁」——点选切换目标 Agent，
+  表单策略随之切换（codex 出现 config.toml 区块等）；工具栏最后一项是新的
+  `resources/images/all.svg`「所有 Agent」，保存时把同一份配置写进每个注册表
+  组（各组各自生成 id，用量配置随预设带过去）。编辑/用量页没有选择器，仍走
+  普通标题行（PageScaffoldWithHeader 让标题行整行可由调用方提供，左右内边距
+  与 PageScaffold 同一套壳层约束）。表单目标改用注册表下标
+  `formToolIndex`（registry.size() = 所有 Agent）作为唯一真源，卡片入口经
+  `ToolRegistryIndex` 换算；切换目标保留已填内容，只把「上游格式」重置成新
+  agent 的原生默认（agent 派生初值，跨 agent 沿用会给出错误后缀）。
+  无头 UiTest 实测：选择器 11 项齐全、切到 codex 后只在 codex 表单出现
+  config.toml 区块、预设填好的数据在切换目标后保留、切到「所有 Agent」保存后
+  10 个注册表组各出现一条该供应商。
+  修复同日发现的两个「闪一帧旧内容」：①新增页打开时先闪一帧「编辑供应商 /
+  正在加载供应商配置…」的旧脚手架（左上角还不是选择器）——`formReady` 对
+  `"new"` 不该再等 `formDataTarget`，那是编辑表单等异步拷贝的就绪标志，而关闭
+  上一次表单时它已被清空；②在新增页里切换目标 Agent 时，「上游格式」会闪一帧
+  旧 agent 的默认后缀——那次重置原本写在 `Lifecycle` 里，而 Lifecycle 在组合
+  之后才跑；改成组合期按 `FormStates.upstreamFormatTool`（已为哪个 agent 定过）
+  现算，编辑表单不重置、沿用保存值。无头 UiTest 逐帧实测：打开新增页的第一帧
+  就已是目标 agent 的选择器与策略，切换目标当帧即为新默认
+  （Anthropic/OpenAI 不再滞后一帧），编辑页仍先加载并保留保存的 `upstreamFormat`。
+- ✅ 关于页去掉唯一卡片（2026-09-29）：头部（莲花 + 版本 + 简介）原来是全应用
+  最后一个用通用 `Card` 包的页面区块，现在与其他顶级页面一样直接平铺在窗口表面、
+  由 SectionDivider 分段（内部结构、字号与间距一字未动）。`Card` 因此只剩会话详情
+  的「用户消息导航」在用。
+- ✅ dsh 手写路由的推理档位（2026-09-29）：dsh 的 llm-pi-ai 适配器把「模型支持
+  思考」当 per-model 能力——手写路由不在模型条目里声明 `reasoningEfforts`，
+  dsh 就把模型当成不支持推理，模型菜单里连「推理等级」都不出现。`models`
+  新增规范档位表（off/minimal/low/medium/high/xhigh/max，取自 pi-ai 的 thinking
+  level）与归一/位掩码互转，`Provider.reasoningEfforts` 作为 per-供应商清单
+  （JSON 往返时归一）；写入端在 `llmswitch-<id>` 的首个模型条目下声明这些档位
+  （键固定加引号，`"off":` 留空 = 不发思考参数），收编端从同一条目读回；
+  dsh 表单新增「推理档位」chip 区块（provider_form_dsh.cpp 的 DshFormPolicy +
+  DshReasoningFields，此前 dsh 复用 opencode/pi 的通用策略）。
+  同时补上 dsh 的 **flow 风格 providers 摊平**：settings.yaml 允许
+  `providers: { c: { ... } }` 这种写法，而行级改写只懂块风格，直接往 flow 块后
+  插条目会写出非法 YAML、dsh 的 watcher 保留旧文档导致切换静默失效——现在读写
+  前先把 flow 值摊平成块风格（含 `providers: {…}` 与换行两种写法、任意嵌套的
+  map/seq、引号内的 `#`/`{}` 不误判），摊平只改排版；裸 null/~/Null 与空值同义，
+  统一写成空值。收编时「首个模型条目的档位」计数按每条路由重置（此前是整篇
+  文档一份计数，第二条及以后的路由档位会被静默丢掉）。test_store 覆盖：
+  档位全集/归一/位掩码往返、写入拼写与顺序、flow 摊平后键值保留且字节稳定、
+  多条路由各自读回、`providers: {…}` 同行写法。
+- ✅ pi 支持精确化（2026-09-29）：三处对 pi（`~/.pi/agent/models.json` +
+  settings.json）的精确性修复。①`detectCurrent("pi")` 原先在
+  defaultProvider 不是组内 id 时**遍历 models.json 全部条目**找凭据命中——
+  而本应用切换只 upsert、从不删旧条目，历史条目会一直躺在文件里，于是「pi
+  实际用着用户手写的别的路由」被误判成某个历史供应商正在生效；现在改为只按
+  defaultProvider 指向的那一条条目匹配，仅当该键为空或悬空（配置已不自洽）
+  才退回遍历全部条目（保留原行为与既有测试）。探测同时改用 readJsonPassive，
+  坏文件不再被 detect 挪走。②切换原先把 providers[id].models 覆盖成
+  `[主模型]`，用户在该 provider 下配的其它模型被静默删掉；现在保留既有清单，
+  只在缺少主模型时补一条，且**按原元素形状**补（裸标量或 `{"id": ...}` 对象
+  都认，新增 `modelEntryId`/`modelListContains` 共享助手）。③收编时
+  defaultModel 缺失则回退到条目第一个模型（与 dsh 一致），否则收编出来的
+  供应商没有模型、再切换就把清单写丢。
+- ✅ 卡片状态文本限宽（2026-10-01）：用量查询失败曾让整行不可用——失败文本是
+  「查询失败：查询用量失败：HTTP 404（URL）—— 响应体前 200 字」，而卡片中间
+  状态行是三段式「信息列（Grow）｜状态（固定）｜操作组（固定）」里的固定段，
+  Row 的非 Grow 子项按 intrinsic 宽度参与布局，一条 1000+pt 的文本会把信息列
+  挤到 0 宽（名称竖排）并把右侧六个操作图标整个顶出卡片（切换/编辑/复制/删除
+  全部点不到）。修复两层：①显示层统一「取首行 + 预览列数上限（26 列 ≈ 13 个
+  汉字 ≈ 143pt）+ Frame.max_width 150」，被截掉的完整文本进 Tooltip（预览与
+  全文等价时不挂，避免无信息浮层）；②失败文本本身改成两行——首行是短原因
+  （`HttpFailure::Summary()`：HTTP 失败即「HTTP 404」，传输失败即平台错误
+  消息），次行是原来的完整上下文（URL + 响应体摘要），toast 与 Tooltip 仍看到
+  全文。无头 UiTest 探针（tests/ui_layout_probe.cpp，未跟踪，见其文件头构建
+  说明）实测：修复前受影响卡片的 6 个操作图标 x=[1080,1340] 全部
+  in_viewport=false；修复后 800×600 与 1080×720 两个视口下图标全在卡内，且在
+  图标中心真实点击能触发切换（该卡挂上「使用中」徽章）。
+- ✅ dsh 官方模型条目字段（2026-10-01）：此前 dsh 新增/编辑表单只有推理档位，
+  Provider 也只存 reasoningEfforts——收编一条手写路由后再切换，用户的容量与
+  视觉声明就被写丢。字段清单与取值口径取自本机安装的 dsh 插件
+  （`@deepseek-ai/dsh-llm-pi-ai` 的 `lib/types/config.d.ts` / `catalog.d.ts`：
+  `PiAiModelProfile` 的 id / name / contextWindow / maxTokens / input /
+  reasoningEfforts，以及 `MODALITIES = [text, image]`、
+  `THINKING_LEVELS = [off…max]`——档位表与既有 `reasoningLevels()` 完全一致）。
+  新增：Provider 的 `contextWindow` / `maxTokens`（0 = 不声明）与
+  `inputModalities`（text/image）；表单多出一块「输入模态 + 容量」chips/输入框
+  （容量接受 `131072` / `256K` / `1M`，与 dsh 官方设置页同一套 K/M 拼写，
+  `models::parseTokenCount` / `formatTokenCount`）；写入端在模型条目里按官方
+  顺序落盘 `contextWindow` → `maxTokens` → `input: [text, image]` →
+  `reasoningEfforts`，未声明一律不写（dsh 退回 catalog 值/路由默认）；
+  读取端认块风格、同行 flow（`input: [text, image]`、
+  `reasoningEfforts: { "off": null, medium: medium }`）与 K 后缀容量。
+  **text 是底座**：非空模态清单一律补齐 text（只声明 image 等于声明这个模型
+  收不了文字），空清单仍是「不声明」；chips 里勾「图像」自动带上「文本」、
+  取消「文本」整份声明一起灭。另修一处官方键丢失：agent-default-model 块
+  重写时保留用户选的 `reasoningEffort`（dsh 的模型选择状态，每切一次都被清掉
+  就是丢设置）。无头 UiTest 探针（tests/ui_dsh_form_probe.cpp，未跟踪）实测
+  完整路径「打开 dsh 新增页 → 选 DeepSeek 预设 → 勾图像 → 上下文窗口填 1M、
+  最大输出填 256K → 添加 → 切换」：config.json 装配出
+  `inputModalities:[text,image]`、`contextWindow:1000000`、`maxTokens:256000`，
+  live settings.yaml 落成官方形状；撤掉表单区块或撤掉装配代码，探针分别以
+  退出码 1 / 2 复现。test_store 覆盖写入形状、未声明不写、块/flow 读回、
+  容量拼写与模态底座规则（四处均做反向验证：撤掉修复后分别 4 / 10 / 7 / 1
+  项断言失败）。
+- ✅ dsh 凭据文档布局修复（2026-10-02）：`.credentials.yaml` 是 dsh 的
+  **version 1 布局**——顶层只允许 version / refs / records，引用名在 `refs:`
+  块内（缩进 2）。此前 `upsertDshCredential` 把 `LLMSWITCH_<ID>: "…"` 追加到
+  顶层，dsh 解析时直接拒绝**整份文档**
+  （`credentials-local: unknown top-level key "LLMSWITCH_…"`），于是所有密钥
+  一起失效、连用户自己存的 C_API_KEY 都读不出来，所有手工路由都报凭据缺失
+  ——dsh 完全不可用。修复：先认布局再落笔（有 `refs:` 块就写块内、`refs: {}`
+  摊平成块风格、其它 flow 值明确报错不硬写；没有 version 的预发布 flat 布局
+  仍写顶层；空文件建 version 1 骨架），并把旧版本写到顶层的 `LLMSWITCH_*`
+  残留迁回 refs 块（值保留、refs 里已有的同名引用为准），下一次写入即自愈；
+  读侧（adopt/importLive）只认 refs 块内的引用。test_store 8d10 覆盖布局/
+  迁移/去重/骨架，实机文件已修复（原件备份在 backups/dsh/），并用 dsh 自己的
+  `parseCredentialsDocument` 验证可解析。
+- ✅ ZCode 同步 dsh 的增量模式（2026-10-02）：`~/.zcode/v2/config.json` 的
+  provider map 与 dsh 同为「多条目并存 + 一个当前指向」，供应商页改走左右
+  两列（ToolSpec.additiveProviders，providers_zcode.cpp）。写侧单条增量：
+  `writeZcodeEntry`（私有单条 upsert，原生条目走 mergeZcodeEntry 原位合并）与
+  `eraseZcodeEntry`（私有单条删除）是全部实现，公开入口 `writeZcodeProvider` /
+  `adoptZcodeProvider` / `removeZcodeProvider` / `enableZcodeKey`（左列「在 ZCode
+  中启用」= 只翻 enabled）/ `syncZcodeProviders`（整组重建
+  只此一处）+ 增改复制删与 `switchTo` 都走它们；`zcodeLiveProviders` 是左列
+  实况快照（key / providerId / builtin / enabled / 模型清单）。与 dsh 的两处
+  差别：**默认指向是条目自己的 enabled**（ZCode 允许多条同时启用，本应用只
+  保证自己托管的 llmswitch:* 互斥——切换只翻 enabled，内容一字不动；正因它是
+  live 自己的状态，这个动作与 dsh 一样放在**左列**，未纳管的原生条目也能直接
+  启用，右列只留写入 / 收编 / 删除）、
+  **密钥就在条目里**（没有独立凭据文档）。「保留 ZCode 自己的配置」是硬约束：
+  原生条目（键由 ZCode 生成）收编时**不改名也不改写**、只是开始被本应用记录；
+  写入/更新原位合并、保留它自己维护的字段（options 其它键、
+  systemDisabledReason 等）；builtin:* 不收编不删除（启停也不代管）；整组重建只写成
+  llmswitch:<id>（已有原生键的原位更新）并清孤儿 llmswitch:*。
+  `removeProvider` 的 `eraseLive` 对 zcode 同样生效（右列删除确认的三键弹窗）。
+  右列每行的「写入 / 更新」用 `write.svg`（与 dsh 同一枚：文件 + 插入的一条
+  墨块 = 只写这一条）。
+- ✅ dsh / zcode 双列页减压（2026-10-03）：两个工具页是全应用挂载节点最多的
+  页面（一屏两个 VirtualList），而 linux 后端的 cairo/GSK 批次没有跨帧缓存——
+  任何重绘都按已挂载节点重新光栅，所以「特别卡顿」的根因是**预取太贪 + 行内
+  文本节点太多**，不是 store 读文件（`dshLiveProviders` 21 条 0.13ms、
+  `zcodeLiveProviders` 36 条 0.18ms；页面体实测每次挂载只跑一次，不是逐帧）。
+  两处改动：四个列表的 `CacheExtent(480.0F)` → `128.0F`；行内的「键 · 模型」与
+  「访问地址」两行合成一条 `DshMetaLine` / `ZcodeMetaLine`（一条 Text，URL 长了
+  照旧折行）。实测（无头探针逐帧 Pump，claude-code 单列页为对照）：一屏挂载
+  dsh 250 → 201 节点、zcode 256 → 193，静止帧中位数 dsh 10.4 → 8.8ms、
+  zcode 11.2 → 8.6ms（对照 5.2ms 未变），滚动帧均值 dsh 17.6 → 10.1ms、
+  zcode 14.5 → 8.9ms。绝对值随机器负载浮动，看的是与对照页的比值。探针留在
+  tests/（未跟踪，不进 CTest）。
+- ✅ 退役 Gemini CLI / Qwen Code（2026-10-03）：两个工具从注册表整体移除
+  （`kToolRegistry` 10 → 8 个，`routerTools` 默认清单同步），连带删掉它们的
+  live 通道与全部支持面——`.env` 行级 upsert + settings.json 深合并
+  auth 类型（store 的 switchTo / restoreOfficial / importLive /
+  detectCurrent）、`cfg::gemini*/qwen*` 路径与环境变量、用量账本的 Qwen
+  解析器（`ParseQwen`）与扫描根、工具图标映射、对应的领域层测试与
+  `GEMINI.md`。工具组本身消失后：config.json 里遗留的 gemini/qwen 组不再
+  渲染（数据保留、不主动删）；它们作为**其它工具的端点预设**（claude-code
+  / codex / dsh 下的「千问（阿里百炼）」等）与厂商 logo `qwen.svg` 保留
+  不动——那是端点，不是工具支持。`gemini.svg` 已无引用，暂留。
+- ⬜ 待做：订阅站端点可能随各家调整，升级版本时需复核；无 CLI 分流、
+  无单实例/开机自启；`usage.db` 的 WAL 一致性备份（当前不在 `backups/` 覆盖内）。
+
 ## UI 视觉硬约束
 
 - 总体风格是冷调石板的“岛屿风”：环境层只有一层主题派生的程序化光晕，内容
@@ -113,6 +990,24 @@ Claude、Codex、Gemini、Copilot、Cursor、Windsurf 及其他自动化 agent �
   跟随系统，深色外环突出表示深色，浅色外环突出表示浅色；点击循环切换
   `system → dark → light`。悬停时持续旋转，移出时冻结在当下角度并保留状态。
 - 保证交互可辨识、文本对比度和响应式布局；环境装饰不能牺牲信息层级或功能识别。
+
+
+## UI 资源约束
+
+- 24×24 功能图标遵守 `resources/README.md` 的单套无色图标规范；深浅模式
+  由运行时 tint 自适应，禁止维护 `_selected/_dark/_light` 重复资源。CMake 会
+  在配置期检查 `#FFFFFF` alpha-mask 与 `_selected` 重复资源。
+- 新增 `models::kToolRegistry` Agent 时，必须为 `ToolSpec::iconName` 添加对应的
+  `resources/images/*.svg`，更新 `ToolIcon()` 映射、图标来源与许可表，并补充
+  注册表/图标对应关系测试；UI 不得静默回退到通用 Agent 图标。
+- 新增 `builtinPresets()` 默认供应商模板时，必须给每个厂商指定可复用的厂商
+  图标（优先官方标志；没有合适素材时可自绘缩写），在
+  `models::builtinPresetIconName()` 与 UI `PresetIcon()` 登记映射，并让订阅与按量
+  模板入口都显示该图标；同一厂商跨 Agent/计费组复用一枚图标。新增资源时同步
+  更新来源与许可表，并在测试中检查模板图标映射完整。
+- 太极主题选择器、轻岛屿表面和卡片规范见 `CLAUDE.md` 的“UI 硬约束”。
+- 图标表现必须通过项目的 `IconButton`/主题 tint 管线完成，不为深浅模式复制资源，
+  不依赖 SVG 自带的固定前景色。
 
 ## 修改完成后的固定流程
 
@@ -145,20 +1040,3 @@ Claude、Codex、Gemini、Copilot、Cursor、Windsurf 及其他自动化 agent �
 - 默认不改写历史，不使用 `push --force`；除非用户明确要求，否则不执行变基或
   amend 已公开提交。
 - 用户明确要求的“每次保存”指创建本地 commit，不只是保留未提交工作区修改。
-
-## UI 资源约束
-
-- 24×24 功能图标遵守 `resources/README.md` 的单套无色图标规范；深浅模式
-  由运行时 tint 自适应，禁止维护 `_selected/_dark/_light` 重复资源。CMake 会
-  在配置期检查 `#FFFFFF` alpha-mask 与 `_selected` 重复资源。
-- 新增 `models::kToolRegistry` Agent 时，必须为 `ToolSpec::iconName` 添加对应的
-  `resources/images/*.svg`，更新 `ToolIcon()` 映射、图标来源与许可表，并补充
-  注册表/图标对应关系测试；UI 不得静默回退到通用 Agent 图标。
-- 新增 `builtinPresets()` 默认供应商模板时，必须给每个厂商指定可复用的厂商
-  图标（优先官方标志；没有合适素材时可自绘缩写），在
-  `models::builtinPresetIconName()` 与 UI `PresetIcon()` 登记映射，并让订阅与按量
-  模板入口都显示该图标；同一厂商跨 Agent/计费组复用一枚图标。新增资源时同步
-  更新来源与许可表，并在测试中检查模板图标映射完整。
-- 太极主题选择器、轻岛屿表面和卡片规范见 `CLAUDE.md` 的“UI 硬约束”。
-- 图标表现必须通过项目的 `IconButton`/主题 tint 管线完成，不为深浅模式复制资源，
-  不依赖 SVG 自带的固定前景色。
