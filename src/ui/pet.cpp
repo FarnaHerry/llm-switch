@@ -1,12 +1,14 @@
 // pet.cpp — AI 桌宠实现：莲花球视觉（NodeExtension 逐帧重绘）、活动状态轮询、
 // 指针交互与右键菜单。视觉为 llm-switch 冷调石板族的固定深色玻璃球，品牌莲花
 // （lotus_bloom_raster，冷白 alpha-mask）居中呼吸：辉光与缩放随相位起伏，
-// 空闲 ~6s 一个呼吸周期，路由请求完成后 3s 内进入 thinking（呼吸更深更快 +
-// 装饰弧提亮），最近一次请求失败 6s 内叠加误差红脉冲外环；底部角标显示今日
-// 请求数。
-// 动画走 NodeExtension 的保留绘制（30fps 上限，reduced-motion 下静止），统计
-// 轮询走 TaskScope + Delay（每秒一次，窗口退役时随作用域取消）。右键菜单经
-// PetThemeDefinition 套主应用同款主题（深浅随 Poll 跟随）。
+// 空闲 ~6s 一个呼吸周期。状态词汇（全部由路由侧推导，Poll 每秒推进）：
+//   streaming（在途请求 > 0）呼吸更深更快 + 装饰弧提亮；最近一次请求失败
+//   6s 内叠加误差红脉冲（failure）；一波活动批次（含成功请求）静默 ≥8s 结束
+//   后右上角挂 ✓ 完成提醒（done，静态绘制，点击/右键/新批次消解）；
+//   底部角标显示今日请求数，顶部浮标显示活跃 Agent（≤2 个）。
+// 动画走 NodeExtension 的保留绘制（30fps 上限，reduced-motion 下静止——✓ 与
+// 浮标仍显示），统计轮询走 TaskScope + Delay（每秒一次，窗口退役时随作用域
+// 取消）。右键菜单经 PetThemeDefinition 套主应用同款主题（深浅随 Poll 跟随）。
 #include <huxerui/huxerui.h>
 
 #include <chrono>
@@ -39,8 +41,9 @@ using huxerui::Rect;
 
 struct Orb {
     class Extension;
-    bool thinking = false;
+    bool streaming = false;
     bool failure = false;
+    bool done = false;  // 完成提醒挂起（✓ 标记，静态绘制）
     bool animate = true;
     // 品牌莲花（组合期经 UseImage 解析；白色 alpha-mask，衬在深色玻璃球上
     // 无需 tint）。ImageAsset 值语义共享编码存储，比较为内含标识比较。
@@ -57,9 +60,9 @@ void PaintOrb(huxerui::PaintContext& paint, huxerui::Size size, float phase,
     if (radius <= 0.0F) return;
     const Rect bounds{center.x - radius, center.y - radius, radius * 2.0F, radius * 2.0F};
     const huxerui::Path circle = huxerui::Path::RoundedRect(bounds, huxerui::CornerRadii{radius});
-    // 辉光随呼吸起伏；thinking 时基准更亮。
+    // 辉光随呼吸起伏；streaming 时基准更亮。
     const float intensity =
-        (orb.thinking ? 1.0F : 0.6F) * (1.0F + 0.12F * std::sin(phase));
+        (orb.streaming ? 1.0F : 0.6F) * (1.0F + 0.12F * std::sin(phase));
 
     // 球外环境辉光：透明窗口上形成一圈淡青晕。
     paint.DrawRect({center.x - radius * 1.24F, center.y - radius * 1.24F,
@@ -93,9 +96,9 @@ void PaintOrb(huxerui::PaintContext& paint, huxerui::Size size, float phase,
     });
 
     // 品牌莲花居中呼吸（白色 alpha-mask 栅格，衬深色玻璃球）：缩放随相位
-    // 起伏，thinking 时呼吸更深更快——OnFrame 的 phase 步长控制呼吸周期。
+    // 起伏，streaming 时呼吸更深更快——OnFrame 的 phase 步长控制呼吸周期。
     if (orb.lotus.HasValue()) {
-        const float breathe = 1.0F + (orb.thinking ? 0.060F : 0.035F) * std::sin(phase);
+        const float breathe = 1.0F + (orb.streaming ? 0.060F : 0.035F) * std::sin(phase);
         const float lotus_radius = radius * 0.58F * breathe;
         const Rect lotus_bounds{center.x - lotus_radius, center.y - lotus_radius,
                                 lotus_radius * 2.0F, lotus_radius * 2.0F};
@@ -127,8 +130,8 @@ void PaintOrb(huxerui::PaintContext& paint, huxerui::Size size, float phase,
                       Color::Rgb(240, 115, 108, pulse),
                       huxerui::StrokeStyle{.width = 2.2F, .cap = huxerui::StrokeCap::Round});
     }
-    // thinking：装饰弧随呼吸提亮；空闲退化为固定低亮弧。
-    if (orb.thinking) {
+    // streaming：装饰弧随呼吸提亮；空闲退化为固定低亮弧。
+    if (orb.streaming) {
         const float breathe = 0.34F + 0.22F * (0.5F + 0.5F * std::sin(phase));
         paint.DrawArc(center, radius * 0.94F, 3.80F, 0.86F,
                       Color::Rgb(224, 242, 254, breathe),
@@ -137,6 +140,24 @@ void PaintOrb(huxerui::PaintContext& paint, huxerui::Size size, float phase,
         paint.DrawArc(center, radius * 0.94F, 3.80F, 0.86F,
                       Color::Rgb(224, 242, 254, 0.28F),
                       huxerui::StrokeStyle{.width = 0.8F, .cap = huxerui::StrokeCap::Round});
+    }
+
+    // 完成提醒：右上角 ✓ 徽标（静态绘制，不随相位动——reduced-motion 下
+    // 同样显示），点击桌宠或右键消解。冷白底 + 石墨对勾，与球体形成正负形。
+    if (orb.done) {
+        const Point badgeCenter{center.x + radius * 0.72F, center.y - radius * 0.72F};
+        const float badgeRadius = radius * 0.30F;
+        paint.DrawCircle(badgeCenter, badgeRadius, Color::Rgb(224, 242, 254, 0.96F));
+        const huxerui::StrokeStyle check{.width = badgeRadius * 0.28F,
+                                .cap = huxerui::StrokeCap::Round,
+                                .join = huxerui::StrokeJoin::Round};
+        const float k = badgeRadius * 0.45F;
+        paint.DrawLine({badgeCenter.x - k, badgeCenter.y},
+                       {badgeCenter.x - k * 0.25F, badgeCenter.y + k * 0.7F},
+                       Color::Rgb(26, 30, 34), check);
+        paint.DrawLine({badgeCenter.x - k * 0.25F, badgeCenter.y + k * 0.7F},
+                       {badgeCenter.x + k, badgeCenter.y - k * 0.55F},
+                       Color::Rgb(26, 30, 34), check);
     }
 }
 
@@ -156,8 +177,8 @@ public:
         const float delta = static_cast<float>(std::clamp(frame.delta_time, 0.0, 0.1));
         if (delta > 0.0F) {
             constexpr float wave_cycle = 20.0F * std::numbers::pi_v<float>;
-            // 呼吸周期：空闲 ~6s，thinking ~2.5s。
-            phase_ = std::fmod(phase_ + delta * (orb_.thinking ? 2.5F : 1.0F), wave_cycle);
+            // 呼吸周期：空闲 ~6s，streaming ~2.5s。
+            phase_ = std::fmod(phase_ + delta * (orb_.streaming ? 2.5F : 1.0F), wave_cycle);
             InvalidatePaint();
         }
         return {.wake_after = 1.0 / 30.0};
@@ -183,6 +204,31 @@ huxerui::View TodayBadge(std::int64_t today) {
         .With(huxerui::Align(huxerui::HorizontalAlignment::Center,
                              huxerui::VerticalAlignment::End),
               huxerui::Padding(huxerui::EdgeInsets{.bottom = 6.0F}));
+}
+
+// 活跃 Agent 浮标：顶缘居中的一枚玻璃药丸，内嵌最多 2 个 Agent 图标
+//（ToolIcon 的白色 alpha-mask 经 Tint 映冷白）。白龙「双会话」同款语义。
+huxerui::View ActiveAgentBadge(const std::vector<std::string>& tools) {
+    std::vector<huxerui::View> icons;
+    for (const std::string& tool : tools) {
+        icons.push_back(huxerui::Image(ToolIcon(tool))
+                            .Tint(Color::Rgb(224, 242, 254))
+                            .With(huxerui::Frame{.width = 14.0F, .height = 14.0F}));
+    }
+    std::string label;
+    for (std::size_t i = 0; i < tools.size(); ++i) {
+        if (i > 0) label += "、";
+        label += ToolName(tools[i]);
+    }
+    return huxerui::Row{std::move(icons)}
+        .With(huxerui::Spacing(5.0F),
+              huxerui::Padding(huxerui::EdgeInsets::Symmetric(7.0F, 3.0F)),
+              huxerui::Background(Color::Rgb(16, 18, 20, 0.72F)),
+              huxerui::CornerRadius(9.0F),
+              huxerui::Semantics{.label = std::format("活跃 Agent：{}", label)})
+        .With(huxerui::Align(huxerui::HorizontalAlignment::Center,
+                             huxerui::VerticalAlignment::Start),
+              huxerui::Padding(huxerui::EdgeInsets{.top = 6.0F}));
 }
 
 } // namespace
@@ -220,25 +266,74 @@ void PetController::Poll() {
     auto& router = routerInstance();
     const std::int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now().time_since_epoch()).count();
-    // thinking 用短窗（请求完成后波纹提亮 3s）；failure 长窗（红脉冲停留
-    // 6s，比波纹更晚消失，让用户注意到失败）。
-    constexpr std::int64_t kThinkingWindowMs = 3000;
+    // streaming 是真状态（在途计数），不再用「最近完成」猜测窗；failure
+    // 脉冲窗 6s；批次静默 8s 判定结束（结束且含成功请求 → 完成提醒）；
+    // 活跃 Agent 看 60s 窗口。
     constexpr std::int64_t kFailureWindowMs = 6000;
-    bool next_thinking = false;
+    constexpr std::int64_t kBatchQuietMs = 8000;
+    constexpr std::int64_t kActiveToolWindowMs = 60000;
+    const std::vector<router::RequestLog> logs = router.recentLogs(24);
+
+    // 首个 Poll 只对齐水位：启动时的历史日志不算新活动（否则一开桌宠就
+    // 凭旧日志挂出完成提醒）。
+    if (firstPoll) {
+        firstPoll = false;
+        if (!logs.empty()) lastSeenLogTs = logs.front().tsMillis;
+    }
+
+    // 新完成请求（水位推进）与成败归并。
+    bool newActivity = false;
+    bool newSuccess = false;
+    for (const auto& log : logs) {
+        if (log.tsMillis <= lastSeenLogTs) continue;
+        newActivity = true;
+        lastSeenLogTs = log.tsMillis;
+        if (log.status >= 200 && log.status < 400) newSuccess = true;
+    }
+
+    const bool next_streaming = router.running() && router.inflight() > 0;
+
+    // 活动批次状态机：在途或新完成都算「有流量」；静默超时判定批次结束，
+    // 含成功请求则挂完成提醒（点击 / 右键 / 新批次消解）。
+    if (next_streaming || newActivity) {
+        if (!batchActive) {
+            batchActive = true;
+            batchAnySuccess = false;
+            if (donePendingAck.Get()) donePendingAck = false;
+        }
+        batchAnySuccess = batchAnySuccess || newSuccess;
+        lastActivityMs = now;
+    } else if (batchActive && now - lastActivityMs >= kBatchQuietMs) {
+        batchActive = false;
+        if (batchAnySuccess) donePendingAck = true;
+    }
+
+    // failure：最新一条日志在脉冲窗内且失败（传输失败或 ≥400）。
     bool next_failure = false;
-    if (router.running()) {
-        const std::vector<router::RequestLog> logs = router.recentLogs(1);
-        if (!logs.empty()) {
-            const std::int64_t age = now - logs.front().tsMillis;
-            if (age <= kThinkingWindowMs) next_thinking = true;
-            if (age <= kFailureWindowMs &&
-                (logs.front().status == 0 || logs.front().status >= 400)) {
-                next_failure = true;
-            }
+    if (!logs.empty()) {
+        const auto& newest = logs.front();
+        if (now - newest.tsMillis <= kFailureWindowMs &&
+            (newest.status == 0 || newest.status >= 400)) {
+            next_failure = true;
         }
     }
-    if (thinking.Get() != next_thinking) thinking = next_thinking;
+
+    if (streaming.Get() != next_streaming) streaming = next_streaming;
     if (failure.Get() != next_failure) failure = next_failure;
+
+    // 活跃 Agent：60s 窗口内有请求的工具，按最近时间序去重，最多 2 个
+    //（白龙「最多两个会话、更多轮换」的同款语义）。
+    std::vector<std::string> next_tools;
+    for (const auto& log : logs) {  // 新的在前：先见即更近
+        if (now - log.tsMillis > kActiveToolWindowMs) break;
+        if (std::find(next_tools.begin(), next_tools.end(), log.tool) ==
+            next_tools.end()) {
+            next_tools.push_back(log.tool);
+        }
+        if (next_tools.size() == 2) break;
+    }
+    if (activeTools.Get() != next_tools) activeTools = next_tools;
+
     const std::int64_t next_today = router.snapshot().todayRequests;
     if (todayRequests.Get() != next_today) todayRequests = next_today;
     // 主题跟随（与主应用同一规则：显式深浅优先，否则系统偏好）。
@@ -357,6 +452,8 @@ huxerui::View PetContent() {
 
     const bool visible = window.LifecycleState() != huxerui::WindowLifecycleState::Background;
     const std::int64_t today = controller->todayRequests.Get();
+    const std::vector<std::string> activeTools = controller->activeTools.Get();
+    const bool donePending = controller->donePendingAck.Get();
     // 品牌莲花在组合期解析成光栅资源（UseImage 只收光栅——SVG 资源会抛
     // invalid_argument，故走 lotus_bloom_raster 家族），经 Orb 修饰器带进
     // 保留绘制。
@@ -364,20 +461,31 @@ huxerui::View PetContent() {
         huxerui::UseImage(app::images::lotus_bloom_raster);
 
     // Orb 是保留型节点修饰器（NodeExtension，挂在 Stack 节点上整窗作画），
-    // 角标是 Stack 的普通子节点（底缘居中悬浮在球体下沿）。
+    // 角标（今日次数，底缘）与活跃 Agent 浮标（顶缘）是 Stack 的普通子节点。
     std::vector<huxerui::View> children;
+    if (!activeTools.empty()) children.push_back(ActiveAgentBadge(activeTools));
     if (today > 0) children.push_back(TodayBadge(today));
     huxerui::View content = huxerui::Stack{std::move(children)}.With(
         huxerui::Indication{},
-        Orb{.thinking = controller->thinking.Get(),
+        Orb{.streaming = controller->streaming.Get(),
             .failure = controller->failure.Get(),
+            .done = donePending,
             .animate = visible && controller->animate.Get(),
             .lotus = lotus},
         huxerui::DragGesture{},
         huxerui::Semantics{
             .role = huxerui::SemanticRole::Button,
-            .label = "llm-switch AI 桌宠。点击打开主窗口；拖拽移动；右键打开菜单。"})
-        .OnClick([activation] { activation->Activate(); })
+            .label = donePending
+                         ? "llm-switch AI 桌宠。有任务完成：点击消解提醒。"
+                         : "llm-switch AI 桌宠。点击打开主窗口；拖拽移动；右键打开菜单。"})
+        .OnClick([controller, activation, donePending] {
+            // 完成提醒挂起时点击 = 消解标记（白龙同款）；否则打开主窗口。
+            if (donePending) {
+                controller->AckDone();
+            } else {
+                activation->Activate();
+            }
+        })
         .On<huxerui::DragEvents::Started>(
             [window](const huxerui::DragEvent&) { static_cast<void>(window.BeginMove()); })
         .On<huxerui::ViewEvents::ContextMenuRequested>(
@@ -385,6 +493,11 @@ huxerui::View PetContent() {
              trayAvailable](huxerui::Point position) {
                 const int routerPort = providerStore().config().routerPort;
                 menu.ShowAt(position, {
+                    huxerui::MenuItem(
+                        "消解完成提醒",
+                        [controller] { controller->AckDone(); })
+                        .Enabled(controller->donePendingAck.Get()),
+                    huxerui::MenuSection{},
                     huxerui::MenuItem(
                         std::format("本地路由（127.0.0.1:{}）", routerPort),
                         [toast] {

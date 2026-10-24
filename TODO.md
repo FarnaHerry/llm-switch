@@ -49,9 +49,9 @@
 桌宠；P0 路由真状态 + 分 Agent 感知 + 完成提醒 → P1 胶囊/信息卡双形态 +
 用量贯通 → P2 闲聊/主动搭话/对外事件 API）。此处只留批次勾选：
 
-- [ ] P0-1 路由侧真状态：`LocalRouter::inflight()` + Poll 按 tool 聚合 +
+- [x] P0-1 路由侧真状态：`LocalRouter::inflight()` + Poll 按 tool 聚合 +
       完成提醒状态机（批次结束静默 ≥8s 挂 ✓，点击/新批次消解）。
-- [ ] P0-2 桌宠视觉承接：streaming 呼吸参数、活跃 Agent 浮标（≤2 轮换）、
+- [x] P0-2 桌宠视觉承接：streaming 呼吸参数、活跃 Agent 浮标（≤2 轮换）、
       ✓ 标记与点击分流、右键消解入口。
 - [ ] P1-1 胶囊/信息卡双形态：petCompact 胶囊模式 + owner 锚定卡片
       （各 Agent 今日请求/tokens/当前供应商）+ 跳转主窗页面。

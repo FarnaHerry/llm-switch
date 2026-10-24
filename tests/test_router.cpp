@@ -426,6 +426,111 @@ int main() {
         CHECK(!fs::exists(cfg::statsFile()));
     }
 
+    // 5b. 在途计数：通过校验的请求在转发期间 inflight()==1，完成/中止归零；
+    //     校验拒绝（未知工具/未启用）不计入。可阻塞会话 + promise 门闩
+    //     让断言能观察到「Send 进行中」的中间态。
+    {
+        class BlockingSession final : public router::UpstreamSession {
+        public:
+            std::promise<void> entered;
+            std::mutex mu;
+            std::condition_variable cv;
+            bool released = false;
+            bool aborted = false;
+
+            router::UpstreamResponse Send(
+                const router::UpstreamRequest&) override {
+                entered.set_value();
+                // 阻塞直至放行或中止（条件变量——AbortInFlight 换掉 promise
+                // 成员唤不醒已进入 wait 的 Send，必须共享同一份状态）。
+                std::unique_lock lk(mu);
+                cv.wait(lk, [this] { return released || aborted; });
+                router::UpstreamResponse out;
+                if (aborted) out.error = "测试中止";
+                return out;
+            }
+            void AbortInFlight() override {
+                {
+                    std::lock_guard lk(mu);
+                    aborted = true;
+                }
+                cv.notify_all();
+            }
+            void Release() {
+                {
+                    std::lock_guard lk(mu);
+                    released = true;
+                }
+                cv.notify_all();
+            }
+        };
+
+        models::ProviderGroup group;
+        group.providers.push_back(models::Provider{
+            .id = "p1", .name = "供应商甲", .baseUrl = "http://127.0.0.1:1"});
+        group.current = "p1";
+        std::map<std::string, models::ProviderGroup> blockingGroups{
+            {"claude-code", group}};
+        const auto blockingResolver =
+            [&blockingGroups](
+                std::string_view tool) -> std::optional<models::ProviderGroup> {
+            if (const auto it = blockingGroups.find(std::string(tool));
+                it != blockingGroups.end()) {
+                return it->second;
+            }
+            return std::nullopt;
+        };
+
+        // 5b-1：正常完成路径。
+        {
+            auto session = std::make_shared<BlockingSession>();
+            router::LocalRouter rt(blockingResolver, session);
+            rt.start(0);
+            CHECK(rt.inflight() == 0);
+            // 校验拒绝不计入：未知工具 404 走不到上游。
+            {
+                httplib::Client cli("127.0.0.1", rt.port());
+                auto res = cli.Get("/no-such-tool/v1/x");
+                CHECK(res && res->status == 404);
+            }
+            CHECK(rt.inflight() == 0);
+
+            auto enteredFuture = session->entered.get_future();
+            bool clientOk = false;
+            std::thread client([&] {
+                httplib::Client cli("127.0.0.1", rt.port());
+                auto res = cli.Post("/claude-code/v1/messages", "{}",
+                                    "application/json");
+                clientOk = static_cast<bool>(res);  // 连接不被拒绝即认为请求完成
+            });
+            enteredFuture.wait();
+            CHECK(rt.inflight() == 1);  // Send 进行中
+            session->Release();
+            client.join();
+            CHECK(clientOk);  // 断言统一在 join 后做，避免跨线程写 g_failures
+            CHECK(rt.inflight() == 0);  // 完成归零
+            rt.stop();
+        }
+
+        // 5b-2：stop() 的 AbortInFlight 中止路径同样归零。
+        {
+            auto session = std::make_shared<BlockingSession>();
+            router::LocalRouter rt(blockingResolver, session);
+            rt.start(0);
+            auto enteredFuture = session->entered.get_future();
+            std::thread client([&] {
+                httplib::Client cli("127.0.0.1", rt.port());
+                static_cast<void>(cli.Post("/claude-code/v1/messages", "{}",
+                                           "application/json"));
+            });
+            enteredFuture.wait();
+            CHECK(rt.inflight() == 1);
+            rt.stop();  // AbortInFlight 唤醒 Send → 失败出口 → 计数归零
+            client.join();
+            CHECK(rt.inflight() == 0);
+        }
+    }
+
     // 6. 清理临时目录
     up1.stop();
     up2.stop();

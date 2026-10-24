@@ -96,6 +96,11 @@ public:
     bool running() const;
     int port() const;  // 未运行返回 0
 
+    // 在途请求数：已通过校验（工具/开关/供应商解析）、正在尝试上游转发的
+    // 客户端请求数（故障转移的一串尝试算 1）。供桌宠等 UI 推导 streaming
+    // 状态；stop() 的 AbortInFlight 中止路径同样递减，不泄漏。
+    int inflight() const;
+
     // 故障转移开关（默认关）：上游 429/5xx/连接失败时按组内顺序试下一个供应商。
     void setFailoverEnabled(bool enabled);
 

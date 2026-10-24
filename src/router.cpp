@@ -211,6 +211,9 @@ struct LocalRouter::Impl {
     std::atomic<bool> isRunning{false};
     std::atomic<int> boundPort{0};
     std::atomic<bool> failover{false};
+    // 在途上游转发计数：通过校验的请求 +1、任何出口（含 AbortInFlight
+    // 中止与实现抛异常）-1。独立于统计锁——热路径计数不与 JSONL 写盘排队。
+    std::atomic<int> inflightCount{0};
 
     mutable std::mutex settingsMu;
     std::unordered_set<std::string> enabledTools;
@@ -362,6 +365,13 @@ struct LocalRouter::Impl {
                 if (i != curIdx) order.push_back(i);
             }
         }
+        // 在途计数守卫：从这里起请求正式尝试上游，循环的中止/失败/异常
+        // 出口都由析构统一 -1（故障转移的一串尝试算一次在途）。
+        inflightCount.fetch_add(1, std::memory_order_release);
+        const struct InflightRelease {
+            std::atomic<int>& count;
+            ~InflightRelease() { count.fetch_sub(1, std::memory_order_release); }
+        } inflightRelease{inflightCount};
         UpstreamResponse last;
         for (std::size_t k = 0; k < order.size(); ++k) {
             const auto& provider = group->providers[order[k]];
@@ -544,6 +554,9 @@ void LocalRouter::start(int port) { impl_->start(port); }
 void LocalRouter::stop() { impl_->stop(); }
 bool LocalRouter::running() const { return impl_->isRunning.load(); }
 int LocalRouter::port() const { return impl_->boundPort.load(); }
+int LocalRouter::inflight() const {
+    return impl_->inflightCount.load(std::memory_order_acquire);
+}
 void LocalRouter::setFailoverEnabled(bool enabled) { impl_->failover = enabled; }
 void LocalRouter::setToolEnabled(std::string_view toolId, bool enabled) {
     if (models::findTool(toolId) == nullptr) {

@@ -4,9 +4,11 @@
 // 是同一套能力的官方演示）；llm-switch 在其上做一个 AI 语义的桌宠：
 //   * 视觉：石墨玻璃球 + 居中呼吸的品牌莲花（lotus_bloom_raster，冷白
 //     alpha-mask，固定深色玻璃——桌面饰品在深浅桌面下都可读）；
-//   * 状态：每秒轮询本地路由统计——最近有请求完成时莲花呼吸加深加快
-//     （thinking），最近一次请求失败时外圈红脉冲（failure），底部角标显示
-//     今日请求数；
+//   * 状态（每秒轮询本地路由，全部由路由侧推导）：streaming（在途请求
+//     > 0，呼吸加深加快）、failure（最近一次请求失败的红脉冲窗）、
+//     donePendingAck（活动批次结束后的 ✓ 完成提醒，点击/右键/新批次消解）、
+//     activeTools（最近 60s 有请求的活跃 Agent，≤2 个，顶部浮标）、
+//     todayRequests（今日请求数，底部角标）；
 //   * 交互：点击打开主窗口，拖拽移动，右键菜单（路由开关 / 隐藏 / 退出），
 //     菜单经 PetThemeDefinition 套主应用同款主题。
 // 控制器由 InstallApplication 注册为应用级服务，设置页与托盘共用同一实例。
@@ -16,7 +18,9 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <string>
 #include <string_view>
+#include <vector>
 
 #include <huxerui/huxerui.h>
 
@@ -51,9 +55,17 @@ struct PetController {
     // UI 树与渲染资源（应用状态/托盘/进程继续运行），唤出时按进程内保留的
     // 位置与偏好重建，波纹相位从头开始。
     huxerui::State<bool> lightweight{false};
-    // AI 活动状态（Poll 写、组合读；State 变更驱动桌宠重组）：
-    huxerui::State<bool> thinking{false};      // 最近有路由请求完成
-    huxerui::State<bool> failure{false};       // 最近一次路由请求失败
+    // ---- AI 活动状态（Poll 每秒写、组合读；State 变更驱动桌宠重组）----
+    // streaming：路由在途请求 > 0（真状态，来自 LocalRouter::inflight）。
+    huxerui::State<bool> streaming{false};
+    // failure：最近一次路由请求失败（传输失败或 ≥400）后的红脉冲窗内。
+    huxerui::State<bool> failure{false};
+    // donePendingAck：一波活动批次（含成功请求）结束后的完成提醒，挂起
+    // 直到点击桌宠 / 右键消解 / 新批次开始（白龙同款「完成感叹号」语义）。
+    huxerui::State<bool> donePendingAck{false};
+    // 活跃 Agent（tool id，最近时间序，最多 2 个）：最近 60s 有路由请求
+    // 的工具，桌宠顶部浮标展示（白龙同款「最多两个会话」语义）。
+    huxerui::State<std::vector<std::string>> activeTools{};
     huxerui::State<std::int64_t> todayRequests{0};  // 今日路由请求数（角标）
     // 窗口存活性代次：Show/Retire 自增，托盘菜单以它为依赖跟随重建勾选态
     // （轻量级模式下隐藏即退役，托盘勾选必须随之消失）。
@@ -62,8 +74,19 @@ struct PetController {
     // 右键菜单与桌面不变时切换主题，桌宠菜单在一秒内跟上。
     huxerui::State<bool> darkTheme{true};
 
-    // 每秒由 PetContent 的 Delay 循环调用：读本地路由统计并刷新状态。
+    // ---- 批次状态机（Poll 私有，UI 线程独占，不进 State）----
+    // 首个 Poll 只对齐日志水位不算活动（启动时的历史日志不触发完成提醒）。
+    bool firstPoll = true;
+    std::int64_t lastSeenLogTs = 0;  // 已见过的最新日志时间戳
+    std::int64_t lastActivityMs = 0;
+    bool batchActive = false;
+    bool batchAnySuccess = false;
+
+    // 每秒由 PetContent 的 Delay 循环调用：读在途计数与最近日志，推进
+    // streaming / failure / donePendingAck / activeTools / todayRequests。
     void Poll();
+    // 消解完成提醒（点击桌宠或右键菜单入口）。
+    void AckDone() { donePendingAck = false; }
 
     void Show(const huxerui::ApplicationHandle& application);
     void Retire();

@@ -55,32 +55,34 @@ llm-switch 的桌宠（`src/ui/pet.h` / `pet.cpp`，v0.3.8 起随应用发布）
 
 **P0-1 路由侧真状态（领域层，先行）**
 
-- [ ] `LocalRouter` 增加在途请求计数 `inflight()`：请求进入转发时 +1、
-  完成（成功/失败/中止）时 -1；与现有统计同一把锁，`test_router` 增加
-  并发在途/异常路径不泄漏计数的断言。
-- [ ] `PetController::Poll` 改造：读 `inflight()`（真 streaming 态）+
-  `recentLogs(24)` 按 tool 聚合（活跃 Agent 列表、每 Agent 最近请求状态）；
-  thinking 猜测窗退役，改为「in-flight 期间 streaming，批次结束后进入
-  done 判定」。
-- [ ] 完成提醒：Poll 维护「活动批次」状态机（连续有流量 → 静默 ≥8s 视为
+- [x] `LocalRouter` 增加在途请求计数 `inflight()`：请求进入转发时 +1、
+  完成（成功/失败/中止）时 -1；独立于统计锁的 atomic 计数 + RAII 守卫
+  （含 AbortInFlight 中止与异常出口），`test_router` 增加可阻塞会话断言
+  （在途=1、完成归零、stop 中止归零、校验拒绝不计入）。
+- [x] `PetController::Poll` 改造：读 `inflight()`（真 streaming 态）+
+  `recentLogs(24)` 按 tool 聚合（活跃 Agent 列表 ≤2、最近 60s 窗）；
+  thinking 猜测窗退役，首个 Poll 只对齐日志水位（历史日志不触发提醒）。
+- [x] 完成提醒：Poll 维护「活动批次」状态机（连续有流量 → 静默 ≥8s 视为
   批次结束）；批次内含成功请求则挂 done-pending-ack，点击桌宠或新批次
   开始时消解。批次内全部失败则只走 error，不挂 ✓。
 
-验收：test_router 全绿；桌宠在真实 CLI（claude-code + codex 同时跑任务）
-下状态切换正确，✓ 消解路径手测。
+验收：test_router 全绿（含 5b 在途计数三路径）；桌宠在真实 CLI
+（claude-code + codex 同时跑任务）下状态切换正确、✓ 消解路径手测——
+**手测项待实机验证**（本批合入后首个版本发布前过一遍）。
 
 **P0-2 桌宠视觉与交互承接（UI 层）**
 
-- [ ] Orb 绘制扩展：streaming 态呼吸参数随在途计数微调；活跃 Agent 浮标
-  （最多 2 个小徽标：Agent 图标（`ToolIcon` 现成）+ 呼吸点，多 Agent 轮换）；
-  done-pending-ack 的「✓」标记（Canvas 自绘，与红脉冲同层）。
-- [ ] 点击行为分流：done-pending-ack 时点击 = 消解标记（不再直接开主窗），
+- [x] Orb 绘制扩展：streaming 态呼吸参数随在途状态切换（空闲 ±3.5%/~6s、
+  streaming ±6%/~2.5s）；活跃 Agent 浮标（顶缘药丸，`ToolIcon` 冷白 tint，
+  ≤2 个）；done-pending-ack 的 ✓ 徽标（Canvas 右上角静态绘制）。
+- [x] 点击行为分流：done-pending-ack 时点击 = 消解标记（不再直接开主窗），
   其余状态点击 = 打开主窗口（现有）。
-- [ ] 右键菜单增「消解完成提醒」入口（有提醒时可用）。
-- [ ] reduced-motion 下 ✓ 标记与浮标仍显示（静止、不动画）。
+- [x] 右键菜单增「消解完成提醒」入口（有提醒时可用）。
+- [x] reduced-motion 下 ✓ 徽标与 Agent 浮标仍显示（静态、不动画）。
 
-验收：深浅主题下角标/浮标/✓ 可读；无头探针（tests/ 模式）可选补一版
-状态切换冒烟。
+验收：深浅主题下角标/浮标/✓ 可读（浮标与角标为固定深色玻璃药丸，
+不随主题，静态球体身份一致）；无头探针冒烟暂缓——状态切换由
+PetController::Poll 纯逻辑驱动，实机验证随 P0-1 验收一起过。
 
 ### P1 —— 信息卡与用量贯通（第三批 + 第四批）
 
@@ -164,6 +166,12 @@ llm-switch 的桌宠（`src/ui/pet.h` / `pet.cpp`，v0.3.8 起随应用发布）
 
 ## 5. 批次推进记录
 
+- 2026-10-24：**P0-1 + P0-2 完成**。`LocalRouter::inflight()`（atomic +
+  RAII 守卫，AbortInFlight/异常不泄漏）；Poll 重写为真 streaming + 批次
+  状态机（静默 8s 挂 ✓，点击/右键/新批次消解）+ 活跃 Agent 聚合（60s 窗、
+  ≤2）；UI 承接（✓ 徽标静态绘制、顶缘 Agent 浮标药丸、点击分流、右键
+  消解入口）。test_router 增 5b 在途计数三路径断言，9/9 全绿；实机手测
+  随下个发布版验证。
 - 2026-10-24：立项；调研结论与分级计划成文（本文档）。
 - 2026-10-24：Live2D 评估完成（成本基线见 P2 条目）——定为**可选皮肤**
   路线：默认程序化莲花不变，Live2D 运行时下载、不进主安装包；启动前置
