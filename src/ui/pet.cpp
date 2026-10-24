@@ -1,9 +1,11 @@
-// pet.cpp — AI 桌宠实现：Orb 视觉（NodeExtension 逐帧重绘）、活动状态轮询、
-// 指针交互与右键菜单。视觉为 llm-switch 冷调石板族的固定深色玻璃球：
-// 空闲时波纹缓慢低亮，路由请求完成后 3s 内进入 thinking（提亮加速 + 旋转
-// 弧线），最近一次请求失败 6s 内叠加误差红脉冲外环；底部角标显示今日请求数。
-// 波纹动画走 NodeExtension 的保留绘制（30fps 上限，reduced-motion 下静止），
-// 统计轮询走 TaskScope + Delay（每秒一次，窗口退役时随作用域取消）。
+// pet.cpp — AI 桌宠实现：莲花球视觉（NodeExtension 逐帧重绘）、活动状态轮询、
+// 指针交互与右键菜单。视觉为 llm-switch 冷调石板族的固定深色玻璃球，品牌莲花
+// （lotus_bloom，白色 alpha-mask）居中慢旋：空闲 ~11s/圈，路由请求完成后 3s
+// 内进入 thinking（提速到 ~3.3s/圈 + 提亮 + 高亮弧线），最近一次请求失败 6s
+// 内叠加误差红脉冲外环；底部角标显示今日请求数。
+// 动画走 NodeExtension 的保留绘制（30fps 上限，reduced-motion 下静止），统计
+// 轮询走 TaskScope + Delay（每秒一次，窗口退役时随作用域取消）。右键菜单经
+// PetThemeDefinition 套主应用同款主题（深浅随 Poll 跟随）。
 #include <huxerui/huxerui.h>
 
 #include <chrono>
@@ -15,10 +17,12 @@
 #include <vector>
 
 #include "app.h"
+#include "app_resources.h"
 #include "pet.h"
 #include "theme_colors.h"
 #include "ui.h"
 
+import llmswitch.config;
 import llmswitch.models;
 import llmswitch.router;
 import llmswitch.store;
@@ -37,6 +41,9 @@ struct Orb {
     bool thinking = false;
     bool failure = false;
     bool animate = true;
+    // 品牌莲花（组合期经 UseImage 解析；白色 alpha-mask，衬在深色玻璃球上
+    // 无需 tint）。ImageAsset 值语义共享编码存储，比较为内含标识比较。
+    huxerui::ImageAsset lotus{};
     bool operator==(const Orb&) const = default;
 };
 
@@ -82,56 +89,27 @@ void PaintOrb(huxerui::PaintContext& paint, huxerui::Size size, float phase,
         },
     });
 
-    // 三条流动波纹：把正弦带按圆包络裁进球体（结构与框架桌宠示例一致，
-    // 色板换成 llm-switch 的青蓝族）。
-    const auto ribbon = [&](float offset, float amplitude, float thickness,
-                            float baseline) {
-        const auto point = [&](float x, float side) {
-            const float envelope = std::sqrt(std::max(0.0F, 1.0F - x * x));
-            const float wave = std::sin(x * 3.4F + phase + offset) * amplitude +
-                               std::sin(x * 5.2F - phase * 0.7F + offset) * 0.035F;
-            return Point{center.x + x * radius,
-                         center.y + radius * (baseline + (wave + side * thickness) * envelope)};
-        };
-        huxerui::Path path;
-        path.MoveTo(point(-1.0F, -1.0F));
-        constexpr int samples = 64;
-        for (int index = 1; index <= samples; ++index) {
-            path.LineTo(point(-1.0F + 2.0F * static_cast<float>(index) / samples, -1.0F));
-        }
-        for (int index = samples; index >= 0; --index) {
-            path.LineTo(point(-1.0F + 2.0F * static_cast<float>(index) / samples, 1.0F));
-        }
-        return path.Close();
-    };
+    // 品牌莲花居中慢旋（白色 alpha-mask 资源，衬深色玻璃球；thinking 时
+    // 加速——OnFrame 的 phase 步长控制转速）。变换为中心旋转：先平移回
+    // 原点旋转再放回，避免公转。
+    if (orb.lotus.HasValue()) {
+        const float lotus_radius = radius * 0.58F;
+        const Rect lotus_bounds{center.x - lotus_radius, center.y - lotus_radius,
+                                lotus_radius * 2.0F, lotus_radius * 2.0F};
+        const float s = std::sin(phase);
+        const float c = std::cos(phase);
+        huxerui::Transform2D spin;
+        spin.m11 = c;
+        spin.m12 = s;
+        spin.m21 = -s;
+        spin.m22 = c;
+        spin.translate_x = center.x - (c * center.x - s * center.y);
+        spin.translate_y = center.y - (s * center.x + c * center.y);
+        paint.PushTransform(spin);
+        paint.DrawImage(orb.lotus, lotus_bounds);
+        paint.PopTransform();
+    }
 
-    const float amplitude = orb.thinking ? 0.28F : 0.16F;
-    paint.FillPath(ribbon(1.7F, amplitude, 0.22F, 0.03F), huxerui::LinearGradient{
-        .start = {0.0F, 0.15F}, .end = {1.0F, 0.85F},
-        .stops = {
-            {0.0F, Color::Rgb(125, 211, 252, 0.08F)},
-            {0.34F, Color::Rgb(56, 189, 248, 0.50F * intensity)},
-            {0.74F, Color::Rgb(14, 165, 233, 0.55F * intensity)},
-            {1.0F, Color::Rgb(224, 242, 254, 0.10F)},
-        },
-    }, bounds);
-    paint.FillPath(ribbon(-1.1F, amplitude * 0.85F, 0.13F, 0.10F), huxerui::LinearGradient{
-        .stops = {
-            {0.0F, Color::Rgb(125, 211, 252, 0.12F)},
-            {0.30F, Color::Rgb(56, 189, 248, 0.66F * intensity)},
-            {0.68F, Color::Rgb(99, 199, 248, 0.62F * intensity)},
-            {1.0F, Color::Rgb(186, 230, 253, 0.14F)},
-        },
-    }, bounds);
-    paint.FillPath(ribbon(0.0F, amplitude * 0.9F, 0.045F, 0.0F), huxerui::LinearGradient{
-        .stops = {
-            {0.0F, Color::Rgb(186, 230, 253, 0.08F)},
-            {0.27F, Color::Rgb(224, 242, 254, 0.92F * intensity)},
-            {0.53F, Color::Rgb(125, 211, 252, 0.90F * intensity)},
-            {0.80F, Color::Rgb(56, 189, 248, 0.82F * intensity)},
-            {1.0F, Color::Rgb(14, 165, 233, 0.06F)},
-        },
-    }, bounds);
     // 顶部冷白高光。
     paint.DrawRect(bounds, huxerui::RadialGradient{
         .center = {0.32F, 0.06F}, .radius = {0.68F, 0.48F},
@@ -150,7 +128,7 @@ void PaintOrb(huxerui::PaintContext& paint, huxerui::Size size, float phase,
         },
     }, bounds, huxerui::StrokeStyle{.width = 0.8F});
 
-    // failure：误差红外环，随相位呼吸（红脉冲在波纹恢复后仍停留 6s）。
+    // failure：误差红外环，随相位呼吸（红脉冲在莲花转速恢复后仍停留 6s）。
     if (orb.failure) {
         const float pulse = 0.38F + 0.28F * std::sin(phase * 2.4F);
         paint.DrawArc(center, radius * 1.06F, 0.0F, 6.28318F,
@@ -185,7 +163,8 @@ public:
         const float delta = static_cast<float>(std::clamp(frame.delta_time, 0.0, 0.1));
         if (delta > 0.0F) {
             constexpr float wave_cycle = 20.0F * std::numbers::pi_v<float>;
-            phase_ = std::fmod(phase_ + delta * (orb_.thinking ? 1.7F : 0.6F), wave_cycle);
+            // 转速：空闲 ~11s/圈，thinking ~3.3s/圈。
+            phase_ = std::fmod(phase_ + delta * (orb_.thinking ? 1.9F : 0.55F), wave_cycle);
             InvalidatePaint();
         }
         return {.wake_after = 1.0 / 30.0};
@@ -215,6 +194,33 @@ huxerui::View TodayBadge(std::int64_t today) {
 
 } // namespace
 
+// ---- 主题（右键菜单与主应用同款）--------------------------------------------
+
+// 桌宠窗口唯一的主题化 UI 是右键菜单：套与主应用 AppThemed 同源的 spec +
+// 同一款菜单覆盖（同表面、8px 圆角、同阴影同悬浮态），弹出的菜单与主窗口
+// 右键菜单观感一致。深浅由 PetController::darkTheme（Poll 每秒跟随）驱动。
+huxerui::ThemeDefinition PetThemeDefinition(bool dark) {
+    const huxerui::ThemeSpec spec = dark ? AppDarkThemeSpec() : AppLightThemeSpec();
+    huxerui::ThemeDefinition definition = huxerui::MaterialThemeDefinition(spec);
+    const auto withAlpha = [](Color color, float alpha) {
+        color.alpha = alpha;
+        return color;
+    };
+    huxerui::MenuStyle menus = huxerui::MenuStyle::Default();
+    menus.background = spec.colors.surface_container;
+    menus.foreground = spec.colors.on_surface;
+    menus.icon_tint = spec.colors.on_surface_variant;
+    menus.separator_color = spec.colors.outline;
+    menus.shadow = huxerui::Shadow{Color::Rgb(0, 0, 0, 0.24F), {}, 8.0F, 0.0F};
+    menus.corner_radii = huxerui::CornerRadii{spec.shapes.small};
+    menus.item_indication = huxerui::Indication{
+        .hover = huxerui::IndicationLayer{.fill = withAlpha(spec.colors.on_surface, 0.08F)},
+        .press = huxerui::IndicationLayer{.fill = withAlpha(spec.colors.on_surface, 0.12F)},
+    };
+    definition.Set(menus);
+    return definition;
+}
+
 // ---- PetController ----------------------------------------------------------
 
 void PetController::Poll() {
@@ -242,6 +248,11 @@ void PetController::Poll() {
     if (failure.Get() != next_failure) failure = next_failure;
     const std::int64_t next_today = router.snapshot().todayRequests;
     if (todayRequests.Get() != next_today) todayRequests = next_today;
+    // 主题跟随（与主应用同一规则：显式深浅优先，否则系统偏好）。
+    const std::string& mode = providerStore().config().themeMode;
+    const bool next_dark =
+        mode == "dark" || (mode != "light" && cfg::systemPrefersDark());
+    if (darkTheme.Get() != next_dark) darkTheme = next_dark;
 }
 
 void PetController::Show(const huxerui::ApplicationHandle& application) {
@@ -353,6 +364,8 @@ huxerui::View PetContent() {
 
     const bool visible = window.LifecycleState() != huxerui::WindowLifecycleState::Background;
     const std::int64_t today = controller->todayRequests.Get();
+    // 品牌莲花在组合期解析成光栅资源，经 Orb 修饰器带进保留绘制。
+    const huxerui::ImageAsset lotus = huxerui::UseImage(app::images::lotus_bloom);
 
     // Orb 是保留型节点修饰器（NodeExtension，挂在 Stack 节点上整窗作画），
     // 角标是 Stack 的普通子节点（底缘居中悬浮在球体下沿）。
@@ -362,7 +375,8 @@ huxerui::View PetContent() {
         huxerui::Indication{},
         Orb{.thinking = controller->thinking.Get(),
             .failure = controller->failure.Get(),
-            .animate = visible && controller->animate.Get()},
+            .animate = visible && controller->animate.Get(),
+            .lotus = lotus},
         huxerui::DragGesture{},
         huxerui::Semantics{
             .role = huxerui::SemanticRole::Button,
@@ -408,7 +422,9 @@ huxerui::View PetContent() {
                                       [application] { application.Quit(); }),
                 });
             });
-    return content;
+    // 右键菜单与桌宠窗口主题套应用同款配色（深浅随 darkTheme 跟随）。
+    return huxerui::Theme(PetThemeDefinition(controller->darkTheme.Get()),
+                          std::move(content));
 }
 
 } // namespace llmswitch::ui

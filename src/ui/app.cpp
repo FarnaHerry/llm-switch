@@ -838,6 +838,11 @@ void InstallApplication(huxerui::ApplicationContext& context) {
     auto pet = std::make_shared<PetController>();
     pet->topmost = providerStore().config().petTopmost;
     pet->lightweight = providerStore().config().petLightweight;
+    {
+        const std::string& mode = providerStore().config().themeMode;
+        pet->darkTheme =
+            mode == "dark" || (mode != "light" && cfg::systemPrefersDark());
+    }
     context.Provide(pet);
     if (providerStore().config().petEnabled) {
         huxerui::UseApplicationTaskScope().Post(
