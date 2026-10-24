@@ -6,16 +6,33 @@ Claude、Codex、Gemini、Copilot、Cursor、Windsurf 及其他自动化 agent �
 子目录中的 `AGENTS.md` 可以对其作用域增加更严格的约束。Claude Code 的入口
 `CLAUDE.md` 首行以 `@AGENTS.md` 引入本文件，自身不再另持一份规范。
 
-llm-switch 是 **cc-switch**（GitHub: farion1231/cc-switch）的 **C++23 模块化重写**：
-管理多款 AI agent 工具的供应商配置切换——领域层已泛化到 8 个工具
+llm-switch 是以 AI 桌宠为默认入口的本地 AI 桌面伙伴，也是 **cc-switch**
+（GitHub: farion1231/cc-switch）的 **C++23 模块化重写**。桌宠负责日常活动与快捷
+入口，管理窗口作为多 Agent 控制中心，继续管理多款 AI agent 工具的供应商配置——
+领域层已泛化到 8 个工具
 （claude-code / claude desktop / codex / opencode / pi / dsh / hermes / zcode，
 注册表见 `models::toolRegistry()`），把选中的供应商写进工具的 live 配置文件，
-并提供收编、备份、导入导出。在此之上还有：本地路由引擎（127.0.0.1 反代到当前
-供应商 + 请求统计）、供应商用量查询、MCP 服务器统一清单、Skills 中央库同步、
-历史会话管理、AI 桌宠。用 **HuxerUI**（组件式声明 UI）做桌面壳，全程 C++；
+并提供收编、备份、导入导出。控制中心还提供本地路由引擎（127.0.0.1 反代到当前
+供应商 + 请求统计）、供应商用量查询、MCP 服务器统一清单、Skills 中央库同步与
+历史会话管理；桌宠汇总这些能力并作为日常入口。用 **HuxerUI**（组件式声明 UI）
+做桌面壳，全程 C++；
 构建系统 CMake（脚手架与姊妹项目 `../Clash-Flux` 同源）。分层：UI（src/ui/*.cpp
 普通源走 hcg codegen）/ 领域层（llmswitch.config/models/store/net/router/mcp/
 skills/sessions 八个 C++23 模块）。
+
+## 产品优先级：桌宠优先
+
+- 桌宠是产品主入口；完整管理窗口是按需打开的控制中心。重排 UI 时保留既有供应商、
+  路由、MCP、Skills 与会话管理能力，不以删除成熟管理页来换取桌宠体验。
+- 桌宠状态不能只依赖可选的 LocalRouter。路线图目标是汇总路由与用户启用的原生
+  Agent 活动来源；来源未接入或不可用时显示 unknown/未接入，不能显示成 idle。
+- 活动来源按最小数据读取：未经用户选择不得读取屏幕或剪贴板；桌宠事件只保留状态
+  所需元数据，不新增会话正文采集或远程上报。
+- Live2D 是主要角色外观方向，莲花球保持无模型/无 Live2D 构建时的内建回退。SDK
+  与模型许可、平台支持未完成验收前，不把未确认的二进制或模型放入默认发行包。
+- 体验目标、启动迁移、阶段顺序和验收条件以
+  `docs/desktop-pet-roadmap.md` 为准；下文架构记录描述当前已实现状态，不能把计划
+  中的行为当成已经落地。
 
 ## 项目与代码边界
 

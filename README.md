@@ -1,13 +1,18 @@
 # llm-switch
 
-[cc-switch](https://github.com/farion1231/cc-switch) 的 C++ 重写：Claude Code /
-Claude Desktop / Codex / opencode / pi / DeepSeek Harness（dsh）/ Hermes Agent /
-ZCode 八款 AI 编程工具的供应商配置切换，
-附本地路由、用量查询、MCP / Skills / 会话管理。C++23 modules + HuxerUI
-桌面壳，无 Electron、无运行时依赖（除系统 GTK4 运行库）。
+桌宠优先的本地 AI 桌面伙伴与多 Agent 控制中心。桌宠是日常入口；主窗口用于管理
+Claude Code / Claude Desktop / Codex / opencode / pi / DeepSeek Harness（dsh）/
+Hermes Agent / ZCode 八款工具的供应商配置，并提供本地路由、用量、MCP、Skills
+与会话管理。产品方向与实施顺序见 [桌宠路线图](docs/desktop-pet-roadmap.md)。
+
+项目是 [cc-switch](https://github.com/farion1231/cc-switch) 的 C++ 重写，使用
+C++23 modules + HuxerUI，无 Electron。
 
 ## 功能
 
+- **AI 桌宠优先入口**：目标是让桌宠汇总多 Agent 活动并打开快捷信息卡；Live2D 是
+  主角色外观方向，莲花球作为低资源与无 Live2D 构建时的内建皮肤。原生 Agent 活动
+  覆盖与 Live2D 分发验证按[路线图](docs/desktop-pet-roadmap.md)推进。
 - **供应商管理**：八个工具组各自维护供应商列表（新增 / 编辑 / 复制 /
   删除），内置 DeepSeek / Kimi / GLM / OpenRouter 等预设模板；API 协议三档
   （OpenAI Chat Completions / OpenAI Responses / Anthropic Messages）。
