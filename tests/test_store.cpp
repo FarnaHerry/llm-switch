@@ -225,6 +225,25 @@ int main() {
                   .closeBehavior == "ask");
     }
 
+    // 1a-2. AI 桌宠偏好持久化：旧配置缺字段默认关闭 + 置顶，setter 立即落盘。
+    {
+        auto petSettings = store::ProviderStore::load();
+        CHECK(petSettings.config().petEnabled == false);
+        CHECK(petSettings.config().petTopmost == true);
+        CHECK(models::fromJson(nlohmann::json::object()).petEnabled == false);
+        CHECK(models::fromJson(nlohmann::json::parse(
+                  R"json({"petEnabled":true,"petTopmost":false})json"))
+                  .petEnabled == true);
+        CHECK(models::fromJson(nlohmann::json::parse(
+                  R"json({"petEnabled":true,"petTopmost":false})json"))
+                  .petTopmost == false);
+        petSettings.setPetEnabled(true);
+        petSettings.setPetTopmost(false);
+        auto petReloaded = store::ProviderStore::load();
+        CHECK(petReloaded.config().petEnabled == true);
+        CHECK(petReloaded.config().petTopmost == false);
+    }
+
     // 1b. Codex 官方订阅使用 OAuth auth.json（没有 OPENAI_API_KEY）时，不能
     // 收编成空白第三方卡；同时清理旧版本已经生成的「当前配置」占位卡。
     writeFile(codexAuth,

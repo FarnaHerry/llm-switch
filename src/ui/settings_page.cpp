@@ -18,6 +18,7 @@
 
 #include "ui.h"
 #include "app_resources.h"
+#include "pet.h"
 
 import llmswitch.config;
 import llmswitch.models;
@@ -216,6 +217,10 @@ bool ResolvesToDark(int mode) {
         huxerui::UseState(providerStore().claudeCodeSkipInstallationChecks());
     auto radialNavAutoClose =
         huxerui::UseState(providerStore().config().radialNavAutoClose);
+    const auto pet = huxerui::UseService<PetController>();
+    const huxerui::ApplicationHandle application = huxerui::UseApplication();
+    auto petEnabled = huxerui::UseState(providerStore().config().petEnabled);
+    auto petTopmost = huxerui::UseState(providerStore().config().petTopmost);
 
     // ---- 本地环境检查 ----
     // 只做存在性检测：在 PATH 与几个已知安装目录里找可执行文件（纯文件系统，
@@ -370,6 +375,45 @@ bool ResolvesToDark(int mode) {
                                     providerStore().setCloseBehavior(
                                         std::string(behaviors[index]));
                                     closeBehavior = index;
+                                } catch (const std::exception& e) {
+                                    toast.Show(e.what());
+                                }
+                            })),
+                }.With(huxerui::Spacing(10.0F),
+                       huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))),
+
+                SectionDivider(),
+
+                // AI 桌宠：透明小球实时反映本地路由的 AI 请求活动。开关即时
+                // 开/退役窗口（不仅是下次启动）；置顶切换同步到现存窗口。
+                PageSection(SectionTitle("AI 桌宠"),
+                            huxerui::Column {
+                    SettingRow(
+                        "启用 AI 桌宠",
+                        "桌面小球显示本地路由的请求活动与今日用量；点击打开主窗口，右键快捷操作",
+                        huxerui::Switch(petEnabled.Get())
+                            .OnChanged([pet, application, petEnabled, toast](bool on) {
+                                try {
+                                    providerStore().setPetEnabled(on);
+                                    if (on) {
+                                        pet->Show(application);
+                                    } else {
+                                        pet->Retire();
+                                    }
+                                    petEnabled = on;
+                                } catch (const std::exception& e) {
+                                    toast.Show(e.what());
+                                }
+                            })),
+                    SettingRow(
+                        "桌宠窗口置顶",
+                        "保持在普通窗口之上显示（Wayland 等合成器可能忽略）",
+                        huxerui::Switch(petTopmost.Get())
+                            .OnChanged([pet, petTopmost, toast](bool on) {
+                                try {
+                                    providerStore().setPetTopmost(on);
+                                    pet->SetTopmost(on);
+                                    petTopmost = on;
                                 } catch (const std::exception& e) {
                                     toast.Show(e.what());
                                 }

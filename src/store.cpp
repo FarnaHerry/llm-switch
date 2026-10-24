@@ -303,6 +303,16 @@ void ProviderStore::setRadialNavAutoClose(bool enabled) {
     save();
 }
 
+void ProviderStore::setPetEnabled(bool enabled) {
+    config_.petEnabled = enabled;
+    save();
+}
+
+void ProviderStore::setPetTopmost(bool topmost) {
+    config_.petTopmost = topmost;
+    save();
+}
+
 bool ProviderStore::claudeCodeSkipInstallationChecks() const {
     const auto settings = readJsonPassive(cfg::claudeSettingsFile());
     const std::string value =

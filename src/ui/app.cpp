@@ -27,6 +27,7 @@
 #include "ui.h"
 #include "app.h"
 #include "app_resources.h"
+#include "pet.h"
 #include "single_instance.h"
 
 import llmswitch.config;
@@ -119,10 +120,10 @@ huxerui::View AppThemed(bool dark, huxerui::View content) {
 // hover 展开二级菜单选供应商（官方原生状态条目 = restoreOfficial 在首位，
 // 勾选当前项）。随后是本地路由开关（勾选 = 运行中，点击 start/stop），
 // 底部固定 显示主窗口 / 退出。
-std::vector<huxerui::MenuEntry> BuildTrayMenu(huxerui::WindowHandle window,
-                                              huxerui::ApplicationHandle application,
-                                              huxerui::ToastHandle toast,
-                                              huxerui::State<int> revision) {
+std::vector<huxerui::MenuEntry> BuildTrayMenu(
+    huxerui::WindowHandle window, huxerui::ApplicationHandle application,
+    huxerui::ToastHandle toast, huxerui::State<int> revision,
+    const std::shared_ptr<PetController>& pet) {
     std::vector<huxerui::MenuEntry> entries;
     auto& st = providerStore();
     // 按注册表列出全部工具组（阶段A 通用代码，自然覆盖 5 个工具）。
@@ -199,6 +200,25 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(huxerui::WindowHandle window,
                 revision = revision.Get() + 1;
             })
             .Checked(routerInstance().running()));
+    // AI 桌宠开关：勾选 = 配置开启且桌宠窗口在跑；点击切换并即时开/退役窗口。
+    entries.push_back(
+        huxerui::MenuItem("AI 桌宠",
+                          [pet, application, toast, revision] {
+                              const bool enabled =
+                                  providerStore().config().petEnabled;
+                              try {
+                                  providerStore().setPetEnabled(!enabled);
+                                  if (enabled) {
+                                      pet->Retire();
+                                  } else {
+                                      pet->Show(application);
+                                  }
+                              } catch (const std::exception& e) {
+                                  toast.Show(e.what());
+                              }
+                              revision = revision.Get() + 1;
+                          })
+                            .Checked(providerStore().config().petEnabled));
     entries.push_back(huxerui::MenuSection{});
     entries.push_back(huxerui::MenuItem("显示主窗口", [window] { window.Activate(); }));
     entries.push_back(huxerui::MenuSection{});
@@ -675,17 +695,18 @@ constexpr double kCollapseSeconds = 0.12;
     // 生命周期：菜单要跟着 revision 重建，重组时由 Show 替换共享呈现。
     const std::shared_ptr<TrayActivationTarget> activation =
         huxerui::UseService<TrayActivationTarget>();
+    const std::shared_ptr<PetController> pet = huxerui::UseService<PetController>();
     huxerui::Lifecycle([activation, window] {
         activation->Bind(window);
         return [activation] { activation->Unbind(); };
     });
     huxerui::Lifecycle(
-        [application, tray, window, toast, revision] {
+        [application, tray, window, toast, revision, pet] {
             tray.Show(app::images::lotus_tray_bloom,
                       huxerui::SystemTrayOptions{
                           .tooltip = "llm-switch",
                           .menu = BuildTrayMenu(window, application, toast,
-                                                revision)});
+                                                revision, pet)});
             return [tray] { tray.Hide(); };
         },
         revision);
@@ -809,6 +830,17 @@ void InstallApplication(huxerui::ApplicationContext& context) {
     context.Provide(activation);
     const huxerui::ApplicationHandle application = huxerui::UseApplication();
     application.SystemTray().OnActivate([activation] { activation->Activate(); });
+
+    // AI 桌宠：控制器注册为应用级服务（桌宠窗口 / 设置页 / 托盘菜单共用），
+    // 配置开启时在应用服务冻结后开窗（与框架桌宠示例同一装配路径；不支持
+    // 被动显示的平台由 PetController::Show 回退到合成器默认策略）。
+    auto pet = std::make_shared<PetController>();
+    pet->topmost = providerStore().config().petTopmost;
+    context.Provide(pet);
+    if (providerStore().config().petEnabled) {
+        huxerui::UseApplicationTaskScope().Post(
+            [pet, application] { pet->Show(application); });
+    }
 }
 
 [[huxerui::composable]] huxerui::View AppContent() {
@@ -1019,6 +1051,17 @@ void InstallApplication(huxerui::ApplicationContext& context) {
     return AppThemed(dark, filledContent);
 }
 
-huxerui::View AppRoot() { return AppContent(); }
+huxerui::View AppRoot() {
+    // 多窗口分发：主窗口（key 为空）走应用壳；桌宠窗口（key=="pet"，透明
+    // Utility）走 PetContent。WindowIdentity 由框架按窗口种入 Environment。
+    return huxerui::Scope([] -> huxerui::View {
+        const huxerui::WindowIdentity identity =
+            huxerui::UseEnvironment<huxerui::WindowIdentity>();
+        if (identity.key == llmswitch::ui::kPetWindowKey) {
+            return llmswitch::ui::PetContent();
+        }
+        return llmswitch::ui::AppContent();
+    });
+}
 
 } // namespace llmswitch::ui

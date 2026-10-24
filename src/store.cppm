@@ -101,6 +101,10 @@ public:
     // 单 Agent 代理开关；未知工具 id 抛异常，修改后立即落盘。
     void setRouterToolEnabled(std::string_view tool, bool enabled);
 
+    // AI 桌宠（透明工具窗口）开关与置顶偏好，立即落盘。
+    void setPetEnabled(bool enabled);
+    void setPetTopmost(bool topmost);
+
     // ---- CRUD（均立即落盘）----
     // id/createdAt 为空/0 时自动生成；返回实际使用的 id（zcode 保存流程
     // 需要它定位生成的条目）。

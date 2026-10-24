@@ -463,6 +463,9 @@ export struct AppConfig {
     std::vector<std::string> routerTools{
         "claude-code", "claude", "codex", "opencode", "pi", "dsh", "hermes",
         "zcode"};
+    // AI 桌宠（透明工具窗口小圆球）：展示本地路由的 AI 流量状态。
+    bool petEnabled = false;   // 应用启动时自动打开桌宠窗口
+    bool petTopmost = true;    // 桌宠窗口置顶
 
     bool operator==(const AppConfig&) const = default;
 };
@@ -662,6 +665,8 @@ export nlohmann::json toJson(const AppConfig& c) {
     j["routerPort"] = c.routerPort;
     j["routerFailover"] = c.routerFailover;
     j["routerTools"] = c.routerTools;
+    j["petEnabled"] = c.petEnabled;
+    j["petTopmost"] = c.petTopmost;
     return j;
 }
 
@@ -701,6 +706,8 @@ export AppConfig fromJson(const nlohmann::json& j) {
     c.routerEnabled = j.value("routerEnabled", false);
     c.routerPort = j.value("routerPort", 15731);
     c.routerFailover = j.value("routerFailover", true);
+    c.petEnabled = j.value("petEnabled", false);
+    c.petTopmost = j.value("petTopmost", true);
     // 字段存在且为数组时尊重显式选择（包括空数组）；过滤未知 id 与重复项。
     // 字段缺失则保留 AppConfig 的“全部启用”默认值，兼容旧配置。
     if (j.contains("routerTools") && j["routerTools"].is_array()) {
