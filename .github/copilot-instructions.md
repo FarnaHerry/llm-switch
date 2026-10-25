@@ -1,8 +1,9 @@
 # llm-switch Copilot instructions
 
-Before proposing or applying repository changes, read and follow `/AGENTS.md` in full. It is
-the canonical source for build, test, Git, safety, HuxerUI, theme, ink-card, island-layout,
-and adaptive icon requirements.
+Read and follow [AGENTS.md](../AGENTS.md) before proposing or applying changes.
+It is the canonical entry point for repository rules and required project skills.
+Load the relevant SKILL.md under project-skills/ and only the references needed
+for the task. Project rules and references are versioned in this repository.
 
-Use `/CLAUDE.md` for architecture and implementation context and `/resources/README.md` for
-icon asset details. If guidance conflicts, `/AGENTS.md` takes precedence.
+CLAUDE.md is an entry point only; architecture and implementation guidance are
+linked from the project skills. Do not duplicate those rules in tool-specific files.
