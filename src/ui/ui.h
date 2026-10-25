@@ -98,7 +98,11 @@ huxerui::View ProvidersPage(std::string tool, huxerui::State<int> revision,
 // 设置页持有主题模式与启动入口 State（AppRoot 传入）。
 huxerui::View SettingsPage(huxerui::State<int> themeMode,
                            huxerui::State<int> revision,
-                           huxerui::State<std::size_t> startupMode);
+                           huxerui::State<std::size_t> startupMode,
+                           huxerui::State<bool> trayEnabled);
+
+// 为当前用户设置或移除登录启动项；失败时抛出中文错误。
+void SetLaunchAtLogin(bool enabled);
 
 // ---- 通用部件（common.cpp）----
 

@@ -164,6 +164,9 @@ int main() {
         CHECK(s.config().themeMode == "system");
         CHECK(s.config().closeBehavior == "ask");
         CHECK(s.config().startupMode == "pet");
+        CHECK(s.config().firstRunSetupCompleted == false);
+        CHECK(s.config().launchAtLogin == false);
+        CHECK(s.config().trayEnabled == true);
         CHECK(s.config().routerTools.size() == models::toolRegistry().size());
         CHECK(std::ranges::find(s.config().routerTools, "claude-code") !=
               s.config().routerTools.end());
@@ -245,6 +248,11 @@ int main() {
         const auto explicitPetOff = models::fromJson(
             nlohmann::json::parse(R"json({"petEnabled":false})json"));
         CHECK(explicitPetOff.startupMode == "control-center");
+        const auto existingInstall = models::fromJson(
+            nlohmann::json::parse(R"json({"themeMode":"dark"})json"));
+        CHECK(existingInstall.firstRunSetupCompleted == true);
+        CHECK(existingInstall.launchAtLogin == false);
+        CHECK(existingInstall.trayEnabled == true);
         const auto newModeWins = models::fromJson(nlohmann::json::parse(
             R"json({"startupMode":"pet","petEnabled":false})json"));
         CHECK(newModeWins.startupMode == "pet");
@@ -262,6 +270,17 @@ int main() {
         CHECK(petReloaded.config().petLightweight == true);
         CHECK(petReloaded.config().petCompact == true);
         CHECK(petReloaded.config().petLive2D == true);
+        petReloaded.completeFirstRunSetup(true, false, true, false, true);
+        CHECK(petReloaded.config().firstRunSetupCompleted == true);
+        CHECK(petReloaded.config().petLive2D == true);
+        CHECK(petReloaded.config().petTopmost == false);
+        CHECK(petReloaded.config().launchAtLogin == true);
+        CHECK(petReloaded.config().trayEnabled == false);
+        CHECK(petReloaded.config().routerEnabled == true);
+        const auto setupReloaded = store::ProviderStore::load();
+        CHECK(setupReloaded.config().firstRunSetupCompleted == true);
+        CHECK(setupReloaded.config().launchAtLogin == true);
+        CHECK(setupReloaded.config().trayEnabled == false);
     }
 
     // 1b. Codex 官方订阅使用 OAuth auth.json（没有 OPENAI_API_KEY）时，不能

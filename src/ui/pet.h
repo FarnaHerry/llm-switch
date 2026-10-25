@@ -4,7 +4,7 @@
 // 是同一套能力的官方演示）；llm-switch 在其上做一个 AI 语义的桌宠：
 //   * 视觉：石墨玻璃球 + 居中呼吸的品牌莲花（lotus_bloom_raster，冷白
 //     alpha-mask，固定深色玻璃——桌面饰品在深浅桌面下都可读）；
-//   * 状态（每秒轮询本地路由，全部由路由侧推导）：streaming（在途请求
+//   * 状态（每秒轮询本地路由；路由未运行时显示未知）：streaming（在途请求
 //     > 0，呼吸加深加快）、failure（最近一次请求失败的红脉冲窗）、
 //     donePendingAck（活动批次结束后的 ✓ 完成提醒，点击/右键/新批次消解）、
 //     activeTools（最近 60s 有请求的活跃 Agent，≤2 个，顶部浮标）、
@@ -79,6 +79,8 @@ struct PetController {
     // 位置与偏好重建，波纹相位从头开始。
     huxerui::State<bool> lightweight{false};
     // ---- AI 活动状态（Poll 每秒写、组合读；State 变更驱动桌宠重组）----
+    // LocalRouter 未运行或本次运行尚未观测到路由请求时，活动状态未知。
+    huxerui::State<bool> activityUnknown{true};
     // streaming：路由在途请求 > 0（真状态，来自 LocalRouter::inflight）。
     huxerui::State<bool> streaming{false};
     // failure：最近一次路由请求失败（传输失败或 ≥400）后的红脉冲窗内。
@@ -100,6 +102,8 @@ struct PetController {
     // Live2D 皮肤（config.petLive2D 的运行时镜像）：开启且编译可用
     // （LLMSWITCH_LIVE2D）且模型存在时，桌宠用 Live2D 模型渲染；窗口更高。
     huxerui::State<bool> live2d{false};
+    // 系统托盘显示偏好；关闭时不能隐藏最后一个可恢复入口。
+    huxerui::State<bool> trayEnabled{true};
     // 窗口存活性代次：Show/Retire 自增，托盘菜单以它为依赖跟随重建勾选态
     // （轻量级模式下隐藏即退役，托盘勾选必须随之消失）。
     huxerui::State<std::uint64_t> epoch{0};
@@ -110,6 +114,7 @@ struct PetController {
     // ---- 批次状态机（Poll 私有，UI 线程独占，不进 State）----
     // 首个 Poll 只对齐日志水位不算活动（启动时的历史日志不触发完成提醒）。
     bool firstPoll = true;
+    bool localRouterObservedThisSession = false;
     std::int64_t lastSeenLogTs = 0;  // 已见过的最新日志时间戳
     std::int64_t lastActivityMs = 0;
     bool batchActive = false;

@@ -205,7 +205,8 @@ bool ResolvesToDark(int mode) {
 
 [[huxerui::composable]] huxerui::View SettingsPage(
     huxerui::State<int> themeMode, huxerui::State<int> revision,
-    huxerui::State<std::size_t> startupMode) {
+    huxerui::State<std::size_t> startupMode,
+    huxerui::State<bool> trayEnabled) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto tasks = huxerui::UseTaskScope();
     auto toast = huxerui::UseToast();
@@ -220,7 +221,10 @@ bool ResolvesToDark(int mode) {
         huxerui::UseState(providerStore().config().radialNavAutoClose);
     const auto pet = huxerui::UseService<PetController>();
     const huxerui::ApplicationHandle application = huxerui::UseApplication();
-    const bool petTrayAvailable = application.SystemTray().IsAvailable();
+    const bool petTrayAvailable = application.SystemTray().IsAvailable() &&
+                                  trayEnabled.Get();
+    auto launchAtLogin =
+        huxerui::UseState(providerStore().config().launchAtLogin);
     auto petTopmost = huxerui::UseState(providerStore().config().petTopmost);
     auto petLightweight =
         huxerui::UseState(providerStore().config().petLightweight);
@@ -381,6 +385,42 @@ bool ResolvesToDark(int mode) {
                                     providerStore().setCloseBehavior(
                                         std::string(behaviors[index]));
                                     closeBehavior = index;
+                                } catch (const std::exception& e) {
+                                    toast.Show(e.what());
+                                }
+                            })),
+                    SettingRow(
+                        "登录时启动 llm-switch",
+                        "在当前用户下次登录时自动启动；更改会立即写入系统启动项",
+                        huxerui::Switch(launchAtLogin.Get())
+                            .OnChanged([launchAtLogin, toast](bool enabled) {
+                                const bool previous =
+                                    providerStore().config().launchAtLogin;
+                                try {
+                                    SetLaunchAtLogin(enabled);
+                                    try {
+                                        providerStore().setLaunchAtLogin(enabled);
+                                    } catch (...) {
+                                        try {
+                                            SetLaunchAtLogin(previous);
+                                        } catch (...) {
+                                        }
+                                        throw;
+                                    }
+                                    launchAtLogin = enabled;
+                                } catch (const std::exception& e) {
+                                    toast.Show(e.what());
+                                }
+                            })),
+                    SettingRow(
+                        "显示系统托盘",
+                        "托盘用于唤回桌宠、打开控制中心和退出应用；关闭后保留可见窗口入口",
+                        huxerui::Switch(trayEnabled.Get())
+                            .OnChanged([pet, trayEnabled, toast](bool enabled) {
+                                try {
+                                    providerStore().setTrayEnabled(enabled);
+                                    trayEnabled = enabled;
+                                    pet->trayEnabled = enabled;
                                 } catch (const std::exception& e) {
                                     toast.Show(e.what());
                                 }

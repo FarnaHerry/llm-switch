@@ -1,7 +1,7 @@
 // pet.cpp — AI 桌宠实现：莲花球视觉（NodeExtension 逐帧重绘）、活动状态轮询、
 // 指针交互与右键菜单。视觉为 llm-switch 冷调石板族的固定深色玻璃球，品牌莲花
 // （lotus_bloom_raster，冷白 alpha-mask）居中呼吸：辉光与缩放随相位起伏，
-// 空闲 ~6s 一个呼吸周期。状态词汇（全部由路由侧推导，Poll 每秒推进）：
+// 空闲 ~6s 一个呼吸周期。状态词汇由本地路由侧推导（没有可验证的本地活动时为未知）：
 //   streaming（在途请求 > 0）呼吸更深更快 + 装饰弧提亮；最近一次请求失败
 //   6s 内叠加误差红脉冲（failure）；一波活动批次（含成功请求）静默 ≥8s 结束
 //   后右上角挂 ✓ 完成提醒（done，静态绘制，点击/右键/新批次消解）；
@@ -232,6 +232,24 @@ huxerui::View ActiveAgentBadge(const std::vector<std::string>& tools) {
               huxerui::Padding(huxerui::EdgeInsets{.top = 6.0F}));
 }
 
+huxerui::View UnknownActivityBadge() {
+    return huxerui::Row{huxerui::Text("?")
+                            .Style(huxerui::TextStyle{
+                                huxerui::Font::System(font_size::kCaption)
+                                    .WithWeight(huxerui::FontWeight::Bold),
+                                Color::Rgb(224, 242, 254)})}
+        .With(huxerui::Frame{.width = 20.0F, .height = 20.0F},
+              huxerui::Background(Color::Rgb(71, 85, 105, 0.92F)),
+              huxerui::CornerRadius(10.0F),
+              huxerui::MainAlign(huxerui::MainAxisAlignment::Center),
+              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
+              huxerui::Semantics{.label = "活动状态未知：尚未观察到本地路由请求"})
+        .With(huxerui::Align(huxerui::HorizontalAlignment::End,
+                             huxerui::VerticalAlignment::Start),
+              huxerui::Padding(
+                  huxerui::EdgeInsets{.top = 6.0F, .right = 6.0F}));
+}
+
 } // namespace
 
 // ---- 主题（右键菜单与主应用同款）--------------------------------------------
@@ -307,7 +325,16 @@ void PetController::Poll() {
         if (log.status >= 200 && log.status < 400) newSuccess = true;
     }
 
-    const bool next_streaming = router.running() && router.inflight() > 0;
+    const bool routerAvailable = router.running();
+    const bool next_streaming = routerAvailable && router.inflight() > 0;
+    if (!routerAvailable) {
+        localRouterObservedThisSession = false;
+    } else if (next_streaming || newActivity) {
+        localRouterObservedThisSession = true;
+    }
+    const bool nextUnknown =
+        !routerAvailable || !localRouterObservedThisSession;
+    if (activityUnknown.Get() != nextUnknown) activityUnknown = nextUnknown;
 
     // 活动批次状态机：在途或新完成都算「有流量」；静默超时判定批次结束，
     // 含成功请求则挂完成提醒（点击 / 右键 / 新批次消解）。
@@ -544,7 +571,8 @@ huxerui::View PetContent() {
         });
     });
 
-    const bool trayAvailable = application.SystemTray().IsAvailable();
+    const bool trayAvailable = application.SystemTray().IsAvailable() &&
+                               controller->trayEnabled.Get();
     // 隐藏/退役当前正在派发点击的窗口是 use-after-free：指针 Up 派发还没
     // 返回，窗口先被销毁，PointerInteraction 的会话表跟着失效（coredump
     // 实证：HandlePointerUp 内 hashtable erase 段错误）。所有会动到本窗口
@@ -574,6 +602,7 @@ huxerui::View PetContent() {
     const std::int64_t today = controller->todayRequests.Get();
     const std::vector<std::string> activeTools = controller->activeTools.Get();
     const bool donePending = controller->donePendingAck.Get();
+    const bool activityUnknown = controller->activityUnknown.Get();
     const bool compact = controller->compact.Get();
 
     // 主体形态（互斥，live2d 优先）：Live2D 皮肤 / 胶囊 / 莲花球。三种形态
@@ -625,6 +654,10 @@ huxerui::View PetContent() {
                 .lotus = lotus},
             huxerui::Grow(1.0F));
     }
+    if (activityUnknown) {
+        body = huxerui::Stack{body, UnknownActivityBadge()}
+                   .With(huxerui::Grow(1.0F));
+    }
 
     huxerui::View content = std::move(body).With(
         huxerui::DragGesture{},
@@ -632,7 +665,9 @@ huxerui::View PetContent() {
             .role = huxerui::SemanticRole::Button,
             .label = donePending
                          ? "llm-switch AI 桌宠。有任务完成：点击消解提醒。"
-                         : "llm-switch AI 桌宠。点击展开信息卡；拖拽移动；右键快捷操作。"})
+                         : activityUnknown
+                               ? "llm-switch AI 桌宠。活动状态未知，尚未观察到本地路由请求。"
+                               : "llm-switch AI 桌宠。仅显示本地路由活动；点击展开信息卡，拖拽移动。"})
         .OnClick([controller, application, donePending] {
             // 完成提醒挂起时点击 = 消解标记（白龙同款）；否则切换信息卡。
             if (donePending) {
@@ -712,11 +747,14 @@ namespace {
 // 一行 Agent 今日统计：图标 + 名称 + 当前供应商 + 「N 次 · 输入/输出 tok」。
 // 颜色由调用方按当前主题传入（本函数是普通函数，不能 UseTheme）。
 huxerui::View CardAgentRow(const PetAgentRow& row, const std::string& providerName,
-                           bool hasActivity, Color onSurface, Color onSurfaceVariant) {
-    const std::string meta = hasActivity
-                                 ? std::format("{} 次 · ↑{} ↓{} tok", row.requests,
-                                               row.promptTokens, row.completionTokens)
-                                 : std::string("今日无请求");
+                           bool hasActivity, bool activityUnknown,
+                           Color onSurface, Color onSurfaceVariant) {
+    const std::string meta =
+        hasActivity
+            ? std::format("{} 次 · ↑{} ↓{} tok", row.requests,
+                          row.promptTokens, row.completionTokens)
+            : activityUnknown ? std::string("活动状态未知")
+                              : std::string("今日无路由请求");
     return huxerui::Row {
         huxerui::Image(ToolIcon(row.tool))
             .Tint(hasActivity ? onSurface : onSurfaceVariant)
@@ -760,6 +798,7 @@ huxerui::View PetCardContent() {
     const huxerui::ThemeSpec spec = dark ? AppDarkThemeSpec() : AppLightThemeSpec();
     const PetCardSnapshot snapshot = controller->cardSnapshot.Get();
     const bool streaming = controller->streaming.Get();
+    const bool activityUnknown = controller->activityUnknown.Get();
     const Color onSurface = spec.colors.on_surface;
     const Color onSurfaceVariant = spec.colors.on_surface_variant;
 
@@ -780,8 +819,8 @@ huxerui::View PetCardContent() {
             continue;  // 工具不在注册表（不应发生）：跳过该行
         }
         const bool hasActivity = row.requests > 0;
-        rows.push_back(CardAgentRow(row, providerName, hasActivity, onSurface,
-                                    onSurfaceVariant)
+        rows.push_back(CardAgentRow(row, providerName, hasActivity,
+                                    activityUnknown, onSurface, onSurfaceVariant)
                            .OnClick([nav, activation] {
                                nav->RequestPage(pages::kAgents);
                                activation->Activate();
@@ -813,10 +852,17 @@ huxerui::View PetCardContent() {
                                 .WithWeight(huxerui::FontWeight::Bold),
                             onSurface}),
                     huxerui::Spacer(),
-                    huxerui::Text(streaming ? "进行中" : "空闲")
+                    huxerui::Text(streaming
+                                      ? "进行中"
+                                      : activityUnknown ? "未知" : "本地路由空闲")
                         .Style(huxerui::TextStyle{
                             huxerui::Font::System(font_size::kChip), onSurfaceVariant}),
                 }.With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
+                huxerui::Text(activityUnknown
+                                  ? "尚未观察到本地路由请求，当前活动状态未知。"
+                                  : "只统计经本地路由的请求；Agent 原生来源尚未接入。")
+                    .Style(huxerui::TextStyle{
+                        huxerui::Font::System(font_size::kChip), onSurfaceVariant}),
                 huxerui::Text(std::format("本地路由今日转发 {} 次请求",
                                           snapshot.todayRequests))
                     .Style(huxerui::TextStyle{

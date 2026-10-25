@@ -396,6 +396,9 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
         llmswitch_httplib
         Threads::Threads
     )
+    if (WIN32)
+        target_link_libraries(llm-switch PRIVATE Advapi32)
+    endif ()
 
     # 生成格式钩子：平台清单 / Info.plist
     if (WIN32 AND HUXERUI_WINDOWS_MANIFEST)

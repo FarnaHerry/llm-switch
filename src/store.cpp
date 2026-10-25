@@ -320,6 +320,29 @@ void ProviderStore::setStartupMode(std::string mode) {
     save();
 }
 
+void ProviderStore::completeFirstRunSetup(bool live2d, bool topmost,
+                                          bool launchAtLogin,
+                                          bool trayEnabled,
+                                          bool routerEnabled) {
+    config_.petLive2D = live2d;
+    config_.petTopmost = topmost;
+    config_.launchAtLogin = launchAtLogin;
+    config_.trayEnabled = trayEnabled;
+    config_.routerEnabled = routerEnabled;
+    config_.firstRunSetupCompleted = true;
+    save();
+}
+
+void ProviderStore::setLaunchAtLogin(bool enabled) {
+    config_.launchAtLogin = enabled;
+    save();
+}
+
+void ProviderStore::setTrayEnabled(bool enabled) {
+    config_.trayEnabled = enabled;
+    save();
+}
+
 void ProviderStore::setPetTopmost(bool topmost) {
     config_.petTopmost = topmost;
     save();

@@ -465,6 +465,12 @@ export struct AppConfig {
         "zcode"};
     // 应用启动入口：pet / control-center；choose 表示旧配置尚未作出选择。
     std::string startupMode = "pet";
+    // 新安装首次设置向导是否完成。旧版已有配置视作已完成，避免升级时打扰。
+    bool firstRunSetupCompleted = false;
+    // 用户登录时启动应用（平台入口文件 / 当前用户启动项）。
+    bool launchAtLogin = false;
+    // 是否展示系统托盘；托盘不可用时 UI 保持可见恢复入口。
+    bool trayEnabled = true;
     // AI 桌宠（透明工具窗口小圆球）：展示本地路由的 AI 流量状态。
     bool petTopmost = true;       // 桌宠窗口置顶
     // 轻量级模式（对齐 Clash-Flux tray.lightweight）：隐藏桌宠时退役窗口、
@@ -679,6 +685,9 @@ export nlohmann::json toJson(const AppConfig& c) {
     if (c.startupMode != "choose") {
         j["petEnabled"] = c.startupMode == "pet";
     }
+    j["firstRunSetupCompleted"] = c.firstRunSetupCompleted;
+    j["launchAtLogin"] = c.launchAtLogin;
+    j["trayEnabled"] = c.trayEnabled;
     j["petTopmost"] = c.petTopmost;
     j["petLightweight"] = c.petLightweight;
     j["petCompact"] = c.petCompact;
@@ -730,6 +739,9 @@ export AppConfig fromJson(const nlohmann::json& j) {
         // 兼容旧版显式保存的桌宠开关。
         c.startupMode = j["petEnabled"].get<bool>() ? "pet" : "control-center";
     }
+    c.firstRunSetupCompleted = j.value("firstRunSetupCompleted", true);
+    c.launchAtLogin = j.value("launchAtLogin", false);
+    c.trayEnabled = j.value("trayEnabled", true);
     c.petTopmost = j.value("petTopmost", true);
     c.petLightweight = j.value("petLightweight", false);
     c.petCompact = j.value("petCompact", false);
