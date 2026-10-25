@@ -104,11 +104,12 @@ Agent 的活动并快速回到日常工作；主窗口成为它背后的**多 Ag
      接入层不提取、不保留或保存 prompt、工具内容和 transcript 路径。
    - [ ] 为 Claude Code 与 Codex 做受控本机 hooks spike；关闭本地路由，各跑一次
      真实任务，验证能观察开始、持续、结束与失败。2026-10-25 部分实测：Codex TUI
-     的不调用工具文本任务返回成功，hooks 已在 `/hooks` 中显示 Active，跟踪到任务
-     期间与会话退出时的 helper；Claude Code 的真实请求失败，单次失败会话启动了 4
-     次 helper。未读取
-     hook 输入，也未确认每个事件对应的桌宠可见状态；Codex hooks 没有专用失败事件，
-     需先评估 app-server 的状态事件。
+     的不调用工具文本任务成功，`/hooks` 显示 Active，跟踪到任务期间与会话退出时
+     的 helper；另一个 Codex 只读任务完成了 shell 工具调用。Claude Code 的 stream
+     hook 事件标记显示 `SessionStart`、`UserPromptSubmit`、`StopFailure`，请求以失败
+     结束。未读取 hook 输入，也未确认各事件到达桌宠可见状态；Codex hooks 没有专用
+     失败事件。本机 Codex CLI 为 0.160.1、运行中的 app-server daemon 为 0.164.0，
+     代理初始化探测无响应，失败语义来源仍需评估。
    - [x] 将来源事件合并到桌宠轻量状态；区分“没有活动”和“没有数据”，并在
      应用内存中聚合多 session、多个 Agent 与过期事件，不写会话正文。
    - [x] 给 Claude Code / Codex 加独立启用开关与状态说明；只保留状态所需元数据。

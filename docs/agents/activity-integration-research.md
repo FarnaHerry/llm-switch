@@ -61,8 +61,8 @@ source id + 内存期 session key + state + occurred_at + optional error/wait fl
 ### P0：Claude Code 与 Codex
 
 1. 归一事件 contract、内存 aggregator、loopback bridge、增量 hook 管理与桌宠状态合并已实现；`LocalRouter` 保持独立。
-2. 为两个 Agent 做受控本机 spike：分别关闭 LocalRouter，显式安装 hook，测试开始、工具执行、等待输入、正常结束、失败、中断、并发 session、应用先启动/后启动、Agent 配置中已有用户 hook 等情况。2026-10-25 部分实测：Codex TUI 不调用工具的文本任务返回成功，`/hooks` 显示应用 hooks Active，进程跟踪观察到任务期间与会话退出时的 helper；Claude Code 的最小真实请求失败，但该会话观察到 4 次 helper 执行。hook 输入未读取；事件级状态和桌宠展示仍未逐项验收。
-3. 记录 Agent 版本、触发事件、延迟、缺失事件及安装前后配置差异；Codex 需分别验证 hook 未信任、hooks 关闭和 `SessionEnd` 延迟场景。Codex hooks 没有专用 failure 事件；官方 app-server `turn/completed` 的状态 enum 可区分 completed / interrupted / failed，应先评估该本地接口，再考虑受限的 JSONL 元数据回退。
+2. 为两个 Agent 做受控本机 spike：分别关闭 LocalRouter，显式安装 hook，测试开始、工具执行、等待输入、正常结束、失败、中断、并发 session、应用先启动/后启动、Agent 配置中已有用户 hook 等情况。2026-10-25 部分实测：Codex TUI 不调用工具的文本任务成功，`/hooks` 显示应用 hooks Active，进程跟踪观察到任务期间与会话退出时的 helper；另一次 Codex 只读任务完成 shell 工具调用。Claude Code 的 `--include-hook-events` 输出显示 `SessionStart`、`UserPromptSubmit`、`StopFailure`，请求失败退出。hook 输入未读取；事件对应的桌宠可见状态仍未逐项验收。
+3. 记录 Agent 版本、触发事件、延迟、缺失事件及安装前后配置差异；Codex 需分别验证 hook 未信任、hooks 关闭和 `SessionEnd` 延迟场景。Codex hooks 没有专用 failure 事件；官方 app-server `turn/completed` 的状态 enum 可区分 completed / interrupted / failed。本机 Codex CLI 0.160.1 与运行中的 app-server daemon 0.164.0 版本不一致；通过本机代理探测初始化未收到响应，app-server 是否可作为已打开 CLI 会话的观察源仍未验证。验证前不改用受限 JSONL 回退。
 4. 对已实现接入做隐私探针：注入唯一的假 prompt/命令字符串，确认它们未进入 llm-switch 数据目录、日志、bridge payload 或桌宠 State。
 
 P0 完成条件仍以 [桌宠路线图](desktop-pet-roadmap.md) 的验收为准；文档调研不视为 spike 已完成。

@@ -39,9 +39,11 @@ Codex's `/hooks` UI; until a trusted event arrives, the source remains unknown.
 Claude Code hooks can also be disabled by its own `disableAllHooks` setting.
 The bridge/helper/configuration path is covered by local tests. A controlled
 real-session spike on 2026-10-25 confirmed helper execution during a Codex TUI
-task and shutdown, and during a failed Claude Code request. The pet's visible
-state has not been verified end to end; Codex hooks also lack a dedicated turn
-failure event, so do not claim full lifecycle coverage yet.
+task and shutdown. Claude Code's hook event stream showed `SessionStart`,
+`UserPromptSubmit`, and `StopFailure` on a failed request. A Codex read-only
+task also completed a shell tool call. The pet's visible state has not been
+verified end to end; Codex hooks lack a dedicated turn failure event, and the
+local app-server probe did not return an initialization response.
 
 ## Data and lifecycle
 
