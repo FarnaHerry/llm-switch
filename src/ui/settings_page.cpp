@@ -203,8 +203,9 @@ bool ResolvesToDark(int mode) {
 
 } // namespace
 
-[[huxerui::composable]] huxerui::View SettingsPage(huxerui::State<int> themeMode,
-                                                   huxerui::State<int> revision) {
+[[huxerui::composable]] huxerui::View SettingsPage(
+    huxerui::State<int> themeMode, huxerui::State<int> revision,
+    huxerui::State<std::size_t> startupMode) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto tasks = huxerui::UseTaskScope();
     auto toast = huxerui::UseToast();
@@ -220,7 +221,6 @@ bool ResolvesToDark(int mode) {
     const auto pet = huxerui::UseService<PetController>();
     const huxerui::ApplicationHandle application = huxerui::UseApplication();
     const bool petTrayAvailable = application.SystemTray().IsAvailable();
-    auto petEnabled = huxerui::UseState(providerStore().config().petEnabled);
     auto petTopmost = huxerui::UseState(providerStore().config().petTopmost);
     auto petLightweight =
         huxerui::UseState(providerStore().config().petLightweight);
@@ -390,24 +390,26 @@ bool ResolvesToDark(int mode) {
 
                 SectionDivider(),
 
-                // AI 桌宠：透明小球实时反映本地路由的 AI 请求活动。开关即时
-                // 开/退役窗口（不仅是下次启动）；置顶切换同步到现存窗口；
+                // AI 桌宠：启动入口可即时切换；置顶切换同步到现存窗口；
                 // 轻量级模式下隐藏即退役、唤出重建。
                 PageSection(SectionTitle("AI 桌宠"),
                             huxerui::Column {
                     SettingRow(
-                        "启用 AI 桌宠",
-                        "桌面小球显示本地路由的请求活动与今日用量；点击打开主窗口，右键快捷操作",
-                        huxerui::Switch(petEnabled.Get())
-                            .OnChanged([pet, application, petEnabled, toast](bool on) {
+                        "启动入口",
+                        "桌宠优先会自动启动桌宠并收起控制中心；控制中心模式直接打开管理页面",
+                        huxerui::SegmentedButton(
+                            {"桌宠优先", "控制中心"}, startupMode)
+                            .OnChanged([pet, application, startupMode, toast](std::size_t index) {
+                                if (index > 1) return;
                                 try {
-                                    providerStore().setPetEnabled(on);
-                                    if (on) {
+                                    providerStore().setStartupMode(
+                                        index == 0 ? "pet" : "control-center");
+                                    startupMode = index;
+                                    if (index == 0) {
                                         pet->Show(application);
                                     } else {
                                         pet->Retire();
                                     }
-                                    petEnabled = on;
                                 } catch (const std::exception& e) {
                                     toast.Show(e.what());
                                 }

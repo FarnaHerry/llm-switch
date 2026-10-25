@@ -95,8 +95,10 @@ huxerui::View ProvidersPage(std::string tool, huxerui::State<int> revision,
                             huxerui::State<std::string> formTarget,
                             huxerui::State<std::size_t> navPage,
                             huxerui::State<std::size_t> selectedTool, std::size_t toolIndex);
-// 设置页持有主题模式 State（AppRoot 传入）。
-huxerui::View SettingsPage(huxerui::State<int> themeMode, huxerui::State<int> revision);
+// 设置页持有主题模式与启动入口 State（AppRoot 传入）。
+huxerui::View SettingsPage(huxerui::State<int> themeMode,
+                           huxerui::State<int> revision,
+                           huxerui::State<std::size_t> startupMode);
 
 // ---- 通用部件（common.cpp）----
 

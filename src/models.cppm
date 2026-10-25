@@ -463,8 +463,9 @@ export struct AppConfig {
     std::vector<std::string> routerTools{
         "claude-code", "claude", "codex", "opencode", "pi", "dsh", "hermes",
         "zcode"};
+    // 应用启动入口：pet / control-center；choose 表示旧配置尚未作出选择。
+    std::string startupMode = "pet";
     // AI 桌宠（透明工具窗口小圆球）：展示本地路由的 AI 流量状态。
-    bool petEnabled = true;       // 应用启动时自动打开桌宠窗口（新配置默认开启）
     bool petTopmost = true;       // 桌宠窗口置顶
     // 轻量级模式（对齐 Clash-Flux tray.lightweight）：隐藏桌宠时退役窗口、
     // 释放 UI 树与渲染资源，托盘/菜单唤出时重新创建（位置与偏好保留）。
@@ -673,7 +674,11 @@ export nlohmann::json toJson(const AppConfig& c) {
     j["routerPort"] = c.routerPort;
     j["routerFailover"] = c.routerFailover;
     j["routerTools"] = c.routerTools;
-    j["petEnabled"] = c.petEnabled;
+    j["startupMode"] = c.startupMode;
+    // 兼容旧版本：仍写入旧开关，旧版读取新配置时能保留同一启动选择。
+    if (c.startupMode != "choose") {
+        j["petEnabled"] = c.startupMode == "pet";
+    }
     j["petTopmost"] = c.petTopmost;
     j["petLightweight"] = c.petLightweight;
     j["petCompact"] = c.petCompact;
@@ -717,7 +722,14 @@ export AppConfig fromJson(const nlohmann::json& j) {
     c.routerEnabled = j.value("routerEnabled", false);
     c.routerPort = j.value("routerPort", 15731);
     c.routerFailover = j.value("routerFailover", true);
-    c.petEnabled = j.value("petEnabled", true);
+    const std::string startupMode = j.value("startupMode", "");
+    if (startupMode == "pet" || startupMode == "control-center" ||
+        startupMode == "choose") {
+        c.startupMode = startupMode;
+    } else if (j.contains("petEnabled") && j["petEnabled"].is_boolean()) {
+        // 兼容旧版显式保存的桌宠开关。
+        c.startupMode = j["petEnabled"].get<bool>() ? "pet" : "control-center";
+    }
     c.petTopmost = j.value("petTopmost", true);
     c.petLightweight = j.value("petLightweight", false);
     c.petCompact = j.value("petCompact", false);

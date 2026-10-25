@@ -123,7 +123,8 @@ huxerui::View AppThemed(bool dark, huxerui::View content) {
 std::vector<huxerui::MenuEntry> BuildTrayMenu(
     huxerui::WindowHandle window, huxerui::ApplicationHandle application,
     huxerui::ToastHandle toast, huxerui::State<int> revision,
-    const std::shared_ptr<PetController>& pet) {
+    const std::shared_ptr<PetController>& pet,
+    huxerui::State<std::size_t> startupMode) {
     std::vector<huxerui::MenuEntry> entries;
     auto& st = providerStore();
     // 按注册表列出全部工具组（阶段A 通用代码，自然覆盖 5 个工具）。
@@ -200,18 +201,18 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(
                 revision = revision.Get() + 1;
             })
             .Checked(routerInstance().running()));
-    // AI 桌宠开关：勾选 = 窗口存活（轻量级模式下隐藏即退役，勾选随之消失）；
-    // 点击在「退役 + 关闭开机自启」与「重建 + 开启」间切换——已被轻量级退役
-    // 的桌宠从托盘唤出时按保留的位置与偏好重建。
+    // AI 桌宠入口：勾选 = 窗口存活；点击同时更新启动入口偏好。
     entries.push_back(
         huxerui::MenuItem("AI 桌宠",
-                          [pet, application, toast, revision] {
+                          [pet, application, toast, revision, startupMode] {
                               try {
                                   if (pet->pet) {
-                                      providerStore().setPetEnabled(false);
+                                      providerStore().setStartupMode("control-center");
+                                      startupMode = 1;
                                       pet->Retire();
                                   } else {
-                                      providerStore().setPetEnabled(true);
+                                      providerStore().setStartupMode("pet");
+                                      startupMode = 0;
                                       pet->Show(application);
                                   }
                               } catch (const std::exception& e) {
@@ -275,6 +276,62 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
     }.With(huxerui::Spacing(12.0F),
            huxerui::Frame{.width = 420.0F},
+           huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)));
+}
+
+// 旧配置缺少启动入口时只询问一次；确认后保留旧的宠物开关键供降级版本读取。
+[[huxerui::composable]] huxerui::View StartupChoiceContent(
+    huxerui::DialogContext context, huxerui::WindowHandle window,
+    huxerui::ApplicationHandle application, huxerui::SystemTrayHandle tray,
+    const std::shared_ptr<PetController>& pet,
+    huxerui::State<std::size_t> startupMode, huxerui::TaskScope appTasks,
+    huxerui::ToastHandle toast) {
+    return DialogCard(huxerui::Column {
+        huxerui::Text("选择启动入口", huxerui::TextRole::Title),
+        huxerui::Text("桌宠优先会启动桌宠并收起控制中心；控制中心模式会直接打开管理页面。之后可在设置中更改。"),
+        huxerui::Row {
+            huxerui::Spacer(),
+            huxerui::Button("控制中心")
+                .OnClick([context, window, pet, startupMode, appTasks, toast] {
+                    appTasks.Post([context, window, pet, startupMode, toast] {
+                        context.Dismiss();
+                        try {
+                            providerStore().setStartupMode("control-center");
+                            startupMode = 1;
+                            pet->Retire();
+                            window.Show();
+                        } catch (const std::exception& e) {
+                            window.Show();
+                            toast.Show(e.what());
+                        }
+                    });
+                }),
+            huxerui::Button("桌宠优先")
+                .OnClick([context, window, application, tray, pet, startupMode,
+                          appTasks, toast] {
+                    appTasks.Post([context, window, application, tray, pet,
+                                   startupMode, toast] {
+                        context.Dismiss();
+                        try {
+                            providerStore().setStartupMode("pet");
+                            startupMode = 0;
+                            pet->Show(application);
+                            if (tray.IsAvailable()) {
+                                window.Hide();
+                            } else {
+                                window.Show();
+                            }
+                        } catch (const std::exception& e) {
+                            window.Show();
+                            toast.Show(std::format(
+                                "桌宠启动失败，已打开控制中心：{}", e.what()));
+                        }
+                    });
+                }),
+        }.With(huxerui::Spacing(8.0F),
+               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
+    }.With(huxerui::Spacing(12.0F),
+           huxerui::Frame{.width = 460.0F},
            huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)));
 }
 
@@ -690,7 +747,8 @@ constexpr double kCollapseSeconds = 0.12;
 [[huxerui::composable]] huxerui::View SystemTrayPresentation(
     huxerui::ApplicationHandle application, huxerui::SystemTrayHandle tray,
     huxerui::WindowHandle window, huxerui::ToastHandle toast,
-    huxerui::State<int> revision) {
+    huxerui::State<int> revision,
+    huxerui::State<std::size_t> startupMode) {
     // OnActivate 已在 InstallApplication 的 ApplicationHook 里注册过一次；
     // 这里只负责把当前窗口绑进应用级目标（卸载时解绑）。Show/Hide 仍是组合
     // 生命周期：菜单要跟着 revision 重建，重组时由 Show 替换共享呈现。
@@ -702,12 +760,12 @@ constexpr double kCollapseSeconds = 0.12;
         return [activation] { activation->Unbind(); };
     });
     huxerui::Lifecycle(
-        [application, tray, window, toast, revision, pet] {
+        [application, tray, window, toast, revision, pet, startupMode] {
             tray.Show(app::images::lotus_tray_bloom,
                       huxerui::SystemTrayOptions{
                           .tooltip = "llm-switch",
                           .menu = BuildTrayMenu(window, application, toast,
-                                                revision, pet)});
+                                                revision, pet, startupMode)});
             return [tray] { tray.Hide(); };
         },
         revision, pet->epoch);
@@ -750,6 +808,7 @@ constexpr double kCollapseSeconds = 0.12;
 [[huxerui::composable]] huxerui::View TopLevelNavigation(
     huxerui::State<std::size_t> navPage, huxerui::State<int> revision,
     huxerui::State<int> themeMode, huxerui::State<bool> pageReveal,
+    huxerui::State<std::size_t> startupMode,
     huxerui::State<std::size_t> selectedAgentTool,
     huxerui::State<std::string> addProviderRequest) {
     auto pageCache =
@@ -772,7 +831,7 @@ constexpr double kCollapseSeconds = 0.12;
             SkillsPage().Key("skills").With(huxerui::Grow(1.0F)));
         nextPages->push_back(
             SessionsPage().Key("sessions").With(huxerui::Grow(1.0F)));
-        nextPages->push_back(SettingsPage(themeMode, revision)
+        nextPages->push_back(SettingsPage(themeMode, revision, startupMode)
                                  .Key("settings")
                                  .With(huxerui::Grow(1.0F)));
         nextPages->push_back(
@@ -849,7 +908,7 @@ void InstallApplication(huxerui::ApplicationContext& context) {
     }
     context.Provide(pet);
     application.SystemTray().OnActivate([activation, pet, application] {
-        if (providerStore().config().petEnabled) {
+        if (providerStore().config().startupMode == "pet") {
             try {
                 pet->Show(application);
                 return;
@@ -870,13 +929,16 @@ void InstallApplication(huxerui::ApplicationContext& context) {
     auto tasks = huxerui::UseTaskScope();
     const auto appTasks = huxerui::UseApplicationTaskScope();
     const auto pet = huxerui::UseService<PetController>();
+    const std::string startupModeValue = providerStore().config().startupMode;
+    const bool startupChoicePending = startupModeValue == "choose";
+    const bool startWithPet = startupModeValue == "pet";
 
     // A second Linux process forwards here; TaskScope::Post returns to the UI thread before activating the window.
     huxerui::Lifecycle(
         [window, tasks, application, pet] {
             single_instance::SetActivationHandler([window, tasks, application, pet] {
                 tasks.Post([window, application, pet] {
-                    if (providerStore().config().petEnabled) {
+                    if (providerStore().config().startupMode == "pet") {
                         try {
                             pet->Show(application);
                             return;
@@ -899,6 +961,8 @@ void InstallApplication(huxerui::ApplicationContext& context) {
         if (saved == "light") initialThemeMode = 2;
     }
     auto themeMode = huxerui::UseState<int>(std::move(initialThemeMode));
+    auto startupMode = huxerui::UseState<std::size_t>(
+        startupModeValue == "control-center" ? 1U : 0U);
     // 顶级页面状态同时供标题栏导航与保持挂载的 IndexedPages 宿主订阅。
     // AppRoot 本身不读取它，切页只重组这两个局部子树。
     auto navPage = huxerui::UseState<std::size_t>(pages::kAgents);
@@ -925,8 +989,9 @@ void InstallApplication(huxerui::ApplicationContext& context) {
 
     // 桌宠优先启动：托盘可用时让控制中心保持挂载但隐藏；没有托盘时控制中心
     // 保持可见作为恢复入口。桌宠开窗放到应用任务队列，避免在组合期间创建窗口。
-    huxerui::Lifecycle([window, trayAvailable, pet, application, appTasks, toast] {
-        if (!providerStore().config().petEnabled) return;
+    huxerui::Lifecycle([window, trayAvailable, pet, application, appTasks, toast,
+                        startWithPet] {
+        if (!startWithPet) return;
         if (trayAvailable) window.Hide();
         appTasks.Post([window, pet, application, toast] {
             try {
@@ -1009,7 +1074,8 @@ void InstallApplication(huxerui::ApplicationContext& context) {
             // 不能用硬编码高度去"对齐"的原因。
             // 页面容器承担切页展开：缩放轴心取容器中心，配合淡入即"从中心展开"。
             TopLevelNavigation(navPage, revision, themeMode, pageReveal,
-                               selectedAgentTool, addProviderRequest)
+                               startupMode, selectedAgentTool,
+                               addProviderRequest)
                 .With(huxerui::Grow(1.0F)),
         }
             .With(huxerui::Padding(huxerui::EdgeInsets{.bottom =
@@ -1044,9 +1110,30 @@ void InstallApplication(huxerui::ApplicationContext& context) {
     // DialogHandle 必须在 AppThemed 的子作用域内获取，否则关闭确认框会捕获
     // HuxerUI 默认 Environment，无法使用应用的主体色和对话框样式。
     huxerui::View windowBehavior = huxerui::Scope(
-        [application, tray, window, toast] {
+        [application, tray, window, toast, startupChoicePending, startupMode,
+         pet, appTasks] {
             const auto dialog = huxerui::UseDialog();
             const auto tasks = huxerui::UseTaskScope();
+            huxerui::Lifecycle(
+                [dialog, startupChoicePending, application, tray, window, pet,
+                 startupMode, appTasks, toast] {
+                    if (startupChoicePending) {
+                        dialog.Show(
+                            [application, tray, window, pet, startupMode,
+                             appTasks, toast](huxerui::DialogContext context)
+                                -> huxerui::View {
+                                return StartupChoiceContent(
+                                    context, window, application, tray, pet,
+                                    startupMode, appTasks, toast);
+                            },
+                            huxerui::DialogOptions{
+                                .dismiss_on_outside_press = false,
+                                .dismiss_on_cancel = false,
+                            });
+                    }
+                    return [] {};
+                },
+                startupChoicePending);
             const auto showCloseConfirmation =
                 [application, tray, window, toast, dialog] {
                     dialog.Show(
@@ -1096,7 +1183,8 @@ void InstallApplication(huxerui::ApplicationContext& context) {
         });
 
     huxerui::View filledContent = huxerui::Column {
-        SystemTrayPresentation(application, tray, window, toast, revision),
+        SystemTrayPresentation(application, tray, window, toast, revision,
+                               startupMode),
         windowBehavior,
         std::move(content).With(huxerui::Grow(1.0F)),
     }.With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),

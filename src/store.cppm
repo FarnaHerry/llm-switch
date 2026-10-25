@@ -101,8 +101,9 @@ public:
     // 单 Agent 代理开关；未知工具 id 抛异常，修改后立即落盘。
     void setRouterToolEnabled(std::string_view tool, bool enabled);
 
-    // AI 桌宠（透明工具窗口）开关与置顶偏好，立即落盘。
-    void setPetEnabled(bool enabled);
+    // 应用启动入口（pet / control-center），立即落盘并结束旧配置迁移选择。
+    void setStartupMode(std::string mode);
+    // AI 桌宠（透明工具窗口）置顶偏好，立即落盘。
     void setPetTopmost(bool topmost);
     void setPetLightweight(bool lightweight);
     void setPetCompact(bool compact);

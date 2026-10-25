@@ -163,6 +163,7 @@ int main() {
         CHECK(s.config().groups.empty());
         CHECK(s.config().themeMode == "system");
         CHECK(s.config().closeBehavior == "ask");
+        CHECK(s.config().startupMode == "pet");
         CHECK(s.config().routerTools.size() == models::toolRegistry().size());
         CHECK(std::ranges::find(s.config().routerTools, "claude-code") !=
               s.config().routerTools.end());
@@ -225,32 +226,38 @@ int main() {
                   .closeBehavior == "ask");
     }
 
-    // 1a-2. AI 桌宠偏好持久化：缺字段默认开启 + 置顶 + 非轻量级 +
-    //       非胶囊；显式关闭仍按用户选择保留，setter 立即落盘。
+    // 1a-2. 桌宠启动入口：新配置默认桌宠；旧版显式开关迁移为入口选择，
+    //       setter 立即落盘并保持旧键兼容。
     {
         auto petSettings = store::ProviderStore::load();
-        CHECK(petSettings.config().petEnabled == true);
+        CHECK(petSettings.config().startupMode == "pet");
         CHECK(petSettings.config().petTopmost == true);
         CHECK(petSettings.config().petLightweight == false);
         CHECK(petSettings.config().petCompact == false);
         CHECK(petSettings.config().petLive2D == false);
         const auto explicitPet = models::fromJson(nlohmann::json::parse(
             R"json({"petEnabled":true,"petTopmost":false,"petLightweight":true,"petCompact":true,"petLive2D":true})json"));
-        CHECK(explicitPet.petEnabled == true);
+        CHECK(explicitPet.startupMode == "pet");
         CHECK(explicitPet.petTopmost == false);
         CHECK(explicitPet.petLightweight == true);
         CHECK(explicitPet.petCompact == true);
         CHECK(explicitPet.petLive2D == true);
         const auto explicitPetOff = models::fromJson(
             nlohmann::json::parse(R"json({"petEnabled":false})json"));
-        CHECK(explicitPetOff.petEnabled == false);
-        petSettings.setPetEnabled(true);
+        CHECK(explicitPetOff.startupMode == "control-center");
+        const auto newModeWins = models::fromJson(nlohmann::json::parse(
+            R"json({"startupMode":"pet","petEnabled":false})json"));
+        CHECK(newModeWins.startupMode == "pet");
+        petSettings.setStartupMode("control-center");
+        CHECK(petSettings.config().startupMode == "control-center");
+        petSettings.setStartupMode("pet");
         petSettings.setPetTopmost(false);
         petSettings.setPetLightweight(true);
         petSettings.setPetCompact(true);
         petSettings.setPetLive2D(true);
         auto petReloaded = store::ProviderStore::load();
-        CHECK(petReloaded.config().petEnabled == true);
+        CHECK(petReloaded.config().startupMode == "pet");
+        CHECK(readJson(cfg::configFile())["petEnabled"] == true);
         CHECK(petReloaded.config().petTopmost == false);
         CHECK(petReloaded.config().petLightweight == true);
         CHECK(petReloaded.config().petCompact == true);
@@ -3068,10 +3075,15 @@ int main() {
         CHECK(migrated.group("codex").providers.size() == 1);
         CHECK(migrated.group("codex").providers[0].id == "old-2");
         CHECK(migrated.config().themeMode == "dark");
+        CHECK(migrated.config().startupMode == "choose");
         // 旧版本的全局刷新间隔迁移到旧 Provider。
         CHECK(migrated.group("claude-code").providers[0].usageRefreshMinutes ==
               5);
         CHECK(migrated.group("codex").providers[0].usageRefreshMinutes == 5);
+        migrated.setStartupMode("control-center");
+        CHECK(migrated.config().startupMode == "control-center");
+        const auto resolvedStartup = store::ProviderStore::load();
+        CHECK(resolvedStartup.config().startupMode == "control-center");
     }
 
     // 17. 损坏的 config.json → load 不崩溃，坏文件被挪到 .corrupt-<时间戳>
