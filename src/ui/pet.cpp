@@ -50,24 +50,34 @@ struct Orb {
     bool failure = false;
     bool done = false;  // 完成提醒挂起（✓ 标记，静态绘制）
     bool animate = true;
+    // 点击互动（PetController::Play）：epoch 变化触发重播，kind 选动画形态。
+    int playEpoch = 0;
+    int playKind = 0;
     // 品牌莲花（组合期经 UseImage 解析；白色 alpha-mask，衬在深色玻璃球上
     // 无需 tint）。ImageAsset 值语义共享编码存储，比较为内含标识比较。
     huxerui::ImageAsset lotus{};
     bool operator==(const Orb&) const = default;
 };
 
+// 互动动画时长（秒）：点击后播放一次，结束后静止回呼吸。
+constexpr float kReactDuration = 0.9F;
+
 // 石墨玻璃球 + 青蓝波纹。zero-alpha 像素在 Windows 上原生点击穿透
 // （分层表面按预乘 alpha 命中测试），半透明球体区域保持可交互。
 void PaintOrb(huxerui::PaintContext& paint, huxerui::Size size, float phase,
-              const Orb& orb) {
+              const Orb& orb, float react_elapsed) {
     const Point center{size.width * 0.5F, size.height * 0.5F};
     const float radius = std::min(size.width, size.height) * 0.37F;
     if (radius <= 0.0F) return;
     const Rect bounds{center.x - radius, center.y - radius, radius * 2.0F, radius * 2.0F};
     const huxerui::Path circle = huxerui::Path::RoundedRect(bounds, huxerui::CornerRadii{radius});
-    // 辉光随呼吸起伏；路由流式请求或原生 hook 工作时基准更亮。
+    // 互动反应进度（0→1）；epoch 为 0 表示从未点击过。
+    const float react = std::clamp(react_elapsed / kReactDuration, 0.0F, 1.0F);
+    const bool reacting = orb.playEpoch > 0 && react < 1.0F;
+    // 辉光随呼吸起伏；路由流式请求或原生 hook 工作时基准更亮；互动时短暂提亮。
     const float intensity =
-        (orb.active ? 1.0F : 0.6F) * (1.0F + 0.12F * std::sin(phase));
+        ((orb.active ? 1.0F : 0.6F) + (reacting ? (1.0F - react) * 0.5F : 0.0F)) *
+        (1.0F + 0.12F * std::sin(phase));
 
     // 球外环境辉光：透明窗口上形成一圈淡青晕。
     paint.DrawRect({center.x - radius * 1.24F, center.y - radius * 1.24F,
@@ -102,10 +112,25 @@ void PaintOrb(huxerui::PaintContext& paint, huxerui::Size size, float phase,
 
     // 品牌莲花居中呼吸（白色 alpha-mask 栅格，衬深色玻璃球）：缩放随相位
     // 起伏，活动时呼吸更深更快——OnFrame 的 phase 步长控制呼吸周期。
+    // 点击互动叠加一次性位移：弹跳（kind 0）上跳落定，摇摆（kind 1）
+    // 阻尼左右晃。
+    float lotus_dx = 0.0F;
+    float lotus_dy = 0.0F;
+    if (reacting) {
+        if (orb.playKind == 0) {
+            const float hop = std::sin(std::min(react / 0.75F, 1.0F) *
+                                       std::numbers::pi_v<float>);
+            lotus_dy = -hop * radius * 0.15F;
+        } else if (orb.playKind == 1) {
+            lotus_dx = std::sin(react * 4.0F * std::numbers::pi_v<float>) *
+                       (1.0F - react) * radius * 0.08F;
+        }
+    }
     if (orb.lotus.HasValue()) {
         const float breathe = 1.0F + (orb.active ? 0.060F : 0.035F) * std::sin(phase);
         const float lotus_radius = radius * 0.58F * breathe;
-        const Rect lotus_bounds{center.x - lotus_radius, center.y - lotus_radius,
+        const Rect lotus_bounds{center.x - lotus_radius + lotus_dx,
+                                center.y - lotus_radius + lotus_dy,
                                 lotus_radius * 2.0F, lotus_radius * 2.0F};
         paint.DrawImage(orb.lotus, lotus_bounds);
     }
@@ -116,6 +141,20 @@ void PaintOrb(huxerui::PaintContext& paint, huxerui::Size size, float phase,
         .stops = {{0.0F, Color::Rgb(232, 234, 237, 0.16F)}, {1.0F, Color::Transparent()}},
     });
     paint.PopClip();
+
+    // 闪亮（kind 2）：三粒冷白小点从球顶升起渐隐（球体裁剪之外）。
+    if (reacting && orb.playKind == 2) {
+        for (int i = 0; i < 3; ++i) {
+            const float delay = 0.12F * i;
+            const float p = std::clamp((react - delay) / (1.0F - delay), 0.0F, 1.0F);
+            if (p <= 0.0F || p >= 1.0F) continue;
+            paint.DrawCircle(
+                {center.x + (i - 1) * radius * 0.5F,
+                 center.y - radius * (0.9F + 0.55F * p)},
+                radius * (0.07F + 0.03F * (1.0F - p)),
+                Color::Rgb(224, 242, 254, (1.0F - p) * 0.9F));
+        }
+    }
 
     // 玻璃边缘描边。
     paint.StrokePath(circle, huxerui::LinearGradient{
@@ -176,6 +215,8 @@ public:
 
     void Update(huxerui::ViewNode&, const Orb& orb) {
         if (orb_ != orb) {
+            // 新一次点击互动：从 0 重播（epoch 只增，别的状态变化不打断）。
+            if (orb.playEpoch != orb_.playEpoch) react_elapsed_ = 0.0F;
             orb_ = orb;
             InvalidatePaint();
         }
@@ -184,22 +225,30 @@ public:
     NodeExtension::FrameResult OnFrame(huxerui::ViewNode&, const huxerui::FrameInfo& frame) override {
         if (frame.reduced_motion || !orb_.animate) return {};
         const float delta = static_cast<float>(std::clamp(frame.delta_time, 0.0, 0.1));
+        bool invalidated = false;
         if (delta > 0.0F) {
             constexpr float wave_cycle = 20.0F * std::numbers::pi_v<float>;
             // 呼吸周期：空闲 ~6s，活动中 ~2.5s。
             phase_ = std::fmod(phase_ + delta * (orb_.active ? 2.5F : 1.0F), wave_cycle);
-            InvalidatePaint();
+            invalidated = true;
         }
+        // 互动动画推进；播完停在时长处（react == 1 → 静止）。
+        if (react_elapsed_ < kReactDuration) {
+            react_elapsed_ = std::min(react_elapsed_ + delta, kReactDuration);
+            invalidated = true;
+        }
+        if (invalidated) InvalidatePaint();
         return {.wake_after = 1.0 / 30.0};
     }
 
     void PaintAboveContent(const huxerui::ViewNode& node, huxerui::PaintContext& paint) const override {
-        PaintOrb(paint, node.LayoutSize(), phase_, orb_);
+        PaintOrb(paint, node.LayoutSize(), phase_, orb_, react_elapsed_);
     }
 
 private:
     Orb orb_;
     float phase_ = 0.0F;
+    float react_elapsed_ = kReactDuration;  // 未点击过 = 已播完（静止）。
 };
 
 // 角标玻璃药丸：固定深色玻璃（不随应用主题），冷白文字。
@@ -268,6 +317,7 @@ huxerui::View PetLotusBody(
         huxerui::UseImage(app::images::lotus_bloom_raster);
     const std::vector<std::string> activeTools = controller->activeTools.Get();
     const std::int64_t today = controller->todayRequests.Get();
+    const PetPlay play = controller->play.Get();
     const bool visible =
         window.LifecycleState() != huxerui::WindowLifecycleState::Background;
     std::vector<huxerui::View> children;
@@ -281,6 +331,8 @@ huxerui::View PetLotusBody(
             .failure = controller->failure.Get(),
             .done = controller->donePendingAck.Get(),
             .animate = visible && controller->animate.Get(),
+            .playEpoch = play.epoch,
+            .playKind = play.kind,
             .lotus = lotus},
         huxerui::Grow(1.0F));
 }
@@ -308,7 +360,10 @@ huxerui::View PetLive2DFallback(
 // 桌宠窗口唯一的主题化 UI 是右键菜单：套与主应用 AppThemed 同源的 spec +
 // 同一款菜单覆盖（同表面、8px 圆角、同阴影同悬浮态），弹出的菜单与主窗口
 // 右键菜单观感一致。深浅由 PetController::darkTheme（Poll 每秒跟随）驱动。
-huxerui::ThemeDefinition PetThemeDefinition(bool dark) {
+// compact_menu：球窗只有 200pt 高，默认行高（36pt + 8pt 行内边距）只能放
+// 5 项；桌宠球窗菜单改用紧凑行高（30pt 行 + 4pt 行内边距，6 项 ≈188pt）。
+// 信息卡窗口复用同一主题定义但传 false，保持默认行高。
+huxerui::ThemeDefinition PetThemeDefinition(bool dark, bool compact_menu) {
     const huxerui::ThemeSpec spec = dark ? AppDarkThemeSpec() : AppLightThemeSpec();
     huxerui::ThemeDefinition definition = huxerui::MaterialThemeDefinition(spec);
     const auto withAlpha = [](Color color, float alpha) {
@@ -316,6 +371,10 @@ huxerui::ThemeDefinition PetThemeDefinition(bool dark) {
         return color;
     };
     huxerui::MenuStyle menus = huxerui::MenuStyle::Default();
+    if (compact_menu) {
+        menus.minimum_item_height = 30.0F;
+        menus.item_padding = huxerui::EdgeInsets::Symmetric(12.0F, 4.0F);
+    }
     menus.background = spec.colors.surface_container;
     menus.foreground = spec.colors.on_surface;
     menus.icon_tint = spec.colors.on_surface_variant;
@@ -865,13 +924,14 @@ huxerui::View PetContent() {
                          ? "llm-switch AI 桌宠。有任务完成：点击消解提醒。"
                          : activityUnknown
                                ? "llm-switch AI 桌宠。活动状态未知或有已启用来源尚未观察到事件。"
-                               : "llm-switch AI 桌宠。状态汇总本地路由与已连接的 Agent hook；点击展开信息卡，拖拽移动。"})
-        .OnClick([controller, application, donePending] {
-            // 完成提醒挂起时点击 = 消解标记（白龙同款）；否则切换信息卡。
+                               : "llm-switch AI 桌宠。点击与它互动，拖拽移动，右键打开菜单。"})
+        .OnClick([controller, donePending] {
+            // 完成提醒挂起时点击 = 消解标记（白龙同款）；否则与桌宠互动
+            // （一次性小动画），不再打开任何窗口——信息卡经右键菜单或托盘打开。
             if (donePending) {
                 controller->AckDone();
             } else {
-                controller->ToggleCard(application);
+                controller->Play();
             }
         })
         .On<huxerui::DragEvents::Started>(
@@ -882,20 +942,20 @@ huxerui::View PetContent() {
     // 样式）——与 app.cpp 的 DialogHandle 同款坑（AGENTS.md UI 视觉硬约束）。
     // Scope 的工厂在组合期执行，Use* 合法（app.cpp windowBehavior 同款）。
     return huxerui::Theme(
-        PetThemeDefinition(controller->darkTheme.Get()),
-        huxerui::Scope([controller, activation, application, appTasks, trayAvailable,
+        PetThemeDefinition(controller->darkTheme.Get(), true),
+        huxerui::Scope([controller, activation, application, nav, appTasks,
                         content = std::move(content)]() mutable -> huxerui::View {
             const auto menu = huxerui::UseMenu();
             return std::move(content).On<huxerui::ViewEvents::ContextMenuRequested>(
-                [controller, activation, application, menu, appTasks,
-                 trayAvailable](huxerui::Point position) {
+                [controller, activation, application, nav, menu,
+                 appTasks](huxerui::Point position) {
                     // 框架的 Menu 是**窗口内浮层**（LayerAnchorMode::
                     // FixedWindowPoint），会被窗口边界裁剪，宽度也受视口
                     // （= 本窗口 200pt）夹取：胶囊（44pt 高）装不下任何菜单，
-                    // 右键直接展开信息卡（真窗口，有空间）；球形态只放 5 项
-                    // 无分隔短标签菜单（高度 ≈188pt、自然宽度 ≤180pt 最小值
-                    // 都装得下）。「退出 llm-switch」这类长标签会被截断，路由
-                    // 开关在托盘菜单/设置页，完成提醒点击即消解，都不进这里。
+                    // 右键直接展开信息卡（真窗口，有空间）；球形态用紧凑行
+                    // 高放 6 项无分隔短标签菜单（30pt 行高，总高 ≈188pt）。
+                    // 长标签仍会被截断；隐藏桌宠走托盘的「AI 桌宠」勾选项，
+                    // 完成提醒点击即消解，都不进这里。
                     if (controller->compact.Get()) {
                         controller->ToggleCard(application);
                         return;
@@ -921,16 +981,37 @@ huxerui::View PetContent() {
                                 });
                             })
                             .Checked(controller->compact.Get()),
+                        huxerui::MenuItem(
+                            "置顶",
+                            [controller] {
+                                const bool next = !controller->topmost.Get();
+                                providerStore().setPetTopmost(next);
+                                controller->SetTopmost(next);
+                            })
+                            .Checked(controller->topmost.Get()),
+                        huxerui::MenuItem(
+                            "本地路由",
+                            [nav] {
+                                try {
+                                    if (routerInstance().running()) {
+                                        routerInstance().stop();
+                                        providerStore().setRouterEnabled(false);
+                                    } else {
+                                        routerInstance().start(
+                                            providerStore().config().routerPort);
+                                        providerStore().setRouterEnabled(true);
+                                    }
+                                } catch (const std::exception&) {
+                                }
+                                // 主窗口 / 信息卡里的路由页以 revision 驱动重读；
+                                // 主窗口未打开时没有绑定，跳过。
+                                if (const auto revision = nav->RevisionState()) {
+                                    *revision = revision->Get() + 1;
+                                }
+                            })
+                            .Checked(routerInstance().running()),
                         huxerui::MenuItem("打开主窗口",
                                           [activation] { activation->Activate(); }),
-                        huxerui::MenuItem(
-                            "隐藏桌宠",
-                            [controller, appTasks, trayAvailable] {
-                                appTasks.Post([controller, trayAvailable] {
-                                    controller->Hide(trayAvailable);
-                                });
-                            })
-                            .Enabled(trayAvailable),
                         huxerui::MenuItem("退出",
                                           [application] { application.Quit(); }),
                     });
@@ -1223,7 +1304,7 @@ huxerui::View PetCardContent() {
             .With(huxerui::Grow(1.0F)),
     }.With(huxerui::Grow(1.0F),
            huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
-    return huxerui::Theme(PetThemeDefinition(dark), std::move(content));
+    return huxerui::Theme(PetThemeDefinition(dark, false), std::move(content));
 }
 
 } // namespace llmswitch::ui

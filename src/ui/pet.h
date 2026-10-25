@@ -9,7 +9,8 @@
 //     donePendingAck（✓ 完成提醒，点击/右键/新任务消解，30 秒后自动消退）、
 //     activeTools（最近 60s 有请求的活跃 Agent，≤2 个，顶部浮标）、
 //     todayRequests（今日请求数，底部角标）；
-//   * 交互：点击打开主窗口，拖拽移动，右键菜单（路由开关 / 隐藏 / 退出），
+//   * 交互：点击与桌宠互动（一次性小动画，不打开任何窗口），拖拽移动，
+//     右键菜单（信息卡 / 胶囊 / 置顶 / 本地路由 / 主窗口 / 退出），
 //     菜单经 PetThemeDefinition 套主应用同款主题。
 // 控制器由 InstallApplication 注册为应用级服务，设置页与托盘共用同一实例。
 #pragma once
@@ -87,6 +88,14 @@ struct PetCardSnapshot {
 
 enum class PetNativeState { unknown, idle, working, waiting, completed, failed, cancelled };
 
+// 一次点击互动：epoch 区分先后（Orb 扩展据其重播动画），kind 循环切换
+// 动画形态（弹跳 / 摇摆 / 闪亮）。进 State 需要 operator==。
+struct PetPlay {
+    int epoch = 0;
+    int kind = 0;
+    bool operator==(const PetPlay&) const = default;
+};
+
 struct PetNativeSourceSnapshot {
     std::string tool;
     PetNativeState state = PetNativeState::unknown;
@@ -132,6 +141,8 @@ struct PetController {
     // donePendingAck：完成提醒，点击 / 右键 / 新任务可消解，30 秒后自动消失。
     huxerui::State<bool> donePendingAck{false};
     std::int64_t doneExpiresAtMillis = 0;
+    // 点击互动（左键不再打开窗口）：莲花球据此播放一次性小动画。
+    huxerui::State<PetPlay> play{PetPlay{}};
     // 活跃 Agent（tool id，最多 2 个）：来自路由近期请求与原生 hook 会话，
     // 桌宠顶部浮标展示。
     // 注意 State 必须带初值构造：默认构造是空句柄，Get() 抛
@@ -178,7 +189,12 @@ struct PetController {
         donePendingAck = false;
         doneExpiresAtMillis = 0;
     }
-    // 切换信息卡（点击桌宠 / 右键菜单）：在桌宠旁开锚定卡片窗口（owner =
+    // 与桌宠互动：推进一次点击动画（kind 循环弹跳 / 摇摆 / 闪亮）。
+    void Play() {
+        const PetPlay current = play.Get();
+        play = PetPlay{current.epoch + 1, (current.kind + 1) % 3};
+    }
+    // 切换信息卡（右键菜单 / 托盘）：在桌宠旁开锚定卡片窗口（owner =
     // 桌宠，随桌宠退役），再点收起。配置持久化由调用方负责。
     void ToggleCard(const huxerui::ApplicationHandle& application);
     // 胶囊模式切换（配置持久化由调用方负责）：存活时按新尺寸重建窗口，
