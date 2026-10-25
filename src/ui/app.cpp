@@ -830,15 +830,13 @@ void InstallApplication(huxerui::ApplicationContext& context) {
     auto activation = std::make_shared<TrayActivationTarget>();
     context.Provide(activation);
     const huxerui::ApplicationHandle application = huxerui::UseApplication();
-    application.SystemTray().OnActivate([activation] { activation->Activate(); });
 
     // 主窗口页面导航目标（桌宠信息卡「跳页 + 激活主窗」用）：与
     // TrayActivationTarget 同一模式，主窗口组合期绑定 navPage。
     context.Provide(std::make_shared<MainNavTarget>());
 
-    // AI 桌宠：控制器注册为应用级服务（桌宠窗口 / 设置页 / 托盘菜单共用），
-    // 配置开启时在应用服务冻结后开窗（与框架桌宠示例同一装配路径；不支持
-    // 被动显示的平台由 PetController::Show 回退到合成器默认策略）。
+    // AI 桌宠控制器注册为应用级服务（桌宠窗口 / 设置页 / 托盘菜单共用）。
+    // 实际启动延迟到主窗口首组合之后，以便桌宠创建失败时可直接唤回控制中心。
     auto pet = std::make_shared<PetController>();
     pet->topmost = providerStore().config().petTopmost;
     pet->lightweight = providerStore().config().petLightweight;
@@ -850,10 +848,17 @@ void InstallApplication(huxerui::ApplicationContext& context) {
             mode == "dark" || (mode != "light" && cfg::systemPrefersDark());
     }
     context.Provide(pet);
-    if (providerStore().config().petEnabled) {
-        huxerui::UseApplicationTaskScope().Post(
-            [pet, application] { pet->Show(application); });
-    }
+    application.SystemTray().OnActivate([activation, pet, application] {
+        if (providerStore().config().petEnabled) {
+            try {
+                pet->Show(application);
+                return;
+            } catch (const std::exception&) {
+                // 桌宠不可用时回到仍然挂载的控制中心窗口。
+            }
+        }
+        activation->Activate();
+    });
 }
 
 [[huxerui::composable]] huxerui::View AppContent() {
@@ -863,12 +868,24 @@ void InstallApplication(huxerui::ApplicationContext& context) {
     const bool trayAvailable = tray.IsAvailable();
     auto toast = huxerui::UseToast();
     auto tasks = huxerui::UseTaskScope();
+    const auto appTasks = huxerui::UseApplicationTaskScope();
+    const auto pet = huxerui::UseService<PetController>();
 
     // A second Linux process forwards here; TaskScope::Post returns to the UI thread before activating the window.
     huxerui::Lifecycle(
-        [window, tasks] {
-            single_instance::SetActivationHandler([window, tasks] {
-                tasks.Post([window] { window.Activate(); });
+        [window, tasks, application, pet] {
+            single_instance::SetActivationHandler([window, tasks, application, pet] {
+                tasks.Post([window, application, pet] {
+                    if (providerStore().config().petEnabled) {
+                        try {
+                            pet->Show(application);
+                            return;
+                        } catch (const std::exception&) {
+                            // 桌宠不可用时由单实例唤回控制中心。
+                        }
+                    }
+                    window.Activate();
+                });
             });
             return [] { single_instance::ClearActivationHandler(); };
         });
@@ -905,6 +922,21 @@ void InstallApplication(huxerui::ApplicationContext& context) {
     // 页面展开进度：切页时由径向导航的时序先置 false、换页后再置 true，
     // 让新页面从中心缩放+淡入展开（见 RadialNavigationOverlay 的点击时序）。
     auto pageReveal = huxerui::UseState(true);
+
+    // 桌宠优先启动：托盘可用时让控制中心保持挂载但隐藏；没有托盘时控制中心
+    // 保持可见作为恢复入口。桌宠开窗放到应用任务队列，避免在组合期间创建窗口。
+    huxerui::Lifecycle([window, trayAvailable, pet, application, appTasks, toast] {
+        if (!providerStore().config().petEnabled) return;
+        if (trayAvailable) window.Hide();
+        appTasks.Post([window, pet, application, toast] {
+            try {
+                pet->Show(application);
+            } catch (const std::exception& e) {
+                window.Show();
+                toast.Show(std::format("桌宠启动失败，已打开控制中心：{}", e.what()));
+            }
+        });
+    });
 
     // 托盘宿主消失时恢复窗口，避免已经隐藏的窗口失去可见入口。
     huxerui::Lifecycle(

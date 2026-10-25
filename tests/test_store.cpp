@@ -225,11 +225,11 @@ int main() {
                   .closeBehavior == "ask");
     }
 
-    // 1a-2. AI 桌宠偏好持久化：旧配置缺字段默认关闭 + 置顶 + 非轻量级 +
-    //       非胶囊，setter 立即落盘。
+    // 1a-2. AI 桌宠偏好持久化：缺字段默认开启 + 置顶 + 非轻量级 +
+    //       非胶囊；显式关闭仍按用户选择保留，setter 立即落盘。
     {
         auto petSettings = store::ProviderStore::load();
-        CHECK(petSettings.config().petEnabled == false);
+        CHECK(petSettings.config().petEnabled == true);
         CHECK(petSettings.config().petTopmost == true);
         CHECK(petSettings.config().petLightweight == false);
         CHECK(petSettings.config().petCompact == false);
@@ -241,6 +241,9 @@ int main() {
         CHECK(explicitPet.petLightweight == true);
         CHECK(explicitPet.petCompact == true);
         CHECK(explicitPet.petLive2D == true);
+        const auto explicitPetOff = models::fromJson(
+            nlohmann::json::parse(R"json({"petEnabled":false})json"));
+        CHECK(explicitPetOff.petEnabled == false);
         petSettings.setPetEnabled(true);
         petSettings.setPetTopmost(false);
         petSettings.setPetLightweight(true);
