@@ -667,12 +667,10 @@ huxerui::View PetContent() {
     huxerui::Lifecycle([window, trayAvailable] {
         if (!trayAvailable) window.Show();
     }, trayAvailable);
+    // 托盘可用性只影响托盘展示与隐藏选项；控制中心由用户从桌宠菜单或信息卡打开。
     huxerui::Lifecycle(
-        [trayPresentation, activation, appTasks, trayAvailable] {
+        [trayPresentation] {
             trayPresentation->Refresh();
-            if (!trayAvailable) {
-                appTasks.Post([activation] { activation->Activate(); });
-            }
             return [] {};
         },
         trayAvailable);
