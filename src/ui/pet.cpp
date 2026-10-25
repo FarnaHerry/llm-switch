@@ -260,6 +260,49 @@ huxerui::View UnknownActivityBadge() {
 
 } // namespace
 
+[[huxerui::composable]]
+huxerui::View PetLotusBody(
+    const std::shared_ptr<PetController>& controller) {
+    const auto window = huxerui::UseWindow();
+    const huxerui::ImageAsset lotus =
+        huxerui::UseImage(app::images::lotus_bloom_raster);
+    const std::vector<std::string> activeTools = controller->activeTools.Get();
+    const std::int64_t today = controller->todayRequests.Get();
+    const bool visible =
+        window.LifecycleState() != huxerui::WindowLifecycleState::Background;
+    std::vector<huxerui::View> children;
+    if (!activeTools.empty()) children.push_back(ActiveAgentBadge(activeTools));
+    if (today > 0) children.push_back(TodayBadge(today));
+    return huxerui::Stack{children}.With(
+        huxerui::Indication{},
+        Orb{.active = controller->streaming.Get() ||
+                      controller->agentWorking.Get(),
+            .waiting = controller->waitingForInput.Get(),
+            .failure = controller->failure.Get(),
+            .done = controller->donePendingAck.Get(),
+            .animate = visible && controller->animate.Get(),
+            .lotus = lotus},
+        huxerui::Grow(1.0F));
+}
+
+[[huxerui::composable]]
+huxerui::View PetLive2DFallback(
+    const std::shared_ptr<PetController>& controller, std::string status) {
+    return huxerui::Stack {
+        PetLotusBody(controller),
+        huxerui::Text(status)
+            .Style(huxerui::TextStyle{
+                huxerui::Font::System(font_size::kCaption),
+                Color::Rgb(224, 242, 254)})
+            .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(10.0F, 4.0F)),
+                  huxerui::Background(Color::Rgb(16, 18, 20, 0.86F)),
+                  huxerui::CornerRadius(9.0F),
+                  huxerui::Align(huxerui::HorizontalAlignment::Center,
+                                 huxerui::VerticalAlignment::End),
+                  huxerui::Padding(huxerui::EdgeInsets{.bottom = 8.0F})),
+    }.With(huxerui::Grow(1.0F));
+}
+
 // ---- 主题（右键菜单与主应用同款）--------------------------------------------
 
 // 桌宠窗口唯一的主题化 UI 是右键菜单：套与主应用 AppThemed 同源的 spec +
@@ -689,9 +732,7 @@ huxerui::View PetContent() {
         },
         trayAvailable);
 
-    const bool visible = window.LifecycleState() != huxerui::WindowLifecycleState::Background;
     const std::int64_t today = controller->todayRequests.Get();
-    const std::vector<std::string> activeTools = controller->activeTools.Get();
     const bool donePending = controller->donePendingAck.Get();
     const bool activityUnknown = controller->activityUnknown.Get();
     const bool compact = controller->compact.Get();
@@ -730,23 +771,7 @@ huxerui::View PetContent() {
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
                huxerui::Grow(1.0F));
     } else {
-        // 品牌莲花在组合期解析成光栅资源（UseImage 只收光栅——SVG 资源会抛
-        // invalid_argument，故走 lotus_bloom_raster 家族），经 Orb 修饰器带进
-        // 保留绘制。
-        const huxerui::ImageAsset lotus =
-            huxerui::UseImage(app::images::lotus_bloom_raster);
-        std::vector<huxerui::View> children;
-        if (!activeTools.empty()) children.push_back(ActiveAgentBadge(activeTools));
-        if (today > 0) children.push_back(TodayBadge(today));
-        body = huxerui::Stack{std::move(children)}.With(
-            huxerui::Indication{},
-            Orb{.active = controller->streaming.Get() || controller->agentWorking.Get(),
-                .waiting = controller->waitingForInput.Get(),
-                .failure = controller->failure.Get(),
-                .done = donePending,
-                .animate = visible && controller->animate.Get(),
-                .lotus = lotus},
-            huxerui::Grow(1.0F));
+        body = PetLotusBody(controller);
     }
     if (activityUnknown) {
         body = huxerui::Stack{body, UnknownActivityBadge()}

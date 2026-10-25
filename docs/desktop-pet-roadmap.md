@@ -32,8 +32,9 @@ Agent 的活动并快速回到日常工作；主窗口成为它背后的**多 Ag
   请求与 token 统计仍来自 `LocalRouter`。本机已确认 hooks 会启动 helper，关闭路由的
   spike 有部分结果；逐状态展示、Codex 失败语义和边界行为仍未完成验收。
 - Live2D 已有独立渲染路径，但 `LLMSWITCH_LIVE2D` 默认 OFF，需单独提供 Cubism
-  Native SDK；Linux 已修复并通过模型 Ready 冒烟，透明边缘、点击命中和其他平台
-  的实际效果仍需验收。模型和 Cubism SDK 的分发许可需逐项确认。
+  Native SDK；Linux 已修复并通过模型 Ready 冒烟。透明边缘、点击命中和其他平台
+  的实际效果仍需验收；模型缺失或渲染失败时已回退到莲花球。模型和 Cubism SDK
+  的分发许可仍需逐项确认。
 - 当前桌宠点击展开信息卡，右键提供快捷菜单；新的日常对话与快捷提问能力尚未实现。
 
 ## 3. 目标体验
@@ -119,6 +120,8 @@ Agent 的活动并快速回到日常工作；主窗口成为它背后的**多 Ag
 
 3. **把 Live2D 变成可交付的主皮肤**
    - [ ] 明确 Cubism Native SDK 与内置模型的许可和随包策略。
+   - [x] Live2D 构建中的模型缺失、加载失败和播放器失败路径显示莲花球与状态说明；
+     用户可从信息卡切回莲花球。
    - [ ] 将 Live2D ON/OFF 构建、模型缺失、模型错误、GPU/窗口释放和重新唤回加入
      发布验证；覆盖 Linux、Windows、macOS 中实际支持的平台。
    - [ ] 实测透明边缘、缩放、点击命中、长时间运行、待机资源和模型切换；无可用
@@ -219,5 +222,12 @@ Agent 的活动并快速回到日常工作；主窗口成为它背后的**多 Ag
   打开信息卡。
 - 2026-10-24：Live2D Linux GLES 3.1/VBO 兼容修复已提交到 Lib-Live2D fork；
   Linux 构建和模型 Ready 冒烟通过。跨平台、透明像素、点击区和许可仍按 P0 验收。
+- 2026-10-25：Live2D 模型缺失、自定义模型加载失败、内置模型加载失败和播放失败时
+  现在显示莲花球与简短状态提示；用户可从信息卡切回莲花球。Live2D 官方的
+  [Hiyori 样例页](https://www.live2d.com/en/learn/sample/momose-hiyori/)要求遵循
+  [免费素材许可](https://www.live2d.com/eula/live2d-free-material-license-agreement_en.html)
+  与[样例角色条款](https://www.live2d.com/en/learn/sample/model-terms/)，并在作品中添加
+  版权说明；Cubism SDK [发行许可](https://www.live2d.com/en/sdk/license/)还取决于
+  发行主体与应用分类。默认发行仍保持 Live2D OFF，许可结论未定前不发布 ON 构建。
 - 2026-10-24：本次方向调整：从“多 Agent 数据中心桌宠”改为“桌宠是默认入口，
   控制中心提供配置和管理”，将启动体验、原生 Agent 活动接入与 Live2D 交付移入 P0。

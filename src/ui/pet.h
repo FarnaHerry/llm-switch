@@ -186,9 +186,13 @@ struct PetController {
 // 不生效，桌宠回退莲花球。
 bool PetLive2DAvailable();
 // Live2D 皮肤主体（组合内调用）：扫描 dataDir()/live2d/ 下的第一个
-// *.model3.json 异步加载渲染；无模型/失败显示占位提示。
+// *.model3.json 异步加载渲染；无模型、加载或播放失败时用莲花球回退。
 [[huxerui::composable]] huxerui::View PetLive2DBody(
     const std::shared_ptr<PetController>& controller);
+[[huxerui::composable]] huxerui::View PetLotusBody(
+    const std::shared_ptr<PetController>& controller);
+[[huxerui::composable]] huxerui::View PetLive2DFallback(
+    const std::shared_ptr<PetController>& controller, std::string status);
 
 inline void UsePetAttachment(const std::shared_ptr<PetController>& controller) {
     const auto window = huxerui::UseWindow();

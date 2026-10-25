@@ -1,13 +1,13 @@
 // pet_live2d.cpp — Live2D 桌宠皮肤（LLMSWITCH_LIVE2D=ON 才编译；禁用时由
 // pet_live2d_stub.cpp 顶替，PetLive2DAvailable() 恒 false）。
 //
-// 模型解析优先级：① dataDir()/live2d/<目录>/<名>.model3.json（用户自放，
-// 扫描到的第一个，File 重载）；② 内置示例 Hiyori（构建期从 Lib-Live2D
+// 模型解析优先级：dataDir()/live2d/<目录>/<名>.model3.json（用户自放，
+// 扫描到的第一个，File 重载）；内置示例 Hiyori（构建期从 Lib-Live2D
 // preview 暂存进资源包 resources/raw/live2d/，含 model_licenses 许可声明；
 // RawResource 重载 + 组合期解析的 map 开启器——UseRawResource 是组合期
 // API，不能在加载任务的开启回调里调用，故组合期把 18 个文件全部解析成
-// RawAsset 捕获，与 Lib-Live2D preview 的模式一致）。模型与 Cubism SDK
-// 不随本仓库分发；缺模型/失败显示占位提示，不静默回退。
+// RawAsset 捕获，与 Lib-Live2D preview 的模式一致）。缺模型、加载失败或
+// 播放器失败时切回内建莲花球并显示简短状态说明。
 //
 // 渲染：HuxerUI::Live2D 的 ModelView 经 ExternalTexture 发布帧——透明
 // Utility 表面支持的外部纹理路径。模型自带自动眨眼/呼吸；路由 streaming
@@ -138,7 +138,7 @@ huxerui::View PetLive2DBody(const std::shared_ptr<PetController>& controller) {
                     asset = std::move(loaded).Value();
                     co_return;
                 }
-                status = std::string("模型加载失败：") + loaded.Error().message;
+                status = "自定义 Live2D 模型加载失败，已显示莲花球";
                 co_return;
             }
             // ② 内置示例（RawResource 重载 + 捕获的解析结果；entry 同样带
@@ -166,18 +166,18 @@ huxerui::View PetLive2DBody(const std::shared_ptr<PetController>& controller) {
                     asset = std::move(loaded).Value();
                     co_return;
                 }
-                status = std::string("内置示例加载失败：") + loaded.Error().message;
+                status = "内置 Live2D 模型加载失败，已显示莲花球";
                 co_return;
             }
-            status = std::string(
-                "未找到模型：把 Live2D 模型目录放到 数据目录/live2d/ 下");
+            status = "未找到 Live2D 模型，已显示莲花球";
         });
     });
 
     const live2d::ModelAsset current = asset.Get();
     if (!current.HasValue()) {
-        // 占位：深色玻璃药丸（与莲花球浮标同族样式），显示加载态或错误。
-        return huxerui::Text(status.Get().empty() ? "加载模型…" : status.Get())
+        if (!status.Get().empty()) return PetLive2DFallback(controller, status.Get());
+        // 模型加载期间显示深色玻璃药丸。
+        return huxerui::Text("加载模型…")
             .Style(huxerui::TextStyle{huxerui::Font::System(font_size::kCaption),
                                       huxerui::Color::Rgb(224, 242, 254)})
             .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(14.0F, 6.0F)),
@@ -222,10 +222,11 @@ huxerui::View PetLive2DBody(const std::shared_ptr<PetController>& controller) {
             })
             .On<live2d::ModelEvents::HitAreaTapped>([play_tap](std::string) { play_tap(); })
             .On<live2d::ModelEvents::PlaybackFailed>(
-                [status](live2d::PlaybackError error) {
+                [asset, status](live2d::PlaybackError) {
                     std::fprintf(stderr, "live2d: PlaybackFailed: %s\n",
-                                 error.message.c_str());
-                    status = std::string("渲染失败：") + error.message;
+                                 "falling back to lotus");
+                    status = "Live2D 渲染失败，已显示莲花球";
+                    asset = live2d::ModelAsset{};
                 })
             .With(huxerui::Grow(1.0F));
     if (!status.Get().empty()) {
