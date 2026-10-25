@@ -254,6 +254,8 @@ set(LLMSWITCH_MODULE_UNITS
 # need to compile adapter interfaces; app and Agent tests include it explicitly.
 set(LLMSWITCH_AGENT_MODULE_UNITS
     src/agents/activity.cppm
+    src/agents/activity_bridge.cppm
+    src/agents/hook_manager.cppm
     src/agents/adapters/hook_input.cppm
     src/agents/adapters/claude_code.cppm
     src/agents/adapters/codex.cppm
@@ -407,8 +409,41 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
         Threads::Threads
     )
     if (WIN32)
-        target_link_libraries(llm-switch PRIVATE Advapi32)
+        target_link_libraries(llm-switch PRIVATE Advapi32 ws2_32)
     endif ()
+
+    # Hook 子进程单独打包并放在主程序旁。Agent 只调用这个极小 helper；
+    # 它把 stdin 中的完整 hook JSON 缩减为白名单状态事件，再交给 app 的
+    # authenticated loopback bridge。它不链接 HuxerUI，也不自行运行模型。
+    add_executable(llm-switch-agent-hook
+        platform/agent_hook/main.cpp
+        src/agents/activity.cpp
+        src/agents/activity_bridge.cpp
+        src/agents/adapters/hook_input.cpp
+        src/agents/adapters/claude_code.cpp
+        src/agents/adapters/codex.cpp)
+    target_sources(llm-switch-agent-hook PRIVATE
+        FILE_SET llmswitch_modules TYPE CXX_MODULES
+        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        FILES src/config.cppm ${LLMSWITCH_AGENT_MODULE_UNITS})
+    set_target_properties(llm-switch-agent-hook PROPERTIES
+        CXX_MODULE_STD ON CXX_SCAN_FOR_MODULES ON)
+    target_compile_features(llm-switch-agent-hook PRIVATE cxx_std_23)
+    target_link_libraries(llm-switch-agent-hook PRIVATE
+        llmswitch_json Threads::Threads)
+    if (WIN32)
+        target_compile_definitions(llm-switch-agent-hook PRIVATE
+            WIN32_LEAN_AND_MEAN NOMINMAX)
+        target_link_libraries(llm-switch-agent-hook PRIVATE Advapi32 ws2_32)
+        if (MSVC)
+            target_link_options(llm-switch-agent-hook PRIVATE
+                /SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup)
+            target_compile_options(llm-switch-agent-hook PRIVATE /utf-8)
+        else ()
+            target_link_options(llm-switch-agent-hook PRIVATE -mwindows)
+        endif ()
+    endif ()
+    add_dependencies(llm-switch llm-switch-agent-hook)
 
     # 生成格式钩子：平台清单 / Info.plist
     if (WIN32 AND HUXERUI_WINDOWS_MANIFEST)
@@ -457,6 +492,13 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
                 "${CMAKE_BINARY_DIR}/huxerui-resources/llm-switch/package"
                 "$<TARGET_FILE_DIR:llm-switch>/llm-switch.resources"
         COMMENT "Copying the merged HuxerUI resource package next to llm-switch")
+    if (APPLE AND NOT IOS)
+        add_custom_command(TARGET llm-switch POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "$<TARGET_FILE:llm-switch-agent-hook>"
+                    "$<TARGET_BUNDLE_DIR:llm-switch>/Contents/MacOS/llm-switch-agent-hook"
+            COMMENT "Bundling the native Agent hook helper in the app executable directory")
+    endif ()
     if (WIN32)
         # HuxerUI 运行时 DLL 需在 exe 旁（抄自姊妹项目 apitab 顶层 WIN32 段）。
         # 源码通道没有 HUXERUI_SDK_DIR，且 dll 实际落在构建树 RUNTIME 输出
@@ -643,15 +685,21 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
         # 适配器只解析事件名与 session_id，不落原始 hook 输入。
         add_executable(test_agents tests/test_agents.cpp
             src/agents/activity.cpp
+            src/agents/activity_bridge.cpp
+            src/agents/hook_manager.cpp
             src/agents/adapters/hook_input.cpp
             src/agents/adapters/claude_code.cpp
             src/agents/adapters/codex.cpp)
         target_sources(test_agents PRIVATE FILE_SET llmswitch_modules TYPE CXX_MODULES
             BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
-            FILES ${LLMSWITCH_AGENT_MODULE_UNITS})
+            FILES src/config.cppm ${LLMSWITCH_AGENT_MODULE_UNITS})
         set_target_properties(test_agents PROPERTIES CXX_MODULE_STD ON CXX_SCAN_FOR_MODULES ON)
         target_compile_features(test_agents PRIVATE cxx_std_23)
         target_link_libraries(test_agents PRIVATE llmswitch_json Threads::Threads)
+        if (WIN32)
+            target_compile_definitions(test_agents PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+            target_link_libraries(test_agents PRIVATE ws2_32 Advapi32)
+        endif ()
         add_test(NAME agents COMMAND test_agents)
 
 

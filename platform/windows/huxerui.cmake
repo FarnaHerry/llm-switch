@@ -22,6 +22,12 @@ function(huxerui_configure_windows_project_package target_name install_component
             RUNTIME DESTINATION .
             COMPONENT "${install_component}"
     )
+    if (TARGET llm-switch-agent-hook)
+        install(TARGETS llm-switch-agent-hook
+                RUNTIME DESTINATION .
+                COMPONENT "${install_component}"
+        )
+    endif ()
     get_target_property(HUXERUI_WINDOWS_APP_RESOURCES
             ${target_name}
             HUXERUI_RESOURCE_PACKAGE

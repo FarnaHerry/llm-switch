@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <functional>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -57,6 +58,7 @@ struct PetAgentRow {
     std::int64_t promptTokens = 0;     // -1 计数不计入
     std::int64_t completionTokens = 0;
     std::int64_t errors = 0;
+    std::string activityLabel;
     bool operator==(const PetAgentRow&) const = default;
 };
 
@@ -65,6 +67,21 @@ struct PetCardSnapshot {
     std::int64_t todayRequests = 0;
     std::vector<PetAgentRow> rows;
     bool operator==(const PetCardSnapshot&) const = default;
+};
+
+enum class PetNativeState { unknown, idle, working, waiting, completed, failed, cancelled };
+
+struct PetNativeSourceSnapshot {
+    std::string tool;
+    PetNativeState state = PetNativeState::unknown;
+    std::int64_t lastEventMillis = 0;
+    bool enabled = false;
+    bool unknown = true;
+};
+
+struct PetNativeActivitySnapshot {
+    std::vector<std::string> activeTools;
+    std::vector<PetNativeSourceSnapshot> sources;
 };
 
 // 桌宠控制器：持有桌宠窗口句柄与 AI 活动状态。线程约定同框架示例——
@@ -84,13 +101,16 @@ struct PetController {
     huxerui::State<bool> activityUnknown{true};
     // streaming：路由在途请求 > 0（真状态，来自 LocalRouter::inflight）。
     huxerui::State<bool> streaming{false};
+    // working 表示原生 Agent hooks 观察到的工作中/等待中；不是 token stream。
+    huxerui::State<bool> agentWorking{false};
+    huxerui::State<bool> waitingForInput{false};
     // failure：最近一次路由请求失败（传输失败或 ≥400）后的红脉冲窗内。
     huxerui::State<bool> failure{false};
     // donePendingAck：一波活动批次（含成功请求）结束后的完成提醒，挂起
     // 直到点击桌宠 / 右键消解 / 新批次开始（白龙同款「完成感叹号」语义）。
     huxerui::State<bool> donePendingAck{false};
-    // 活跃 Agent（tool id，最近时间序，最多 2 个）：最近 60s 有路由请求
-    // 的工具，桌宠顶部浮标展示（白龙同款「最多两个会话」语义）。
+    // 活跃 Agent（tool id，最多 2 个）：来自路由近期请求与原生 hook 会话，
+    // 桌宠顶部浮标展示。
     // 注意 State 必须带初值构造：默认构造是空句柄，Get() 抛
     // logic_error("HuxerUI state is empty")。
     huxerui::State<std::vector<std::string>> activeTools{std::vector<std::string>{}};
@@ -123,8 +143,10 @@ struct PetController {
     std::int64_t lastActivityMs = 0;
     bool batchActive = false;
     bool batchAnySuccess = false;
+    std::function<PetNativeActivitySnapshot(std::int64_t)> readNativeActivity;
+    std::map<std::string, std::int64_t, std::less<>> lastNativeOutcomeMillis;
 
-    // 每秒由 PetContent 的 Delay 循环调用：读在途计数与最近日志，推进
+    // 每秒由 PetContent 的 Delay 循环调用：读路由与原生 Agent 快照，推进
     // streaming / failure / donePendingAck / activeTools / todayRequests /
     // cardSnapshot。
     void Poll();

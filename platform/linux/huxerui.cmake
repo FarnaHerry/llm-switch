@@ -9,6 +9,12 @@ function(huxerui_configure_linux_project_package target_name install_component)
             RUNTIME DESTINATION bin
             COMPONENT "${install_component}"
     )
+    if (TARGET llm-switch-agent-hook)
+        install(TARGETS llm-switch-agent-hook
+                RUNTIME DESTINATION bin
+                COMPONENT "${install_component}"
+        )
+    endif ()
     _huxerui_install_runtime_dependencies(${target_name} "${install_component}"
             . "bin/$<TARGET_FILE_NAME:${target_name}>"
     )

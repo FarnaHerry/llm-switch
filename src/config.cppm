@@ -155,6 +155,22 @@ export std::filesystem::path usageTemplatesFile() {
     return dataDir() / "usage_templates.json";
 }
 
+// 原生 Agent hooks 的短期本地桥接描述符。文件只含 loopback 端口与随机令牌，
+// 不含会话事件；应用退出时删除，权限限制为当前用户可读写。
+export std::filesystem::path agentBridgeFile() {
+    return dataDir() / "agents" / "bridge.json";
+}
+
+// 随 app 安装的独立 command-hook helper，与主可执行文件同目录。
+export std::filesystem::path agentHookExecutable() {
+#ifdef _WIN32
+    constexpr std::string_view name = "llm-switch-agent-hook.exe";
+#else
+    constexpr std::string_view name = "llm-switch-agent-hook";
+#endif
+    return executableDir() / name;
+}
+
 // ---- live 配置路径（环境变量覆盖优先，便于测试与非常规安装）-----------------
 
 // Claude Code 全局设置（供应商 baseUrl / token 写在 env 块）。
@@ -179,6 +195,14 @@ export std::filesystem::path codexConfigFile() {
         return std::filesystem::path(e);
     }
     return homeDir() / ".codex" / "config.toml";
+}
+
+// Codex 用户级生命周期 hooks（独立于 config.toml 的供应商设置）。
+export std::filesystem::path codexHooksFile() {
+    if (const char* e = std::getenv("LLMSWITCH_CODEX_HOOKS"); e && *e) {
+        return std::filesystem::path(e);
+    }
+    return homeDir() / ".codex" / "hooks.json";
 }
 
 // opencode 主配置（全平台 ~/.config/opencode/opencode.json；additive 模式——

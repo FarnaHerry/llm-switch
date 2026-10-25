@@ -1,8 +1,8 @@
 // pet.cpp — AI 桌宠实现：莲花球视觉（NodeExtension 逐帧重绘）、活动状态轮询、
 // 指针交互与右键菜单。视觉为 llm-switch 冷调石板族的固定深色玻璃球，品牌莲花
 // （lotus_bloom_raster，冷白 alpha-mask）居中呼吸：辉光与缩放随相位起伏，
-// 空闲 ~6s 一个呼吸周期。状态词汇由本地路由侧推导（没有可验证的本地活动时为未知）：
-//   streaming（在途请求 > 0）呼吸更深更快 + 装饰弧提亮；最近一次请求失败
+// 空闲 ~6s 一个呼吸周期。状态由本地路由和用户连接的 Agent hooks 汇总：
+//   路由在途请求或原生 Agent 工作中/等待输入时呼吸更深更快；最近一次请求失败
 //   6s 内叠加误差红脉冲（failure）；一波活动批次（含成功请求）静默 ≥8s 结束
 //   后右上角挂 ✓ 完成提醒（done，静态绘制，点击/右键/新批次消解）；
 //   底部角标显示今日请求数，顶部浮标显示活跃 Agent（≤2 个）。
@@ -31,6 +31,8 @@ import llmswitch.config;
 import llmswitch.models;
 import llmswitch.router;
 import llmswitch.store;
+import llmswitch.agents;
+import llmswitch.agents.bridge;
 
 namespace llmswitch::ui {
 namespace {
@@ -43,7 +45,8 @@ using huxerui::Rect;
 
 struct Orb {
     class Extension;
-    bool streaming = false;
+    bool active = false;
+    bool waiting = false;
     bool failure = false;
     bool done = false;  // 完成提醒挂起（✓ 标记，静态绘制）
     bool animate = true;
@@ -62,9 +65,9 @@ void PaintOrb(huxerui::PaintContext& paint, huxerui::Size size, float phase,
     if (radius <= 0.0F) return;
     const Rect bounds{center.x - radius, center.y - radius, radius * 2.0F, radius * 2.0F};
     const huxerui::Path circle = huxerui::Path::RoundedRect(bounds, huxerui::CornerRadii{radius});
-    // 辉光随呼吸起伏；streaming 时基准更亮。
+    // 辉光随呼吸起伏；路由流式请求或原生 hook 工作时基准更亮。
     const float intensity =
-        (orb.streaming ? 1.0F : 0.6F) * (1.0F + 0.12F * std::sin(phase));
+        (orb.active ? 1.0F : 0.6F) * (1.0F + 0.12F * std::sin(phase));
 
     // 球外环境辉光：透明窗口上形成一圈淡青晕。
     paint.DrawRect({center.x - radius * 1.24F, center.y - radius * 1.24F,
@@ -98,9 +101,9 @@ void PaintOrb(huxerui::PaintContext& paint, huxerui::Size size, float phase,
     });
 
     // 品牌莲花居中呼吸（白色 alpha-mask 栅格，衬深色玻璃球）：缩放随相位
-    // 起伏，streaming 时呼吸更深更快——OnFrame 的 phase 步长控制呼吸周期。
+    // 起伏，活动时呼吸更深更快——OnFrame 的 phase 步长控制呼吸周期。
     if (orb.lotus.HasValue()) {
-        const float breathe = 1.0F + (orb.streaming ? 0.060F : 0.035F) * std::sin(phase);
+        const float breathe = 1.0F + (orb.active ? 0.060F : 0.035F) * std::sin(phase);
         const float lotus_radius = radius * 0.58F * breathe;
         const Rect lotus_bounds{center.x - lotus_radius, center.y - lotus_radius,
                                 lotus_radius * 2.0F, lotus_radius * 2.0F};
@@ -132,8 +135,12 @@ void PaintOrb(huxerui::PaintContext& paint, huxerui::Size size, float phase,
                       Color::Rgb(240, 115, 108, pulse),
                       huxerui::StrokeStyle{.width = 2.2F, .cap = huxerui::StrokeCap::Round});
     }
-    // streaming：装饰弧随呼吸提亮；空闲退化为固定低亮弧。
-    if (orb.streaming) {
+    // 活动时装饰弧随呼吸提亮；等待确认用暖色弧标记。
+    if (orb.waiting) {
+        paint.DrawArc(center, radius * 0.94F, 3.80F, 0.86F,
+                      Color::Rgb(251, 191, 36, 0.74F),
+                      huxerui::StrokeStyle{.width = 1.8F, .cap = huxerui::StrokeCap::Round});
+    } else if (orb.active) {
         const float breathe = 0.34F + 0.22F * (0.5F + 0.5F * std::sin(phase));
         paint.DrawArc(center, radius * 0.94F, 3.80F, 0.86F,
                       Color::Rgb(224, 242, 254, breathe),
@@ -179,8 +186,8 @@ public:
         const float delta = static_cast<float>(std::clamp(frame.delta_time, 0.0, 0.1));
         if (delta > 0.0F) {
             constexpr float wave_cycle = 20.0F * std::numbers::pi_v<float>;
-            // 呼吸周期：空闲 ~6s，streaming ~2.5s。
-            phase_ = std::fmod(phase_ + delta * (orb_.streaming ? 2.5F : 1.0F), wave_cycle);
+            // 呼吸周期：空闲 ~6s，活动中 ~2.5s。
+            phase_ = std::fmod(phase_ + delta * (orb_.active ? 2.5F : 1.0F), wave_cycle);
             InvalidatePaint();
         }
         return {.wake_after = 1.0 / 30.0};
@@ -301,13 +308,43 @@ void PetController::Poll() {
     auto& router = routerInstance();
     const std::int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now().time_since_epoch()).count();
-    // streaming 是真状态（在途计数），不再用「最近完成」猜测窗；failure
+    // 路由 streaming 是真状态（在途计数），不再用「最近完成」猜测窗；failure
     // 脉冲窗 6s；批次静默 8s 判定结束（结束且含成功请求 → 完成提醒）；
     // 活跃 Agent 看 60s 窗口。
     constexpr std::int64_t kFailureWindowMs = 6000;
     constexpr std::int64_t kBatchQuietMs = 8000;
     constexpr std::int64_t kActiveToolWindowMs = 60000;
     const std::vector<router::RequestLog> logs = router.recentLogs(24);
+    PetNativeActivitySnapshot native;
+    if (readNativeActivity) native = readNativeActivity(now);
+
+    bool nativeObserved = false;
+    bool nativeUncertain = false;
+    bool next_agent_working = false;
+    bool next_waiting = false;
+    bool nativeFailure = false;
+    bool newNativeCompletion = false;
+    for (const auto& source : native.sources) {
+        if (!source.enabled) continue;
+        nativeUncertain = nativeUncertain || source.unknown;
+        nativeObserved = nativeObserved ||
+            !source.unknown;
+        next_agent_working = next_agent_working ||
+            source.state == PetNativeState::working ||
+            source.state == PetNativeState::waiting;
+        next_waiting = next_waiting ||
+            source.state == PetNativeState::waiting;
+        nativeFailure = nativeFailure || source.state == PetNativeState::failed;
+
+        if (source.lastEventMillis <= lastNativeOutcomeMillis[source.tool]) continue;
+        if (source.state == PetNativeState::completed ||
+            source.state == PetNativeState::failed ||
+            source.state == PetNativeState::cancelled) {
+            lastNativeOutcomeMillis[source.tool] = source.lastEventMillis;
+            newNativeCompletion = newNativeCompletion ||
+                source.state == PetNativeState::completed;
+        }
+    }
 
     // 首个 Poll 只对齐水位：启动时的历史日志不算新活动（否则一开桌宠就
     // 凭旧日志挂出完成提醒）。
@@ -333,13 +370,13 @@ void PetController::Poll() {
     } else if (next_streaming || newActivity) {
         localRouterObservedThisSession = true;
     }
-    const bool nextUnknown =
-        !routerAvailable || !localRouterObservedThisSession;
+    const bool routerObserved = routerAvailable && localRouterObservedThisSession;
+    const bool nextUnknown = (!routerObserved && !nativeObserved) || nativeUncertain;
     if (activityUnknown.Get() != nextUnknown) activityUnknown = nextUnknown;
 
     // 活动批次状态机：在途或新完成都算「有流量」；静默超时判定批次结束，
     // 含成功请求则挂完成提醒（点击 / 右键 / 新批次消解）。
-    if (next_streaming || newActivity) {
+    if (next_streaming || newActivity || next_agent_working) {
         if (!batchActive) {
             batchActive = true;
             batchAnySuccess = false;
@@ -363,11 +400,22 @@ void PetController::Poll() {
     }
 
     if (streaming.Get() != next_streaming) streaming = next_streaming;
+    if (agentWorking.Get() != next_agent_working) agentWorking = next_agent_working;
+    if (waitingForInput.Get() != next_waiting) waitingForInput = next_waiting;
+    next_failure = next_failure || nativeFailure;
     if (failure.Get() != next_failure) failure = next_failure;
+    if (newNativeCompletion) donePendingAck = true;
 
     // 活跃 Agent：60s 窗口内有请求的工具，按最近时间序去重，最多 2 个
     //（白龙「最多两个会话、更多轮换」的同款语义）。
     std::vector<std::string> next_tools;
+    for (const auto& tool : native.activeTools) {
+        if (next_tools.size() == 2) break;
+        if (std::find(next_tools.begin(), next_tools.end(), tool) ==
+            next_tools.end()) {
+            next_tools.push_back(tool);
+        }
+    }
     for (const auto& log : logs) {  // 新的在前：先见即更近
         if (now - log.tsMillis > kActiveToolWindowMs) break;
         if (std::find(next_tools.begin(), next_tools.end(), log.tool) ==
@@ -390,6 +438,27 @@ void PetController::Poll() {
         next_snapshot.rows.reserve(models::toolRegistry().size());
         for (const auto& spec : models::toolRegistry()) {
             next_snapshot.rows.push_back(PetAgentRow{.tool = std::string(spec.id)});
+        }
+        for (auto& row : next_snapshot.rows) {
+            const auto source = std::find_if(native.sources.begin(), native.sources.end(),
+                [&row](const PetNativeSourceSnapshot& item) {
+                    return item.tool == row.tool;
+                });
+            if (source == native.sources.end() ||
+                !source->enabled) {
+                continue;
+            }
+            switch (source->state) {
+                case PetNativeState::working: row.activityLabel = "原生来源：工作中"; break;
+                case PetNativeState::waiting: row.activityLabel = "原生来源：等待处理"; break;
+                case PetNativeState::completed: row.activityLabel = "原生来源：刚完成"; break;
+                case PetNativeState::failed: row.activityLabel = "原生来源：刚失败"; break;
+                case PetNativeState::cancelled: row.activityLabel = "原生来源：已中断"; break;
+                case PetNativeState::idle: row.activityLabel = "原生来源：已观察为空闲"; break;
+                case PetNativeState::unknown:
+                    row.activityLabel = "原生来源：状态未知";
+                    break;
+            }
         }
         for (const auto& log : logs) {
             if (log.tsMillis < sinceMs) continue;
@@ -635,9 +704,11 @@ huxerui::View PetContent() {
     if (controller->live2d.Get() && PetLive2DAvailable()) {
         body = PetLive2DBody(controller);
     } else if (compact) {
-        // 状态点：streaming 青蓝 / failure 误差红 / done 冷白 / 空闲冷灰。
+        // 状态点：等待输入暖黄 / 工作青蓝 / failure 误差红 / done 冷白。
         Color dot = Color::Rgb(154, 161, 170, 0.9F);
-        if (controller->streaming.Get()) {
+        if (controller->waitingForInput.Get()) {
+            dot = Color::Rgb(251, 191, 36);
+        } else if (controller->streaming.Get() || controller->agentWorking.Get()) {
             dot = Color::Rgb(56, 189, 248);
         } else if (controller->failure.Get()) {
             dot = Color::Rgb(240, 115, 108);
@@ -671,7 +742,8 @@ huxerui::View PetContent() {
         if (today > 0) children.push_back(TodayBadge(today));
         body = huxerui::Stack{std::move(children)}.With(
             huxerui::Indication{},
-            Orb{.streaming = controller->streaming.Get(),
+            Orb{.active = controller->streaming.Get() || controller->agentWorking.Get(),
+                .waiting = controller->waitingForInput.Get(),
                 .failure = controller->failure.Get(),
                 .done = donePending,
                 .animate = visible && controller->animate.Get(),
@@ -690,8 +762,8 @@ huxerui::View PetContent() {
             .label = donePending
                          ? "llm-switch AI 桌宠。有任务完成：点击消解提醒。"
                          : activityUnknown
-                               ? "llm-switch AI 桌宠。活动状态未知，尚未观察到本地路由请求。"
-                               : "llm-switch AI 桌宠。仅显示本地路由活动；点击展开信息卡，拖拽移动。"})
+                               ? "llm-switch AI 桌宠。活动状态未知或有已启用来源尚未观察到事件。"
+                               : "llm-switch AI 桌宠。状态汇总本地路由与已连接的 Agent hook；点击展开信息卡，拖拽移动。"})
         .OnClick([controller, application, donePending] {
             // 完成提醒挂起时点击 = 消解标记（白龙同款）；否则切换信息卡。
             if (donePending) {
@@ -773,15 +845,21 @@ namespace {
 huxerui::View CardAgentRow(const PetAgentRow& row, const std::string& providerName,
                            bool hasActivity, bool activityUnknown,
                            Color onSurface, Color onSurfaceVariant) {
-    const std::string meta =
-        hasActivity
-            ? std::format("{} 次 · ↑{} ↓{} tok", row.requests,
-                          row.promptTokens, row.completionTokens)
-            : activityUnknown ? std::string("活动状态未知")
-                              : std::string("今日无路由请求");
+    std::string meta = hasActivity
+        ? std::format("{} 次 · ↑{} ↓{} tok", row.requests,
+                      row.promptTokens, row.completionTokens)
+        : activityUnknown ? std::string("活动状态未知")
+                          : std::string("今日无路由请求");
+    if (!row.activityLabel.empty()) {
+        if (hasActivity) meta += " · ";
+        else meta.clear();
+        meta += row.activityLabel;
+    }
     return huxerui::Row {
         huxerui::Image(ToolIcon(row.tool))
-            .Tint(hasActivity ? onSurface : onSurfaceVariant)
+            .Tint(hasActivity || row.activityLabel.find("工作中") != std::string::npos ||
+                      row.activityLabel.find("等待处理") != std::string::npos
+                      ? onSurface : onSurfaceVariant)
             .With(huxerui::Frame{.width = 16.0F, .height = 16.0F}),
         huxerui::Column {
             huxerui::Text(ToolName(row.tool))
@@ -821,7 +899,8 @@ huxerui::View PetCardContent() {
     const bool dark = controller->darkTheme.Get();
     const huxerui::ThemeSpec spec = dark ? AppDarkThemeSpec() : AppLightThemeSpec();
     const PetCardSnapshot snapshot = controller->cardSnapshot.Get();
-    const bool streaming = controller->streaming.Get();
+    const bool streaming = controller->streaming.Get() || controller->agentWorking.Get();
+    const bool waiting = controller->waitingForInput.Get();
     const bool activityUnknown = controller->activityUnknown.Get();
     const Color onSurface = spec.colors.on_surface;
     const Color onSurfaceVariant = spec.colors.on_surface_variant;
@@ -876,15 +955,15 @@ huxerui::View PetCardContent() {
                                 .WithWeight(huxerui::FontWeight::Bold),
                             onSurface}),
                     huxerui::Spacer(),
-                    huxerui::Text(streaming
-                                      ? "进行中"
-                                      : activityUnknown ? "未知" : "本地路由空闲")
+                    huxerui::Text(waiting ? "等待处理"
+                                      : streaming ? "进行中"
+                                      : activityUnknown ? "未知" : "已观察为空闲")
                         .Style(huxerui::TextStyle{
                             huxerui::Font::System(font_size::kChip), onSurfaceVariant}),
                 }.With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
                 huxerui::Text(activityUnknown
-                                  ? "尚未观察到本地路由请求，当前活动状态未知。"
-                                  : "只统计经本地路由的请求；Agent 原生来源尚未接入。")
+                                  ? "路由或已启用的 Agent 来源尚未提供足够活动事件。"
+                                  : "Agent 活动合并路由与已连接 hooks；请求数和 tokens 仅统计本地路由。")
                     .Style(huxerui::TextStyle{
                         huxerui::Font::System(font_size::kChip), onSurfaceVariant}),
                 huxerui::Text(std::format("本地路由今日转发 {} 次请求",

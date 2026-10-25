@@ -2,6 +2,7 @@
 module llmswitch.agents.codex;
 
 import std;
+import nlohmann.json;
 import llmswitch.agents.hook_input;
 
 namespace agents::codex {
@@ -21,6 +22,17 @@ std::optional<ActivityEvent> ParseHookInput(
         {"SubagentStop", ActivityState::working},
     };
     return adapters::ParseHookInput(input, "codex", events, nowMillis);
+}
+
+bool RequiresJsonSuccessOutput(std::string_view input) {
+    if (input.empty() || input.size() > adapters::kMaxHookInputBytes) return false;
+    const nlohmann::json root =
+        nlohmann::json::parse(input.begin(), input.end(), nullptr, false);
+    if (!root.is_object()) return false;
+    const auto event = root.find("hook_event_name");
+    if (event == root.end() || !event->is_string()) return false;
+    const std::string name = event->get<std::string>();
+    return name == "Stop" || name == "SubagentStop";
 }
 
 } // namespace agents::codex

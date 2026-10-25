@@ -23,6 +23,9 @@
 import llmswitch.config;
 import llmswitch.models;
 import llmswitch.store;
+import llmswitch.agents;
+import llmswitch.agents.bridge;
+import llmswitch.agents.hook_manager;
 
 namespace llmswitch::ui {
 namespace {
@@ -41,6 +44,14 @@ std::size_t CloseBehaviorIndex(std::string_view behavior) {
 
 bool ResolvesToDark(int mode) {
     return mode == 1 || (mode == 0 && cfg::systemPrefersDark());
+}
+
+::agents::hooks::HookStatus ReadHookStatus(std::string_view tool) noexcept {
+    try {
+        return ::agents::hooks::Inspect(tool);
+    } catch (...) {
+        return {};
+    }
 }
 
 [[huxerui::composable]] huxerui::View TaijiThemeSelector(
@@ -231,6 +242,58 @@ bool ResolvesToDark(int mode) {
     auto petCompact = huxerui::UseState(providerStore().config().petCompact);
     const bool petLive2DBuilt = PetLive2DAvailable();
     auto petLive2D = huxerui::UseState(providerStore().config().petLive2D);
+    const auto activityBridge = huxerui::UseService<::agents::ActivityBridge>();
+    std::error_code helperPathError;
+    const bool agentBridgeReady = activityBridge->Running() &&
+        std::filesystem::is_regular_file(cfg::agentHookExecutable(), helperPathError);
+    const auto claudeHookInitial = ReadHookStatus("claude-code");
+    const auto codexHookInitial = ReadHookStatus("codex");
+    auto claudeHooksEnabled = huxerui::UseState(claudeHookInitial.installed);
+    auto claudeHooksBlocked = huxerui::UseState(claudeHookInitial.blockedByUser);
+    auto codexHooksEnabled = huxerui::UseState(codexHookInitial.installed);
+    auto codexHooksBlocked = huxerui::UseState(codexHookInitial.blockedByUser);
+    auto claudeHooksBusy = huxerui::UseState(false);
+    auto codexHooksBusy = huxerui::UseState(false);
+
+    // Hook 配置改写与备份在 worker 中完成；返回 UI 线程后更新来源健康状态。
+    auto configureHook = [tasks, toast, activityBridge](
+        std::string tool, huxerui::State<bool> enabledState,
+        huxerui::State<bool> blockedState, huxerui::State<bool> busyState,
+        bool enabled) {
+        if (busyState.Get()) return;
+        busyState = true;
+        tasks.Launch([tool = std::move(tool), enabledState, blockedState,
+                      busyState, enabled, toast, activityBridge]() mutable
+                         -> huxerui::Task<void> {
+            try {
+                const auto status = co_await huxerui::RunWorker(
+                    [tool, enabled] {
+                        ::agents::hooks::Configure(
+                            tool, cfg::agentHookExecutable(), enabled);
+                        return ::agents::hooks::Inspect(tool);
+                    });
+                enabledState = status.installed;
+                blockedState = status.blockedByUser;
+                const ::agents::SourceHealth health = !status.installed
+                    ? ::agents::SourceHealth::disabled
+                    : status.blockedByUser || !activityBridge->Running()
+                        ? ::agents::SourceHealth::unavailable
+                        : tool == "codex" ? ::agents::SourceHealth::needsTrust
+                                           : ::agents::SourceHealth::awaitingEvent;
+                activityBridge->SetSourceHealth(tool, health);
+                if (enabled && tool == "codex") {
+                    toast.Show("Codex hook 已安装；请在 Codex 的 /hooks 中审查并信任，信任前桌宠会显示未知。");
+                } else if (enabled) {
+                    toast.Show("Claude Code hook 已安装；新会话触发事件后桌宠开始显示活动。");
+                } else {
+                    toast.Show("已移除 llm-switch 管理的 hook；其它 hooks 保留。");
+                }
+            } catch (const std::exception& e) {
+                toast.Show(e.what());
+            }
+            busyState = false;
+        });
+    };
 
     // ---- 本地环境检查 ----
     // 只做存在性检测：在 PATH 与几个已知安装目录里找可执行文件（纯文件系统，
@@ -524,6 +587,45 @@ bool ResolvesToDark(int mode) {
                                     }
                                 })
                             .With(huxerui::Enabled(petLive2DBuilt))),
+                }.With(huxerui::Spacing(10.0F),
+                       huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))),
+
+                SectionDivider(),
+
+                PageSection(SectionTitle("Agent 活动来源"),
+                            huxerui::Column {
+                    SettingRow(
+                        "Claude Code hooks",
+                        claudeHooksBlocked.Get()
+                            ? "Claude Code 已关闭 disableAllHooks；启用前请在 Claude Code 自身设置中恢复 hooks"
+                            : "只提取 session_id、事件名和状态；不保存提示词、回复、工具内容或 transcript 路径",
+                        huxerui::Switch(claudeHooksEnabled.Get())
+                            .OnChanged([configureHook, claudeHooksEnabled,
+                                        claudeHooksBlocked, claudeHooksBusy](bool on) {
+                                configureHook("claude-code", claudeHooksEnabled,
+                                              claudeHooksBlocked, claudeHooksBusy, on);
+                            })
+                            .With(huxerui::Enabled(agentBridgeReady ||
+                                claudeHooksEnabled.Get()))),
+                    SettingRow(
+                        "Codex hooks",
+                        codexHooksBlocked.Get()
+                            ? "Codex config.toml 已关闭 hooks；启用前请在 Codex 自身设置中恢复"
+                            : "hook 首次安装或变更需在 Codex 的 /hooks 中审查并信任；信任前活动保持未知",
+                        huxerui::Switch(codexHooksEnabled.Get())
+                            .OnChanged([configureHook, codexHooksEnabled,
+                                        codexHooksBlocked, codexHooksBusy](bool on) {
+                                configureHook("codex", codexHooksEnabled,
+                                              codexHooksBlocked, codexHooksBusy, on);
+                            })
+                            .With(huxerui::Enabled(agentBridgeReady ||
+                                codexHooksEnabled.Get()))),
+                    huxerui::Text(agentBridgeReady
+                        ? "活动只在本机通过受令牌保护的 loopback bridge 传递；应用退出时桥接描述符会删除。"
+                        : "本地活动接收程序不可用；请使用随应用安装的 llm-switch-agent-hook。")
+                        .Style(huxerui::TextStyle{
+                            huxerui::Font::System(font_size::kCaption),
+                            theme.colors.on_surface_variant}),
                 }.With(huxerui::Spacing(10.0F),
                        huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))),
 

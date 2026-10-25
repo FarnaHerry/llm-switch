@@ -33,6 +33,9 @@
 import llmswitch.config;
 import llmswitch.models;
 import llmswitch.store;
+import llmswitch.agents;
+import llmswitch.agents.bridge;
+import llmswitch.agents.hook_manager;
 
 namespace llmswitch::ui {
 
@@ -362,6 +365,14 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(
            huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)));
 }
 
+::agents::hooks::HookStatus ReadStartupHookStatus(std::string_view tool) noexcept {
+    try {
+        return ::agents::hooks::Inspect(tool);
+    } catch (...) {
+        return {};
+    }
+}
+
 // 新安装简短设置：只配置桌宠外观、登录启动、托盘与当前可用的活动来源。
 [[huxerui::composable]] huxerui::View StartupSetupContent(
     huxerui::DialogContext context, huxerui::WindowHandle window,
@@ -379,6 +390,14 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(
         providerStore().config().trayEnabled && tray.IsAvailable());
     const auto routerEnabled =
         huxerui::UseState(providerStore().config().routerEnabled);
+    const auto activityBridge = huxerui::UseService<::agents::ActivityBridge>();
+    const auto claudeHookInitial = ReadStartupHookStatus("claude-code");
+    const auto codexHookInitial = ReadStartupHookStatus("codex");
+    auto claudeHooksEnabled = huxerui::UseState(claudeHookInitial.installed);
+    auto codexHooksEnabled = huxerui::UseState(codexHookInitial.installed);
+    std::error_code helperPathError;
+    const bool nativeHooksAvailable = activityBridge->Running() &&
+        std::filesystem::is_regular_file(cfg::agentHookExecutable(), helperPathError);
     const bool live2dAvailable = PetLive2DAvailable();
     const bool trayAvailable = tray.IsAvailable();
     huxerui::View appearance =
@@ -426,25 +445,51 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(
                 routerEnabled = enabled;
             }),
         huxerui::Text(std::format(
-            "把 Agent 配置到 127.0.0.1:{} 后才能看到请求。Claude Code / Codex 原生来源"
-            "尚未接入；其他流量不会被识别。",
+            "把 Agent 配置到 127.0.0.1:{} 后才能看到请求。",
             providerStore().config().routerPort)),
+        huxerui::Switch("接收 Claude Code 活动", claudeHooksEnabled.Get())
+            .OnChanged([claudeHooksEnabled](bool enabled) {
+                claudeHooksEnabled = enabled;
+            })
+            .With(huxerui::Enabled(nativeHooksAvailable || claudeHooksEnabled.Get())),
+        huxerui::Text(claudeHookInitial.blockedByUser
+            ? "Claude Code 已关闭 disableAllHooks；需先在 Claude Code 自身设置中恢复。"
+            : "仅接收会话生命周期状态，不读取提示词、回复或工具内容。"),
+        huxerui::Switch("接收 Codex 活动", codexHooksEnabled.Get())
+            .OnChanged([codexHooksEnabled](bool enabled) {
+                codexHooksEnabled = enabled;
+            })
+            .With(huxerui::Enabled(nativeHooksAvailable || codexHooksEnabled.Get())),
+        huxerui::Text(codexHookInitial.blockedByUser
+            ? "Codex 已关闭 hooks；需先在 Codex 自身配置中恢复。"
+            : "Codex 首次安装后需在 /hooks 审查并信任；信任前活动保持未知。"),
+        huxerui::Text(nativeHooksAvailable
+            ? "原生来源只在本机传递状态元数据。"
+            : "原生 hook helper 或本地接收桥不可用；可稍后在设置中检查。"),
         huxerui::Row {
             huxerui::Spacer(),
             huxerui::Button("完成并启动桌宠")
                 .OnClick([context, window, application, tray, pet, startupMode,
                           setupCompleted, trayEnabled, appTasks, toast, live2d,
-                          topmost, launchAtLogin, showTray, routerEnabled] {
+                          topmost, launchAtLogin, showTray, routerEnabled,
+                          claudeHooksEnabled, codexHooksEnabled,
+                          activityBridge,
+                          claudeInitiallyInstalled = claudeHookInitial.installed,
+                          codexInitiallyInstalled = codexHookInitial.installed] {
                     const bool selectedLive2D = live2d.Get();
                     const bool selectedTopmost = topmost.Get();
                     const bool selectedLaunchAtLogin = launchAtLogin.Get();
                     const bool selectedTray = showTray.Get();
                     const bool selectedRouter = routerEnabled.Get();
+                    const bool selectedClaudeHooks = claudeHooksEnabled.Get();
+                    const bool selectedCodexHooks = codexHooksEnabled.Get();
                     appTasks.Post([context, window, application, tray, pet,
                                    startupMode, setupCompleted, trayEnabled,
                                    toast, selectedLive2D, selectedTopmost,
                                    selectedLaunchAtLogin, selectedTray,
-                                   selectedRouter] {
+                                   selectedRouter, selectedClaudeHooks,
+                                   selectedCodexHooks, claudeInitiallyInstalled,
+                                   codexInitiallyInstalled, appTasks, activityBridge] {
                         const bool previousLaunchAtLogin =
                             providerStore().config().launchAtLogin;
                         try {
@@ -489,6 +534,44 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(
                                     "本地路由启动失败：{}", e.what()));
                             }
                         }
+                        appTasks.Launch([selectedClaudeHooks, selectedCodexHooks,
+                                        claudeInitiallyInstalled,
+                                        codexInitiallyInstalled,
+                                        activityBridge, toast]()
+                                           -> huxerui::Task<void> {
+                            const std::array<std::tuple<std::string, bool, bool>, 2>
+                                sources{{{"claude-code", selectedClaudeHooks,
+                                          selectedClaudeHooks != claudeInitiallyInstalled},
+                                         {"codex", selectedCodexHooks,
+                                          selectedCodexHooks != codexInitiallyInstalled}}};
+                            for (const auto& [tool, enabled, changed] : sources) {
+                                if (!changed) continue;
+                                try {
+                                    const auto status = co_await huxerui::RunWorker(
+                                        [tool, enabled] {
+                                            ::agents::hooks::Configure(
+                                                tool, cfg::agentHookExecutable(), enabled);
+                                            return ::agents::hooks::Inspect(tool);
+                                        });
+                                    const auto health = !status.installed
+                                        ? ::agents::SourceHealth::disabled
+                                        : status.blockedByUser || !activityBridge->Running()
+                                            ? ::agents::SourceHealth::unavailable
+                                            : tool == "codex"
+                                                ? ::agents::SourceHealth::needsTrust
+                                                : ::agents::SourceHealth::awaitingEvent;
+                                    activityBridge->SetSourceHealth(tool, health);
+                                    if (enabled && tool == "codex") {
+                                        toast.Show("Codex hook 已安装；请在 /hooks 中审查并信任，信任前活动保持未知。");
+                                    } else if (enabled) {
+                                        toast.Show("Claude Code hook 已安装；新会话触发事件后会显示活动。");
+                                    }
+                                } catch (const std::exception& e) {
+                                    toast.Show(std::format("{} 活动来源设置失败：{}",
+                                        tool == "codex" ? "Codex" : "Claude Code", e.what()));
+                                }
+                            }
+                        });
                         try {
                             if (startupMode.Get() == 0) {
                                 pet->Show(application);
@@ -1170,8 +1253,57 @@ void InstallApplication(huxerui::ApplicationContext& context) {
     // MainWindowController 同一模式，主窗口组合期绑定 navPage。
     context.Provide(std::make_shared<MainNavTarget>());
 
+    // 原生 Agent hooks 由应用生命周期桥接；桌宠窗口可以隐藏/退役，接收端仍
+    // 在后台工作。事件只保存在 bridge 内存中，描述符仅含 loopback 端口和令牌。
+    auto activityBridge = std::make_shared<::agents::ActivityBridge>();
+    const bool bridgeStarted = activityBridge->Start(cfg::agentBridgeFile());
+    for (const std::string_view tool : {"claude-code", "codex"}) {
+        ::agents::SourceHealth health = ::agents::SourceHealth::disabled;
+        try {
+            const ::agents::hooks::HookStatus hook = ::agents::hooks::Inspect(tool);
+            if (hook.installed) {
+                health = !bridgeStarted || hook.blockedByUser
+                    ? ::agents::SourceHealth::unavailable
+                    : tool == "codex" ? ::agents::SourceHealth::needsTrust
+                                       : ::agents::SourceHealth::awaitingEvent;
+            }
+        } catch (...) {
+            health = ::agents::SourceHealth::unavailable;
+        }
+        activityBridge->SetSourceHealth(std::string(tool), health);
+    }
+    context.Provide(activityBridge);
+
     // AI 桌宠控制器注册为应用级服务（桌宠窗口 / 设置页 / 托盘菜单共用）。
     auto pet = std::make_shared<PetController>();
+    pet->readNativeActivity = [activityBridge](std::int64_t nowMillis) {
+        const ::agents::ActivitySnapshot snapshot =
+            activityBridge->SnapshotAt(nowMillis);
+        PetNativeActivitySnapshot result;
+        result.activeTools = snapshot.activeTools;
+        result.sources.reserve(snapshot.sources.size());
+        for (const auto& source : snapshot.sources) {
+            PetNativeSourceSnapshot row{
+                .tool = source.tool,
+                .lastEventMillis = source.lastEventMillis,
+                .enabled = source.health != ::agents::SourceHealth::disabled,
+                .unknown = source.unknown};
+            switch (source.state) {
+                case ::agents::ActivityState::unknown:
+                case ::agents::ActivityState::sessionEnded:
+                    row.state = PetNativeState::unknown;
+                    break;
+                case ::agents::ActivityState::idle: row.state = PetNativeState::idle; break;
+                case ::agents::ActivityState::working: row.state = PetNativeState::working; break;
+                case ::agents::ActivityState::waiting: row.state = PetNativeState::waiting; break;
+                case ::agents::ActivityState::completed: row.state = PetNativeState::completed; break;
+                case ::agents::ActivityState::failed: row.state = PetNativeState::failed; break;
+                case ::agents::ActivityState::cancelled: row.state = PetNativeState::cancelled; break;
+            }
+            result.sources.push_back(std::move(row));
+        }
+        return result;
+    };
     pet->topmost = providerStore().config().petTopmost;
     pet->lightweight = providerStore().config().petLightweight;
     pet->compact = providerStore().config().petCompact;

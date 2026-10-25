@@ -1,6 +1,6 @@
 # 原生 Agent 活动接入调研与适配决策
 
-> 调研日期：2026-10-25。本文记录公开官方文档、GitHub 项目 README / 设计文档中的接口，不代表本仓库已完成任何 Agent 接入。实施前仍需对目标版本做本机验证。
+> 调研日期：2026-10-25。本文记录公开官方文档、GitHub 项目 README / 设计文档中的接口，以及本仓库的阶段性实现状态。Claude Code / Codex 的 hook 安装、loopback 接收与桌宠状态合并已有实现；关闭路由后的真实会话 spike 仍待验证。
 
 ## 结论
 
@@ -16,7 +16,7 @@
 |---|---|---|---|
 | [WindyWin/vpet-agent-pet](https://github.com/WindyWin/vpet-agent-pet) | C++ / Qt 桌宠；安装流程让用户选择连接 Claude Code、Codex，并可选择 Agent 会话启动时带起桌宠；项目描述支持并发 session、等待输入和完成/失败提示。 | 同为 C++ 桌面宠物，证明“桌宠与 Agent 生命周期绑定”可以通过安装时的显式集成完成。它也把连接步骤放在 Agent 设置中，便于用户以后关闭或修复。 | 不把其 README 所列能力视作本项目平台验证；只借鉴入口和状态展示方式。 |
 | [nudoo/codex-pets](https://github.com/nudoo/codex-pets)（fork 自 `rullerzhou-afk/clawd-on-desk`） | Claude Code 使用 command hooks，并为权限事件提供 HTTP hook；Codex 使用官方 hooks，另有 `~/.codex/sessions/` JSONL 状态/元数据回退；其他工具各有独立 hook/plugin/extension adapter。 | hooks-first、按工具独立 adapter、只对缺失事件加日志回退，适合逐步扩展到多 Agent。其文档也明确区分“观察状态”和“接管权限”。 | 本项目不需要权限浮层；JSONL 回退不是默认方案，且不得为了显示状态读取正文。 |
-| [Ponpon55837/agent-pets](https://github.com/Ponpon55837/agent-pets) | 用户逐个安装 adapter；界面显示已安装/部分配置/不可用、能力、诊断和测试状态；hook 向 `127.0.0.1` 本地 receiver 报事件，按安装令牌认证。 | adapter registry、显式安装、健康检查和可解释错误值得采用。测试事件只能证明 receiver 到 UI 的链路，不能证明 Agent 自己确实触发 hook。 | 本项目是否采用 HTTP 还是操作系统 IPC 尚未定；绝不能把事件 receiver 合并到可关闭的 `LocalRouter`。 |
+| [Ponpon55837/agent-pets](https://github.com/Ponpon55837/agent-pets) | 用户逐个安装 adapter；界面显示已安装/部分配置/不可用、能力、诊断和测试状态；hook 向 `127.0.0.1` 本地 receiver 报事件，按安装令牌认证。 | adapter registry、显式安装、健康检查和可解释错误值得采用。测试事件只能证明 receiver 到 UI 的链路，不能证明 Agent 自己确实触发 hook。 | 本项目已采用独立于 `LocalRouter` 的令牌保护 loopback receiver；不开放 LAN，也不把 Agent 状态统计混入路由请求统计。 |
 
 ## 八个已注册工具的公开接口盘点
 
@@ -24,7 +24,7 @@
 |---|---|---|---|
 | `claude-code` | Claude Code command / HTTP hooks；用户级配置通常在 `~/.claude/settings.json`。 | `SessionStart`、`UserPromptSubmit`、`PreToolUse` / `PostToolUse`、`PermissionRequest`、`Stop`、`StopFailure`、`SessionEnd`、subagent 事件可表示工作、等待、结束和失败。输入字段含 `prompt`、`tool_input`、`tool_response`、`last_assistant_message`、transcript 路径等敏感内容；hook 配置在会话启动时加载。 | P0。安装时显式 opt-in；增量合并且仅移除带本应用标记的 hook；只解析 `session_id`、事件名和必要状态，不读其余字段。hook 不作阻塞、改写或批准。 |
 | `claude`（Claude Desktop） | 本次未在 Anthropic 公开文档中确认独立桌面客户端的通用 lifecycle hook/API。它与 Claude Code CLI 是不同产品；MCP 配置不能证明存在被动活动事件。 | 不根据 Claude Code hooks 推断 Claude Desktop 可接入；也不扫描未公开的内部数据库来补齐。经 `LocalRouter` 的请求仍可见。 | 暂列“未接入/未知”。等 Anthropic 提供受支持的本地 lifecycle 接口再评估。 |
-| `codex` | Codex lifecycle hooks；`~/.codex/hooks.json`、活动配置层的 `hooks.json` 或 `config.toml`。 | 官方事件覆盖 `SessionStart`、`UserPromptSubmit`、`PreToolUse`、`PermissionRequest`、`PostToolUse`、`Stop`、`Interrupt`、`SessionEnd` 与 subagent 等。非托管 hook 必须由用户 review/trust；用户或管理员可关闭 hooks。`SessionEnd` 可能延迟到关闭/归档，不能单独作为实时结束信号。hook 输入会含 `input_messages`、工具载荷等内容。 | P0。只对 Codex CLI 做首轮实测；安装前检查 hook feature 和现有配置，不覆盖 `hooks=false`；保留 Codex 自己的 trust 流程。未单独验证前不宣称覆盖 Codex Desktop。 |
+| `codex` | Codex lifecycle hooks；`~/.codex/hooks.json`、活动配置层的 `hooks.json` 或 `config.toml`。 | 官方事件覆盖 `SessionStart`、`UserPromptSubmit`、`PreToolUse`、`PermissionRequest`、`PostToolUse`、`Stop`、`Interrupt`、`SessionEnd` 与 subagent 等。非托管 hook 必须由用户 review/trust；用户或管理员可关闭 hooks。`SessionEnd` 可能延迟到关闭/归档，不能单独作为实时结束信号。stdin 含 `prompt`、transcript 路径及事件相关字段；应用只取 `session_id` 与 `hook_event_name`。 | 首批 hook 安装和状态桥接已实现；仍需只对 Codex CLI 做本机实测。安装前检查 hook feature，不覆盖 `hooks=false`，保留 Codex 自己的 trust 流程。未单独验证前不宣称覆盖 Codex Desktop。 |
 | `opencode` | 官方 JS/TS plugin；本地全局插件目录 `~/.config/opencode/plugins/`，也支持项目插件目录。 | 公开事件包括 `session.status`、`session.idle`、`session.error`、`session.updated`、`permission.asked/replied`、`tool.execute.before/after`。插件回调在 Agent 进程内运行；可选择只读 `event` 监听，避免修改工具输入/输出。 | 后续 native adapter。插件只发归一状态，不依赖消息更新事件；用户级安装可逆，插件目录无需改写其他插件。 |
 | `pi` | Pi coding-agent extension；全局目录 `~/.pi/agent/extensions/`，支持 `pi.on(...)` 订阅。 | SDK 暴露 `agent_start/end`、`turn_start/end`、`tool_execution_start/end`、`session_shutdown` 等事件。部分事件对象包含 assistant messages、工具参数/结果；扩展只取事件类型、会话关联和错误布尔值。 | 后续 native adapter。Pi 本身已有 Node runtime，可使用用户级 extension；不为 llm-switch 嵌入 Node。 |
 | `dsh` | DeepSeek Harness 公共插件事件/API。`agent/status` 在 `idle` 与 `running` 间转换，另有 `agent/created`、`agent/disposed`；session/turn 事件可提供更细粒度。 | 事件 API 属于 dsh 进程内；当前需验证已安装 CLI/Desktop profile 的插件加载和跨进程事件发送路径。更细的 `session/event` 可能携带消息/流片段，桌宠无需订阅内容流。 | 后续 native adapter。优先用 `agent/status` 和创建/销毁事件，不依赖翻阅 session event log；另确认桌面版 profile 与 CLI profile 的覆盖差异。 |
@@ -51,19 +51,19 @@ source id + 内存期 session key + state + occurred_at + optional error/wait fl
 
 1. 每个 Agent 一项设置，默认不改写 Agent 配置；用户点“连接”后再安装，点停用后停止接收，卸载仅删本应用拥有的条目与脚本。
 2. 对 JSON/TOML/YAML 配置做保留未知字段的增量合并；用稳定标记识别本应用 hook，安装重复运行幂等。现有用户 hook、显式 disable、Codex trust 状态都原样保留。
-3. 不调用 Agent CLI 跑任意提示，不把 prompt 内容塞到命令行。hook 运行程序须有短超时、无输出、始终不阻塞 Agent 的策略；bridge 不可用时 fail-open，Agent 正常工作不应依赖桌宠进程。
+3. 不调用 Agent CLI 跑任意提示，不把 prompt 内容塞到命令行。hook helper 对支持的事件请求异步运行、无输入回显并 fail-open；Codex `Stop` / `SubagentStop` 仅输出固定成功 JSON，Codex `SessionEnd` 可能同步运行。bridge 不可用时 Agent 正常工作不应依赖桌宠进程。
 4. UI 为每个 adapter 显示“未检测 / 已检测未连接 / 已连接 / 等待 Agent 信任 / 连接错误”，提供只验证本地接收链路的测试事件与有界诊断。不要把“测试事件成功”说成“真实 Agent 已上报”。
-5. 事件 receiver 必须独立于 `LocalRouter` 开关与端口。第一阶段 spike 比较单独 loopback receiver（随机安装令牌、仅绑定 `127.0.0.1`）与平台 IPC，再确定实现；不开放 LAN、不提供远程上报。
+5. 事件 receiver 必须独立于 `LocalRouter` 开关与端口。本仓库已采用随机令牌、仅绑定 `127.0.0.1` 的短期 loopback bridge；不开放 LAN、不提供远程上报。
 6. 单个 Agent 配置损坏、脚本缺失、版本不兼容或插件异常，不影响其他 adapter、路由和控制中心。健康检查只做有界读操作，不自动覆盖未知配置。
 
 ## 落地顺序与验收
 
 ### P0：Claude Code 与 Codex
 
-1. 先实现只在内存中运行的归一事件 contract 和 aggregator；保持 `LocalRouter` 独立。
+1. 归一事件 contract、内存 aggregator、loopback bridge、增量 hook 管理与桌宠状态合并已实现；`LocalRouter` 保持独立。
 2. 为两个 Agent 做受控本机 spike：分别关闭 LocalRouter，显式安装 hook，测试开始、工具执行、等待输入、正常结束、失败、中断、并发 session、应用先启动/后启动、Agent 配置中已有用户 hook 等情况。
 3. 记录 Agent 版本、触发事件、延迟、缺失事件及安装前后配置差异；Codex 需分别验证 hook 未信任、hooks 关闭和 `SessionEnd` 延迟场景。
-4. 接入前做隐私探针：注入唯一的假 prompt/命令字符串，确认它们未进入 llm-switch 数据目录、日志、IPC/HTTP payload 或桌宠 State。
+4. 对已实现接入做隐私探针：注入唯一的假 prompt/命令字符串，确认它们未进入 llm-switch 数据目录、日志、bridge payload 或桌宠 State。
 
 P0 完成条件仍以 [桌宠路线图](desktop-pet-roadmap.md) 的验收为准；文档调研不视为 spike 已完成。
 
