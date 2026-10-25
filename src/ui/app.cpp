@@ -121,13 +121,15 @@ huxerui::View AppThemed(bool dark, huxerui::View content) {
 // 勾选当前项）。随后是本地路由开关（勾选 = 运行中，点击 start/stop），
 // 底部固定 显示主窗口 / 退出。
 std::vector<huxerui::MenuEntry> BuildTrayMenu(
-    huxerui::WindowHandle window, huxerui::ApplicationHandle application,
-    huxerui::ToastHandle toast, huxerui::State<int> revision,
+    huxerui::ApplicationHandle application,
+    const std::shared_ptr<MainWindowController>& mainWindow,
     const std::shared_ptr<PetController>& pet,
-    huxerui::State<std::size_t> startupMode) {
+    const std::shared_ptr<TrayPresentationController>& trayPresentation) {
     std::vector<huxerui::MenuEntry> entries;
+    const std::weak_ptr<TrayPresentationController> weakPresentation =
+        trayPresentation;
     auto& st = providerStore();
-    // 按注册表列出全部工具组（阶段A 通用代码，自然覆盖 5 个工具）。
+    // 按注册表列出全部工具组，覆盖当前登记的八个 Agent。
     for (const auto& spec : models::toolRegistry()) {
         const std::string tool(spec.id);
         const auto& g = st.group(tool);
@@ -143,15 +145,18 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(
         std::vector<huxerui::MenuEntry> children;
         if (!official.empty()) {
             children.push_back(
-                huxerui::MenuItem(std::string(official), [tool, toast, revision] {
+                huxerui::MenuItem(std::string(official),
+                                  [tool, mainWindow, weakPresentation] {
                     try {
                         providerStore().restoreOfficial(tool);
-                        toast.Show(std::format("{} 已恢复官方原生状态",
-                                               ToolName(tool)));
+                        mainWindow->ShowMessage(std::format(
+                            "{} 已恢复官方原生状态", ToolName(tool)));
                     } catch (const std::exception& e) {
-                        toast.Show(e.what());
+                        mainWindow->ShowMessage(e.what(), true);
                     }
-                    revision = revision.Get() + 1;
+                    if (const auto presentation = weakPresentation.lock()) {
+                        presentation->NotifyConfigurationChanged();
+                    }
                 }).Checked(g.current.empty()));
         }
         if (g.providers.empty()) {
@@ -162,14 +167,18 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(
             const std::string id = p.id;
             const std::string name = p.name;
             children.push_back(
-                huxerui::MenuItem(name, [tool, id, name, toast, revision] {
+                huxerui::MenuItem(name, [tool, id, name, mainWindow,
+                                         weakPresentation] {
                     try {
                         providerStore().switchTo(tool, id);
-                        toast.Show(std::format("{} 已切换到 {}", ToolName(tool), name));
+                        mainWindow->ShowMessage(std::format(
+                            "{} 已切换到 {}", ToolName(tool), name));
                     } catch (const std::exception& e) {
-                        toast.Show(e.what());
+                        mainWindow->ShowMessage(e.what(), true);
                     }
-                    revision = revision.Get() + 1;
+                    if (const auto presentation = weakPresentation.lock()) {
+                        presentation->NotifyConfigurationChanged();
+                    }
                 }).Checked(g.current == p.id));
         }
         // 顶层条目（hover 展开二级菜单）。托盘菜单图标只接受位图
@@ -184,45 +193,62 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(
     entries.push_back(
         huxerui::MenuItem(
             std::format("本地路由（127.0.0.1:{}）", routerPort),
-            [toast, revision] {
+            [mainWindow, weakPresentation] {
                 try {
                     if (routerInstance().running()) {
                         routerInstance().stop();
-                        toast.Show("本地路由已停止");
+                        mainWindow->ShowMessage("本地路由已停止");
                     } else {
                         routerInstance().start(providerStore().config().routerPort);
-                        toast.Show(std::format(
+                        mainWindow->ShowMessage(std::format(
                             "本地路由已启动（127.0.0.1:{}）",
                             providerStore().config().routerPort));
                     }
                 } catch (const std::exception& e) {
-                    toast.Show(e.what());
+                    mainWindow->ShowMessage(e.what(), true);
                 }
-                revision = revision.Get() + 1;
+                if (const auto presentation = weakPresentation.lock()) {
+                    presentation->NotifyConfigurationChanged();
+                }
             })
             .Checked(routerInstance().running()));
     // AI 桌宠入口：勾选 = 窗口存活；点击同时更新启动入口偏好。
     entries.push_back(
         huxerui::MenuItem("AI 桌宠",
-                          [pet, application, toast, revision, startupMode] {
+                          [pet, application, mainWindow, weakPresentation] {
                               try {
                                   if (pet->pet) {
                                       providerStore().setStartupMode("control-center");
-                                      startupMode = 1;
+                                      if (const auto presentation = weakPresentation.lock()) {
+                                          presentation->NotifyConfigurationChanged(1U);
+                                      }
                                       pet->Retire();
+                                      mainWindow->Activate();
                                   } else {
                                       providerStore().setStartupMode("pet");
-                                      startupMode = 0;
+                                      if (const auto presentation = weakPresentation.lock()) {
+                                          presentation->NotifyConfigurationChanged(0U);
+                                      }
                                       pet->Show(application);
+                                      if (!application.SystemTray().IsAvailable() ||
+                                          !providerStore().config().trayEnabled) {
+                                          mainWindow->Activate();
+                                      } else {
+                                          mainWindow->Hide();
+                                      }
                                   }
                               } catch (const std::exception& e) {
-                                  toast.Show(e.what());
+                                  mainWindow->ShowMessage(e.what(), true);
                               }
-                              revision = revision.Get() + 1;
+                              if (const auto presentation = weakPresentation.lock()) {
+                                  presentation->NotifyConfigurationChanged();
+                              }
                           })
                             .Checked(pet->pet.has_value()));
     entries.push_back(huxerui::MenuSection{});
-    entries.push_back(huxerui::MenuItem("显示主窗口", [window] { window.Activate(); }));
+    entries.push_back(huxerui::MenuItem("显示主窗口", [mainWindow] {
+        mainWindow->Activate();
+    }));
     entries.push_back(huxerui::MenuSection{});
     entries.push_back(
         huxerui::MenuItem("退出", [application] { application.Quit(); }));
@@ -900,38 +926,19 @@ constexpr double kCollapseSeconds = 0.12;
 // 隐藏）用含苞，双态已整体废弃，所以这里也不再订阅生命周期状态。
 // 生命周期读取封装在独立组合边界内，避免状态切换重组窗口正文。
 [[huxerui::composable]] huxerui::View SystemTrayPresentation(
-    huxerui::ApplicationHandle application, huxerui::SystemTrayHandle tray,
-    huxerui::WindowHandle window, huxerui::ToastHandle toast,
-    huxerui::State<int> revision,
+    const std::shared_ptr<TrayPresentationController>& trayPresentation,
+    bool trayAvailable, huxerui::State<int> revision,
     huxerui::State<std::size_t> startupMode,
     huxerui::State<bool> setupCompleted,
     huxerui::State<bool> trayEnabled) {
-    // OnActivate 已在 InstallApplication 的 ApplicationHook 里注册过一次；
-    // 这里只负责把当前窗口绑进应用级目标（卸载时解绑）。Show/Hide 仍是组合
-    // 生命周期：菜单要跟着 revision 重建，重组时由 Show 替换共享呈现。
-    const std::shared_ptr<TrayActivationTarget> activation =
-        huxerui::UseService<TrayActivationTarget>();
     const std::shared_ptr<PetController> pet = huxerui::UseService<PetController>();
-    huxerui::Lifecycle([activation, window] {
-        activation->Bind(window);
-        return [activation] { activation->Unbind(); };
-    });
     huxerui::Lifecycle(
-        [application, tray, window, toast, revision, pet, startupMode,
-         setupCompleted, trayEnabled] {
-            if (trayEnabled.Get() && setupCompleted.Get() &&
-                tray.IsAvailable()) {
-                tray.Show(app::images::lotus_tray_bloom,
-                          huxerui::SystemTrayOptions{
-                              .tooltip = "llm-switch",
-                              .menu = BuildTrayMenu(window, application, toast,
-                                                    revision, pet, startupMode)});
-            } else {
-                tray.Hide();
-            }
-            return [tray] { tray.Hide(); };
+        [trayPresentation] {
+            trayPresentation->Refresh();
+            return [] {};
         },
-        revision, pet->epoch, setupCompleted, trayEnabled);
+        trayAvailable, revision, pet->epoch, startupMode, setupCompleted,
+        trayEnabled);
 
     return huxerui::Row {};
 }
@@ -1041,26 +1048,129 @@ huxerui::View AmbientGlow(bool dark) {
 
 } // namespace
 
-void TrayActivationTarget::Activate() const {
-    if (window_) window_->Activate();
+huxerui::WindowOptions ControlCenterWindowOptions() {
+    return {
+        .title = "llm-switch",
+        .initial_size = {1080.0F, 720.0F},
+        .minimum_size = huxerui::Size{800.0F, 600.0F},
+        .chrome_mode = huxerui::WindowChromeMode::Custom,
+        .title_bar_height = 24.0F,
+    };
+}
+
+std::uint64_t MainWindowController::Bind(huxerui::WindowHandle window,
+                                         huxerui::ToastHandle toast) {
+    window_ = std::move(window);
+    toast_ = std::move(toast);
+    return ++generation_;
+}
+
+void MainWindowController::Unbind(std::uint64_t generation) noexcept {
+    if (generation_ != generation) return;
+    window_.reset();
+    toast_.reset();
+}
+
+void MainWindowController::Activate() {
+    if (!window_) window_ = application_.OpenWindow(options_);
+    window_->Show();
+    window_->Activate();
+}
+
+void MainWindowController::Hide() const {
+    if (window_) window_->Hide();
+}
+
+void MainWindowController::ShowMessage(std::string message,
+                                       bool openIfNeeded) {
+    if (toast_) {
+        if (openIfNeeded) Activate();
+        toast_->Show(std::move(message));
+    } else if (openIfNeeded) {
+        pendingMessage_ = std::move(message);
+        Activate();
+    }
+}
+
+std::optional<std::string> MainWindowController::TakePendingMessage() {
+    auto message = std::move(pendingMessage_);
+    pendingMessage_.reset();
+    return message;
+}
+
+std::uint64_t TrayPresentationController::BindUiState(
+    huxerui::State<int> revision,
+    huxerui::State<std::size_t> startupMode) {
+    revision_ = std::move(revision);
+    startupMode_ = std::move(startupMode);
+    return ++uiStateGeneration_;
+}
+
+void TrayPresentationController::UnbindUiState(
+    std::uint64_t generation) noexcept {
+    if (uiStateGeneration_ != generation) return;
+    revision_.reset();
+    startupMode_.reset();
+}
+
+void TrayPresentationController::NotifyConfigurationChanged(
+    std::optional<std::size_t> startupMode) {
+    if (startupMode && startupMode_) *startupMode_ = *startupMode;
+    if (revision_) *revision_ = revision_->Get() + 1;
+    Refresh();
+}
+
+void TrayPresentationController::Refresh() {
+    const auto& config = providerStore().config();
+    if (!config.firstRunSetupCompleted || !config.trayEnabled ||
+        !tray_.IsAvailable()) {
+        tray_.Hide();
+        return;
+    }
+    tray_.Show(
+        app::images::lotus_tray_bloom,
+        huxerui::SystemTrayOptions{
+            .tooltip = "llm-switch",
+            .menu = BuildTrayMenu(application_, mainWindow_, pet_,
+                                  shared_from_this()),
+        });
+}
+
+void EnsureRuntimeServices(huxerui::ToastHandle toast) {
+    const auto& config = providerStore().config();
+    if (!config.firstRunSetupCompleted) return;
+    if (config.launchAtLogin) {
+        try {
+            SetLaunchAtLogin(true);
+        } catch (const std::exception& e) {
+            toast.Show(std::format("登录启动项更新失败：{}", e.what()));
+        }
+    }
+    if (config.routerEnabled && !routerInstance().running()) {
+        try {
+            routerInstance().start(config.routerPort);
+        } catch (const std::exception& e) {
+            toast.Show(e.what());
+        }
+    }
 }
 
 void InstallApplication(huxerui::ApplicationContext& context) {
-    // 托盘激活处理器是 Runtime 生命周期的一次性注册：新运行时明确拒绝重复
-    // 注册（std::logic_error "system tray activation handler is already
-    // connected"），所以只能在 ApplicationHook 里装一次，不能放在会随状态
-    // 重组的 composable 里。激活落到 TrayActivationTarget 上，由组合期绑定
-    // 当前窗口。
-    auto activation = std::make_shared<TrayActivationTarget>();
-    context.Provide(activation);
+    // 托盘激活处理器是 Runtime 生命周期的一次性注册，只能在 ApplicationHook
+    // 装一次。主窗口控制器负责窗口尚未创建时的按需打开。
     const huxerui::ApplicationHandle application = huxerui::UseApplication();
+    const huxerui::SystemTrayHandle tray = application.SystemTray();
+    const huxerui::TaskScope appTasks = huxerui::UseApplicationTaskScope();
+
+    auto mainWindow = std::make_shared<MainWindowController>(
+        application, ControlCenterWindowOptions());
+    context.Provide(mainWindow);
 
     // 主窗口页面导航目标（桌宠信息卡「跳页 + 激活主窗」用）：与
-    // TrayActivationTarget 同一模式，主窗口组合期绑定 navPage。
+    // MainWindowController 同一模式，主窗口组合期绑定 navPage。
     context.Provide(std::make_shared<MainNavTarget>());
 
     // AI 桌宠控制器注册为应用级服务（桌宠窗口 / 设置页 / 托盘菜单共用）。
-    // 实际启动延迟到主窗口首组合之后，以便桌宠创建失败时可直接唤回控制中心。
     auto pet = std::make_shared<PetController>();
     pet->topmost = providerStore().config().petTopmost;
     pet->lightweight = providerStore().config().petLightweight;
@@ -1073,17 +1183,87 @@ void InstallApplication(huxerui::ApplicationContext& context) {
             mode == "dark" || (mode != "light" && cfg::systemPrefersDark());
     }
     context.Provide(pet);
-    application.SystemTray().OnActivate([activation, pet, application] {
+    auto trayPresentation = std::make_shared<TrayPresentationController>(
+        application, tray, mainWindow, pet);
+    context.Provide(trayPresentation);
+    const std::weak_ptr<TrayPresentationController> weakTrayPresentation =
+        trayPresentation;
+    pet->refreshTray = [weakTrayPresentation] {
+        if (const auto presentation = weakTrayPresentation.lock()) {
+            presentation->Refresh();
+        }
+    };
+
+    // 绑定生产路由上游。ApplicationHook 在无主窗口启动时仍会运行，且
+    // HuxerUI HttpClient/应用 TaskScope 在此已可用。
+    BindRouterUpstreamSession(huxerui::UseService<huxerui::HttpClient>(),
+                              appTasks);
+
+    tray.OnActivate([mainWindow, pet, application] {
         const auto& config = providerStore().config();
         if (config.firstRunSetupCompleted && config.startupMode == "pet") {
             try {
                 pet->Show(application);
-                return;
+                if (!application.SystemTray().IsAvailable() ||
+                    !config.trayEnabled) {
+                    mainWindow->Activate();
+                }
             } catch (const std::exception&) {
-                // 桌宠不可用时回到仍然挂载的控制中心窗口。
+                mainWindow->ShowMessage("桌宠启动失败，已打开控制中心。", true);
+            }
+        } else {
+            mainWindow->Activate();
+        }
+    });
+
+    // 二次启动唤回由应用级处理器承担，即使控制中心从未创建也可按启动模式
+    // 打开桌宠或按需创建控制中心。
+    single_instance::SetActivationHandler(
+        [appTasks, mainWindow, pet, application] {
+            appTasks.Post([mainWindow, pet, application] {
+                const auto& config = providerStore().config();
+                if (config.firstRunSetupCompleted &&
+                    config.startupMode == "pet") {
+                    try {
+                        pet->Show(application);
+                        if (!application.SystemTray().IsAvailable() ||
+                            !config.trayEnabled) {
+                            mainWindow->Activate();
+                        }
+                        return;
+                    } catch (const std::exception&) {
+                        // 失败时创建可见控制中心作为恢复入口。
+                        mainWindow->ShowMessage(
+                            "桌宠启动失败，已打开控制中心。", true);
+                        return;
+                    }
+                }
+                mainWindow->Activate();
+            });
+        });
+
+    appTasks.Post([mainWindow, pet, application, trayPresentation] {
+        const auto& config = providerStore().config();
+        const bool setupPending = !config.firstRunSetupCompleted;
+        const bool startupChoicePending = config.startupMode == "choose";
+        const bool controlCenterStartup =
+            config.startupMode == "control-center";
+
+        if (setupPending || startupChoicePending || controlCenterStartup) {
+            mainWindow->Activate();
+        } else {
+            try {
+                pet->Show(application);
+            } catch (const std::exception&) {
+                mainWindow->ShowMessage("桌宠启动失败，已打开控制中心。", true);
+                return;
+            }
+            if (!application.SystemTray().IsAvailable() ||
+                !config.trayEnabled) {
+                mainWindow->Activate();
             }
         }
-        activation->Activate();
+        trayPresentation->Refresh();
     });
 }
 
@@ -1096,32 +1276,12 @@ void InstallApplication(huxerui::ApplicationContext& context) {
     auto tasks = huxerui::UseTaskScope();
     const auto appTasks = huxerui::UseApplicationTaskScope();
     const auto pet = huxerui::UseService<PetController>();
+    const auto mainWindow = huxerui::UseService<MainWindowController>();
+    const auto trayPresentation =
+        huxerui::UseService<TrayPresentationController>();
     const auto& initialConfig = providerStore().config();
     const std::string startupModeValue = initialConfig.startupMode;
     const bool startupChoicePending = startupModeValue == "choose";
-    const bool startupSetupPending = !initialConfig.firstRunSetupCompleted;
-    const bool startWithPet = startupModeValue == "pet";
-
-    // A second Linux process forwards here; TaskScope::Post returns to the UI thread before activating the window.
-    huxerui::Lifecycle(
-        [window, tasks, application, pet] {
-            single_instance::SetActivationHandler([window, tasks, application, pet] {
-                tasks.Post([window, application, pet] {
-                    const auto& config = providerStore().config();
-                    if (config.firstRunSetupCompleted &&
-                        config.startupMode == "pet") {
-                        try {
-                            pet->Show(application);
-                            return;
-                        } catch (const std::exception&) {
-                            // 桌宠不可用时由单实例唤回控制中心。
-                        }
-                    }
-                    window.Activate();
-                });
-            });
-            return [] { single_instance::ClearActivationHandler(); };
-        });
 
     // 初始值在 UseState 之前算好（组合体内不写 State）：
     // 主题模式 0=跟随系统 1=深色 2=浅色；配置里的 themeMode 字符串映射。
@@ -1161,21 +1321,21 @@ void InstallApplication(huxerui::ApplicationContext& context) {
     // 让新页面从中心缩放+淡入展开（见 RadialNavigationOverlay 的点击时序）。
     auto pageReveal = huxerui::UseState(true);
 
-    // 桌宠优先启动：托盘可用时让控制中心保持挂载但隐藏；没有托盘时控制中心
-    // 保持可见作为恢复入口。桌宠开窗放到应用任务队列，避免在组合期间创建窗口。
-    huxerui::Lifecycle([window, trayAvailable, trayEnabled, pet, application,
-                        appTasks, toast, startWithPet,
-                        startupSetupPending] {
-        if (!startWithPet || startupSetupPending) return;
-        if (trayAvailable && trayEnabled.Get()) window.Hide();
-        appTasks.Post([window, pet, application, toast] {
-            try {
-                pet->Show(application);
-            } catch (const std::exception& e) {
-                window.Show();
-                toast.Show(std::format("桌宠启动失败，已打开控制中心：{}", e.what()));
-            }
-        });
+    // 主窗口按需创建；打开后把当前附件与应用级控制器绑定，退役时安全解绑。
+    huxerui::Lifecycle([mainWindow, window, toast] {
+        const std::uint64_t generation = mainWindow->Bind(window, toast);
+        if (const auto message = mainWindow->TakePendingMessage()) {
+            toast.Show(*message);
+        }
+        return [mainWindow, generation] { mainWindow->Unbind(generation); };
+    });
+
+    huxerui::Lifecycle([trayPresentation, revision, startupMode] {
+        const std::uint64_t generation =
+            trayPresentation->BindUiState(revision, startupMode);
+        return [trayPresentation, generation] {
+            trayPresentation->UnbindUiState(generation);
+        };
     });
 
     // 托盘宿主消失时恢复窗口，避免已经隐藏的窗口失去可见入口。
@@ -1185,34 +1345,10 @@ void InstallApplication(huxerui::ApplicationContext& context) {
         },
         trayAvailable, trayEnabled);
 
-    // 路由上游会话绑定（首组合）：生产桥接 = HuxerUI 平台 HttpClient。UseService/
-    // UseTaskScope 在组合体内求值；本调用早于下方自启与一切托盘/页面/事件
-    // 调用点——routerInstance() 单例也在此首次构造。
-    BindRouterUpstreamSession(huxerui::UseService<huxerui::HttpClient>(),
-                              huxerui::UseTaskScope());
-
-    // 路由自动启动（任务G）：首组合一次。config().routerEnabled 且路由器未运行
-    // 时按 config().routerPort 启动；start 失败抛 std::runtime_error，toast 提示。
-    huxerui::Lifecycle(
-        [toast] {
-            const auto& config = providerStore().config();
-            if (config.firstRunSetupCompleted && config.launchAtLogin) {
-                try {
-                    SetLaunchAtLogin(true);
-                } catch (const std::exception& e) {
-                    toast.Show(std::format("登录启动项更新失败：{}", e.what()));
-                }
-            }
-            if (config.routerEnabled && !routerInstance().running()) {
-                try {
-                    routerInstance().start(config.routerPort);
-                } catch (const std::exception& e) {
-                    toast.Show(e.what());
-                }
-            }
-            return [] {};
-        },
-        0);
+    huxerui::Lifecycle([toast] {
+        EnsureRuntimeServices(toast);
+        return [] {};
+    }, 0);
 
     const bool dark =
         themeMode.Get() == 1 || (themeMode.Get() == 0 && cfg::systemPrefersDark());
@@ -1360,7 +1496,8 @@ void InstallApplication(huxerui::ApplicationContext& context) {
             });
 
             window.OnCloseRequest(
-                [tray, trayEnabled, window, showCloseConfirmation, tasks] {
+                [application, tray, trayEnabled, window,
+                 showCloseConfirmation, tasks] {
                 const std::string& behavior = providerStore().config().closeBehavior;
                 if (behavior == "tray") {
                     // 托盘不可用时不能返回 false，否则原生关闭路径会直接退出
@@ -1372,7 +1509,10 @@ void InstallApplication(huxerui::ApplicationContext& context) {
                     tasks.Post([window] { window.Hide(); });
                     return true;
                 }
-                if (behavior == "quit") return false;
+                if (behavior == "quit") {
+                    application.Quit();
+                    return true;
+                }
 
                 showCloseConfirmation();
                 return true;
@@ -1383,7 +1523,7 @@ void InstallApplication(huxerui::ApplicationContext& context) {
         });
 
     huxerui::View filledContent = huxerui::Column {
-        SystemTrayPresentation(application, tray, window, toast, revision,
+        SystemTrayPresentation(trayPresentation, trayAvailable, revision,
                                startupMode, setupCompleted, trayEnabled),
         windowBehavior,
         std::move(content).With(huxerui::Grow(1.0F)),

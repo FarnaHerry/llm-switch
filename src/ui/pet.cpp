@@ -17,6 +17,7 @@
 #include <format>
 #include <memory>
 #include <numbers>
+#include <stdexcept>
 #include <utility>
 #include <vector>
 
@@ -426,8 +427,13 @@ void PetController::Show(const huxerui::ApplicationHandle& application) {
             topmost = false;
         }
     }
+    if (!pet->Capabilities().transparent_surface) {
+        Retire();
+        throw std::runtime_error("当前平台不支持透明桌宠窗口");
+    }
     pet->Show();
     epoch = epoch.Get() + 1;
+    if (refreshTray) refreshTray();
 }
 
 void PetController::Retire() {
@@ -442,6 +448,7 @@ void PetController::Retire() {
     if (pet) pet->Retire();
     pet.reset();
     epoch = epoch.Get() + 1;
+    if (refreshTray) refreshTray();
 }
 
 void PetController::Hide(bool trayAvailable) {
@@ -556,9 +563,17 @@ huxerui::View PetContent() {
     const auto application = huxerui::UseApplication();
     const auto window = huxerui::UseWindow();
     const auto controller = huxerui::UseService<PetController>();
-    const auto activation = huxerui::UseService<TrayActivationTarget>();
+    const auto activation = huxerui::UseService<MainWindowController>();
+    const auto trayPresentation =
+        huxerui::UseService<TrayPresentationController>();
     const auto tasks = huxerui::UseTaskScope();
+    const auto toast = huxerui::UseToast();
     UsePetAttachment(controller);
+
+    huxerui::Lifecycle([toast] {
+        EnsureRuntimeServices(toast);
+        return [] {};
+    }, 0);
 
     // 统计轮询：桌宠窗口生命周期内每秒一次；窗口退役时挂起的 Delay 随
     // TaskScope 取消，循环自然终止（Delay 续体回到 UI 线程）。
@@ -583,6 +598,15 @@ huxerui::View PetContent() {
     huxerui::Lifecycle([window, trayAvailable] {
         if (!trayAvailable) window.Show();
     }, trayAvailable);
+    huxerui::Lifecycle(
+        [trayPresentation, activation, appTasks, trayAvailable] {
+            trayPresentation->Refresh();
+            if (!trayAvailable) {
+                appTasks.Post([activation] { activation->Activate(); });
+            }
+            return [] {};
+        },
+        trayAvailable);
     window.OnCloseRequest(
         [controller, appTasks, trayAvailable] {
             // 关闭桌宠 = 收起（应用与托盘继续运行）；无托盘时退役，设置页
@@ -779,7 +803,7 @@ huxerui::View CardAgentRow(const PetAgentRow& row, const std::string& providerNa
 [[huxerui::composable]]
 huxerui::View PetCardContent() {
     const auto controller = huxerui::UseService<PetController>();
-    const auto activation = huxerui::UseService<TrayActivationTarget>();
+    const auto activation = huxerui::UseService<MainWindowController>();
     const auto nav = huxerui::UseService<MainNavTarget>();
     const huxerui::ApplicationHandle application = huxerui::UseApplication();
     const auto window = huxerui::UseWindow();

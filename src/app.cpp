@@ -8,13 +8,9 @@
 const huxerui::Application application{
     llmswitch::ui::AppRoot,
     huxerui::AppOptions{
-        .window = {
-            .title = "llm-switch",
-            .initial_size = {1080.0F, 720.0F},
-            .minimum_size = huxerui::Size{800.0F, 600.0F},
-            .chrome_mode = huxerui::WindowChromeMode::Custom,
-            .title_bar_height = 24.0F,
-        },
+        .window = llmswitch::ui::ControlCenterWindowOptions(),
+        // 桌宠优先启动不创建管理窗口；ApplicationHook 根据启动模式按需打开。
+        .create_initial_window = false,
         // 应用级安装：托盘激活处理器等 Runtime 生命周期的一次性注册走这里
         // （见 llmswitch::ui::InstallApplication）。
         .application_hooks = {llmswitch::ui::InstallApplication},

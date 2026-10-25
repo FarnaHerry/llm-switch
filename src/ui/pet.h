@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -104,6 +105,9 @@ struct PetController {
     huxerui::State<bool> live2d{false};
     // 系统托盘显示偏好；关闭时不能隐藏最后一个可恢复入口。
     huxerui::State<bool> trayEnabled{true};
+    // Tray presentation is application-owned; pet window creation/retirement
+    // refreshes its menu even when the control center has never been opened.
+    std::function<void()> refreshTray;
     // 窗口存活性代次：Show/Retire 自增，托盘菜单以它为依赖跟随重建勾选态
     // （轻量级模式下隐藏即退役，托盘勾选必须随之消失）。
     huxerui::State<std::uint64_t> epoch{0};

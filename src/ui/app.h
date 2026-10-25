@@ -4,45 +4,103 @@
 #include <huxerui/huxerui.h>
 
 #include <cstddef>
+#include <cstdint>
+#include <memory>
 #include <optional>
+#include <string>
+#include <utility>
 
 namespace llmswitch::ui {
+
+struct PetController;
+
+// 统一的控制中心窗口配置；既用于 Application 默认值，也用于按需重建。
+huxerui::WindowOptions ControlCenterWindowOptions();
 
 // 应用根：当前为占位（一行文字），后续迭代替换为标题栏 + 侧边导航 + 页面切换。
 // 由 src/app.cpp 注册到 Application。
 huxerui::View AppRoot();
 
-// 托盘激活目标：SystemTrayHandle::OnActivate 是 Runtime 生命周期的一次性注册
-// （重复注册抛 std::logic_error），必须在 ApplicationHook 里装；但激活要落到
-// 具体窗口，而注册时还没有组合、拿不到 WindowHandle。这个应用级服务补上中间
-// 一层——组合期绑定当前窗口、卸载时解绑，托盘回调只读它。
-// 注册、绑定、回调都在应用线程，无需加锁。
-class TrayActivationTarget final {
+// 按需创建并激活控制中心，同时让应用级入口跟踪当前挂载的窗口。
+class MainWindowController final {
 public:
-    void Bind(huxerui::WindowHandle window) { window_ = std::move(window); }
-    void Unbind() noexcept { window_.reset(); }
-    void Activate() const;
+    MainWindowController(huxerui::ApplicationHandle application,
+                         huxerui::WindowOptions options)
+        : application_(std::move(application)), options_(std::move(options)) {}
+
+    std::uint64_t Bind(huxerui::WindowHandle window,
+                       huxerui::ToastHandle toast);
+    void Unbind(std::uint64_t generation) noexcept;
+    void Activate();
+    void Hide() const;
+    void ShowMessage(std::string message, bool openIfNeeded = false);
+    [[nodiscard]] std::optional<std::string> TakePendingMessage();
+    [[nodiscard]] bool IsOpen() const noexcept { return window_.has_value(); }
 
 private:
+    huxerui::ApplicationHandle application_;
+    huxerui::WindowOptions options_;
     std::optional<huxerui::WindowHandle> window_;
+    std::optional<huxerui::ToastHandle> toast_;
+    std::optional<std::string> pendingMessage_;
+    std::uint64_t generation_ = 0;
+};
+
+// 托盘是应用级呈现，不能随着控制中心窗口退役而消失。状态页挂载时只把
+// revision/startupMode 绑定进来，用于菜单操作后通知现存页面更新。
+class TrayPresentationController final
+    : public std::enable_shared_from_this<TrayPresentationController> {
+public:
+    TrayPresentationController(
+        huxerui::ApplicationHandle application, huxerui::SystemTrayHandle tray,
+        std::shared_ptr<MainWindowController> mainWindow,
+        std::shared_ptr<PetController> pet)
+        : application_(std::move(application)), tray_(std::move(tray)),
+          mainWindow_(std::move(mainWindow)), pet_(std::move(pet)) {}
+
+    std::uint64_t BindUiState(huxerui::State<int> revision,
+                              huxerui::State<std::size_t> startupMode);
+    void UnbindUiState(std::uint64_t generation) noexcept;
+    void NotifyConfigurationChanged(
+        std::optional<std::size_t> startupMode = std::nullopt);
+    void Refresh();
+
+private:
+    huxerui::ApplicationHandle application_;
+    huxerui::SystemTrayHandle tray_;
+    std::shared_ptr<MainWindowController> mainWindow_;
+    std::shared_ptr<PetController> pet_;
+    std::optional<huxerui::State<int>> revision_;
+    std::optional<huxerui::State<std::size_t>> startupMode_;
+    std::uint64_t uiStateGeneration_ = 0;
 };
 
 // 主窗口页面导航目标：AppContent 持有 navPage State（组合期局部），而
 // 桌宠信息卡等窗口外入口需要「跳到某页面并激活主窗口」。与
-// TrayActivationTarget 同一模式：ApplicationHook 里 Provide 一次，主窗口
-// Lifecycle 里绑定/解绑，外部只读调用。注册、绑定、调用都在应用线程。
+// ApplicationHook 里 Provide 一次，主窗口 Lifecycle 里绑定/解绑。
 class MainNavTarget final {
 public:
-    void Bind(huxerui::State<std::size_t> page) { page_ = std::move(page); }
+    void Bind(huxerui::State<std::size_t> page) {
+        page_ = std::move(page);
+        if (pendingPage_) {
+            *page_ = *pendingPage_;
+            pendingPage_.reset();
+        }
+    }
     void Unbind() noexcept { page_ = {}; }
-    // 写入页面下标（pages::kXxx）；未绑定（主窗口未组合）时为 no-op。
+    // 写入页面下标（pages::kXxx）；主窗口未打开时暂存到首次组合。
     void RequestPage(std::size_t index) const {
         if (page_.has_value()) *page_ = index;
+        else pendingPage_ = index;
     }
 
 private:
     std::optional<huxerui::State<std::size_t>> page_;
+    mutable std::optional<std::size_t> pendingPage_;
 };
+
+// 在控制中心或桌宠首次挂载时同步登录启动项并自启 LocalRouter。
+void EnsureRuntimeServices(huxerui::ToastHandle toast);
 
 // ApplicationHook：每个 Runtime 调用一次，注册应用级托盘激活处理器。
 // 由 src/app.cpp 的 AppOptions::application_hooks 装配。
