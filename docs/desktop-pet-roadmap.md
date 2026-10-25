@@ -69,7 +69,7 @@ Agent 的活动并快速回到日常工作；主窗口成为它背后的**多 Ag
 - 原生 Agent 来源：优先接入各工具官方 hooks / plugin / extension 生命周期事件，
   从 Claude Code 与 Codex 开始；只有官方事件覆盖不足且隐私边界通过验证后，才评估
   本地日志的元数据回退。接入评估、八个工具的公开接口和安装边界见
-  [原生 Agent 活动接入调研](agent-activity-integration-research.md)。hook 输入只
+  [原生 Agent 活动接入调研](agents/activity-integration-research.md)。hook 输入只
   提取状态所需字段，不把 prompt、回复、命令、工具参数/结果或 transcript 路径写入
   桌宠事件流。
 - 设置中逐项说明来源、读取路径与可关闭方式。来源未启用或不可用时显示“未接入 /
@@ -99,9 +99,11 @@ Agent 的活动并快速回到日常工作；主窗口成为它背后的**多 Ag
    - [x] 在托盘不可用、桌宠创建失败和不支持透明窗口的平台保留可见控制中心。
 
 2. **证明桌宠能看到真实工作**
-   - [ ] 按[原生 Agent 活动接入调研](agent-activity-integration-research.md)定义的
-     事件边界，先对 Claude Code 与 Codex 做 hooks 来源 spike；在本地路由关闭时，
-     各跑一次真实任务，验证能观察开始、持续、结束与失败。
+   - [x] 按调研定义的边界建立独立 `src/agents/` 接入层：统一内存事件契约、多
+     session 聚合、过期转未知，以及 Claude Code / Codex 的白名单 hook 适配器。
+     接入层不提取、不保留或保存 prompt、工具内容和 transcript 路径。
+   - [ ] 为 Claude Code 与 Codex 做受控本机 hooks spike；关闭本地路由，各跑一次
+     真实任务，验证能观察开始、持续、结束与失败。
    - [ ] 将来源事件合并到轻量 `PetActivitySnapshot`；区分“没有活动”和“没有数据”，
      并覆盖多个 Agent 同时活动、进程退出、日志轮换和旧事件。
    - [ ] 给每个来源加独立设置和状态说明；只保留状态所需的元数据。
@@ -185,7 +187,11 @@ Agent 的活动并快速回到日常工作；主窗口成为它背后的**多 Ag
   ZCode 的公开本地生命周期接口及多个 GitHub 桌宠项目；确定 hooks/plugin/extension
   优先、逐工具显式连接、事件白名单和不采集会话正文。该调研更新了接入决策，不代表
   原生 Agent 活动来源已实现；细节与来源链接见
-  [原生 Agent 活动接入调研](agent-activity-integration-research.md)。
+  [原生 Agent 活动接入调研](agents/activity-integration-research.md)。
+- 2026-10-25：建立 `src/agents/` 独立模块目录，加入统一活动事件、来源健康状态、
+  多 session 内存聚合与 Claude Code / Codex hooks 白名单解析。领域测试覆盖并发
+  session、等待/完成/失败/中断、乱序与过期状态及超大输入拒绝；真实 hook 安装、
+  接收传输和桌宠 UI 汇总尚未接入。
 - 2026-10-24：桌宠控制器接入 `LocalRouter::inflight()`，加入在途计数、请求批次、
   完成提醒、失败提示与活跃 Agent 浮标；`test_router` 覆盖成功、失败和停止路径。
 - 2026-10-24：胶囊模式、owner 锚定信息卡、按 Agent 今日请求/token/失败数与当前

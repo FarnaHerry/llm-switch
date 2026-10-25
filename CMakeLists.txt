@@ -236,6 +236,7 @@ set(HUXERUI_LIBRARY_GRAPH_OUTPUT
 )
 
 # 领域层 C++23 模块清单（.cppm 接口；对应 .cpp 实现单元已随 glob 进 SOURCES）。
+# 原生 Agent 接入集中在 src/agents/；每个 adapter 有自己的模块接口与实现文件。
 # 测试目标需要 import 领域模块时复用同一份清单（见下方 test_store）。
 set(LLMSWITCH_MODULE_UNITS
     src/config.cppm
@@ -247,6 +248,15 @@ set(LLMSWITCH_MODULE_UNITS
     src/skills.cppm
     src/sessions.cppm
     src/usage.cppm
+)
+
+# Agent activity is kept in its own module list so unrelated domain tests do not
+# need to compile adapter interfaces; app and Agent tests include it explicitly.
+set(LLMSWITCH_AGENT_MODULE_UNITS
+    src/agents/activity.cppm
+    src/agents/adapters/hook_input.cppm
+    src/agents/adapters/claude_code.cppm
+    src/agents/adapters/codex.cppm
 )
 
 # 24×24 界面图标必须是单套无色 alpha-mask 水墨资源。深浅与交互状态全部由
@@ -367,7 +377,7 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
     # 领域层 C++23 模块（.cppm 接口；对应 .cpp 实现单元已随 glob 进 SOURCES）
     target_sources(llm-switch PRIVATE FILE_SET llmswitch_modules TYPE CXX_MODULES
         BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
-        FILES ${LLMSWITCH_MODULE_UNITS})
+        FILES ${LLMSWITCH_MODULE_UNITS} ${LLMSWITCH_AGENT_MODULE_UNITS})
     set_target_properties(llm-switch PROPERTIES CXX_MODULE_STD ON)
     # 显式打开全源扫描：模块实现单元（普通 .cpp 里的 module llmswitch.*;）必须经
     # 扫描拿到 -fmodules-ts。SDK 模式下 CMP0155 默认行为恰好扫描全部源，源码
@@ -629,6 +639,21 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
         target_link_libraries(test_usage PRIVATE llmswitch_json Threads::Threads)
         add_test(NAME usage COMMAND test_usage)
 
+        # 原生 Agent 活动接入：统一内存事件契约 + 各 Agent 独立 hook 适配器。
+        # 适配器只解析事件名与 session_id，不落原始 hook 输入。
+        add_executable(test_agents tests/test_agents.cpp
+            src/agents/activity.cpp
+            src/agents/adapters/hook_input.cpp
+            src/agents/adapters/claude_code.cpp
+            src/agents/adapters/codex.cpp)
+        target_sources(test_agents PRIVATE FILE_SET llmswitch_modules TYPE CXX_MODULES
+            BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+            FILES ${LLMSWITCH_AGENT_MODULE_UNITS})
+        set_target_properties(test_agents PROPERTIES CXX_MODULE_STD ON CXX_SCAN_FOR_MODULES ON)
+        target_compile_features(test_agents PRIVATE cxx_std_23)
+        target_link_libraries(test_agents PRIVATE llmswitch_json Threads::Threads)
+        add_test(NAME agents COMMAND test_agents)
+
 
         if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
             add_executable(test_single_instance tests/test_single_instance.cpp
@@ -663,7 +688,7 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
             target_sources(ui_perf_probe PRIVATE FILE_SET llmswitch_modules
                 TYPE CXX_MODULES
                 BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
-                FILES ${LLMSWITCH_MODULE_UNITS})
+                FILES ${LLMSWITCH_MODULE_UNITS} ${LLMSWITCH_AGENT_MODULE_UNITS})
             set_target_properties(ui_perf_probe PROPERTIES
                 CXX_MODULE_STD ON CXX_SCAN_FOR_MODULES ON)
             target_compile_features(ui_perf_probe PRIVATE cxx_std_23)
