@@ -181,6 +181,35 @@ void testObservedIdleIsDistinctFromUnknown() {
     CHECK(idle.sources[0].state == agents::ActivityState::idle);
 }
 
+void testRecentOutcomesSurviveConcurrentSessions() {
+    agents::ActivityTracker tracker;
+    tracker.SetSourceHealth("claude-code", agents::SourceHealth::awaitingEvent);
+    CHECK(tracker.Apply(agents::ActivityEvent{
+        "claude-code", "active-session", agents::ActivityState::working, 1000}));
+    CHECK(tracker.Apply(agents::ActivityEvent{
+        "claude-code", "finished-session", agents::ActivityState::completed, 1500}));
+    CHECK(tracker.Apply(agents::ActivityEvent{
+        "claude-code", "failed-session", agents::ActivityState::failed, 1550}));
+
+    const auto snapshot = tracker.SnapshotAt(1600);
+    CHECK(snapshot.state == agents::ActivityState::failed);
+    CHECK(snapshot.recentOutcomes.size() == 2);
+    if (snapshot.recentOutcomes.size() == 2) {
+        CHECK(snapshot.recentOutcomes.front().tool == "claude-code");
+        CHECK(snapshot.recentOutcomes.front().state == agents::ActivityState::failed);
+        CHECK(snapshot.recentOutcomes.front().occurredAtMillis == 1550);
+        CHECK(snapshot.recentOutcomes.back().state == agents::ActivityState::completed);
+        CHECK(snapshot.recentOutcomes.back().occurredAtMillis == 1500);
+    }
+
+    const auto expired = tracker.SnapshotAt(24 * 60 * 60 * 1000 + 1501);
+    CHECK(expired.recentOutcomes.size() == 1);
+    if (!expired.recentOutcomes.empty()) {
+        CHECK(expired.recentOutcomes.front().state == agents::ActivityState::failed);
+        CHECK(expired.recentOutcomes.front().occurredAtMillis == 1550);
+    }
+}
+
 void writeFile(const std::filesystem::path& path, std::string_view text) {
     std::error_code ec;
     std::filesystem::create_directories(path.parent_path(), ec);
@@ -289,6 +318,7 @@ int main() {
     testTrackerAggregationAndUnknown();
     testTrackerStaleSessionBecomesUnknown();
     testObservedIdleIsDistinctFromUnknown();
+    testRecentOutcomesSurviveConcurrentSessions();
     testHookConfigInstallIsIncremental();
     testBridgeLoopbackRoundTrip();
 

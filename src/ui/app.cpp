@@ -1242,6 +1242,28 @@ void InstallApplication(huxerui::ApplicationContext& context) {
             }
             result.sources.push_back(std::move(row));
         }
+        result.recentOutcomes.reserve(snapshot.recentOutcomes.size());
+        for (const auto& outcome : snapshot.recentOutcomes) {
+            PetNativeState state = PetNativeState::unknown;
+            switch (outcome.state) {
+                case ::agents::ActivityState::completed:
+                    state = PetNativeState::completed;
+                    break;
+                case ::agents::ActivityState::failed:
+                    state = PetNativeState::failed;
+                    break;
+                case ::agents::ActivityState::cancelled:
+                    state = PetNativeState::cancelled;
+                    break;
+                default:
+                    continue;
+            }
+            result.recentOutcomes.push_back(PetNativeOutcomeSnapshot{
+                .tool = outcome.tool,
+                .state = state,
+                .occurredAtMillis = outcome.occurredAtMillis,
+            });
+        }
         return result;
     };
     pet->topmost = providerStore().config().petTopmost;

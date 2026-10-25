@@ -62,10 +62,26 @@ struct PetAgentRow {
     bool operator==(const PetAgentRow&) const = default;
 };
 
-// 信息卡快照：今日总数 + 按 tool 的今日聚合（注册表序）。
+enum class PetRecentOutcome { completed, failed, cancelled };
+
+// 信息卡最近结果只保留状态、来源、供应商与可用 token 元数据，不含请求正文。
+struct PetRecentResult {
+    std::string tool;
+    std::string providerName;
+    std::string sourceLabel;
+    PetRecentOutcome outcome = PetRecentOutcome::completed;
+    std::int64_t timestampMillis = 0;
+    int statusCode = 0;  // 路由失败状态；0 表示连接失败，原生事件不适用。
+    std::int64_t promptTokens = -1;
+    std::int64_t completionTokens = -1;
+    bool operator==(const PetRecentResult&) const = default;
+};
+
+// 信息卡快照：今日总数、按 tool 的今日聚合（注册表序）和最近结果。
 struct PetCardSnapshot {
     std::int64_t todayRequests = 0;
     std::vector<PetAgentRow> rows;
+    std::vector<PetRecentResult> recentResults;
     bool operator==(const PetCardSnapshot&) const = default;
 };
 
@@ -79,9 +95,16 @@ struct PetNativeSourceSnapshot {
     bool unknown = true;
 };
 
+struct PetNativeOutcomeSnapshot {
+    std::string tool;
+    PetNativeState state = PetNativeState::unknown;
+    std::int64_t occurredAtMillis = 0;
+};
+
 struct PetNativeActivitySnapshot {
     std::vector<std::string> activeTools;
     std::vector<PetNativeSourceSnapshot> sources;
+    std::vector<PetNativeOutcomeSnapshot> recentOutcomes;
 };
 
 // 桌宠控制器：持有桌宠窗口句柄与 AI 活动状态。线程约定同框架示例——

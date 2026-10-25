@@ -347,6 +347,17 @@ std::int64_t localMidnightMillis() {
     return static_cast<std::int64_t>(std::mktime(&tm)) * 1000;
 }
 
+std::string FormatPetTime(std::int64_t timestampMillis) {
+    const std::time_t timestamp = static_cast<std::time_t>(timestampMillis / 1000);
+    std::tm tm{};
+#ifdef _WIN32
+    ::localtime_s(&tm, &timestamp);
+#else
+    ::localtime_r(&timestamp, &tm);
+#endif
+    return std::format("{:02}:{:02}", tm.tm_hour, tm.tm_min);
+}
+
 void PetController::Poll() {
     auto& router = routerInstance();
     const std::int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -368,7 +379,10 @@ void PetController::Poll() {
     bool nativeFailure = false;
     bool newNativeCompletion = false;
     for (const auto& source : native.sources) {
-        if (!source.enabled) continue;
+        if (!source.enabled) {
+            lastNativeOutcomeMillis.erase(source.tool);
+            continue;
+        }
         nativeUncertain = nativeUncertain || source.unknown;
         nativeObserved = nativeObserved ||
             !source.unknown;
@@ -378,15 +392,13 @@ void PetController::Poll() {
         next_waiting = next_waiting ||
             source.state == PetNativeState::waiting;
         nativeFailure = nativeFailure || source.state == PetNativeState::failed;
-
-        if (source.lastEventMillis <= lastNativeOutcomeMillis[source.tool]) continue;
-        if (source.state == PetNativeState::completed ||
-            source.state == PetNativeState::failed ||
-            source.state == PetNativeState::cancelled) {
-            lastNativeOutcomeMillis[source.tool] = source.lastEventMillis;
-            newNativeCompletion = newNativeCompletion ||
-                source.state == PetNativeState::completed;
-        }
+    }
+    for (const auto& outcome : native.recentOutcomes) {
+        std::int64_t& lastSeen = lastNativeOutcomeMillis[outcome.tool];
+        if (outcome.occurredAtMillis <= lastSeen) continue;
+        lastSeen = outcome.occurredAtMillis;
+        newNativeCompletion = newNativeCompletion ||
+            outcome.state == PetNativeState::completed;
     }
 
     // 首个 Poll 只对齐水位：启动时的历史日志不算新活动（否则一开桌宠就
@@ -513,6 +525,60 @@ void PetController::Poll() {
             if (log.promptTokens >= 0) it->promptTokens += log.promptTokens;
             if (log.completionTokens >= 0) it->completionTokens += log.completionTokens;
             if (log.status == 0 || log.status >= 400) ++it->errors;
+        }
+
+        // 最近结果：路由记录提供供应商与可用 token；原生 hook 只保留终态、Agent
+        // 和时间。相同 Agent、相同结果且时间相差不超过 3 秒时合并为一条，避免
+        // 同一任务同时经过 hooks 与 LocalRouter 时重复显示。
+        for (const auto& log : logs) {
+            PetRecentResult result{
+                .tool = log.tool,
+                .providerName = log.providerName.empty() ? log.providerId
+                                                         : log.providerName,
+                .sourceLabel = "本地路由",
+                .outcome = log.status == 0 || log.status >= 400
+                    ? PetRecentOutcome::failed : PetRecentOutcome::completed,
+                .timestampMillis = log.tsMillis,
+                .statusCode = log.status,
+                .promptTokens = log.promptTokens,
+                .completionTokens = log.completionTokens,
+            };
+            next_snapshot.recentResults.push_back(std::move(result));
+        }
+        for (const auto& outcome : native.recentOutcomes) {
+            PetRecentOutcome resultOutcome = PetRecentOutcome::completed;
+            if (outcome.state == PetNativeState::failed) {
+                resultOutcome = PetRecentOutcome::failed;
+            } else if (outcome.state == PetNativeState::cancelled) {
+                resultOutcome = PetRecentOutcome::cancelled;
+            } else if (outcome.state != PetNativeState::completed) {
+                continue;
+            }
+            PetRecentResult result{
+                .tool = outcome.tool,
+                .sourceLabel = "原生 hook",
+                .outcome = resultOutcome,
+                .timestampMillis = outcome.occurredAtMillis,
+            };
+            const bool alreadyListed = std::any_of(
+                next_snapshot.recentResults.begin(), next_snapshot.recentResults.end(),
+                [&result](const PetRecentResult& routed) {
+                    if (routed.tool != result.tool || routed.outcome != result.outcome) {
+                        return false;
+                    }
+                    const std::int64_t delta = routed.timestampMillis >= result.timestampMillis
+                        ? routed.timestampMillis - result.timestampMillis
+                        : result.timestampMillis - routed.timestampMillis;
+                    return delta <= 3000;
+                });
+            if (!alreadyListed) next_snapshot.recentResults.push_back(std::move(result));
+        }
+        std::sort(next_snapshot.recentResults.begin(), next_snapshot.recentResults.end(),
+                  [](const PetRecentResult& left, const PetRecentResult& right) {
+                      return left.timestampMillis > right.timestampMillis;
+                  });
+        if (next_snapshot.recentResults.size() > 5) {
+            next_snapshot.recentResults.resize(5);
         }
         if (cardSnapshot.Get() != next_snapshot) cardSnapshot = next_snapshot;
     }
@@ -899,6 +965,57 @@ huxerui::View CardAgentRow(const PetAgentRow& row, const std::string& providerNa
            huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
 }
 
+huxerui::View CardRecentResultRow(const PetRecentResult& result, Color onSurface,
+                                  Color onSurfaceVariant, Color error) {
+    std::string outcome;
+    Color outcomeColor = onSurface;
+    switch (result.outcome) {
+        case PetRecentOutcome::completed:
+            outcome = "已完成";
+            break;
+        case PetRecentOutcome::failed:
+            outcome = result.sourceLabel == "本地路由"
+                ? (result.statusCode == 0 ? "连接失败"
+                                          : std::format("HTTP {} 失败", result.statusCode))
+                : "刚失败";
+            outcomeColor = error;
+            break;
+        case PetRecentOutcome::cancelled:
+            outcome = "已中断";
+            break;
+    }
+
+    const std::string provider = result.providerName.empty()
+        ? "供应商未知" : result.providerName;
+    std::string meta = std::format("{} · {} · {}", FormatPetTime(result.timestampMillis),
+                                   result.sourceLabel, provider);
+    if (result.promptTokens >= 0 || result.completionTokens >= 0) {
+        const std::string prompt = result.promptTokens >= 0
+            ? std::to_string(result.promptTokens) : "—";
+        const std::string completion = result.completionTokens >= 0
+            ? std::to_string(result.completionTokens) : "—";
+        meta += std::format(" · ↑{} ↓{} tok", prompt, completion);
+    }
+
+    return huxerui::Row {
+        huxerui::Image(ToolIcon(result.tool))
+            .Tint(result.outcome == PetRecentOutcome::failed ? error : onSurfaceVariant)
+            .With(huxerui::Frame{.width = 16.0F, .height = 16.0F}),
+        huxerui::Column {
+            huxerui::Text(std::format("{} · {}", ToolName(result.tool), outcome))
+                .Style(huxerui::TextStyle{
+                    huxerui::Font::System(font_size::kBody), outcomeColor}),
+            huxerui::Text(meta)
+                .Style(huxerui::TextStyle{
+                    huxerui::Font::System(font_size::kChip), onSurfaceVariant}),
+        }.With(huxerui::Spacing(2.0F),
+               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Start),
+               huxerui::Grow(1.0F)),
+    }.With(huxerui::Spacing(10.0F),
+           huxerui::Padding(huxerui::EdgeInsets::Symmetric(4.0F, 8.0F)),
+           huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
+}
+
 } // namespace
 
 [[huxerui::composable]]
@@ -952,6 +1069,21 @@ huxerui::View PetCardContent() {
                                activation->Activate();
                            }));
     }
+    std::vector<huxerui::View> recentRows;
+    recentRows.reserve(snapshot.recentResults.size());
+    for (const auto& result : snapshot.recentResults) {
+        recentRows.push_back(CardRecentResultRow(
+            result, onSurface, onSurfaceVariant, spec.colors.error));
+    }
+    huxerui::View recentResultsContent = huxerui::Text(
+        "当前没有可展示的完成或失败事件。")
+        .Style(huxerui::TextStyle{
+            huxerui::Font::System(font_size::kChip), onSurfaceVariant});
+    if (!snapshot.recentResults.empty()) {
+        recentResultsContent = huxerui::Column{std::move(recentRows)}
+            .With(huxerui::Spacing(4.0F),
+                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
+    }
 
     // 自定义标题栏与主应用同款：莲花 + 应用名 + 拖拽区/关闭按钮（框架按
     // 平台解析的 24pt 高度渲染 caption 控件）；左右边距与正文同为 24，
@@ -996,6 +1128,12 @@ huxerui::View PetCardContent() {
                 huxerui::Column{std::move(rows)}
                     .With(huxerui::Spacing(4.0F),
                           huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)),
+                huxerui::Text("最近结果")
+                    .Style(huxerui::TextStyle{
+                        huxerui::Font::System(font_size::kBody)
+                            .WithWeight(huxerui::FontWeight::Bold),
+                        onSurface}),
+                std::move(recentResultsContent),
                 huxerui::Row {
                     huxerui::Button("Agent 管理")
                         .With(huxerui::Frame{.min_width = 60.0F})

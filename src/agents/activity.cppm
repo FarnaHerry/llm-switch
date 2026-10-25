@@ -47,11 +47,20 @@ export struct AgentActivitySnapshot {
     bool operator==(const AgentActivitySnapshot&) const = default;
 };
 
+// 最近终态仅暴露 Agent、结果和时间；session key 继续留在聚合器内部。
+export struct RecentActivityOutcome {
+    std::string tool;
+    ActivityState state = ActivityState::unknown;
+    std::int64_t occurredAtMillis = 0;
+    bool operator==(const RecentActivityOutcome&) const = default;
+};
+
 export struct ActivitySnapshot {
     ActivityState state = ActivityState::unknown;
     bool unknown = true;  // true 表示至少有一个启用来源未知，或没有启用来源
     std::vector<std::string> activeTools;
     std::vector<AgentActivitySnapshot> sources;
+    std::vector<RecentActivityOutcome> recentOutcomes;
     bool operator==(const ActivitySnapshot&) const = default;
 };
 

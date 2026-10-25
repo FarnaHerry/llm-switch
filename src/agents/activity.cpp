@@ -8,9 +8,11 @@ namespace {
 
 constexpr std::int64_t kActiveFreshMillis = 5 * 60 * 1000;
 constexpr std::int64_t kOutcomeFreshMillis = 8 * 1000;
+constexpr std::int64_t kOutcomeHistoryMillis = 24 * 60 * 60 * 1000;
 constexpr std::int64_t kIdleFreshMillis = 60 * 1000;
 constexpr std::size_t kMaxToolIdBytes = 64;
 constexpr std::size_t kMaxSessionKeyBytes = 256;
+constexpr std::size_t kMaxRecentOutcomes = 32;
 
 std::int64_t Age(std::int64_t nowMillis, std::int64_t eventMillis) {
     if (nowMillis < eventMillis) return std::numeric_limits<std::int64_t>::max();
@@ -98,6 +100,26 @@ ActivitySnapshot ActivityTracker::SnapshotAt(std::int64_t nowMillis) const {
     result.unknown = false;
     int resultPriority = -1;
     std::size_t enabledSources = 0;
+
+    for (const auto& [key, session] : sessions_) {
+        if (!IsOutcome(session.state) ||
+            Age(nowMillis, session.lastEventMillis) > kOutcomeHistoryMillis) {
+            continue;
+        }
+        result.recentOutcomes.push_back(RecentActivityOutcome{
+            .tool = key.first,
+            .state = session.state,
+            .occurredAtMillis = session.lastEventMillis,
+        });
+    }
+    std::sort(result.recentOutcomes.begin(), result.recentOutcomes.end(),
+              [](const RecentActivityOutcome& left,
+                 const RecentActivityOutcome& right) {
+                  return left.occurredAtMillis > right.occurredAtMillis;
+              });
+    if (result.recentOutcomes.size() > kMaxRecentOutcomes) {
+        result.recentOutcomes.resize(kMaxRecentOutcomes);
+    }
 
     for (const auto& [tool, source] : sources_) {
         AgentActivitySnapshot row;
