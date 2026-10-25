@@ -1,6 +1,6 @@
 # 原生 Agent 活动接入调研与适配决策
 
-> 调研日期：2026-10-25。本文记录公开官方文档、GitHub 项目 README / 设计文档中的接口，以及本仓库的阶段性实现状态。Claude Code / Codex 的 hook 安装、loopback 接收与桌宠状态合并已有实现；关闭路由后的真实会话 spike 仍待验证。
+> 调研日期：2026-10-25。本文记录公开官方文档、GitHub 项目 README / 设计文档中的接口，以及本仓库的阶段性实现状态。Claude Code / Codex 的 hook 安装、loopback 接收与桌宠状态合并已有实现；关闭路由后的真实会话 spike 已有部分本机结果，完整端到端状态呈现仍待验证。
 
 ## 结论
 
@@ -24,7 +24,7 @@
 |---|---|---|---|
 | `claude-code` | Claude Code command / HTTP hooks；用户级配置通常在 `~/.claude/settings.json`。 | `SessionStart`、`UserPromptSubmit`、`PreToolUse` / `PostToolUse`、`PermissionRequest`、`Stop`、`StopFailure`、`SessionEnd`、subagent 事件可表示工作、等待、结束和失败。输入字段含 `prompt`、`tool_input`、`tool_response`、`last_assistant_message`、transcript 路径等敏感内容；hook 配置在会话启动时加载。 | P0。安装时显式 opt-in；增量合并且仅移除带本应用标记的 hook；只解析 `session_id`、事件名和必要状态，不读其余字段。hook 不作阻塞、改写或批准。 |
 | `claude`（Claude Desktop） | 本次未在 Anthropic 公开文档中确认独立桌面客户端的通用 lifecycle hook/API。它与 Claude Code CLI 是不同产品；MCP 配置不能证明存在被动活动事件。 | 不根据 Claude Code hooks 推断 Claude Desktop 可接入；也不扫描未公开的内部数据库来补齐。经 `LocalRouter` 的请求仍可见。 | 暂列“未接入/未知”。等 Anthropic 提供受支持的本地 lifecycle 接口再评估。 |
-| `codex` | Codex lifecycle hooks；`~/.codex/hooks.json`、活动配置层的 `hooks.json` 或 `config.toml`。 | 官方事件覆盖 `SessionStart`、`UserPromptSubmit`、`PreToolUse`、`PermissionRequest`、`PostToolUse`、`Stop`、`Interrupt`、`SessionEnd` 与 subagent 等。非托管 hook 必须由用户 review/trust；用户或管理员可关闭 hooks。`SessionEnd` 可能延迟到关闭/归档，不能单独作为实时结束信号。stdin 含 `prompt`、transcript 路径及事件相关字段；应用只取 `session_id` 与 `hook_event_name`。 | 首批 hook 安装和状态桥接已实现；仍需只对 Codex CLI 做本机实测。安装前检查 hook feature，不覆盖 `hooks=false`，保留 Codex 自己的 trust 流程。未单独验证前不宣称覆盖 Codex Desktop。 |
+| `codex` | Codex lifecycle hooks；`~/.codex/hooks.json`、活动配置层的 `hooks.json` 或 `config.toml`。 | 官方事件覆盖 `SessionStart`、`UserPromptSubmit`、`PreToolUse`、`PermissionRequest`、`PostToolUse`、`Stop`、`Interrupt`、`SessionEnd` 与 subagent 等。hooks 没有专用的 turn failure 事件，`Stop` 本身不能区分成功与失败。非托管 hook 必须由用户 review/trust；用户或管理员可关闭 hooks。`SessionEnd` 可能延迟到关闭/归档，不能单独作为实时结束信号。stdin 含 `prompt`、transcript 路径及事件相关字段；应用只取 `session_id` 与 `hook_event_name`。 | 首批 hook 安装和状态桥接已实现；本机已确认 Codex TUI hooks Active，真实成功任务和退出期间都启动过 helper，逐事件状态尚未从桌宠可见层确认。Codex app-server 的 `turn/completed` 提供 Completed / Interrupted / Failed 状态和可选 error，可作为 hook 覆盖缺口的官方候选来源；若采用只读取状态与错误标志，不读取错误文本，并评估如何只订阅用户启用的本地会话，再决定是否采用，优先于读取会话 JSONL。安装前检查 hook feature，不覆盖 `hooks=false`，保留 Codex 自己的 trust 流程。未单独验证前不宣称覆盖 Codex Desktop。 |
 | `opencode` | 官方 JS/TS plugin；本地全局插件目录 `~/.config/opencode/plugins/`，也支持项目插件目录。 | 公开事件包括 `session.status`、`session.idle`、`session.error`、`session.updated`、`permission.asked/replied`、`tool.execute.before/after`。插件回调在 Agent 进程内运行；可选择只读 `event` 监听，避免修改工具输入/输出。 | 后续 native adapter。插件只发归一状态，不依赖消息更新事件；用户级安装可逆，插件目录无需改写其他插件。 |
 | `pi` | Pi coding-agent extension；全局目录 `~/.pi/agent/extensions/`，支持 `pi.on(...)` 订阅。 | SDK 暴露 `agent_start/end`、`turn_start/end`、`tool_execution_start/end`、`session_shutdown` 等事件。部分事件对象包含 assistant messages、工具参数/结果；扩展只取事件类型、会话关联和错误布尔值。 | 后续 native adapter。Pi 本身已有 Node runtime，可使用用户级 extension；不为 llm-switch 嵌入 Node。 |
 | `dsh` | DeepSeek Harness 公共插件事件/API。`agent/status` 在 `idle` 与 `running` 间转换，另有 `agent/created`、`agent/disposed`；session/turn 事件可提供更细粒度。 | 事件 API 属于 dsh 进程内；当前需验证已安装 CLI/Desktop profile 的插件加载和跨进程事件发送路径。更细的 `session/event` 可能携带消息/流片段，桌宠无需订阅内容流。 | 后续 native adapter。优先用 `agent/status` 和创建/销毁事件，不依赖翻阅 session event log；另确认桌面版 profile 与 CLI profile 的覆盖差异。 |
@@ -61,8 +61,8 @@ source id + 内存期 session key + state + occurred_at + optional error/wait fl
 ### P0：Claude Code 与 Codex
 
 1. 归一事件 contract、内存 aggregator、loopback bridge、增量 hook 管理与桌宠状态合并已实现；`LocalRouter` 保持独立。
-2. 为两个 Agent 做受控本机 spike：分别关闭 LocalRouter，显式安装 hook，测试开始、工具执行、等待输入、正常结束、失败、中断、并发 session、应用先启动/后启动、Agent 配置中已有用户 hook 等情况。
-3. 记录 Agent 版本、触发事件、延迟、缺失事件及安装前后配置差异；Codex 需分别验证 hook 未信任、hooks 关闭和 `SessionEnd` 延迟场景。
+2. 为两个 Agent 做受控本机 spike：分别关闭 LocalRouter，显式安装 hook，测试开始、工具执行、等待输入、正常结束、失败、中断、并发 session、应用先启动/后启动、Agent 配置中已有用户 hook 等情况。2026-10-25 部分实测：Codex TUI 不调用工具的文本任务返回成功，`/hooks` 显示应用 hooks Active，进程跟踪观察到任务期间与会话退出时的 helper；Claude Code 的最小真实请求失败，但该会话观察到 4 次 helper 执行。hook 输入未读取；事件级状态和桌宠展示仍未逐项验收。
+3. 记录 Agent 版本、触发事件、延迟、缺失事件及安装前后配置差异；Codex 需分别验证 hook 未信任、hooks 关闭和 `SessionEnd` 延迟场景。Codex hooks 没有专用 failure 事件；官方 app-server `turn/completed` 的状态 enum 可区分 completed / interrupted / failed，应先评估该本地接口，再考虑受限的 JSONL 元数据回退。
 4. 对已实现接入做隐私探针：注入唯一的假 prompt/命令字符串，确认它们未进入 llm-switch 数据目录、日志、bridge payload 或桌宠 State。
 
 P0 完成条件仍以 [桌宠路线图](desktop-pet-roadmap.md) 的验收为准；文档调研不视为 spike 已完成。
@@ -76,7 +76,7 @@ P0 完成条件仍以 [桌宠路线图](desktop-pet-roadmap.md) 的验收为准�
 ### Agent 官方资料
 
 - Anthropic：[Claude Code Hooks reference](https://code.claude.com/docs/en/hooks)
-- OpenAI：[Codex Hooks](https://developers.openai.com/codex/hooks)；[Codex app-server protocol](https://github.com/openai/codex/tree/main/codex-rs/app-server)
+- OpenAI：[Codex Hooks](https://developers.openai.com/codex/hooks)；[Codex app-server protocol](https://github.com/openai/codex/tree/main/codex-rs/app-server)；[`TurnStatus` / `TurnCompletedNotification`](https://github.com/openai/codex/blob/main/codex-rs/app-server-protocol/src/protocol/v2/turn.rs)
 - OpenCode：[Plugins and events](https://opencode.ai/docs/plugins/)
 - Pi：[Pi coding-agent SDK and extensions](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/sdk.md)；[extension API](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/extensions.md)
 - DeepSeek Harness：[public agent API](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/core/agent/README.md)；[core event contract](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/subsystems/core.md)

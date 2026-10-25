@@ -29,8 +29,8 @@ Agent 的活动并快速回到日常工作；主窗口成为它背后的**多 Ag
 - 桌宠已有拖拽、胶囊、信息卡、托盘唤回、成功/失败提示，以及八个 Agent 的分组
   统计入口。信息卡点击 Agent 行可跳至控制中心对应页面。
 - 桌宠活动状态可来自 `LocalRouter` 与显式启用的 Claude Code / Codex hooks；今日
-  请求与 token 统计仍来自 `LocalRouter`。原生 hooks 接收与聚合已实现，但还没有完成
-  关闭路由后的真实会话 spike，因此当前最大缺口是端到端行为验证和其余六个来源。
+  请求与 token 统计仍来自 `LocalRouter`。本机已确认 hooks 会启动 helper，关闭路由的
+  spike 有部分结果；逐状态展示、Codex 失败语义和边界行为仍未完成验收。
 - Live2D 已有独立渲染路径，但 `LLMSWITCH_LIVE2D` 默认 OFF，需单独提供 Cubism
   Native SDK；Linux 已修复并通过模型 Ready 冒烟，透明边缘、点击命中和其他平台
   的实际效果仍需验收。模型和 Cubism SDK 的分发许可需逐项确认。
@@ -103,12 +103,18 @@ Agent 的活动并快速回到日常工作；主窗口成为它背后的**多 Ag
      session 聚合、过期转未知，以及 Claude Code / Codex 的白名单 hook 适配器。
      接入层不提取、不保留或保存 prompt、工具内容和 transcript 路径。
    - [ ] 为 Claude Code 与 Codex 做受控本机 hooks spike；关闭本地路由，各跑一次
-     真实任务，验证能观察开始、持续、结束与失败。
+     真实任务，验证能观察开始、持续、结束与失败。2026-10-25 部分实测：Codex TUI
+     的不调用工具文本任务返回成功，hooks 已在 `/hooks` 中显示 Active，跟踪到任务
+     期间与会话退出时的 helper；Claude Code 的真实请求失败，单次失败会话启动了 4
+     次 helper。未读取
+     hook 输入，也未确认每个事件对应的桌宠可见状态；Codex hooks 没有专用失败事件，
+     需先评估 app-server 的状态事件。
    - [x] 将来源事件合并到桌宠轻量状态；区分“没有活动”和“没有数据”，并在
      应用内存中聚合多 session、多个 Agent 与过期事件，不写会话正文。
    - [x] 给 Claude Code / Codex 加独立启用开关与状态说明；只保留状态所需元数据。
    - [ ] 验证真实 Agent 退出、日志轮换以及 hook 触发的边界行为。
-   - [ ] 给其它六个工具登记接入顺序；路由继续作为通用兜底来源。
+   - [x] 给其它六个工具登记接入顺序；路由继续作为通用兜底来源。顺序见
+     [原生 Agent 活动接入调研](agents/activity-integration-research.md)。
 
 3. **把 Live2D 变成可交付的主皮肤**
    - [ ] 明确 Cubism Native SDK 与内置模型的许可和随包策略。
@@ -198,6 +204,12 @@ Agent 的活动并快速回到日常工作；主窗口成为它背后的**多 Ag
   桌宠合并本机来源状态，首启与设置页提供逐 Agent opt-in。Codex 仍需用户在 `/hooks`
   审查并信任。桥接与配置测试已通过；关闭路由后的真实 Claude Code / Codex 会话验证
   仍未完成，不能据此宣称端到端验收通过。
+- 2026-10-25：受控本机 spike 部分完成：本地路由关闭时，Codex TUI 的只读任务成功，
+  Codex `/hooks` 显示已安装 hooks 为 Active，进程跟踪确认任务期间和退出时都启动了
+  llm-switch helper；Claude Code 的最小请求失败，但失败会话启动了 4 次 helper。
+  本次只观察 helper 可执行文件和工具 id，没有读取 hook 输入；还需确认桌宠状态呈现，
+  并解决 Codex hooks 未提供专用失败事件的问题。Codex app-server 提供更丰富的
+  turn 状态，是否作为活动来源需单独评估。
 - 2026-10-24：桌宠控制器接入 `LocalRouter::inflight()`，加入在途计数、请求批次、
   完成提醒、失败提示与活跃 Agent 浮标；`test_router` 覆盖成功、失败和停止路径。
 - 2026-10-24：胶囊模式、owner 锚定信息卡、按 Agent 今日请求/token/失败数与当前
