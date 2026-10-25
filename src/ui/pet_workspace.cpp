@@ -115,15 +115,20 @@ std::string WorkspaceActivityDetail(const PetController& pet) {
                             "查看请求量、token 与供应商分布", pages::kWorkspace,
                             workspace_pages::kStats},
         WorkspaceModuleInfo{app::images::router, "本地路由",
-                            "管理代理开关、端口和请求日志", pages::kRouter},
+                            "管理代理开关、端口和请求日志", pages::kWorkspace,
+                            workspace_pages::kRouter},
         WorkspaceModuleInfo{app::images::mcp, "MCP 服务器",
-                            "管理本机 MCP 清单与工具配置", pages::kMcp},
+                            "管理本机 MCP 清单与工具配置", pages::kWorkspace,
+                            workspace_pages::kMcp},
         WorkspaceModuleInfo{app::images::skills, "Skills 技能库",
-                            "管理中央技能库和工具侧同步", pages::kSkills},
+                            "管理中央技能库和工具侧同步", pages::kWorkspace,
+                            workspace_pages::kSkills},
         WorkspaceModuleInfo{app::images::settings, "桌宠与应用设置",
-                            "调整启动、外观、托盘和活动来源", pages::kSettings},
+                            "调整启动、外观、托盘和活动来源", pages::kWorkspace,
+                            workspace_pages::kSettings},
         WorkspaceModuleInfo{app::images::about, "关于 llm-switch",
-                            "查看版本、技术栈与许可信息", pages::kAbout},
+                            "查看版本、技术栈与许可信息", pages::kWorkspace,
+                            workspace_pages::kAbout},
     };
 
     std::vector<huxerui::View> moduleRows;
@@ -182,8 +187,7 @@ std::string WorkspaceActivityDetail(const PetController& pet) {
                     huxerui::Text("管理模块", huxerui::TextRole::Label),
                     std::move(modulesContent)),
                 huxerui::Text(
-                    "Agent 供应商、会话与统计已接入工作台；其余模块暂沿用原页面。"
-                    "顶部莲花菜单仍可直接打开全部原管理页面。")
+                    "完整管理页面已接入工作台；顶部莲花菜单仍保留原控制中心入口。")
                     .Style(huxerui::TextStyle{
                         huxerui::Font::System(font_size::kCaption),
                         theme.colors.on_surface_variant}),
@@ -196,7 +200,10 @@ std::string WorkspaceActivityDetail(const PetController& pet) {
     huxerui::State<std::size_t> navPage,
     huxerui::State<std::size_t> workspacePage,
     huxerui::State<int> revision,
-    huxerui::State<std::size_t> selectedTool) {
+    huxerui::State<std::size_t> selectedTool,
+    huxerui::State<int> themeMode,
+    huxerui::State<std::size_t> startupMode,
+    huxerui::State<bool> trayEnabled) {
     auto addProviderRequest = huxerui::UseState<std::string>({});
     const std::size_t current = workspacePage.Get();
     return huxerui::IndexedPages(
@@ -210,6 +217,13 @@ std::string WorkspaceActivityDetail(const PetController& pet) {
                    WorkspaceAgentPage(revision, navPage, workspacePage,
                                       selectedTool, addProviderRequest)
                        .Key("workspace-agents"),
+                   WorkspaceRouterPage(navPage, workspacePage)
+                       .Key("workspace-router"),
+                   WorkspaceMcpPage(revision).Key("workspace-mcp"),
+                   WorkspaceSkillsPage(revision).Key("workspace-skills"),
+                   SettingsPage(themeMode, revision, startupMode, trayEnabled)
+                       .Key("workspace-settings"),
+                   AboutPage().Key("workspace-about"),
                },
                current)
         .With(huxerui::Grow(1.0F));

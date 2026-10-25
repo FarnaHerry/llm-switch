@@ -35,6 +35,11 @@ inline constexpr std::size_t kHome = 0;
 inline constexpr std::size_t kSessions = 1;
 inline constexpr std::size_t kStats = 2;
 inline constexpr std::size_t kAgents = 3;
+inline constexpr std::size_t kRouter = 4;
+inline constexpr std::size_t kMcp = 5;
+inline constexpr std::size_t kSkills = 6;
+inline constexpr std::size_t kSettings = 7;
+inline constexpr std::size_t kAbout = 8;
 } // namespace workspace_pages
 
 // 标题栏内容统一高度（= AppOptions.window.title_bar_height）。
@@ -85,7 +90,10 @@ IslandTheme ResolveIslandTheme(const huxerui::ThemeSpec& theme);
 huxerui::View PetWorkspacePage(huxerui::State<std::size_t> navPage,
                                huxerui::State<std::size_t> workspacePage,
                                huxerui::State<int> revision,
-                               huxerui::State<std::size_t> selectedTool);
+                               huxerui::State<std::size_t> selectedTool,
+                               huxerui::State<int> themeMode,
+                               huxerui::State<std::size_t> startupMode,
+                               huxerui::State<bool> trayEnabled);
 // Agent 管理页：使用根级共享的选中索引与新增请求，并让各工具列表页保持挂载，
 // 从而保留列表/卡片局部状态。新增/编辑供应商与用量查询配置是本页自己的第二个
 // 页面（IndexedPages 第二页，整页覆盖工具栏 + Pager）：分页器不参与布局与命中，
@@ -166,6 +174,9 @@ huxerui::View DialogCard(huxerui::View content);
 // ---- 路由/统计页面（router_page.cpp / stats_page.cpp）----
 // 本地路由页：运行状态/启用开关/端口/故障转移控制、各工具接入地址、最近请求日志。
 huxerui::View RouterPage(huxerui::State<std::size_t> navPage);
+huxerui::View WorkspaceRouterPage(
+    huxerui::State<std::size_t> navPage,
+    huxerui::State<std::size_t> workspacePage);
 // 使用统计页：汇总指标、按供应商分布、刷新/清空统计。
 huxerui::View StatsPage(huxerui::State<std::size_t> navPage);
 huxerui::View WorkspaceStatsPage(
@@ -188,8 +199,12 @@ void BindRouterUpstreamSession(std::shared_ptr<huxerui::HttpClient> http,
 // ---- MCP/Skills/会话页面（mcp_page.cpp / skills_page.cpp / sessions_page.cpp）----
 // MCP 服务器管理页（页面级持有 mcp::McpStore）。
 huxerui::View McpPage();
+huxerui::View McpPageWithRevision(huxerui::State<int> revision);
+huxerui::View WorkspaceMcpPage(huxerui::State<int> revision);
 // Skills 管理页（页面级持有 skills::SkillsStore）。
 huxerui::View SkillsPage();
+huxerui::View SkillsPageWithRevision(huxerui::State<int> revision);
+huxerui::View WorkspaceSkillsPage(huxerui::State<int> revision);
 // 历史会话管理页：列表只持有轻量摘要，点击后进入异步全文详情页。
 huxerui::View SessionsPage();
 huxerui::View WorkspaceSessionsPage(

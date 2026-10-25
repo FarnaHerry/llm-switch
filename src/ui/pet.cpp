@@ -1031,7 +1031,7 @@ huxerui::View CardRecentResultRow(const PetRecentResult& result, Color onSurface
            huxerui::PointerCursor(huxerui::PointerCursorKind::Hand),
            huxerui::Tooltip("打开对应活动页面"))
         .OnClick([nav, activation, toolIndex, isRouter = result.sourceLabel == "本地路由"] {
-            if (isRouter) nav->RequestPage(pages::kRouter);
+            if (isRouter) nav->RequestWorkspacePage(workspace_pages::kRouter);
             else nav->RequestWorkspaceAgentPage(toolIndex);
             activation->Activate();
         });
@@ -1189,7 +1189,8 @@ huxerui::View PetCardContent() {
                         huxerui::Button("桌宠设置")
                             .With(huxerui::Frame{.min_width = 60.0F})
                             .OnClick([nav, activation] {
-                                nav->RequestPage(pages::kSettings);
+                                nav->RequestWorkspacePage(
+                                    workspace_pages::kSettings);
                                 activation->Activate();
                             }),
                         huxerui::Spacer(),

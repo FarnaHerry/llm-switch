@@ -1015,7 +1015,8 @@ constexpr double kCollapseSeconds = 0.12;
         nextPages->reserve(9);
         nextPages->push_back(
             PetWorkspacePage(navPage, workspacePage, revision,
-                             selectedAgentTool)
+                             selectedAgentTool, themeMode, startupMode,
+                             trayEnabled)
                 .Key("pet-workspace")
                 .With(huxerui::Grow(1.0F)));
         nextPages->push_back(
@@ -1027,9 +1028,13 @@ constexpr double kCollapseSeconds = 0.12;
         nextPages->push_back(
             StatsPage(navPage).Key("stats").With(huxerui::Grow(1.0F)));
         nextPages->push_back(
-            McpPage().Key("mcp").With(huxerui::Grow(1.0F)));
+            McpPageWithRevision(revision)
+                .Key("mcp")
+                .With(huxerui::Grow(1.0F)));
         nextPages->push_back(
-            SkillsPage().Key("skills").With(huxerui::Grow(1.0F)));
+            SkillsPageWithRevision(revision)
+                .Key("skills")
+                .With(huxerui::Grow(1.0F)));
         nextPages->push_back(
             SessionsPage().Key("sessions").With(huxerui::Grow(1.0F)));
         nextPages->push_back(SettingsPage(themeMode, revision, startupMode,

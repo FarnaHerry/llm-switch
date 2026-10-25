@@ -418,13 +418,13 @@ void ShowMcpForm(huxerui::DialogHandle dialog, huxerui::ToastHandle toast,
 
 } // namespace
 
-[[huxerui::composable]] huxerui::View McpPage() {
+[[huxerui::composable]] huxerui::View McpPageContent(
+    huxerui::State<int> revision) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto tasks = huxerui::UseTaskScope();
     auto toast = huxerui::UseToast();
     auto dialog = huxerui::UseDialog();
-    // 页面内变更计数：任何写库操作后 +1，驱动本页重读。
-    auto revision = huxerui::UseState(0);
+    // 共享变更计数：新旧入口任一处修改后，另一处也会重读同一份清单。
     (void)revision.Get();
     const McpFormStates fs{huxerui::UseState(huxerui::TextEditingValue{""}),
                            huxerui::UseState(0),
@@ -489,6 +489,21 @@ void ShowMcpForm(huxerui::DialogHandle dialog, huxerui::ToastHandle toast,
                          huxerui::CrossAlign(
                              huxerui::CrossAxisAlignment::Center))}
             : serverList);
+}
+
+[[huxerui::composable]] huxerui::View McpPage() {
+    auto revision = huxerui::UseState(0);
+    return McpPageContent(revision);
+}
+
+[[huxerui::composable]] huxerui::View McpPageWithRevision(
+    huxerui::State<int> revision) {
+    return McpPageContent(revision);
+}
+
+[[huxerui::composable]] huxerui::View WorkspaceMcpPage(
+    huxerui::State<int> revision) {
+    return McpPageContent(revision);
 }
 
 } // namespace llmswitch::ui

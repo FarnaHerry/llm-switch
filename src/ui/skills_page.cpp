@@ -94,7 +94,8 @@ bool InvolvesTool(const skills::SkillInfo& skill, std::string_view toolId) {
 [[huxerui::composable]] huxerui::View SkillEditContent(
     std::string name, huxerui::State<huxerui::TextEditingValue> description,
     huxerui::State<huxerui::TextEditingValue> body, huxerui::DialogContext ctx,
-    huxerui::ToastHandle toast, huxerui::State<skills::SkillsStore> store) {
+    huxerui::ToastHandle toast, huxerui::State<skills::SkillsStore> store,
+    huxerui::State<int> revision) {
     return DialogCard(huxerui::ScrollView(huxerui::Column {
         huxerui::Text("编辑 Skill — " + name, huxerui::TextRole::Title),
         huxerui::TextField(description.Get())
@@ -122,6 +123,7 @@ bool InvolvesTool(const skills::SkillInfo& skill, std::string_view toolId) {
                 }
                 ctx.Dismiss();
                 store = skills::SkillsStore::load();
+                revision = revision.Get() + 1;
                 toast.Show("已保存");
             }),
         }.With(huxerui::MainAlign(huxerui::MainAxisAlignment::SpaceBetween)),
@@ -136,7 +138,8 @@ bool InvolvesTool(const skills::SkillInfo& skill, std::string_view toolId) {
     huxerui::State<huxerui::TextEditingValue> name,
     huxerui::State<huxerui::TextEditingValue> description,
     huxerui::State<huxerui::TextEditingValue> body, huxerui::DialogContext ctx,
-    huxerui::ToastHandle toast, huxerui::State<skills::SkillsStore> store) {
+    huxerui::ToastHandle toast, huxerui::State<skills::SkillsStore> store,
+    huxerui::State<int> revision) {
     return DialogCard(huxerui::ScrollView(huxerui::Column {
         huxerui::Text("新建 Skill", huxerui::TextRole::Title),
         huxerui::TextField(name.Get())
@@ -171,6 +174,7 @@ bool InvolvesTool(const skills::SkillInfo& skill, std::string_view toolId) {
                 }
                 ctx.Dismiss();
                 store = skills::SkillsStore::load();
+                revision = revision.Get() + 1;
                 toast.Show("已创建 " + name.Get().text);
             }),
         }.With(huxerui::MainAlign(huxerui::MainAxisAlignment::SpaceBetween)),
@@ -181,7 +185,8 @@ bool InvolvesTool(const skills::SkillInfo& skill, std::string_view toolId) {
 
 [[huxerui::composable]] huxerui::View SkillCard(
     const skills::SkillInfo& skill, huxerui::TaskScope tasks,
-    huxerui::ToastHandle toast, huxerui::State<skills::SkillsStore> store) {
+    huxerui::ToastHandle toast, huxerui::State<skills::SkillsStore> store,
+    huxerui::State<int> revision) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto dialog = huxerui::UseDialog();
     // 编辑表单状态归卡片作用域（弹窗内容随卡片存活）。
@@ -189,10 +194,14 @@ bool InvolvesTool(const skills::SkillInfo& skill, std::string_view toolId) {
     auto body = huxerui::UseState(huxerui::TextEditingValue{""});
     const std::string name = skill.name;
 
-    auto reload = [store] { store = skills::SkillsStore::load(); };
+    auto reload = [store, revision] {
+        store = skills::SkillsStore::load();
+        revision = revision.Get() + 1;
+    };
 
     // 编辑：读正文预填后开弹窗（弹窗会卸载点击路径上的节点：推迟出指针事件路径）。
-    auto showEdit = [dialog, tasks, toast, name, description, body, store] {
+    auto showEdit = [dialog, tasks, toast, name, description, body, store,
+                     revision] {
         try {
             body = huxerui::TextEditingValue{store.Get().readBody(name)};
         } catch (const std::exception& e) {
@@ -210,7 +219,7 @@ bool InvolvesTool(const skills::SkillInfo& skill, std::string_view toolId) {
             dialog.Show(
                 [=](huxerui::DialogContext ctx) -> huxerui::View {
                     return SkillEditContent(name, description, body, ctx, toast,
-                                            store);
+                                            store, revision);
                 },
                 huxerui::DialogOptions{});
             co_return;
@@ -273,7 +282,8 @@ bool InvolvesTool(const skills::SkillInfo& skill, std::string_view toolId) {
 // 点选 importFromTool 复制进中央库。
 [[huxerui::composable]] huxerui::View SkillImportContent(
     huxerui::DialogContext ctx, huxerui::ToastHandle toast,
-    huxerui::State<skills::SkillsStore> store) {
+    huxerui::State<skills::SkillsStore> store,
+    huxerui::State<int> revision) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     struct ImportItem {
         std::string name;
@@ -290,7 +300,7 @@ bool InvolvesTool(const skills::SkillInfo& skill, std::string_view toolId) {
     const huxerui::View itemList =
         huxerui::VirtualList(
             items,
-            [ctx, toast, store, itemTextColor,
+            [ctx, toast, store, revision, itemTextColor,
              itemHintColor](const ImportItem& item) {
                 return huxerui::Column {
                     huxerui::Text(item.name).Style(huxerui::TextStyle{
@@ -305,7 +315,7 @@ bool InvolvesTool(const skills::SkillInfo& skill, std::string_view toolId) {
                        huxerui::Padding(huxerui::EdgeInsets::Symmetric(10.0F, 8.0F)),
                        huxerui::CornerRadius(8.0F),
                        huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))
-                    .OnClick([ctx, toast, store, name = item.name,
+                    .OnClick([ctx, toast, store, revision, name = item.name,
                               tool = item.tool] {
                         try {
                             skills::SkillsStore::load().importFromTool(tool, name);
@@ -314,6 +324,7 @@ bool InvolvesTool(const skills::SkillInfo& skill, std::string_view toolId) {
                             toast.Show(e.what());
                         }
                         store = skills::SkillsStore::load();
+                        revision = revision.Get() + 1;
                         ctx.Dismiss();
                     })
                     .Key(item.name + "/" + item.tool);
@@ -345,7 +356,8 @@ bool InvolvesTool(const skills::SkillInfo& skill, std::string_view toolId) {
 
 } // namespace
 
-[[huxerui::composable]] huxerui::View SkillsPage() {
+[[huxerui::composable]] huxerui::View SkillsPageContent(
+    huxerui::State<int> revision) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto tasks = huxerui::UseTaskScope();
     auto toast = huxerui::UseToast();
@@ -353,8 +365,10 @@ bool InvolvesTool(const skills::SkillInfo& skill, std::string_view toolId) {
     // 页面级持有 SkillsStore：首组合加载，每次操作后重新 load 刷新。
     auto store = huxerui::UseState<skills::SkillsStore>({});
     auto loaded = huxerui::UseState(false);
-    if (!loaded.Get()) {
+    auto loadedRevision = huxerui::UseState(revision.Get());
+    if (!loaded.Get() || loadedRevision.Get() != revision.Get()) {
         loaded = true;
+        loadedRevision = revision.Get();
         store = skills::SkillsStore::load();
     }
     // 新建表单状态归页面作用域。
@@ -371,7 +385,7 @@ bool InvolvesTool(const skills::SkillInfo& skill, std::string_view toolId) {
             dialog.Show(
                 [=](huxerui::DialogContext ctx) -> huxerui::View {
                     return SkillCreateContent(newName, newDesc, newBody, ctx, toast,
-                                              store);
+                                              store, revision);
                 },
                 huxerui::DialogOptions{});
             co_return;
@@ -382,7 +396,7 @@ bool InvolvesTool(const skills::SkillInfo& skill, std::string_view toolId) {
         tasks.Launch([=]() -> huxerui::Task<void> {
             dialog.Show(
                 [=](huxerui::DialogContext ctx) -> huxerui::View {
-                    return SkillImportContent(ctx, toast, store);
+                    return SkillImportContent(ctx, toast, store, revision);
                 },
                 huxerui::DialogOptions{});
             co_return;
@@ -429,8 +443,8 @@ bool InvolvesTool(const skills::SkillInfo& skill, std::string_view toolId) {
     const huxerui::View skillList =
         huxerui::VirtualList(
             filteredItems,
-            [tasks, toast, store](const skills::SkillInfo& skill) {
-                return SkillCard(skill, tasks, toast, store);
+            [tasks, toast, store, revision](const skills::SkillInfo& skill) {
+                return SkillCard(skill, tasks, toast, store, revision);
             })
             .EstimatedItemExtent(180.0F)
             .CacheExtent(480.0F)
@@ -476,6 +490,21 @@ bool InvolvesTool(const skills::SkillInfo& skill, std::string_view toolId) {
         }.With(huxerui::Spacing(10.0F),
                huxerui::Grow(1.0F),
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)));
+}
+
+[[huxerui::composable]] huxerui::View SkillsPage() {
+    auto revision = huxerui::UseState(0);
+    return SkillsPageContent(revision);
+}
+
+[[huxerui::composable]] huxerui::View SkillsPageWithRevision(
+    huxerui::State<int> revision) {
+    return SkillsPageContent(revision);
+}
+
+[[huxerui::composable]] huxerui::View WorkspaceSkillsPage(
+    huxerui::State<int> revision) {
+    return SkillsPageContent(revision);
 }
 
 } // namespace llmswitch::ui

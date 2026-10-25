@@ -201,7 +201,9 @@ huxerui::Color StatusColor(int status, const huxerui::ThemeSpec& theme) {
 
 } // namespace
 
-[[huxerui::composable]] huxerui::View RouterPage(huxerui::State<std::size_t> navPage) {
+[[huxerui::composable]] huxerui::View RouterPageContent(
+    huxerui::State<std::size_t> navPage,
+    huxerui::State<std::size_t> workspacePage, bool inWorkspace) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto tasks = huxerui::UseTaskScope();
     auto toast = huxerui::UseToast();
@@ -217,9 +219,14 @@ huxerui::Color StatusColor(int status, const huxerui::ThemeSpec& theme) {
 
     // 首组合加载 + 可见期间每 2s 刷新日志与运行状态（TaskScope 随页面卸载
     // 自动取消轮询；State 只在 UI 线程写）。
+    const bool isVisible =
+        inWorkspace
+            ? navPage.Get() == pages::kWorkspace &&
+                  workspacePage.Get() == workspace_pages::kRouter
+            : navPage.Get() == pages::kRouter;
     huxerui::Lifecycle(
         [=] {
-            if (navPage.Get() != pages::kRouter) return std::function<void()>{[] {}};
+            if (!isVisible) return std::function<void()>{[] {}};
             ReplaceLogList(logs, routerInstance().recentLogs(50));
             running = routerInstance().running();
             const auto polling = tasks.Launch([=]() -> huxerui::Task<void> {
@@ -231,7 +238,7 @@ huxerui::Color StatusColor(int status, const huxerui::ThemeSpec& theme) {
             });
             return std::function<void()>{[polling] { polling.Cancel(); }};
         },
-        navPage.Get() == pages::kRouter);
+        isVisible);
 
     // 启用开关：start/stop 为快操作，UI 线程直接做；立即落盘 routerEnabled。
     auto setRunning = [=](bool on) {
@@ -430,6 +437,17 @@ huxerui::Color StatusColor(int status, const huxerui::ThemeSpec& theme) {
             }.With(huxerui::Spacing(12.0F),
                    huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)))
             .With(huxerui::Grow(1.0F)));
+}
+
+[[huxerui::composable]] huxerui::View RouterPage(
+    huxerui::State<std::size_t> navPage) {
+    return RouterPageContent(navPage, huxerui::State<std::size_t>{}, false);
+}
+
+[[huxerui::composable]] huxerui::View WorkspaceRouterPage(
+    huxerui::State<std::size_t> navPage,
+    huxerui::State<std::size_t> workspacePage) {
+    return RouterPageContent(navPage, workspacePage, true);
 }
 
 } // namespace llmswitch::ui
