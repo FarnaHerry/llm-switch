@@ -4,7 +4,7 @@
 // 空闲 ~6s 一个呼吸周期。状态由本地路由和用户连接的 Agent hooks 汇总：
 //   路由在途请求或原生 Agent 工作中/等待输入时呼吸更深更快；最近一次请求失败
 //   6s 内叠加误差红脉冲（failure）；一波活动批次（含成功请求）静默 ≥8s 结束
-//   后右上角挂 ✓ 完成提醒（done，静态绘制，点击/右键/新批次消解）；
+//   后右上角挂 ✓ 完成提醒（done，静态绘制，点击/右键/新批次消解，30 秒自动消退）；
 //   底部角标显示今日请求数，顶部浮标显示活跃 Agent（≤2 个）。
 // 动画走 NodeExtension 的保留绘制（30fps 上限，reduced-motion 下静止——✓ 与
 // 浮标仍显示），统计轮询走 TaskScope + Delay（每秒一次，窗口退役时随作用域
@@ -368,6 +368,7 @@ void PetController::Poll() {
     constexpr std::int64_t kFailureWindowMs = 6000;
     constexpr std::int64_t kBatchQuietMs = 8000;
     constexpr std::int64_t kActiveToolWindowMs = 60000;
+    constexpr std::int64_t kDoneReminderDurationMs = 30000;
     const std::vector<router::RequestLog> logs = router.recentLogs(24);
     PetNativeActivitySnapshot native;
     if (readNativeActivity) native = readNativeActivity(now);
@@ -435,13 +436,16 @@ void PetController::Poll() {
         if (!batchActive) {
             batchActive = true;
             batchAnySuccess = false;
-            if (donePendingAck.Get()) donePendingAck = false;
+            if (donePendingAck.Get()) AckDone();
         }
         batchAnySuccess = batchAnySuccess || newSuccess;
         lastActivityMs = now;
     } else if (batchActive && now - lastActivityMs >= kBatchQuietMs) {
         batchActive = false;
-        if (batchAnySuccess) donePendingAck = true;
+        if (batchAnySuccess) {
+            donePendingAck = true;
+            doneExpiresAtMillis = now + kDoneReminderDurationMs;
+        }
     }
 
     // failure：最新一条日志在脉冲窗内且失败（传输失败或 ≥400）。
@@ -459,7 +463,14 @@ void PetController::Poll() {
     if (waitingForInput.Get() != next_waiting) waitingForInput = next_waiting;
     next_failure = next_failure || nativeFailure;
     if (failure.Get() != next_failure) failure = next_failure;
-    if (newNativeCompletion) donePendingAck = true;
+    if (newNativeCompletion) {
+        donePendingAck = true;
+        doneExpiresAtMillis = now + kDoneReminderDurationMs;
+    }
+    if (donePendingAck.Get() && doneExpiresAtMillis > 0 &&
+        now >= doneExpiresAtMillis) {
+        AckDone();
+    }
 
     // 活跃 Agent：60s 窗口内有请求的工具，按最近时间序去重，最多 2 个
     //（白龙「最多两个会话、更多轮换」的同款语义）。
@@ -966,7 +977,9 @@ huxerui::View CardAgentRow(const PetAgentRow& row, const std::string& providerNa
 }
 
 huxerui::View CardRecentResultRow(const PetRecentResult& result, Color onSurface,
-                                  Color onSurfaceVariant, Color error) {
+                                  Color onSurfaceVariant, Color error,
+                                  std::shared_ptr<MainNavTarget> nav,
+                                  std::shared_ptr<MainWindowController> activation) {
     std::string outcome;
     Color outcomeColor = onSurface;
     switch (result.outcome) {
@@ -997,6 +1010,7 @@ huxerui::View CardRecentResultRow(const PetRecentResult& result, Color onSurface
         meta += std::format(" · ↑{} ↓{} tok", prompt, completion);
     }
 
+    const std::size_t toolIndex = ToolRegistryIndex(result.tool);
     return huxerui::Row {
         huxerui::Image(ToolIcon(result.tool))
             .Tint(result.outcome == PetRecentOutcome::failed ? error : onSurfaceVariant)
@@ -1013,7 +1027,14 @@ huxerui::View CardRecentResultRow(const PetRecentResult& result, Color onSurface
                huxerui::Grow(1.0F)),
     }.With(huxerui::Spacing(10.0F),
            huxerui::Padding(huxerui::EdgeInsets::Symmetric(4.0F, 8.0F)),
-           huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
+           huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
+           huxerui::PointerCursor(huxerui::PointerCursorKind::Hand),
+           huxerui::Tooltip("打开对应活动页面"))
+        .OnClick([nav, activation, toolIndex, isRouter = result.sourceLabel == "本地路由"] {
+            if (isRouter) nav->RequestPage(pages::kRouter);
+            else nav->RequestAgentPage(pages::kAgents, toolIndex);
+            activation->Activate();
+        });
 }
 
 } // namespace
@@ -1062,10 +1083,11 @@ huxerui::View PetCardContent() {
             continue;  // 工具不在注册表（不应发生）：跳过该行
         }
         const bool hasActivity = row.requests > 0;
+        const std::size_t toolIndex = ToolRegistryIndex(row.tool);
         rows.push_back(CardAgentRow(row, providerName, hasActivity,
                                     activityUnknown, onSurface, onSurfaceVariant)
-                           .OnClick([nav, activation] {
-                               nav->RequestPage(pages::kAgents);
+                           .OnClick([nav, activation, toolIndex] {
+                               nav->RequestAgentPage(pages::kAgents, toolIndex);
                                activation->Activate();
                            }));
     }
@@ -1073,7 +1095,7 @@ huxerui::View PetCardContent() {
     recentRows.reserve(snapshot.recentResults.size());
     for (const auto& result : snapshot.recentResults) {
         recentRows.push_back(CardRecentResultRow(
-            result, onSurface, onSurfaceVariant, spec.colors.error));
+            result, onSurface, onSurfaceVariant, spec.colors.error, nav, activation));
     }
     huxerui::View recentResultsContent = huxerui::Text(
         "当前没有可展示的完成或失败事件。")
@@ -1134,51 +1156,68 @@ huxerui::View PetCardContent() {
                             .WithWeight(huxerui::FontWeight::Bold),
                         onSurface}),
                 std::move(recentResultsContent),
-                huxerui::Row {
-                    huxerui::Button("Agent 管理")
-                        .With(huxerui::Frame{.min_width = 60.0F})
-                        .OnClick([nav, activation] {
-                            nav->RequestPage(pages::kAgents);
-                            activation->Activate();
-                        }),
-                    huxerui::Button("使用统计")
-                        .With(huxerui::Frame{.min_width = 60.0F})
-                        .OnClick([nav, activation] {
-                            nav->RequestPage(pages::kStats);
-                            activation->Activate();
-                        }),
-                    // 胶囊/球互切：胶囊右键没有菜单空间，这个按钮是胶囊态
-                    // 回到球形态的主入口（切换会退役桌宠与这张卡——包括
-                    // 正被点击的本窗口，推迟执行）。
-                    huxerui::Button(controller->compact.Get() ? "球形态"
-                                                              : "胶囊模式")
-                        .With(huxerui::Frame{.min_width = 60.0F})
-                        .OnClick([controller, application, appTasks] {
-                            const bool next = !controller->compact.Get();
-                            appTasks.Post([controller, application, next] {
-                                try {
-                                    providerStore().setPetCompact(next);
-                                    controller->SetCompact(next, application);
-                                } catch (const std::exception&) {
-                                }
-                            });
-                        }),
-                    // Live2D 皮肤互切（构建可用时才显示；切换同样退役本卡）。
-                    PetLive2DAvailable()
-                        ? huxerui::Button(controller->live2d.Get() ? "莲花球"
-                                                                   : "Live2D")
-                              .With(huxerui::Frame{.min_width = 60.0F})
-                              .OnClick([controller, application, appTasks] {
-                                  const bool next = !controller->live2d.Get();
-                                  appTasks.Post([controller, application, next] {
-                                      try {
-                                          providerStore().setPetLive2D(next);
-                                          controller->SetLive2D(next, application);
-                                      } catch (const std::exception&) {
-                                      }
-                                  });
-                              })
-                        : huxerui::View{},
+                huxerui::Column {
+                    huxerui::Row {
+                        huxerui::Button("Agent 管理")
+                            .With(huxerui::Frame{.min_width = 60.0F})
+                            .OnClick([nav, activation] {
+                                nav->RequestPage(pages::kAgents);
+                                activation->Activate();
+                            }),
+                        huxerui::Button("使用统计")
+                            .With(huxerui::Frame{.min_width = 60.0F})
+                            .OnClick([nav, activation] {
+                                nav->RequestPage(pages::kStats);
+                                activation->Activate();
+                            }),
+                        huxerui::Button("会话历史")
+                            .With(huxerui::Frame{.min_width = 60.0F})
+                            .OnClick([nav, activation] {
+                                nav->RequestPage(pages::kSessions);
+                                activation->Activate();
+                            }),
+                        huxerui::Button("桌宠设置")
+                            .With(huxerui::Frame{.min_width = 60.0F})
+                            .OnClick([nav, activation] {
+                                nav->RequestPage(pages::kSettings);
+                                activation->Activate();
+                            }),
+                    }.With(huxerui::Spacing(8.0F)),
+                    huxerui::Row {
+                        // 胶囊/球互切：胶囊右键没有菜单空间，这个按钮是胶囊态
+                        // 回到球形态的主入口（切换会退役桌宠与这张卡——包括
+                        // 正被点击的本窗口，推迟执行）。
+                        huxerui::Button(controller->compact.Get() ? "球形态"
+                                                                  : "胶囊模式")
+                            .With(huxerui::Frame{.min_width = 60.0F})
+                            .OnClick([controller, application, appTasks] {
+                                const bool next = !controller->compact.Get();
+                                appTasks.Post([controller, application, next] {
+                                    try {
+                                        providerStore().setPetCompact(next);
+                                        controller->SetCompact(next, application);
+                                    } catch (const std::exception&) {
+                                    }
+                                });
+                            }),
+                        // Live2D 皮肤互切（构建可用时才显示；切换同样退役本卡）。
+                        PetLive2DAvailable()
+                            ? huxerui::Button(controller->live2d.Get() ? "莲花球"
+                                                                       : "Live2D")
+                                  .With(huxerui::Frame{.min_width = 60.0F})
+                                  .OnClick([controller, application, appTasks] {
+                                      const bool next = !controller->live2d.Get();
+                                      appTasks.Post([controller, application, next] {
+                                          try {
+                                              providerStore().setPetLive2D(next);
+                                              controller->SetLive2D(next, application);
+                                          } catch (const std::exception&) {
+                                          }
+                                      });
+                                  })
+                            : huxerui::View{},
+                        huxerui::Spacer(),
+                    }.With(huxerui::Spacing(8.0F)),
                 }.With(huxerui::Spacing(8.0F)),
             }.With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(24.0F, 16.0F)),
                    huxerui::Spacing(14.0F),

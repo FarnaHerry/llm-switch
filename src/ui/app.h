@@ -80,23 +80,40 @@ private:
 // ApplicationHook 里 Provide 一次，主窗口 Lifecycle 里绑定/解绑。
 class MainNavTarget final {
 public:
-    void Bind(huxerui::State<std::size_t> page) {
+    void Bind(huxerui::State<std::size_t> page,
+              huxerui::State<std::size_t> selectedAgentTool) {
         page_ = std::move(page);
+        selectedAgentTool_ = std::move(selectedAgentTool);
+        if (pendingAgentTool_) {
+            *selectedAgentTool_ = *pendingAgentTool_;
+            pendingAgentTool_.reset();
+        }
         if (pendingPage_) {
             *page_ = *pendingPage_;
             pendingPage_.reset();
         }
     }
-    void Unbind() noexcept { page_ = {}; }
+    void Unbind() noexcept {
+        page_ = {};
+        selectedAgentTool_ = {};
+    }
     // 写入页面下标（pages::kXxx）；主窗口未打开时暂存到首次组合。
     void RequestPage(std::size_t index) const {
         if (page_.has_value()) *page_ = index;
         else pendingPage_ = index;
     }
+    // 信息卡按 Agent 跳转；控制中心未打开时，目标 Agent 与页面一起暂存。
+    void RequestAgentPage(std::size_t pageIndex, std::size_t toolIndex) const {
+        if (selectedAgentTool_.has_value()) *selectedAgentTool_ = toolIndex;
+        else pendingAgentTool_ = toolIndex;
+        RequestPage(pageIndex);
+    }
 
 private:
     std::optional<huxerui::State<std::size_t>> page_;
+    std::optional<huxerui::State<std::size_t>> selectedAgentTool_;
     mutable std::optional<std::size_t> pendingPage_;
+    mutable std::optional<std::size_t> pendingAgentTool_;
 };
 
 // 在控制中心或桌宠首次挂载时同步登录启动项并自启 LocalRouter。

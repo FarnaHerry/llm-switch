@@ -6,7 +6,7 @@
 //     alpha-mask，固定深色玻璃——桌面饰品在深浅桌面下都可读）；
 //   * 状态（每秒轮询本地路由；路由未运行时显示未知）：streaming（在途请求
 //     > 0，呼吸加深加快）、failure（最近一次请求失败的红脉冲窗）、
-//     donePendingAck（活动批次结束后的 ✓ 完成提醒，点击/右键/新批次消解）、
+//     donePendingAck（✓ 完成提醒，点击/右键/新任务消解，30 秒后自动消退）、
 //     activeTools（最近 60s 有请求的活跃 Agent，≤2 个，顶部浮标）、
 //     todayRequests（今日请求数，底部角标）；
 //   * 交互：点击打开主窗口，拖拽移动，右键菜单（路由开关 / 隐藏 / 退出），
@@ -129,9 +129,9 @@ struct PetController {
     huxerui::State<bool> waitingForInput{false};
     // failure：最近一次路由请求失败（传输失败或 ≥400）后的红脉冲窗内。
     huxerui::State<bool> failure{false};
-    // donePendingAck：一波活动批次（含成功请求）结束后的完成提醒，挂起
-    // 直到点击桌宠 / 右键消解 / 新批次开始（白龙同款「完成感叹号」语义）。
+    // donePendingAck：完成提醒，点击 / 右键 / 新任务可消解，30 秒后自动消失。
     huxerui::State<bool> donePendingAck{false};
+    std::int64_t doneExpiresAtMillis = 0;
     // 活跃 Agent（tool id，最多 2 个）：来自路由近期请求与原生 hook 会话，
     // 桌宠顶部浮标展示。
     // 注意 State 必须带初值构造：默认构造是空句柄，Get() 抛
@@ -174,7 +174,10 @@ struct PetController {
     // cardSnapshot。
     void Poll();
     // 消解完成提醒（点击桌宠或右键菜单入口）。
-    void AckDone() { donePendingAck = false; }
+    void AckDone() {
+        donePendingAck = false;
+        doneExpiresAtMillis = 0;
+    }
     // 切换信息卡（点击桌宠 / 右键菜单）：在桌宠旁开锚定卡片窗口（owner =
     // 桌宠，随桌宠退役），再点收起。配置持久化由调用方负责。
     void ToggleCard(const huxerui::ApplicationHandle& application);

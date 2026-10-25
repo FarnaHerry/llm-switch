@@ -1378,12 +1378,12 @@ void InstallApplication(huxerui::ApplicationContext& context) {
     // AppRoot 本身不读取它，切页只重组这两个局部子树。
     auto navPage = huxerui::UseState<std::size_t>(pages::kAgents);
     auto selectedAgentTool = huxerui::UseState<std::size_t>(0);
-    // 把 navPage 绑进应用级导航目标：桌宠信息卡等窗口外入口经
-    // MainNavTarget::RequestPage 跳页并激活主窗口（主窗口卸载时解绑）。
+    // 把页面与 Agent 选择绑进应用级导航目标：桌宠信息卡等窗口外入口可跳到
+    // 指定 Agent 并激活主窗口（主窗口卸载时解绑）。
     {
         const auto nav = huxerui::UseService<MainNavTarget>();
-        huxerui::Lifecycle([nav, navPage] {
-            nav->Bind(navPage);
+        huxerui::Lifecycle([nav, navPage, selectedAgentTool] {
+            nav->Bind(navPage, selectedAgentTool);
             return [nav] { nav->Unbind(); };
         });
     }
