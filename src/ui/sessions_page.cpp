@@ -381,10 +381,11 @@ std::string FormatSize(std::uintmax_t bytes) {
 
 [[huxerui::composable]] huxerui::View AgentSessionsPanel(
     std::string tool, huxerui::State<sessions::SessionInfo> selectedSession,
-    huxerui::State<std::size_t> selectedAgent, std::size_t agentIndex) {
+    huxerui::State<std::size_t> selectedAgent, std::size_t agentIndex,
+    bool pageActive) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     const bool supported = tool == "claude-code" || tool == "codex";
-    const bool active = selectedAgent.Get() == agentIndex;
+    const bool active = pageActive && selectedAgent.Get() == agentIndex;
     auto tasks = huxerui::UseTaskScope();
     auto toast = huxerui::UseToast();
     // 列表扫描是整批替换，不需要逐项可变语义。使用不可变共享快照可让 worker
@@ -517,7 +518,9 @@ std::string FormatSize(std::uintmax_t bytes) {
 }
 
 [[huxerui::composable]] huxerui::View SessionsListPage(
-    huxerui::State<sessions::SessionInfo> selectedSession) {
+    huxerui::State<sessions::SessionInfo> selectedSession,
+    huxerui::State<std::size_t> workspacePage, bool inWorkspace,
+    bool pageActive) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     const IslandTheme islands = ResolveIslandTheme(theme);
     const auto& registry = models::toolRegistry();
@@ -542,15 +545,29 @@ std::string FormatSize(std::uintmax_t bytes) {
         }
         agentButtons.push_back(button);
         agentPages.push_back(
-            AgentSessionsPanel(id, selectedSession, selectedAgent, index)
+            AgentSessionsPanel(id, selectedSession, selectedAgent, index,
+                               pageActive)
                 .Key("session-agent:" + id));
+    }
+
+    huxerui::View actions = huxerui::Row(std::move(agentButtons))
+        .With(huxerui::Spacing(8.0F),
+              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
+    if (inWorkspace) {
+        actions = huxerui::Row {
+            std::move(actions),
+            huxerui::Button("返回工作台")
+                .OnClick([selectedSession, workspacePage] {
+                    selectedSession = sessions::SessionInfo{};
+                    workspacePage = workspace_pages::kHome;
+                }),
+        }.With(huxerui::Spacing(8.0F),
+               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
     }
 
     return PageScaffold(
         "会话管理",
-        huxerui::Row(std::move(agentButtons))
-            .With(huxerui::Spacing(8.0F),
-                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
+        std::move(actions),
         huxerui::Pager(std::move(agentPages), selectedAgent)
             .ScrollAxis(huxerui::Axis::Horizontal)
             .DragEnabled(false)
@@ -561,7 +578,9 @@ std::string FormatSize(std::uintmax_t bytes) {
 }
 
 [[huxerui::composable]] huxerui::View SessionDetailPage(
-    huxerui::State<sessions::SessionInfo> selectedSession) {
+    huxerui::State<sessions::SessionInfo> selectedSession,
+    huxerui::State<std::size_t> workspacePage, bool inWorkspace,
+    bool pageActive) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto tasks = huxerui::UseTaskScope();
     const auto clipboard = huxerui::UseApplication().Clipboard();
@@ -619,11 +638,11 @@ std::string FormatSize(std::uintmax_t bytes) {
         });
     };
     huxerui::Lifecycle(
-        [load, requestGeneration, tool, path] {
-            if (!path.empty()) load(tool, path);
+        [load, requestGeneration, tool, path, pageActive] {
+            if (pageActive && !path.empty()) load(tool, path);
             return [requestGeneration] { ++requestGeneration; };
         },
-        targetKey);
+        std::format("{}:{}", targetKey, pageActive));
     auto goBack = [selectedSession] { selectedSession = sessions::SessionInfo{}; };
     auto retry = [load, tool, path] {
         if (!path.empty()) load(tool, path);
@@ -675,9 +694,20 @@ std::string FormatSize(std::uintmax_t bytes) {
     const huxerui::View navigation =
         SessionMessageNavigation(snapshot, navigationSearch, scroll);
 
+    huxerui::View actions = huxerui::Button("返回").OnClick(goBack);
+    if (inWorkspace) {
+        actions = huxerui::Row {
+            std::move(actions),
+            huxerui::Button("返回工作台")
+                .OnClick([selectedSession, workspacePage] {
+                    selectedSession = sessions::SessionInfo{};
+                    workspacePage = workspace_pages::kHome;
+                }),
+        }.With(huxerui::Spacing(8.0F));
+    }
+
     return PageScaffold(
-        "会话详情",
-        huxerui::Button("返回").OnClick(goBack),
+        "会话详情", std::move(actions),
         huxerui::Column {
             huxerui::Text(session.title).Style(huxerui::TextStyle{
                 huxerui::Font::System(font_size::kBody), theme.colors.on_surface}),
@@ -700,17 +730,38 @@ std::string FormatSize(std::uintmax_t bytes) {
 
 } // namespace
 
-[[huxerui::composable]] huxerui::View SessionsPage() {
+[[huxerui::composable]] huxerui::View SessionsPageContent(
+    huxerui::State<std::size_t> navPage,
+    huxerui::State<std::size_t> workspacePage, bool inWorkspace) {
     auto selectedSession = huxerui::UseState(sessions::SessionInfo{});
     const std::size_t selectedPage =
         selectedSession.Get().path.empty() ? 0U : 1U;
+    const bool pageActive =
+        !inWorkspace ||
+        (navPage.Get() == pages::kWorkspace &&
+         workspacePage.Get() == workspace_pages::kSessions);
     return huxerui::IndexedPages(
                std::vector<huxerui::View>{
-                   SessionsListPage(selectedSession).Key("sessions-list"),
-                   SessionDetailPage(selectedSession).Key("session-detail"),
+                   SessionsListPage(selectedSession, workspacePage,
+                                    inWorkspace, pageActive)
+                       .Key("sessions-list"),
+                   SessionDetailPage(selectedSession, workspacePage,
+                                     inWorkspace, pageActive)
+                       .Key("session-detail"),
                },
                selectedPage)
         .With(huxerui::Grow(1.0F));
+}
+
+[[huxerui::composable]] huxerui::View SessionsPage() {
+    return SessionsPageContent(huxerui::State<std::size_t>{},
+                               huxerui::State<std::size_t>{}, false);
+}
+
+[[huxerui::composable]] huxerui::View WorkspaceSessionsPage(
+    huxerui::State<std::size_t> navPage,
+    huxerui::State<std::size_t> workspacePage) {
+    return SessionsPageContent(navPage, workspacePage, true);
 }
 
 } // namespace llmswitch::ui

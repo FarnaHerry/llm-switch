@@ -377,18 +377,25 @@ void ApplySnapshot(const router::StatsSnapshot& snapshot,
 
 } // namespace
 
-[[huxerui::composable]] huxerui::View StatsPage(huxerui::State<std::size_t> navPage) {
+[[huxerui::composable]] huxerui::View StatsPageContent(
+    huxerui::State<std::size_t> navPage,
+    huxerui::State<std::size_t> workspacePage, bool inWorkspace) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto tasks = huxerui::UseTaskScope();
     auto toast = huxerui::UseToast();
     auto dialog = huxerui::UseDialog();
     auto summary = huxerui::UseState(StatsSummary{});
     auto providerStats = huxerui::UseStateList<ProviderStat>();
+    const auto isVisible = [navPage, workspacePage, inWorkspace] {
+        return navPage.Get() == pages::kStats ||
+               (inWorkspace && navPage.Get() == pages::kWorkspace &&
+                workspacePage.Get() == workspace_pages::kStats);
+    };
 
     // 首组合加载 + 可见期间每 5s 自动刷新（卸载自动取消轮询）。
     huxerui::Lifecycle(
         [=] {
-            if (navPage.Get() != pages::kStats) return std::function<void()>{[] {}};
+            if (!isVisible()) return std::function<void()>{[] {}};
             ApplySnapshot(routerInstance().snapshot(), summary, providerStats);
             const auto polling = tasks.Launch([=]() -> huxerui::Task<void> {
                 while (true) {
@@ -399,7 +406,7 @@ void ApplySnapshot(const router::StatsSnapshot& snapshot,
             });
             return std::function<void()>{[polling] { polling.Cancel(); }};
         },
-        navPage.Get() == pages::kStats);
+        isVisible());
 
     // 清空统计：弹窗会卸载点击路径上的节点，经事件队列推迟出指针事件
     // 路径再弹（不走帧调度）。
@@ -415,7 +422,7 @@ void ApplySnapshot(const router::StatsSnapshot& snapshot,
     // 数据库句柄跟着本组合的生命周期（库是可拷贝句柄，共享一个连接与 worker）。
     auto usageDatabase =
         huxerui::UseState(std::optional<huxerui::sqlite::Database>{});
-    const bool statsVisible = navPage.Get() == pages::kStats;
+    const bool statsVisible = isVisible();
 
     // 打开库（首次）→ 返回句柄；失败时已经把错误交给调用方处理。
     auto ensureUsageDatabase =
@@ -503,7 +510,7 @@ void ApplySnapshot(const router::StatsSnapshot& snapshot,
     // 只 stat 不读，代价很小）。
     huxerui::Lifecycle(
         [=] {
-            if (navPage.Get() != pages::kStats) return std::function<void()>{[] {}};
+            if (!isVisible()) return std::function<void()>{[] {}};
             syncUsage();
             return std::function<void()>{[] {}};
         },
@@ -544,6 +551,14 @@ void ApplySnapshot(const router::StatsSnapshot& snapshot,
             .Key(entry.agent);
     };
 
+    huxerui::View backToWorkspace;
+    if (inWorkspace) {
+        backToWorkspace = huxerui::Button("返回工作台")
+            .OnClick([workspacePage] {
+                workspacePage = workspace_pages::kHome;
+            });
+    }
+
     return PageScaffold(
         "使用统计",
         huxerui::Row {
@@ -555,6 +570,7 @@ void ApplySnapshot(const router::StatsSnapshot& snapshot,
             huxerui::Button("同步会话用量").OnClick([syncUsage] { syncUsage(); })
                 .With(huxerui::Enabled(!usageSyncing.Get())),
             huxerui::Button("清空统计").OnClick([=] { confirmClear(); }),
+            backToWorkspace,
         }.With(huxerui::Spacing(8.0F)),
         huxerui::ScrollView(
             huxerui::Column {
@@ -650,6 +666,17 @@ void ApplySnapshot(const router::StatsSnapshot& snapshot,
             }.With(huxerui::Spacing(12.0F),
                    huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)))
             .With(huxerui::Grow(1.0F)));
+}
+
+[[huxerui::composable]] huxerui::View StatsPage(
+    huxerui::State<std::size_t> navPage) {
+    return StatsPageContent(navPage, huxerui::State<std::size_t>{}, false);
+}
+
+[[huxerui::composable]] huxerui::View WorkspaceStatsPage(
+    huxerui::State<std::size_t> navPage,
+    huxerui::State<std::size_t> workspacePage) {
+    return StatsPageContent(navPage, workspacePage, true);
 }
 
 } // namespace llmswitch::ui

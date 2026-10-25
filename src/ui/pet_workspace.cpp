@@ -21,10 +21,12 @@ struct WorkspaceModuleInfo {
     const char* title;
     const char* description;
     std::size_t page;
+    std::size_t workspacePage = workspace_pages::kHome;
 };
 
 [[huxerui::composable]] huxerui::View WorkspaceShortcut(
-    WorkspaceModuleInfo module, huxerui::State<std::size_t> navPage) {
+    WorkspaceModuleInfo module, huxerui::State<std::size_t> navPage,
+    huxerui::State<std::size_t> workspacePage) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     return QuietCard(huxerui::Row {
         huxerui::Image(module.icon)
@@ -50,7 +52,15 @@ struct WorkspaceModuleInfo {
         .With(huxerui::Frame{.min_height = 84.0F},
               huxerui::PointerCursor(huxerui::PointerCursorKind::Hand),
               huxerui::Tooltip("打开此管理模块"))
-        .OnClick([navPage, page = module.page] { navPage = page; })
+        .OnClick([navPage, workspacePage, module] {
+            if (module.workspacePage != workspace_pages::kHome) {
+                workspacePage = module.workspacePage;
+                navPage = pages::kWorkspace;
+            } else {
+                workspacePage = workspace_pages::kHome;
+                navPage = module.page;
+            }
+        })
         .Key(std::format("workspace:{}", module.title));
 }
 
@@ -81,8 +91,13 @@ std::string WorkspaceActivityDetail(const PetController& pet) {
 
 } // namespace
 
-[[huxerui::composable]] huxerui::View PetWorkspacePage(
-    huxerui::State<std::size_t> navPage) {
+[[huxerui::composable]] huxerui::View WorkspaceHomePage(
+    huxerui::State<std::size_t> navPage,
+    huxerui::State<std::size_t> workspacePage) {
+    if (navPage.Get() != pages::kWorkspace ||
+        workspacePage.Get() != workspace_pages::kHome) {
+        return huxerui::View{};
+    }
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     const auto pet = huxerui::UseService<PetController>();
     const std::string activityLabel = WorkspaceActivityLabel(*pet);
@@ -93,9 +108,11 @@ std::string WorkspaceActivityDetail(const PetController& pet) {
         WorkspaceModuleInfo{app::images::agents, "Agent 与供应商",
                             "管理工具、供应商和模型映射", pages::kAgents},
         WorkspaceModuleInfo{app::images::sessions, "会话历史",
-                            "查看、搜索、导出或删除历史会话", pages::kSessions},
+                            "查看、搜索、导出或删除历史会话", pages::kWorkspace,
+                            workspace_pages::kSessions},
         WorkspaceModuleInfo{app::images::stats, "使用统计",
-                            "查看请求量、token 与供应商分布", pages::kStats},
+                            "查看请求量、token 与供应商分布", pages::kWorkspace,
+                            workspace_pages::kStats},
         WorkspaceModuleInfo{app::images::router, "本地路由",
                             "管理代理开关、端口和请求日志", pages::kRouter},
         WorkspaceModuleInfo{app::images::mcp, "MCP 服务器",
@@ -112,8 +129,8 @@ std::string WorkspaceActivityDetail(const PetController& pet) {
     moduleRows.reserve(modules.size() / 2);
     for (std::size_t i = 0; i < modules.size(); i += 2) {
         moduleRows.push_back(huxerui::Row {
-            WorkspaceShortcut(modules[i], navPage),
-            WorkspaceShortcut(modules[i + 1], navPage),
+            WorkspaceShortcut(modules[i], navPage, workspacePage),
+            WorkspaceShortcut(modules[i + 1], navPage, workspacePage),
         }.With(huxerui::Spacing(theme.spacing.medium),
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)));
     }
@@ -164,14 +181,31 @@ std::string WorkspaceActivityDetail(const PetController& pet) {
                     huxerui::Text("管理模块", huxerui::TextRole::Label),
                     std::move(modulesContent)),
                 huxerui::Text(
-                    "工作台正在逐项接入原有管理能力。当前模块沿用原页面与同一份本地数据；"
-                    "顶部莲花菜单仍可直接打开原管理页面。")
+                    "会话与统计已接入工作台；其余模块暂沿用原页面和同一份本地数据。"
+                    "顶部莲花菜单仍可直接打开全部原管理页面。")
                     .Style(huxerui::TextStyle{
                         huxerui::Font::System(font_size::kCaption),
                         theme.colors.on_surface_variant}),
             }.With(huxerui::Spacing(theme.spacing.large),
                    huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)),
         }.With(huxerui::Grow(1.0F)));
+}
+
+[[huxerui::composable]] huxerui::View PetWorkspacePage(
+    huxerui::State<std::size_t> navPage,
+    huxerui::State<std::size_t> workspacePage) {
+    const std::size_t current = workspacePage.Get();
+    return huxerui::IndexedPages(
+               std::vector<huxerui::View>{
+                   WorkspaceHomePage(navPage, workspacePage)
+                       .Key("workspace-home"),
+                   WorkspaceSessionsPage(navPage, workspacePage)
+                       .Key("workspace-sessions"),
+                   WorkspaceStatsPage(navPage, workspacePage)
+                       .Key("workspace-stats"),
+               },
+               current)
+        .With(huxerui::Grow(1.0F));
 }
 
 } // namespace llmswitch::ui

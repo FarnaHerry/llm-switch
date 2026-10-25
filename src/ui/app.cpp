@@ -999,7 +999,9 @@ constexpr double kCollapseSeconds = 0.12;
 // 顶级页面宿主作用域：只创建一次固定的页面声明缓存。标题栏导航与
 // TopLevelPageHost 各自订阅 navPage，切页不会向上冒泡到 AppRoot 或重建背景。
 [[huxerui::composable]] huxerui::View TopLevelNavigation(
-    huxerui::State<std::size_t> navPage, huxerui::State<int> revision,
+    huxerui::State<std::size_t> navPage,
+    huxerui::State<std::size_t> workspacePage,
+    huxerui::State<int> revision,
     huxerui::State<int> themeMode, huxerui::State<bool> pageReveal,
     huxerui::State<std::size_t> startupMode,
     huxerui::State<bool> trayEnabled,
@@ -1012,7 +1014,7 @@ constexpr double kCollapseSeconds = 0.12;
         auto nextPages = std::make_shared<std::vector<huxerui::View>>();
         nextPages->reserve(9);
         nextPages->push_back(
-            PetWorkspacePage(navPage).Key("pet-workspace")
+            PetWorkspacePage(navPage, workspacePage).Key("pet-workspace")
                 .With(huxerui::Grow(1.0F)));
         nextPages->push_back(
             AgentPage(revision, navPage, selectedAgentTool, addProviderRequest)
@@ -1380,6 +1382,8 @@ void InstallApplication(huxerui::ApplicationContext& context) {
     // 顶级页面状态同时供标题栏导航与保持挂载的 IndexedPages 宿主订阅。
     // AppRoot 本身不读取它，切页只重组这两个局部子树。
     auto navPage = huxerui::UseState<std::size_t>(pages::kWorkspace);
+    auto workspacePage =
+        huxerui::UseState<std::size_t>(std::size_t{workspace_pages::kHome});
     auto selectedAgentTool = huxerui::UseState<std::size_t>(0);
     // 把页面与 Agent 选择绑进应用级导航目标：桌宠信息卡等窗口外入口可跳到
     // 指定 Agent 并激活主窗口（主窗口卸载时解绑）。
@@ -1459,7 +1463,10 @@ void InstallApplication(huxerui::ApplicationContext& context) {
                             .WithWeight(huxerui::FontWeight::Bold),
                         rootSpec.colors.on_surface}),
                 huxerui::Button("工作台")
-                    .OnClick([navPage] { navPage = pages::kWorkspace; }),
+                    .OnClick([navPage, workspacePage] {
+                        navPage = pages::kWorkspace;
+                        workspacePage = workspace_pages::kHome;
+                    }),
                 huxerui::Spacer(),
             }
                 .With(huxerui::Padding(
@@ -1473,7 +1480,7 @@ void InstallApplication(huxerui::ApplicationContext& context) {
             // WindowTitleBar 按解析值测量，页面排在它后面自然贴合——这正是
             // 不能用硬编码高度去"对齐"的原因。
             // 页面容器承担切页展开：缩放轴心取容器中心，配合淡入即"从中心展开"。
-            TopLevelNavigation(navPage, revision, themeMode, pageReveal,
+            TopLevelNavigation(navPage, workspacePage, revision, themeMode, pageReveal,
                                startupMode, trayEnabled, selectedAgentTool,
                                addProviderRequest)
                 .With(huxerui::Grow(1.0F)),

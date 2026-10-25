@@ -30,6 +30,12 @@ enum PageIndex : std::size_t {
 };
 } // namespace pages
 
+namespace workspace_pages {
+inline constexpr std::size_t kHome = 0;
+inline constexpr std::size_t kSessions = 1;
+inline constexpr std::size_t kStats = 2;
+} // namespace workspace_pages
+
 // 标题栏内容统一高度（= AppOptions.window.title_bar_height）。
 inline constexpr float kTitleBarContentHeight = 24.0F;
 
@@ -74,8 +80,9 @@ struct IslandTheme {
 IslandTheme ResolveIslandTheme(const huxerui::ThemeSpec& theme);
 
 // ---- 页面（定义在各自 .cpp，均为 [[huxerui::composable]]）----
-// 桌宠工作台首页：首版汇总活动与原页面入口；迁移完成前导航继续展示现有页面。
-huxerui::View PetWorkspacePage(huxerui::State<std::size_t> navPage);
+// 桌宠工作台：活动首页，以及已接入的会话和统计页面。
+huxerui::View PetWorkspacePage(huxerui::State<std::size_t> navPage,
+                               huxerui::State<std::size_t> workspacePage);
 // Agent 管理页：使用根级共享的选中索引与新增请求，并让各工具列表页保持挂载，
 // 从而保留列表/卡片局部状态。新增/编辑供应商与用量查询配置是本页自己的第二个
 // 页面（IndexedPages 第二页，整页覆盖工具栏 + Pager）：分页器不参与布局与命中，
@@ -150,6 +157,9 @@ huxerui::View DialogCard(huxerui::View content);
 huxerui::View RouterPage(huxerui::State<std::size_t> navPage);
 // 使用统计页：汇总指标、按供应商分布、刷新/清空统计。
 huxerui::View StatsPage(huxerui::State<std::size_t> navPage);
+huxerui::View WorkspaceStatsPage(
+    huxerui::State<std::size_t> navPage,
+    huxerui::State<std::size_t> workspacePage);
 
 // 进程级 LocalRouter 单例（定义在 router_page.cpp）：resolver 回调读
 // providerStore() 的组快照，首次访问按 config().routerFailover 设置故障转移。
@@ -171,6 +181,9 @@ huxerui::View McpPage();
 huxerui::View SkillsPage();
 // 历史会话管理页：列表只持有轻量摘要，点击后进入异步全文详情页。
 huxerui::View SessionsPage();
+huxerui::View WorkspaceSessionsPage(
+    huxerui::State<std::size_t> navPage,
+    huxerui::State<std::size_t> workspacePage);
 
 // ---- 关于页（about_page.cpp）----
 // 应用名/版本/简介 + 链接 + 技术栈 + 许可致谢。
