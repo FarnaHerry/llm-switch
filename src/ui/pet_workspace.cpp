@@ -32,26 +32,19 @@ struct WorkspaceModuleInfo {
         huxerui::Image(module.icon)
             .Tint(theme.colors.primary)
             .With(huxerui::Frame{.width = 24.0F, .height = 24.0F}),
-        huxerui::Column {
-            huxerui::Text(module.title, huxerui::TextRole::Label)
-                .Style(huxerui::TextStyle{
-                    huxerui::Font::System(font_size::kBody)
-                        .WithWeight(huxerui::FontWeight::SemiBold),
-                    theme.colors.on_surface}),
-            huxerui::Text(module.description)
-                .Style(huxerui::TextStyle{
-                    huxerui::Font::System(font_size::kCaption),
-                    theme.colors.on_surface_variant}),
-        }.With(huxerui::Spacing(3.0F),
-               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Start),
-               huxerui::Grow(1.0F)),
+        huxerui::Text(module.title, huxerui::TextRole::Label)
+            .Style(huxerui::TextStyle{
+                huxerui::Font::System(font_size::kBody)
+                    .WithWeight(huxerui::FontWeight::SemiBold),
+                theme.colors.on_surface})
+            .With(huxerui::Grow(1.0F)),
     }.With(huxerui::Spacing(12.0F),
-           huxerui::Padding(huxerui::EdgeInsets::Symmetric(16.0F, 14.0F)),
+           huxerui::Padding(huxerui::EdgeInsets::Symmetric(12.0F, 8.0F)),
            huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
            huxerui::Grow(1.0F)))
-        .With(huxerui::Frame{.min_height = 84.0F},
+        .With(huxerui::Frame{.min_height = 48.0F},
               huxerui::PointerCursor(huxerui::PointerCursorKind::Hand),
-              huxerui::Tooltip("打开此管理模块"))
+              huxerui::Tooltip(module.description))
         .OnClick([navPage, workspacePage, module] {
             if (module.workspacePage != workspace_pages::kHome) {
                 workspacePage = module.workspacePage;
@@ -64,47 +57,8 @@ struct WorkspaceModuleInfo {
         .Key(std::format("workspace:{}", module.title));
 }
 
-std::string WorkspaceActivityLabel(const PetController& pet) {
-    if (pet.waitingForInput.Get()) return "等待处理";
-    if (pet.streaming.Get() || pet.agentWorking.Get()) return "进行中";
-    if (pet.failure.Get()) return "最近活动失败";
-    if (pet.activityUnknown.Get()) return "活动状态未知";
-    return "已观察为空闲";
-}
-
-std::string WorkspaceActivityDetail(const PetController& pet) {
-    const std::vector<std::string> tools = pet.activeTools.Get();
-    if (tools.empty()) {
-        if (pet.activityUnknown.Get()) {
-            return "尚无足够事件确认活动状态；未接入来源不会被当作空闲。";
-        }
-        return "当前没有观察到活跃 Agent。";
-    }
-
-    std::string detail = "活跃 Agent：";
-    for (std::size_t i = 0; i < tools.size(); ++i) {
-        if (i != 0) detail += "、";
-        detail += ToolName(tools[i]);
-    }
-    return detail;
-}
-
-} // namespace
-
-[[huxerui::composable]] huxerui::View WorkspaceHomePage(
-    huxerui::State<std::size_t> navPage,
-    huxerui::State<std::size_t> workspacePage) {
-    if (navPage.Get() != pages::kWorkspace ||
-        workspacePage.Get() != workspace_pages::kHome) {
-        return huxerui::View{};
-    }
-    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
-    const auto pet = huxerui::UseService<PetController>();
-    const std::string activityLabel = WorkspaceActivityLabel(*pet);
-    const std::string activityDetail = WorkspaceActivityDetail(*pet);
-    const std::int64_t todayRequests = pet->todayRequests.Get();
-
-    const std::array<WorkspaceModuleInfo, 8> modules{
+std::array<WorkspaceModuleInfo, 8> WorkspaceModules() {
+    return {
         WorkspaceModuleInfo{app::images::agents, "Agent 与供应商",
                             "管理工具、供应商和模型映射", pages::kWorkspace,
                             workspace_pages::kAgents},
@@ -130,64 +84,52 @@ std::string WorkspaceActivityDetail(const PetController& pet) {
                             "查看版本、技术栈与许可信息", pages::kWorkspace,
                             workspace_pages::kAbout},
     };
+}
 
-    std::vector<huxerui::View> moduleRows;
-    moduleRows.reserve(modules.size() / 2);
-    for (std::size_t i = 0; i < modules.size(); i += 2) {
-        moduleRows.push_back(huxerui::Row {
-            WorkspaceShortcut(modules[i], navPage, workspacePage),
-            WorkspaceShortcut(modules[i + 1], navPage, workspacePage),
-        }.With(huxerui::Spacing(theme.spacing.medium),
-               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)));
+[[huxerui::composable]] huxerui::View WorkspaceModuleSidebar(
+    huxerui::State<std::size_t> navPage,
+    huxerui::State<std::size_t> workspacePage) {
+    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    const auto modules = WorkspaceModules();
+    std::vector<huxerui::View> shortcuts;
+    shortcuts.reserve(modules.size());
+    for (const auto& module : modules) {
+        shortcuts.push_back(WorkspaceShortcut(module, navPage, workspacePage));
     }
+    return huxerui::Column {
+        huxerui::Text("功能卡片", huxerui::TextRole::Label),
+        huxerui::ScrollView {
+            huxerui::Column{std::move(shortcuts)}
+                .With(huxerui::Spacing(theme.spacing.small),
+                      huxerui::CrossAlign(
+                          huxerui::CrossAxisAlignment::Stretch)),
+        }.With(huxerui::Grow(1.0F)),
+    }.With(huxerui::Frame{.width = 228.0F},
+           huxerui::Padding(huxerui::EdgeInsets::Symmetric(
+               theme.spacing.medium, 0.0F)),
+           huxerui::Spacing(theme.spacing.medium),
+           huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
+}
 
-    huxerui::View activity = Card(huxerui::Row {
-        huxerui::Column {
-            huxerui::Text("桌宠活动")
-                .Style(huxerui::TextStyle{
-                    huxerui::Font::System(font_size::kCaption),
-                    theme.colors.on_surface_variant}),
-            huxerui::Text(activityLabel, huxerui::TextRole::Title)
-                .Style(huxerui::TextStyle{
-                    huxerui::Font::System(font_size::kTitle)
-                        .WithWeight(huxerui::FontWeight::Bold),
-                    theme.colors.on_surface}),
-            huxerui::Text(activityDetail)
-                .Style(huxerui::TextStyle{
-                    huxerui::Font::System(font_size::kBody),
-                    theme.colors.on_surface_variant}),
-        }.With(huxerui::Spacing(6.0F),
-               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Start),
-               huxerui::Grow(1.0F)),
-        huxerui::Column {
-            huxerui::Text(std::format("{}", todayRequests))
-                .Style(huxerui::TextStyle{
-                    huxerui::Font::System(font_size::kTitle)
-                        .WithWeight(huxerui::FontWeight::Bold),
-                    theme.colors.on_surface}),
-            huxerui::Text("本地路由今日请求")
-                .Style(huxerui::TextStyle{
-                    huxerui::Font::System(font_size::kCaption),
-                    theme.colors.on_surface_variant}),
-        }.With(huxerui::Spacing(2.0F),
-               huxerui::CrossAlign(huxerui::CrossAxisAlignment::End)),
-    }.With(huxerui::Spacing(theme.spacing.large),
-           huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)));
+} // namespace
 
-    huxerui::View modulesContent = huxerui::Column{std::move(moduleRows)}
-        .With(huxerui::Spacing(theme.spacing.medium),
-              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
+[[huxerui::composable]] huxerui::View WorkspaceHomePage(
+    huxerui::State<std::size_t> navPage,
+    huxerui::State<std::size_t> workspacePage,
+    huxerui::State<std::size_t> selectedTool) {
+    if (navPage.Get() != pages::kWorkspace ||
+        workspacePage.Get() != workspace_pages::kHome) {
+        return huxerui::View{};
+    }
+    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
 
     return PageScaffold(
-        "桌宠工作台", huxerui::View{},
+        "桌宠信息卡", huxerui::View{},
         huxerui::ScrollView {
             huxerui::Column {
-                std::move(activity),
-                PageSection(
-                    huxerui::Text("管理模块", huxerui::TextRole::Label),
-                    std::move(modulesContent)),
+                PetInfoSummary(workspacePage, selectedTool),
                 huxerui::Text(
-                    "完整管理页面已接入工作台；顶部莲花菜单仍保留原控制中心入口。")
+                    "所有管理功能可从左侧卡片直接在此信息卡内使用；顶部莲花菜单保留原控制中心页面。")
                     .Style(huxerui::TextStyle{
                         huxerui::Font::System(font_size::kCaption),
                         theme.colors.on_surface_variant}),
@@ -206,9 +148,9 @@ std::string WorkspaceActivityDetail(const PetController& pet) {
     huxerui::State<bool> trayEnabled) {
     auto addProviderRequest = huxerui::UseState<std::string>({});
     const std::size_t current = workspacePage.Get();
-    return huxerui::IndexedPages(
+    huxerui::View content = huxerui::IndexedPages(
                std::vector<huxerui::View>{
-                   WorkspaceHomePage(navPage, workspacePage)
+                   WorkspaceHomePage(navPage, workspacePage, selectedTool)
                        .Key("workspace-home"),
                    WorkspaceSessionsPage(navPage, workspacePage)
                        .Key("workspace-sessions"),
@@ -227,6 +169,11 @@ std::string WorkspaceActivityDetail(const PetController& pet) {
                },
                current)
         .With(huxerui::Grow(1.0F));
+    return huxerui::Row {
+        WorkspaceModuleSidebar(navPage, workspacePage),
+        std::move(content),
+    }.With(huxerui::Spacing(8.0F), huxerui::Grow(1.0F),
+           huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 }
 
 } // namespace llmswitch::ui

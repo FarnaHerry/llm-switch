@@ -84,10 +84,18 @@ class MainNavTarget final {
 public:
     void Bind(huxerui::State<std::size_t> page,
               huxerui::State<std::size_t> workspacePage,
-              huxerui::State<std::size_t> selectedAgentTool) {
+              huxerui::State<std::size_t> selectedAgentTool,
+              huxerui::State<int> revision,
+              huxerui::State<int> themeMode,
+              huxerui::State<std::size_t> startupMode,
+              huxerui::State<bool> trayEnabled) {
         page_ = std::move(page);
         workspacePage_ = std::move(workspacePage);
         selectedAgentTool_ = std::move(selectedAgentTool);
+        revision_ = std::move(revision);
+        themeMode_ = std::move(themeMode);
+        startupMode_ = std::move(startupMode);
+        trayEnabled_ = std::move(trayEnabled);
         if (pendingAgentTool_) {
             *selectedAgentTool_ = *pendingAgentTool_;
             pendingAgentTool_.reset();
@@ -105,6 +113,18 @@ public:
         page_ = {};
         workspacePage_ = {};
         selectedAgentTool_ = {};
+        revision_ = {};
+        themeMode_ = {};
+        startupMode_ = {};
+        trayEnabled_ = {};
+    }
+    std::optional<huxerui::State<int>> RevisionState() const { return revision_; }
+    std::optional<huxerui::State<int>> ThemeModeState() const { return themeMode_; }
+    std::optional<huxerui::State<std::size_t>> StartupModeState() const {
+        return startupMode_;
+    }
+    std::optional<huxerui::State<bool>> TrayEnabledState() const {
+        return trayEnabled_;
     }
     // 写入页面下标（pages::kXxx）；主窗口未打开时暂存到首次组合。
     void RequestPage(std::size_t index) const {
@@ -133,6 +153,10 @@ private:
     std::optional<huxerui::State<std::size_t>> page_;
     std::optional<huxerui::State<std::size_t>> workspacePage_;
     std::optional<huxerui::State<std::size_t>> selectedAgentTool_;
+    std::optional<huxerui::State<int>> revision_;
+    std::optional<huxerui::State<int>> themeMode_;
+    std::optional<huxerui::State<std::size_t>> startupMode_;
+    std::optional<huxerui::State<bool>> trayEnabled_;
     mutable std::optional<std::size_t> pendingPage_;
     mutable std::optional<std::size_t> pendingWorkspacePage_;
     mutable std::optional<std::size_t> pendingAgentTool_;

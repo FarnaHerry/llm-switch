@@ -1392,15 +1392,6 @@ void InstallApplication(huxerui::ApplicationContext& context) {
     auto workspacePage =
         huxerui::UseState<std::size_t>(std::size_t{workspace_pages::kHome});
     auto selectedAgentTool = huxerui::UseState<std::size_t>(0);
-    // 把页面与 Agent 选择绑进应用级导航目标：桌宠信息卡等窗口外入口可跳到
-    // 指定 Agent 并激活主窗口（主窗口卸载时解绑）。
-    {
-        const auto nav = huxerui::UseService<MainNavTarget>();
-        huxerui::Lifecycle([nav, navPage, workspacePage, selectedAgentTool] {
-            nav->Bind(navPage, workspacePage, selectedAgentTool);
-            return [nav] { nav->Unbind(); };
-        });
-    }
     auto addProviderRequest = huxerui::UseState<std::string>({});
     // 标题栏莲花与根级径向浮层共享开合状态；AppRoot 不读取它，避免 Hover
     // 让整套窗口内容重组。
@@ -1408,6 +1399,18 @@ void InstallApplication(huxerui::ApplicationContext& context) {
     // 全局变更计数：任何写库操作（含托盘切换）后 +1，驱动托盘菜单重建
     // （Lifecycle 依赖）与页面重读。
     auto revision = huxerui::UseState<int>(0);
+    // 桌宠信息卡与主窗口共享配置 revision、主题、启动入口和托盘状态；
+    // 卡内完成设置或写入后，控制中心与托盘菜单同步更新。
+    {
+        const auto nav = huxerui::UseService<MainNavTarget>();
+        huxerui::Lifecycle(
+            [nav, navPage, workspacePage, selectedAgentTool, revision,
+             themeMode, startupMode, trayEnabled] {
+                nav->Bind(navPage, workspacePage, selectedAgentTool, revision,
+                          themeMode, startupMode, trayEnabled);
+                return [nav] { nav->Unbind(); };
+            });
+    }
     // 页面展开进度：切页时由径向导航的时序先置 false、换页后再置 true，
     // 让新页面从中心缩放+淡入展开（见 RadialNavigationOverlay 的点击时序）。
     auto pageReveal = huxerui::UseState(true);

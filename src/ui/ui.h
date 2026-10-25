@@ -94,6 +94,9 @@ huxerui::View PetWorkspacePage(huxerui::State<std::size_t> navPage,
                                huxerui::State<int> themeMode,
                                huxerui::State<std::size_t> startupMode,
                                huxerui::State<bool> trayEnabled);
+huxerui::View PetInfoSummary(
+    huxerui::State<std::size_t> workspacePage,
+    huxerui::State<std::size_t> selectedTool);
 // Agent 管理页：使用根级共享的选中索引与新增请求，并让各工具列表页保持挂载，
 // 从而保留列表/卡片局部状态。新增/编辑供应商与用量查询配置是本页自己的第二个
 // 页面（IndexedPages 第二页，整页覆盖工具栏 + Pager）：分页器不参与布局与命中，

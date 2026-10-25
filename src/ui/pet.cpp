@@ -673,10 +673,10 @@ void PetController::ToggleCard(const huxerui::ApplicationHandle& application) {
         return;
     }
     huxerui::WindowOptions options{
-        .title = "llm-switch 信息卡",
+        .title = "llm-switch 桌宠信息卡",
         .key = std::string(kPetCardWindowKey),
-        .initial_size = {330.0F, 440.0F},
-        .minimum_size = huxerui::Size{280.0F, 320.0F},
+        .initial_size = {1080.0F, 720.0F},
+        .minimum_size = huxerui::Size{800.0F, 600.0F},
         // 与主应用同款自定义标题栏（24pt，莲花 + 应用名），不出现平台
         // 原生标题栏（见 AGENTS.md UI 视觉硬约束）。
         .chrome_mode = huxerui::WindowChromeMode::Custom,
@@ -684,7 +684,8 @@ void PetController::ToggleCard(const huxerui::ApplicationHandle& application) {
     };
     // 锚定在桌宠旁：优先右侧，越过工作区右沿则放左侧，纵向夹进工作区。
     if (pet) {
-        constexpr float kCardWidth = 330.0F;
+        constexpr float kCardWidth = 1080.0F;
+        constexpr float kCardHeight = 720.0F;
         constexpr float kCardGap = 16.0F;
         const float petWidth = live2d.Get() && PetLive2DAvailable()
                                    ? 300.0F
@@ -698,7 +699,7 @@ void PetController::ToggleCard(const huxerui::ApplicationHandle& application) {
             }
             x = std::clamp(x, work.x, work.x + std::max(0.0F, work.width - kCardWidth));
             const float y = std::clamp(anchor->y, work.y,
-                                       work.y + std::max(0.0F, work.height - 200.0F));
+                                       work.y + std::max(0.0F, work.height - kCardHeight));
             options.initial_position = huxerui::Point{x, y};
         }
     }
@@ -752,6 +753,7 @@ huxerui::View PetContent() {
     const auto application = huxerui::UseApplication();
     const auto window = huxerui::UseWindow();
     const auto controller = huxerui::UseService<PetController>();
+    const auto nav = huxerui::UseService<MainNavTarget>();
     const auto activation = huxerui::UseService<MainWindowController>();
     const auto trayPresentation =
         huxerui::UseService<TrayPresentationController>();
@@ -978,8 +980,8 @@ huxerui::View CardAgentRow(const PetAgentRow& row, const std::string& providerNa
 
 huxerui::View CardRecentResultRow(const PetRecentResult& result, Color onSurface,
                                   Color onSurfaceVariant, Color error,
-                                  std::shared_ptr<MainNavTarget> nav,
-                                  std::shared_ptr<MainWindowController> activation) {
+                                  huxerui::State<std::size_t> workspacePage,
+                                  huxerui::State<std::size_t> selectedTool) {
     std::string outcome;
     Color outcomeColor = onSurface;
     switch (result.outcome) {
@@ -1030,22 +1032,145 @@ huxerui::View CardRecentResultRow(const PetRecentResult& result, Color onSurface
            huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
            huxerui::PointerCursor(huxerui::PointerCursorKind::Hand),
            huxerui::Tooltip("打开对应活动页面"))
-        .OnClick([nav, activation, toolIndex, isRouter = result.sourceLabel == "本地路由"] {
-            if (isRouter) nav->RequestWorkspacePage(workspace_pages::kRouter);
-            else nav->RequestWorkspaceAgentPage(toolIndex);
-            activation->Activate();
+        .OnClick([workspacePage, selectedTool, toolIndex,
+                  isRouter = result.sourceLabel == "本地路由"] {
+            if (isRouter) {
+                workspacePage = workspace_pages::kRouter;
+            } else {
+                selectedTool = toolIndex;
+                workspacePage = workspace_pages::kAgents;
+            }
         });
 }
 
 } // namespace
 
+[[huxerui::composable]] huxerui::View PetInfoSummary(
+    huxerui::State<std::size_t> workspacePage,
+    huxerui::State<std::size_t> selectedTool) {
+    const auto controller = huxerui::UseService<PetController>();
+    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    const PetCardSnapshot snapshot = controller->cardSnapshot.Get();
+    const bool streaming = controller->streaming.Get() ||
+                           controller->agentWorking.Get();
+    const bool waiting = controller->waitingForInput.Get();
+    const bool activityUnknown = controller->activityUnknown.Get();
+    const Color onSurface = theme.colors.on_surface;
+    const Color onSurfaceVariant = theme.colors.on_surface_variant;
+
+    std::vector<huxerui::View> rows;
+    rows.reserve(snapshot.rows.size());
+    for (const auto& row : snapshot.rows) {
+        std::string providerName = "未设置";
+        try {
+            const auto& group = providerStore().group(row.tool);
+            for (const auto& provider : group.providers) {
+                if (provider.id == group.current) providerName = provider.name;
+            }
+            if (group.current.empty()) {
+                const std::string_view official =
+                    models::officialVendorName(row.tool);
+                if (!official.empty()) providerName = std::string(official);
+            }
+        } catch (const std::exception&) {
+            continue;
+        }
+        const std::size_t toolIndex = ToolRegistryIndex(row.tool);
+        rows.push_back(
+            CardAgentRow(row, providerName, row.requests > 0, activityUnknown,
+                         onSurface, onSurfaceVariant)
+                .With(huxerui::PointerCursor(huxerui::PointerCursorKind::Hand),
+                      huxerui::Tooltip("在此信息卡中打开对应 Agent"))
+                .OnClick([workspacePage, selectedTool, toolIndex] {
+                    selectedTool = toolIndex;
+                    workspacePage = workspace_pages::kAgents;
+                }));
+    }
+
+    std::vector<huxerui::View> recentRows;
+    recentRows.reserve(snapshot.recentResults.size());
+    for (const auto& result : snapshot.recentResults) {
+        recentRows.push_back(CardRecentResultRow(
+            result, onSurface, onSurfaceVariant, theme.colors.error,
+            workspacePage, selectedTool));
+    }
+
+    huxerui::View recentResultsContent = huxerui::Text(
+        "当前没有可展示的完成或失败事件。")
+        .Style(huxerui::TextStyle{
+            huxerui::Font::System(font_size::kChip), onSurfaceVariant});
+    if (!recentRows.empty()) {
+        recentResultsContent = huxerui::Column{std::move(recentRows)}
+            .With(huxerui::Spacing(4.0F),
+                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
+    }
+
+    std::vector<huxerui::View> agentRows;
+    agentRows.reserve(rows.size());
+    for (auto& row : rows) agentRows.push_back(std::move(row));
+    huxerui::View agentContent = agentRows.empty()
+        ? huxerui::View{huxerui::Text("暂无 Agent 活动数据。")
+                            .Style(huxerui::TextStyle{
+                                huxerui::Font::System(font_size::kChip),
+                                onSurfaceVariant})}
+        : huxerui::View{huxerui::Column{std::move(agentRows)}
+                            .With(huxerui::Spacing(4.0F),
+                                  huxerui::CrossAlign(
+                                      huxerui::CrossAxisAlignment::Stretch))};
+
+    const char* status = waiting ? "等待处理"
+        : streaming ? "进行中"
+        : activityUnknown ? "未知" : "已观察为空闲";
+    return huxerui::Column {
+        Card(huxerui::Row {
+            huxerui::Column {
+                huxerui::Text("今日总览", huxerui::TextRole::Label)
+                    .Style(huxerui::TextStyle{
+                        huxerui::Font::System(font_size::kCaption),
+                        onSurfaceVariant}),
+                huxerui::Text(status, huxerui::TextRole::Title)
+                    .Style(huxerui::TextStyle{
+                        huxerui::Font::System(font_size::kTitle)
+                            .WithWeight(huxerui::FontWeight::Bold),
+                        onSurface}),
+                huxerui::Text(activityUnknown
+                                  ? "路由或已启用的 Agent 来源尚未提供足够活动事件。"
+                                  : "Agent 活动汇总自本地路由与已连接 hooks。")
+                    .Style(huxerui::TextStyle{
+                        huxerui::Font::System(font_size::kCaption),
+                        onSurfaceVariant}),
+            }.With(huxerui::Spacing(4.0F),
+                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Start),
+                   huxerui::Grow(1.0F)),
+            huxerui::Column {
+                huxerui::Text(std::to_string(snapshot.todayRequests))
+                    .Style(huxerui::TextStyle{
+                        huxerui::Font::System(font_size::kTitle)
+                            .WithWeight(huxerui::FontWeight::Bold),
+                        onSurface}),
+                huxerui::Text("本地路由请求")
+                    .Style(huxerui::TextStyle{
+                        huxerui::Font::System(font_size::kCaption),
+                        onSurfaceVariant}),
+            }.With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::End)),
+        }.With(huxerui::Spacing(theme.spacing.large),
+               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center))),
+        PageSection(
+            huxerui::Text("Agent 信息卡", huxerui::TextRole::Label),
+            std::move(agentContent)),
+        PageSection(huxerui::Text("最近完成与失败", huxerui::TextRole::Label),
+                    std::move(recentResultsContent)),
+    }.With(huxerui::Spacing(theme.spacing.medium),
+           huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
+}
+
 [[huxerui::composable]]
 huxerui::View PetCardContent() {
     const auto controller = huxerui::UseService<PetController>();
-    const auto activation = huxerui::UseService<MainWindowController>();
-    const auto nav = huxerui::UseService<MainNavTarget>();
-    const huxerui::ApplicationHandle application = huxerui::UseApplication();
     const auto window = huxerui::UseWindow();
+    // 主窗口打开时与其共享 revision / 主题 / 启动入口 / 托盘状态（卡内写入
+    // 即时同步控制中心与托盘菜单）；主窗口未打开时回落到卡内自有状态。
+    const auto nav = huxerui::UseService<MainNavTarget>();
     const huxerui::TaskScope appTasks = huxerui::UseApplicationTaskScope();
     UseCardAttachment(controller);
 
@@ -1057,184 +1182,45 @@ huxerui::View PetCardContent() {
         return true;
     });
 
+    auto navPage = huxerui::UseState<std::size_t>(
+        std::size_t{pages::kWorkspace});
+    auto workspacePage = huxerui::UseState<std::size_t>(
+        std::size_t{workspace_pages::kHome});
+    auto selectedTool = huxerui::UseState<std::size_t>(0);
+    int initialThemeMode = 0;
+    const std::string& savedTheme = providerStore().config().themeMode;
+    if (savedTheme == "dark") initialThemeMode = 1;
+    if (savedTheme == "light") initialThemeMode = 2;
+    auto localRevision = huxerui::UseState(0);
+    auto localThemeMode = huxerui::UseState<int>(std::move(initialThemeMode));
+    const std::string startupModeValue = providerStore().config().startupMode;
+    auto localStartupMode = huxerui::UseState<std::size_t>(
+        startupModeValue == "control-center" ? 1U : 0U);
+    auto localTrayEnabled = huxerui::UseState(providerStore().config().trayEnabled);
+    auto revision = nav->RevisionState().value_or(localRevision);
+    auto themeMode = nav->ThemeModeState().value_or(localThemeMode);
+    auto startupMode = nav->StartupModeState().value_or(localStartupMode);
+    auto trayEnabled = nav->TrayEnabledState().value_or(localTrayEnabled);
+
     const bool dark = controller->darkTheme.Get();
-    const huxerui::ThemeSpec spec = dark ? AppDarkThemeSpec() : AppLightThemeSpec();
-    const PetCardSnapshot snapshot = controller->cardSnapshot.Get();
-    const bool streaming = controller->streaming.Get() || controller->agentWorking.Get();
-    const bool waiting = controller->waitingForInput.Get();
-    const bool activityUnknown = controller->activityUnknown.Get();
-    const Color onSurface = spec.colors.on_surface;
-    const Color onSurfaceVariant = spec.colors.on_surface_variant;
-
-    std::vector<huxerui::View> rows;
-    for (const auto& row : snapshot.rows) {
-        std::string providerName = "未设置";
-        try {
-            const auto& group = providerStore().group(row.tool);
-            for (const auto& p : group.providers) {
-                if (p.id == group.current) providerName = p.name;
-            }
-            if (group.current.empty()) {
-                const std::string_view official =
-                    models::officialVendorName(row.tool);
-                if (!official.empty()) providerName = std::string(official);
-            }
-        } catch (const std::exception&) {
-            continue;  // 工具不在注册表（不应发生）：跳过该行
-        }
-        const bool hasActivity = row.requests > 0;
-        const std::size_t toolIndex = ToolRegistryIndex(row.tool);
-        rows.push_back(CardAgentRow(row, providerName, hasActivity,
-                                    activityUnknown, onSurface, onSurfaceVariant)
-                           .OnClick([nav, activation, toolIndex] {
-                               nav->RequestWorkspaceAgentPage(toolIndex);
-                               activation->Activate();
-                           }));
-    }
-    std::vector<huxerui::View> recentRows;
-    recentRows.reserve(snapshot.recentResults.size());
-    for (const auto& result : snapshot.recentResults) {
-        recentRows.push_back(CardRecentResultRow(
-            result, onSurface, onSurfaceVariant, spec.colors.error, nav, activation));
-    }
-    huxerui::View recentResultsContent = huxerui::Text(
-        "当前没有可展示的完成或失败事件。")
-        .Style(huxerui::TextStyle{
-            huxerui::Font::System(font_size::kChip), onSurfaceVariant});
-    if (!snapshot.recentResults.empty()) {
-        recentResultsContent = huxerui::Column{std::move(recentRows)}
-            .With(huxerui::Spacing(4.0F),
-                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
-    }
-
-    // 自定义标题栏与主应用同款：莲花 + 应用名 + 拖拽区/关闭按钮（框架按
-    // 平台解析的 24pt 高度渲染 caption 控件）；左右边距与正文同为 24，
-    // 应用名与页面标题共享同一条边线（AGENTS.md UI 视觉硬约束）。
+    const huxerui::ThemeSpec spec = dark
+        ? AppDarkThemeSpec() : AppLightThemeSpec();
     huxerui::View content = huxerui::Column {
         huxerui::WindowTitleBar {
             huxerui::Image(app::images::lotus_bloom)
-                .Tint(onSurface)
+                .Tint(spec.colors.on_surface)
                 .With(huxerui::Frame{.width = 16.0F, .height = 16.0F}),
             huxerui::Text("llm-switch")
                 .Style(huxerui::TextStyle{
                     huxerui::Font::System(font_size::kChip)
                         .WithWeight(huxerui::FontWeight::Bold),
-                    onSurface}),
+                    spec.colors.on_surface}),
             huxerui::Spacer(),
         }.With(huxerui::Padding(
             huxerui::EdgeInsets::Symmetric(spec.spacing.large, 0.0F))),
-        huxerui::ScrollView {
-            huxerui::Column {
-                huxerui::Row {
-                    huxerui::Text("今日总览")
-                        .Style(huxerui::TextStyle{
-                            huxerui::Font::System(font_size::kTitle)
-                                .WithWeight(huxerui::FontWeight::Bold),
-                            onSurface}),
-                    huxerui::Spacer(),
-                    huxerui::Text(waiting ? "等待处理"
-                                      : streaming ? "进行中"
-                                      : activityUnknown ? "未知" : "已观察为空闲")
-                        .Style(huxerui::TextStyle{
-                            huxerui::Font::System(font_size::kChip), onSurfaceVariant}),
-                }.With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
-                huxerui::Text(activityUnknown
-                                  ? "路由或已启用的 Agent 来源尚未提供足够活动事件。"
-                                  : "Agent 活动合并路由与已连接 hooks；请求数和 tokens 仅统计本地路由。")
-                    .Style(huxerui::TextStyle{
-                        huxerui::Font::System(font_size::kChip), onSurfaceVariant}),
-                huxerui::Text(std::format("本地路由今日转发 {} 次请求",
-                                          snapshot.todayRequests))
-                    .Style(huxerui::TextStyle{
-                        huxerui::Font::System(font_size::kChip), onSurfaceVariant}),
-                huxerui::Column{std::move(rows)}
-                    .With(huxerui::Spacing(4.0F),
-                          huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)),
-                huxerui::Text("最近结果")
-                    .Style(huxerui::TextStyle{
-                        huxerui::Font::System(font_size::kBody)
-                            .WithWeight(huxerui::FontWeight::Bold),
-                        onSurface}),
-                std::move(recentResultsContent),
-                huxerui::Column {
-                    huxerui::Row {
-                        huxerui::Button("工作台")
-                            .With(huxerui::Frame{.min_width = 60.0F})
-                            .OnClick([nav, activation] {
-                                nav->RequestPage(pages::kWorkspace);
-                                activation->Activate();
-                            }),
-                        huxerui::Button("Agent 管理")
-                            .With(huxerui::Frame{.min_width = 60.0F})
-                            .OnClick([nav, activation] {
-                                nav->RequestWorkspaceAgentPage(0);
-                                activation->Activate();
-                            }),
-                        huxerui::Button("使用统计")
-                            .With(huxerui::Frame{.min_width = 60.0F})
-                            .OnClick([nav, activation] {
-                                nav->RequestWorkspacePage(
-                                    workspace_pages::kStats);
-                                activation->Activate();
-                            }),
-                    }.With(huxerui::Spacing(8.0F)),
-                    huxerui::Row {
-                        huxerui::Button("会话历史")
-                            .With(huxerui::Frame{.min_width = 60.0F})
-                            .OnClick([nav, activation] {
-                                nav->RequestWorkspacePage(
-                                    workspace_pages::kSessions);
-                                activation->Activate();
-                            }),
-                        huxerui::Button("桌宠设置")
-                            .With(huxerui::Frame{.min_width = 60.0F})
-                            .OnClick([nav, activation] {
-                                nav->RequestWorkspacePage(
-                                    workspace_pages::kSettings);
-                                activation->Activate();
-                            }),
-                        huxerui::Spacer(),
-                    }.With(huxerui::Spacing(8.0F)),
-                    huxerui::Row {
-                        // 胶囊/球互切：胶囊右键没有菜单空间，这个按钮是胶囊态
-                        // 回到球形态的主入口（切换会退役桌宠与这张卡——包括
-                        // 正被点击的本窗口，推迟执行）。
-                        huxerui::Button(controller->compact.Get() ? "球形态"
-                                                                  : "胶囊模式")
-                            .With(huxerui::Frame{.min_width = 60.0F})
-                            .OnClick([controller, application, appTasks] {
-                                const bool next = !controller->compact.Get();
-                                appTasks.Post([controller, application, next] {
-                                    try {
-                                        providerStore().setPetCompact(next);
-                                        controller->SetCompact(next, application);
-                                    } catch (const std::exception&) {
-                                    }
-                                });
-                            }),
-                        // Live2D 皮肤互切（构建可用时才显示；切换同样退役本卡）。
-                        PetLive2DAvailable()
-                            ? huxerui::Button(controller->live2d.Get() ? "莲花球"
-                                                                       : "Live2D")
-                                  .With(huxerui::Frame{.min_width = 60.0F})
-                                  .OnClick([controller, application, appTasks] {
-                                      const bool next = !controller->live2d.Get();
-                                      appTasks.Post([controller, application, next] {
-                                          try {
-                                              providerStore().setPetLive2D(next);
-                                              controller->SetLive2D(next, application);
-                                          } catch (const std::exception&) {
-                                          }
-                                      });
-                                  })
-                            : huxerui::View{},
-                        huxerui::Spacer(),
-                    }.With(huxerui::Spacing(8.0F)),
-                }.With(huxerui::Spacing(8.0F)),
-            }.With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(24.0F, 16.0F)),
-                   huxerui::Spacing(14.0F),
-                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)),
-        }.With(huxerui::Grow(1.0F)),
+        PetWorkspacePage(navPage, workspacePage, revision, selectedTool,
+                         themeMode, startupMode, trayEnabled)
+            .With(huxerui::Grow(1.0F)),
     }.With(huxerui::Grow(1.0F),
            huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
     return huxerui::Theme(PetThemeDefinition(dark), std::move(content));
