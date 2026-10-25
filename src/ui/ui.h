@@ -34,6 +34,7 @@ namespace workspace_pages {
 inline constexpr std::size_t kHome = 0;
 inline constexpr std::size_t kSessions = 1;
 inline constexpr std::size_t kStats = 2;
+inline constexpr std::size_t kAgents = 3;
 } // namespace workspace_pages
 
 // 标题栏内容统一高度（= AppOptions.window.title_bar_height）。
@@ -80,15 +81,22 @@ struct IslandTheme {
 IslandTheme ResolveIslandTheme(const huxerui::ThemeSpec& theme);
 
 // ---- 页面（定义在各自 .cpp，均为 [[huxerui::composable]]）----
-// 桌宠工作台：活动首页，以及已接入的会话和统计页面。
+// 桌宠工作台：活动首页，以及已接入的会话、统计和 Agent 页面。
 huxerui::View PetWorkspacePage(huxerui::State<std::size_t> navPage,
-                               huxerui::State<std::size_t> workspacePage);
+                               huxerui::State<std::size_t> workspacePage,
+                               huxerui::State<int> revision,
+                               huxerui::State<std::size_t> selectedTool);
 // Agent 管理页：使用根级共享的选中索引与新增请求，并让各工具列表页保持挂载，
 // 从而保留列表/卡片局部状态。新增/编辑供应商与用量查询配置是本页自己的第二个
 // 页面（IndexedPages 第二页，整页覆盖工具栏 + Pager）：分页器不参与布局与命中，
 // 左右拖动切不了 Agent，也就滑不走正在编辑的表单。
 huxerui::View AgentPage(
     huxerui::State<int> revision, huxerui::State<std::size_t> navPage,
+    huxerui::State<std::size_t> selectedTool,
+    huxerui::State<std::string> addProviderRequest);
+huxerui::View WorkspaceAgentPage(
+    huxerui::State<int> revision, huxerui::State<std::size_t> navPage,
+    huxerui::State<std::size_t> workspacePage,
     huxerui::State<std::size_t> selectedTool,
     huxerui::State<std::string> addProviderRequest);
 // 供应商列表页：各工具组共用同一组件，tool 是
@@ -104,7 +112,10 @@ huxerui::View ProvidersPage(std::string tool, huxerui::State<int> revision,
                             huxerui::State<std::size_t> formToolIndex,
                             huxerui::State<std::string> formTarget,
                             huxerui::State<std::size_t> navPage,
-                            huxerui::State<std::size_t> selectedTool, std::size_t toolIndex);
+                            huxerui::State<std::size_t> selectedTool,
+                            std::size_t toolIndex,
+                            huxerui::State<std::size_t> workspacePage = {},
+                            bool inWorkspace = false);
 // 设置页持有主题模式与启动入口 State（AppRoot 传入）。
 huxerui::View SettingsPage(huxerui::State<int> themeMode,
                            huxerui::State<int> revision,

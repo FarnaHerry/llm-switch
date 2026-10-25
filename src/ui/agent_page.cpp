@@ -82,10 +82,11 @@ namespace llmswitch::ui {
         .OnChanged(selectTool);
 }
 
-[[huxerui::composable]] huxerui::View AgentPage(
+[[huxerui::composable]] huxerui::View AgentPageContent(
     huxerui::State<int> revision, huxerui::State<std::size_t> navPage,
+    huxerui::State<std::size_t> workspacePage,
     huxerui::State<std::size_t> selectedTool,
-    huxerui::State<std::string> addProviderRequest) {
+    huxerui::State<std::string> addProviderRequest, bool inWorkspace) {
     const auto& registry = models::toolRegistry();
     if (registry.empty()) {
         return huxerui::Text("没有可用的 Agent 工具");
@@ -210,7 +211,8 @@ namespace llmswitch::ui {
             const std::string id(spec.id);
             nextPages->push_back(
                 ProvidersPage(id, revision, usageCache, formToolIndex,
-                              formTarget, navPage, selectedTool, index)
+                              formTarget, navPage, selectedTool, index,
+                              workspacePage, inWorkspace)
                     .Key("agent-providers:" + id)
                     .With(huxerui::Grow(1.0F)));
         }
@@ -227,6 +229,22 @@ namespace llmswitch::ui {
     };
 
     huxerui::View navigationContainer = AgentToolBar(huxerui::Row(*cachedButtons));
+    std::vector<huxerui::View> pageActions;
+    if (inWorkspace) {
+        pageActions.push_back(
+            huxerui::Button("工作台首页")
+                .OnClick([workspacePage] {
+                    workspacePage = workspace_pages::kHome;
+                }));
+    }
+    pageActions.push_back(
+        huxerui::IconButton(app::images::add, "新增供应商")
+            .OnClick(requestAddProvider)
+            .With(huxerui::Tooltip("新增供应商")));
+    huxerui::View actionGroup =
+        huxerui::Row(std::move(pageActions))
+            .With(huxerui::Spacing(theme.spacing.small),
+                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
     // 与 PageScaffold 同一套壳层约束：顶部不留内边距（top = 0，壳层也不留
     // Spacing），Agent 工具栏紧接标题栏下沿；左右边距是壳层标题栏的同一个
     // shellInset，应用名与工具栏左对齐。
@@ -235,13 +253,7 @@ namespace llmswitch::ui {
     huxerui::View agentPage = huxerui::Column {
         huxerui::Row {
             navigationContainer,
-            huxerui::Row {
-                huxerui::IconButton(app::images::add, "新增供应商")
-                    .OnClick(requestAddProvider)
-                    .With(huxerui::Tooltip("新增供应商")),
-            }.With(huxerui::Spacing(theme.spacing.small),
-                   huxerui::CrossAlign(
-                       huxerui::CrossAxisAlignment::Center)),
+            actionGroup,
         }.With(huxerui::Spacing(theme.spacing.small),
                huxerui::MainAlign(huxerui::MainAxisAlignment::SpaceBetween),
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
@@ -292,13 +304,21 @@ namespace llmswitch::ui {
             (formDataTarget.Get() == target && !formLoading.Get());
         auto goBack = [formTarget] { formTarget = ""; };
         if (!formReady) {
+            std::vector<huxerui::View> actions{
+                huxerui::Button("返回")
+                    .OnClick([goBack] { goBack(); })};
+            if (inWorkspace) {
+                actions.push_back(
+                    huxerui::Button("工作台首页")
+                        .OnClick([workspacePage, formTarget] {
+                            formTarget = "";
+                            workspacePage = workspace_pages::kHome;
+                        }));
+            }
             agentForm = PageScaffold(
                             target.starts_with("usage:") ? "用量查询"
                                                          : "编辑供应商",
-                            huxerui::Row {
-                                huxerui::Button("返回")
-                                    .OnClick([goBack] { goBack(); }),
-                            },
+                            huxerui::Row(std::move(actions)),
                             huxerui::Column {
                                 huxerui::Text("正在加载供应商配置…")
                                     .Style(huxerui::TextStyle{
@@ -332,6 +352,23 @@ namespace llmswitch::ui {
                                           std::move(agentForm)},
                target.empty() ? 0U : 1U)
         .With(huxerui::Grow(1.0F));
+}
+
+[[huxerui::composable]] huxerui::View AgentPage(
+    huxerui::State<int> revision, huxerui::State<std::size_t> navPage,
+    huxerui::State<std::size_t> selectedTool,
+    huxerui::State<std::string> addProviderRequest) {
+    return AgentPageContent(revision, navPage, huxerui::State<std::size_t>{},
+                            selectedTool, addProviderRequest, false);
+}
+
+[[huxerui::composable]] huxerui::View WorkspaceAgentPage(
+    huxerui::State<int> revision, huxerui::State<std::size_t> navPage,
+    huxerui::State<std::size_t> workspacePage,
+    huxerui::State<std::size_t> selectedTool,
+    huxerui::State<std::string> addProviderRequest) {
+    return AgentPageContent(revision, navPage, workspacePage, selectedTool,
+                            addProviderRequest, true);
 }
 
 } // namespace llmswitch::ui

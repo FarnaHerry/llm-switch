@@ -10,6 +10,8 @@
 #include <string>
 #include <utility>
 
+#include "ui.h"
+
 namespace llmswitch::ui {
 
 struct PetController;
@@ -81,12 +83,18 @@ private:
 class MainNavTarget final {
 public:
     void Bind(huxerui::State<std::size_t> page,
+              huxerui::State<std::size_t> workspacePage,
               huxerui::State<std::size_t> selectedAgentTool) {
         page_ = std::move(page);
+        workspacePage_ = std::move(workspacePage);
         selectedAgentTool_ = std::move(selectedAgentTool);
         if (pendingAgentTool_) {
             *selectedAgentTool_ = *pendingAgentTool_;
             pendingAgentTool_.reset();
+        }
+        if (pendingWorkspacePage_) {
+            *workspacePage_ = *pendingWorkspacePage_;
+            pendingWorkspacePage_.reset();
         }
         if (pendingPage_) {
             *page_ = *pendingPage_;
@@ -95,6 +103,7 @@ public:
     }
     void Unbind() noexcept {
         page_ = {};
+        workspacePage_ = {};
         selectedAgentTool_ = {};
     }
     // 写入页面下标（pages::kXxx）；主窗口未打开时暂存到首次组合。
@@ -108,11 +117,24 @@ public:
         else pendingAgentTool_ = toolIndex;
         RequestPage(pageIndex);
     }
+    // 桌宠工作台内页；控制中心未打开时暂存页面与 Agent 选择。
+    void RequestWorkspacePage(std::size_t index) const {
+        if (workspacePage_.has_value()) *workspacePage_ = index;
+        else pendingWorkspacePage_ = index;
+        RequestPage(pages::kWorkspace);
+    }
+    void RequestWorkspaceAgentPage(std::size_t toolIndex) const {
+        if (selectedAgentTool_.has_value()) *selectedAgentTool_ = toolIndex;
+        else pendingAgentTool_ = toolIndex;
+        RequestWorkspacePage(workspace_pages::kAgents);
+    }
 
 private:
     std::optional<huxerui::State<std::size_t>> page_;
+    std::optional<huxerui::State<std::size_t>> workspacePage_;
     std::optional<huxerui::State<std::size_t>> selectedAgentTool_;
     mutable std::optional<std::size_t> pendingPage_;
+    mutable std::optional<std::size_t> pendingWorkspacePage_;
     mutable std::optional<std::size_t> pendingAgentTool_;
 };
 

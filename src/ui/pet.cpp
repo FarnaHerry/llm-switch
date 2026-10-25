@@ -1032,7 +1032,7 @@ huxerui::View CardRecentResultRow(const PetRecentResult& result, Color onSurface
            huxerui::Tooltip("打开对应活动页面"))
         .OnClick([nav, activation, toolIndex, isRouter = result.sourceLabel == "本地路由"] {
             if (isRouter) nav->RequestPage(pages::kRouter);
-            else nav->RequestAgentPage(pages::kAgents, toolIndex);
+            else nav->RequestWorkspaceAgentPage(toolIndex);
             activation->Activate();
         });
 }
@@ -1087,7 +1087,7 @@ huxerui::View PetCardContent() {
         rows.push_back(CardAgentRow(row, providerName, hasActivity,
                                     activityUnknown, onSurface, onSurfaceVariant)
                            .OnClick([nav, activation, toolIndex] {
-                               nav->RequestAgentPage(pages::kAgents, toolIndex);
+                               nav->RequestWorkspaceAgentPage(toolIndex);
                                activation->Activate();
                            }));
     }
@@ -1167,13 +1167,14 @@ huxerui::View PetCardContent() {
                         huxerui::Button("Agent 管理")
                             .With(huxerui::Frame{.min_width = 60.0F})
                             .OnClick([nav, activation] {
-                                nav->RequestPage(pages::kAgents);
+                                nav->RequestWorkspaceAgentPage(0);
                                 activation->Activate();
                             }),
                         huxerui::Button("使用统计")
                             .With(huxerui::Frame{.min_width = 60.0F})
                             .OnClick([nav, activation] {
-                                nav->RequestPage(pages::kStats);
+                                nav->RequestWorkspacePage(
+                                    workspace_pages::kStats);
                                 activation->Activate();
                             }),
                     }.With(huxerui::Spacing(8.0F)),
@@ -1181,7 +1182,8 @@ huxerui::View PetCardContent() {
                         huxerui::Button("会话历史")
                             .With(huxerui::Frame{.min_width = 60.0F})
                             .OnClick([nav, activation] {
-                                nav->RequestPage(pages::kSessions);
+                                nav->RequestWorkspacePage(
+                                    workspace_pages::kSessions);
                                 activation->Activate();
                             }),
                         huxerui::Button("桌宠设置")

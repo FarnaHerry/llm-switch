@@ -65,7 +65,8 @@ using provider_detail::WriteUsageCache;
     huxerui::State<std::size_t> formToolIndex,
     huxerui::State<std::string> formTarget,
     huxerui::State<std::size_t> navPage,
-    huxerui::State<std::size_t> selectedTool, std::size_t toolIndex) {
+    huxerui::State<std::size_t> selectedTool, std::size_t toolIndex,
+    huxerui::State<std::size_t> workspacePage, bool inWorkspace) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto tasks = huxerui::UseTaskScope();
     auto toast = huxerui::UseToast();
@@ -89,7 +90,12 @@ using provider_detail::WriteUsageCache;
         std::map<std::string, std::chrono::steady_clock::time_point>;
     auto checkedAt = huxerui::UseState(std::make_shared<UsageTimes>());
     const bool formOpen = !formTarget.Get().empty();
-    const bool usageVisible = navPage.Get() == pages::kAgents &&
+    const bool agentPageVisible =
+        inWorkspace
+            ? navPage.Get() == pages::kWorkspace &&
+                  workspacePage.Get() == workspace_pages::kAgents
+            : navPage.Get() == pages::kAgents;
+    const bool usageVisible = agentPageVisible &&
                               selectedTool.Get() == toolIndex && !formOpen;
     huxerui::Lifecycle(
         [tasks, usageCache, http, tool, checkedAt, usageVisible] {

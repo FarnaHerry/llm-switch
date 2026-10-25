@@ -1014,7 +1014,9 @@ constexpr double kCollapseSeconds = 0.12;
         auto nextPages = std::make_shared<std::vector<huxerui::View>>();
         nextPages->reserve(9);
         nextPages->push_back(
-            PetWorkspacePage(navPage, workspacePage).Key("pet-workspace")
+            PetWorkspacePage(navPage, workspacePage, revision,
+                             selectedAgentTool)
+                .Key("pet-workspace")
                 .With(huxerui::Grow(1.0F)));
         nextPages->push_back(
             AgentPage(revision, navPage, selectedAgentTool, addProviderRequest)
@@ -1389,8 +1391,8 @@ void InstallApplication(huxerui::ApplicationContext& context) {
     // 指定 Agent 并激活主窗口（主窗口卸载时解绑）。
     {
         const auto nav = huxerui::UseService<MainNavTarget>();
-        huxerui::Lifecycle([nav, navPage, selectedAgentTool] {
-            nav->Bind(navPage, selectedAgentTool);
+        huxerui::Lifecycle([nav, navPage, workspacePage, selectedAgentTool] {
+            nav->Bind(navPage, workspacePage, selectedAgentTool);
             return [nav] { nav->Unbind(); };
         });
     }

@@ -106,7 +106,8 @@ std::string WorkspaceActivityDetail(const PetController& pet) {
 
     const std::array<WorkspaceModuleInfo, 8> modules{
         WorkspaceModuleInfo{app::images::agents, "Agent 与供应商",
-                            "管理工具、供应商和模型映射", pages::kAgents},
+                            "管理工具、供应商和模型映射", pages::kWorkspace,
+                            workspace_pages::kAgents},
         WorkspaceModuleInfo{app::images::sessions, "会话历史",
                             "查看、搜索、导出或删除历史会话", pages::kWorkspace,
                             workspace_pages::kSessions},
@@ -181,7 +182,7 @@ std::string WorkspaceActivityDetail(const PetController& pet) {
                     huxerui::Text("管理模块", huxerui::TextRole::Label),
                     std::move(modulesContent)),
                 huxerui::Text(
-                    "会话与统计已接入工作台；其余模块暂沿用原页面和同一份本地数据。"
+                    "Agent 供应商、会话与统计已接入工作台；其余模块暂沿用原页面。"
                     "顶部莲花菜单仍可直接打开全部原管理页面。")
                     .Style(huxerui::TextStyle{
                         huxerui::Font::System(font_size::kCaption),
@@ -193,7 +194,10 @@ std::string WorkspaceActivityDetail(const PetController& pet) {
 
 [[huxerui::composable]] huxerui::View PetWorkspacePage(
     huxerui::State<std::size_t> navPage,
-    huxerui::State<std::size_t> workspacePage) {
+    huxerui::State<std::size_t> workspacePage,
+    huxerui::State<int> revision,
+    huxerui::State<std::size_t> selectedTool) {
+    auto addProviderRequest = huxerui::UseState<std::string>({});
     const std::size_t current = workspacePage.Get();
     return huxerui::IndexedPages(
                std::vector<huxerui::View>{
@@ -203,6 +207,9 @@ std::string WorkspaceActivityDetail(const PetController& pet) {
                        .Key("workspace-sessions"),
                    WorkspaceStatsPage(navPage, workspacePage)
                        .Key("workspace-stats"),
+                   WorkspaceAgentPage(revision, navPage, workspacePage,
+                                      selectedTool, addProviderRequest)
+                       .Key("workspace-agents"),
                },
                current)
         .With(huxerui::Grow(1.0F));
