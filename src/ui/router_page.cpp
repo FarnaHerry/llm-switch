@@ -219,7 +219,7 @@ huxerui::Color StatusColor(int status, const huxerui::ThemeSpec& theme) {
     // 自动取消轮询；State 只在 UI 线程写）。
     huxerui::Lifecycle(
         [=] {
-            if (navPage.Get() != 1) return std::function<void()>{[] {}};
+            if (navPage.Get() != pages::kRouter) return std::function<void()>{[] {}};
             ReplaceLogList(logs, routerInstance().recentLogs(50));
             running = routerInstance().running();
             const auto polling = tasks.Launch([=]() -> huxerui::Task<void> {
@@ -231,7 +231,7 @@ huxerui::Color StatusColor(int status, const huxerui::ThemeSpec& theme) {
             });
             return std::function<void()>{[polling] { polling.Cancel(); }};
         },
-        navPage.Get() == 1);
+        navPage.Get() == pages::kRouter);
 
     // 启用开关：start/stop 为快操作，UI 线程直接做；立即落盘 routerEnabled。
     auto setRunning = [=](bool on) {

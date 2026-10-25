@@ -1158,6 +1158,12 @@ huxerui::View PetCardContent() {
                 std::move(recentResultsContent),
                 huxerui::Column {
                     huxerui::Row {
+                        huxerui::Button("工作台")
+                            .With(huxerui::Frame{.min_width = 60.0F})
+                            .OnClick([nav, activation] {
+                                nav->RequestPage(pages::kWorkspace);
+                                activation->Activate();
+                            }),
                         huxerui::Button("Agent 管理")
                             .With(huxerui::Frame{.min_width = 60.0F})
                             .OnClick([nav, activation] {
@@ -1170,6 +1176,8 @@ huxerui::View PetCardContent() {
                                 nav->RequestPage(pages::kStats);
                                 activation->Activate();
                             }),
+                    }.With(huxerui::Spacing(8.0F)),
+                    huxerui::Row {
                         huxerui::Button("会话历史")
                             .With(huxerui::Frame{.min_width = 60.0F})
                             .OnClick([nav, activation] {
@@ -1182,6 +1190,7 @@ huxerui::View PetCardContent() {
                                 nav->RequestPage(pages::kSettings);
                                 activation->Activate();
                             }),
+                        huxerui::Spacer(),
                     }.With(huxerui::Spacing(8.0F)),
                     huxerui::Row {
                         // 胶囊/球互切：胶囊右键没有菜单空间，这个按钮是胶囊态

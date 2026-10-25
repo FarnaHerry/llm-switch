@@ -18,14 +18,15 @@ namespace llmswitch::ui {
 
 namespace pages {
 enum PageIndex : std::size_t {
-    kAgents = 0,
-    kRouter = 1,
-    kStats = 2,
-    kMcp = 3,
-    kSkills = 4,
-    kSessions = 5,
-    kSettings = 6,
-    kAbout = 7,
+    kWorkspace = 0,
+    kAgents = 1,
+    kRouter = 2,
+    kStats = 3,
+    kMcp = 4,
+    kSkills = 5,
+    kSessions = 6,
+    kSettings = 7,
+    kAbout = 8,
 };
 } // namespace pages
 
@@ -73,6 +74,8 @@ struct IslandTheme {
 IslandTheme ResolveIslandTheme(const huxerui::ThemeSpec& theme);
 
 // ---- 页面（定义在各自 .cpp，均为 [[huxerui::composable]]）----
+// 桌宠工作台首页：首版汇总活动与原页面入口；迁移完成前导航继续展示现有页面。
+huxerui::View PetWorkspacePage(huxerui::State<std::size_t> navPage);
 // Agent 管理页：使用根级共享的选中索引与新增请求，并让各工具列表页保持挂载，
 // 从而保留列表/卡片局部状态。新增/编辑供应商与用量查询配置是本页自己的第二个
 // 页面（IndexedPages 第二页，整页覆盖工具栏 + Pager）：分页器不参与布局与命中，

@@ -980,7 +980,7 @@ constexpr double kCollapseSeconds = 0.12;
               .duration = revealed ? 0.18 : kCollapseSeconds,
               .easing = huxerui::Easing::EaseOut}};
     const std::size_t current = navPage.Get();
-    // 切页变换只套在**当前可见页**上。宿主里 8 个页面全部保持挂载（各自保留
+    // 切页变换只套在**当前可见页**上。宿主里工作台与八个原页面全部保持挂载（各自保留
     // 列表/表单状态），若把 Opacity/Scale 套在整个宿主外层，每帧都要把全部
     // 页面做一次离屏合成——页面有真实数据时非常卡。缓存的是 View 值，这里
     // .With() 产出新声明并现读动画目标，既不会冻结目标值也不重建页面子树。
@@ -1008,9 +1008,12 @@ constexpr double kCollapseSeconds = 0.12;
     auto pageCache =
         huxerui::UseState<std::shared_ptr<std::vector<huxerui::View>>>({});
     std::shared_ptr<std::vector<huxerui::View>> cachedPages = pageCache.Get();
-    if (!cachedPages || cachedPages->size() != 8) {
+    if (!cachedPages || cachedPages->size() != 9) {
         auto nextPages = std::make_shared<std::vector<huxerui::View>>();
-        nextPages->reserve(8);
+        nextPages->reserve(9);
+        nextPages->push_back(
+            PetWorkspacePage(navPage).Key("pet-workspace")
+                .With(huxerui::Grow(1.0F)));
         nextPages->push_back(
             AgentPage(revision, navPage, selectedAgentTool, addProviderRequest)
                 .Key("agents")
@@ -1376,7 +1379,7 @@ void InstallApplication(huxerui::ApplicationContext& context) {
     auto trayEnabled = huxerui::UseState(initialConfig.trayEnabled);
     // 顶级页面状态同时供标题栏导航与保持挂载的 IndexedPages 宿主订阅。
     // AppRoot 本身不读取它，切页只重组这两个局部子树。
-    auto navPage = huxerui::UseState<std::size_t>(pages::kAgents);
+    auto navPage = huxerui::UseState<std::size_t>(pages::kWorkspace);
     auto selectedAgentTool = huxerui::UseState<std::size_t>(0);
     // 把页面与 Agent 选择绑进应用级导航目标：桌宠信息卡等窗口外入口可跳到
     // 指定 Agent 并激活主窗口（主窗口卸载时解绑）。
@@ -1455,6 +1458,8 @@ void InstallApplication(huxerui::ApplicationContext& context) {
                         huxerui::Font::System(font_size::kChip)
                             .WithWeight(huxerui::FontWeight::Bold),
                         rootSpec.colors.on_surface}),
+                huxerui::Button("工作台")
+                    .OnClick([navPage] { navPage = pages::kWorkspace; }),
                 huxerui::Spacer(),
             }
                 .With(huxerui::Padding(

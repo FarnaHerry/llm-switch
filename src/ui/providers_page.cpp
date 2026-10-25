@@ -89,7 +89,7 @@ using provider_detail::WriteUsageCache;
         std::map<std::string, std::chrono::steady_clock::time_point>;
     auto checkedAt = huxerui::UseState(std::make_shared<UsageTimes>());
     const bool formOpen = !formTarget.Get().empty();
-    const bool usageVisible = navPage.Get() == 0 &&
+    const bool usageVisible = navPage.Get() == pages::kAgents &&
                               selectedTool.Get() == toolIndex && !formOpen;
     huxerui::Lifecycle(
         [tasks, usageCache, http, tool, checkedAt, usageVisible] {

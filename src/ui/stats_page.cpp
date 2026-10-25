@@ -388,7 +388,7 @@ void ApplySnapshot(const router::StatsSnapshot& snapshot,
     // 首组合加载 + 可见期间每 5s 自动刷新（卸载自动取消轮询）。
     huxerui::Lifecycle(
         [=] {
-            if (navPage.Get() != 2) return std::function<void()>{[] {}};
+            if (navPage.Get() != pages::kStats) return std::function<void()>{[] {}};
             ApplySnapshot(routerInstance().snapshot(), summary, providerStats);
             const auto polling = tasks.Launch([=]() -> huxerui::Task<void> {
                 while (true) {
@@ -399,7 +399,7 @@ void ApplySnapshot(const router::StatsSnapshot& snapshot,
             });
             return std::function<void()>{[polling] { polling.Cancel(); }};
         },
-        navPage.Get() == 2);
+        navPage.Get() == pages::kStats);
 
     // 清空统计：弹窗会卸载点击路径上的节点，经事件队列推迟出指针事件
     // 路径再弹（不走帧调度）。
@@ -415,7 +415,7 @@ void ApplySnapshot(const router::StatsSnapshot& snapshot,
     // 数据库句柄跟着本组合的生命周期（库是可拷贝句柄，共享一个连接与 worker）。
     auto usageDatabase =
         huxerui::UseState(std::optional<huxerui::sqlite::Database>{});
-    const bool statsVisible = navPage.Get() == 2;
+    const bool statsVisible = navPage.Get() == pages::kStats;
 
     // 打开库（首次）→ 返回句柄；失败时已经把错误交给调用方处理。
     auto ensureUsageDatabase =
@@ -503,7 +503,7 @@ void ApplySnapshot(const router::StatsSnapshot& snapshot,
     // 只 stat 不读，代价很小）。
     huxerui::Lifecycle(
         [=] {
-            if (navPage.Get() != 2) return std::function<void()>{[] {}};
+            if (navPage.Get() != pages::kStats) return std::function<void()>{[] {}};
             syncUsage();
             return std::function<void()>{[] {}};
         },
