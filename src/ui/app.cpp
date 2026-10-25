@@ -308,63 +308,6 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(
            huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)));
 }
 
-// 旧配置缺少启动入口时只询问一次；确认后保留旧的宠物开关键供降级版本读取。
-[[huxerui::composable]] huxerui::View StartupChoiceContent(
-    huxerui::DialogContext context, huxerui::WindowHandle window,
-    huxerui::ApplicationHandle application, huxerui::SystemTrayHandle tray,
-    const std::shared_ptr<PetController>& pet,
-    huxerui::State<std::size_t> startupMode, huxerui::TaskScope appTasks,
-    huxerui::ToastHandle toast) {
-    return DialogCard(huxerui::Column {
-        huxerui::Text("选择启动入口", huxerui::TextRole::Title),
-        huxerui::Text("桌宠优先会启动桌宠并收起控制中心；控制中心模式会直接打开管理页面。之后可在设置中更改。"),
-        huxerui::Row {
-            huxerui::Spacer(),
-            huxerui::Button("控制中心")
-                .OnClick([context, window, pet, startupMode, appTasks, toast] {
-                    appTasks.Post([context, window, pet, startupMode, toast] {
-                        context.Dismiss();
-                        try {
-                            providerStore().setStartupMode("control-center");
-                            startupMode = 1;
-                            pet->Retire();
-                            window.Show();
-                        } catch (const std::exception& e) {
-                            window.Show();
-                            toast.Show(e.what());
-                        }
-                    });
-                }),
-            huxerui::Button("桌宠优先")
-                .OnClick([context, window, application, tray, pet, startupMode,
-                          appTasks, toast] {
-                    appTasks.Post([context, window, application, tray, pet,
-                                   startupMode, toast] {
-                        context.Dismiss();
-                        try {
-                            providerStore().setStartupMode("pet");
-                            startupMode = 0;
-                            pet->Show(application);
-                            if (tray.IsAvailable() &&
-                                providerStore().config().trayEnabled) {
-                                window.Hide();
-                            } else {
-                                window.Show();
-                            }
-                        } catch (const std::exception& e) {
-                            window.Show();
-                            toast.Show(std::format(
-                                "桌宠启动失败，已打开控制中心：{}", e.what()));
-                        }
-                    });
-                }),
-        }.With(huxerui::Spacing(8.0F),
-               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
-    }.With(huxerui::Spacing(12.0F),
-           huxerui::Frame{.width = 460.0F},
-           huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)));
-}
-
 ::agents::hooks::HookStatus ReadStartupHookStatus(std::string_view tool) noexcept {
     try {
         return ::agents::hooks::Inspect(tool);
@@ -575,9 +518,6 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(
                         try {
                             if (startupMode.Get() == 0) {
                                 pet->Show(application);
-                            }
-                            if (selectedTray && tray.IsAvailable() &&
-                                startupMode.Get() == 0) {
                                 window.Hide();
                             } else {
                                 window.Show();
@@ -1333,13 +1273,9 @@ void InstallApplication(huxerui::ApplicationContext& context) {
 
     tray.OnActivate([mainWindow, pet, application] {
         const auto& config = providerStore().config();
-        if (config.firstRunSetupCompleted && config.startupMode == "pet") {
+        if (config.startupMode == "pet") {
             try {
                 pet->Show(application);
-                if (!application.SystemTray().IsAvailable() ||
-                    !config.trayEnabled) {
-                    mainWindow->Activate();
-                }
             } catch (const std::exception&) {
                 mainWindow->ShowMessage("桌宠启动失败，已打开控制中心。", true);
             }
@@ -1354,14 +1290,9 @@ void InstallApplication(huxerui::ApplicationContext& context) {
         [appTasks, mainWindow, pet, application] {
             appTasks.Post([mainWindow, pet, application] {
                 const auto& config = providerStore().config();
-                if (config.firstRunSetupCompleted &&
-                    config.startupMode == "pet") {
+                if (config.startupMode == "pet") {
                     try {
                         pet->Show(application);
-                        if (!application.SystemTray().IsAvailable() ||
-                            !config.trayEnabled) {
-                            mainWindow->Activate();
-                        }
                         return;
                     } catch (const std::exception&) {
                         // 失败时创建可见控制中心作为恢复入口。
@@ -1376,12 +1307,10 @@ void InstallApplication(huxerui::ApplicationContext& context) {
 
     appTasks.Post([mainWindow, pet, application, trayPresentation] {
         const auto& config = providerStore().config();
-        const bool setupPending = !config.firstRunSetupCompleted;
-        const bool startupChoicePending = config.startupMode == "choose";
         const bool controlCenterStartup =
             config.startupMode == "control-center";
 
-        if (setupPending || startupChoicePending || controlCenterStartup) {
+        if (controlCenterStartup) {
             mainWindow->Activate();
         } else {
             try {
@@ -1389,10 +1318,6 @@ void InstallApplication(huxerui::ApplicationContext& context) {
             } catch (const std::exception&) {
                 mainWindow->ShowMessage("桌宠启动失败，已打开控制中心。", true);
                 return;
-            }
-            if (!application.SystemTray().IsAvailable() ||
-                !config.trayEnabled) {
-                mainWindow->Activate();
             }
         }
         trayPresentation->Refresh();
@@ -1413,8 +1338,6 @@ void InstallApplication(huxerui::ApplicationContext& context) {
         huxerui::UseService<TrayPresentationController>();
     const auto& initialConfig = providerStore().config();
     const std::string startupModeValue = initialConfig.startupMode;
-    const bool startupChoicePending = startupModeValue == "choose";
-
     // 初始值在 UseState 之前算好（组合体内不写 State）：
     // 主题模式 0=跟随系统 1=深色 2=浅色；配置里的 themeMode 字符串映射。
     int initialThemeMode = 0;
@@ -1560,12 +1483,12 @@ void InstallApplication(huxerui::ApplicationContext& context) {
     // DialogHandle 必须在 AppThemed 的子作用域内获取，否则关闭确认框会捕获
     // HuxerUI 默认 Environment，无法使用应用的主体色和对话框样式。
     huxerui::View windowBehavior = huxerui::Scope(
-        [application, tray, window, toast, startupChoicePending, startupMode,
+        [application, tray, window, toast, startupMode,
          setupCompleted, trayEnabled, pet, appTasks] {
             const auto dialog = huxerui::UseDialog();
             const auto tasks = huxerui::UseTaskScope();
             huxerui::Lifecycle(
-                [dialog, startupChoicePending, application, tray, window, pet,
+                [dialog, application, tray, window, pet,
                  startupMode, setupCompleted, trayEnabled, appTasks, toast] {
                     if (!setupCompleted.Get()) {
                         dialog.Show(
@@ -1582,23 +1505,10 @@ void InstallApplication(huxerui::ApplicationContext& context) {
                                 .dismiss_on_outside_press = false,
                                 .dismiss_on_cancel = false,
                             });
-                    } else if (startupChoicePending) {
-                        dialog.Show(
-                            [application, tray, window, pet, startupMode,
-                             appTasks, toast](huxerui::DialogContext context)
-                                -> huxerui::View {
-                                return StartupChoiceContent(
-                                    context, window, application, tray, pet,
-                                    startupMode, appTasks, toast);
-                            },
-                            huxerui::DialogOptions{
-                                .dismiss_on_outside_press = false,
-                                .dismiss_on_cancel = false,
-                            });
                     }
                     return [] {};
                 },
-                startupChoicePending, setupCompleted);
+                setupCompleted);
             const auto showCloseConfirmation =
                 [application, tray, window, toast, dialog, trayEnabled] {
                     dialog.Show(

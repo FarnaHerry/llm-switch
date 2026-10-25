@@ -231,13 +231,8 @@ ProviderStore ProviderStore::load() {
     const auto j = readJsonOrNull(cfg::configFile());  // 损坏文件已在内部挪走
     if (!j.is_null()) {
         store.config_ = models::fromJson(j);
-        // 旧配置没有桌宠开关时，旧版行为默认打开控制中心。先保留旧体验，
-        // 通过一次轻量选择让用户决定是否切到桌宠优先。新安装无 config 文件，
-        // 继续使用 AppConfig 的桌宠优先默认值。
-        if (j.is_object() && !j.contains("startupMode") &&
-            !j.contains("petEnabled")) {
-            store.config_.startupMode = "choose";
-        }
+        // 没有显式保存启动偏好的旧配置沿用桌宠优先默认值；旧版 petEnabled
+        // 的显式选择已在 fromJson 中迁移为 pet / control-center。
     }
     // 首次导入：组为空且 live 文件存在 → 把当前生效配置收编进来。
     // 例外：zcode 每次启动都全量同步——它的 config.json 是自己 provider/

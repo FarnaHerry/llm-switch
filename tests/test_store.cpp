@@ -229,8 +229,8 @@ int main() {
                   .closeBehavior == "ask");
     }
 
-    // 1a-2. 桌宠启动入口：新配置默认桌宠；旧版显式开关迁移为入口选择，
-    //       setter 立即落盘并保持旧键兼容。
+    // 1a-2. 桌宠启动入口：未保存过选择的新旧配置默认桌宠；旧版显式开关
+    //       迁移为入口选择，setter 立即落盘并保持旧键兼容。
     {
         auto petSettings = store::ProviderStore::load();
         CHECK(petSettings.config().startupMode == "pet");
@@ -250,9 +250,13 @@ int main() {
         CHECK(explicitPetOff.startupMode == "control-center");
         const auto existingInstall = models::fromJson(
             nlohmann::json::parse(R"json({"themeMode":"dark"})json"));
+        CHECK(existingInstall.startupMode == "pet");
         CHECK(existingInstall.firstRunSetupCompleted == true);
         CHECK(existingInstall.launchAtLogin == false);
         CHECK(existingInstall.trayEnabled == true);
+        const auto oldPendingChoice = models::fromJson(nlohmann::json::parse(
+            R"json({"startupMode":"choose"})json"));
+        CHECK(oldPendingChoice.startupMode == "pet");
         const auto newModeWins = models::fromJson(nlohmann::json::parse(
             R"json({"startupMode":"pet","petEnabled":false})json"));
         CHECK(newModeWins.startupMode == "pet");
@@ -3094,7 +3098,7 @@ int main() {
         CHECK(migrated.group("codex").providers.size() == 1);
         CHECK(migrated.group("codex").providers[0].id == "old-2");
         CHECK(migrated.config().themeMode == "dark");
-        CHECK(migrated.config().startupMode == "choose");
+        CHECK(migrated.config().startupMode == "pet");
         // 旧版本的全局刷新间隔迁移到旧 Provider。
         CHECK(migrated.group("claude-code").providers[0].usageRefreshMinutes ==
               5);

@@ -463,7 +463,7 @@ export struct AppConfig {
     std::vector<std::string> routerTools{
         "claude-code", "claude", "codex", "opencode", "pi", "dsh", "hermes",
         "zcode"};
-    // 应用启动入口：pet / control-center；choose 表示旧配置尚未作出选择。
+    // 应用启动入口：pet / control-center。未保存过选择的新旧配置默认桌宠优先。
     std::string startupMode = "pet";
     // 新安装首次设置向导是否完成。旧版已有配置视作已完成，避免升级时打扰。
     bool firstRunSetupCompleted = false;
@@ -682,9 +682,7 @@ export nlohmann::json toJson(const AppConfig& c) {
     j["routerTools"] = c.routerTools;
     j["startupMode"] = c.startupMode;
     // 兼容旧版本：仍写入旧开关，旧版读取新配置时能保留同一启动选择。
-    if (c.startupMode != "choose") {
-        j["petEnabled"] = c.startupMode == "pet";
-    }
+    j["petEnabled"] = c.startupMode == "pet";
     j["firstRunSetupCompleted"] = c.firstRunSetupCompleted;
     j["launchAtLogin"] = c.launchAtLogin;
     j["trayEnabled"] = c.trayEnabled;
@@ -732,8 +730,7 @@ export AppConfig fromJson(const nlohmann::json& j) {
     c.routerPort = j.value("routerPort", 15731);
     c.routerFailover = j.value("routerFailover", true);
     const std::string startupMode = j.value("startupMode", "");
-    if (startupMode == "pet" || startupMode == "control-center" ||
-        startupMode == "choose") {
+    if (startupMode == "pet" || startupMode == "control-center") {
         c.startupMode = startupMode;
     } else if (j.contains("petEnabled") && j["petEnabled"].is_boolean()) {
         // 兼容旧版显式保存的桌宠开关。
