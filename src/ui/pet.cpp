@@ -665,15 +665,9 @@ void PetController::Show(const huxerui::ApplicationHandle& application) {
         auto options = PetOptions(topmost.Get(), compact.Get(),
                                   live2d.Get() && PetLive2DAvailable());
         options.initial_position = saved_position;
-        try {
-            pet = application.OpenWindow(options);
-        } catch (const std::logic_error&) {
-            // Wayland 拒绝被动显示与 keep-above：退回合成器默认策略重开。
-            options.show_without_activation = false;
-            options.topmost = false;
-            pet = application.OpenWindow(options);
-            topmost = false;
-        }
+        pet = application.OpenWindow(
+            [] { return PetContent(); }, options);
+        if (!pet->Capabilities().topmost) topmost = false;
     }
     if (!pet->Capabilities().transparent_surface) {
         Retire();
@@ -733,7 +727,6 @@ void PetController::ToggleCard(const huxerui::ApplicationHandle& application) {
     }
     huxerui::WindowOptions options{
         .title = "llm-switch 桌宠信息卡",
-        .key = std::string(kPetCardWindowKey),
         .initial_size = {1080.0F, 720.0F},
         .minimum_size = huxerui::Size{800.0F, 600.0F},
         // 与主应用同款自定义标题栏（24pt，莲花 + 应用名），不出现平台
@@ -762,7 +755,8 @@ void PetController::ToggleCard(const huxerui::ApplicationHandle& application) {
             options.initial_position = huxerui::Point{x, y};
         }
     }
-    card = application.OpenWindow(options, {.owner = pet});
+    card = application.OpenWindow(
+        [] { return PetCardContent(); }, options, {.owner = pet});
     card->Activate();
 }
 

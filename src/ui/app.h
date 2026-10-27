@@ -19,8 +19,8 @@ struct PetController;
 // 统一的控制中心窗口配置；既用于 Application 默认值，也用于按需重建。
 huxerui::WindowOptions ControlCenterWindowOptions();
 
-// 应用根：当前为占位（一行文字），后续迭代替换为标题栏 + 侧边导航 + 页面切换。
-// 由 src/app.cpp 注册到 Application。
+// 主窗口内容工厂；桌宠和信息卡由各自的内容工厂创建独立窗口。
+// 由 src/app.cpp 注册到 Application，也供控制中心按需重建。
 huxerui::View AppRoot();
 
 // 按需创建并激活控制中心，同时让应用级入口跟踪当前挂载的窗口。

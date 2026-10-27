@@ -1107,7 +1107,10 @@ void MainWindowController::Unbind(std::uint64_t generation) noexcept {
 }
 
 void MainWindowController::Activate() {
-    if (!window_) window_ = application_.OpenWindow(options_);
+    if (!window_) {
+        window_ = application_.OpenWindow(
+            [] { return AppRoot(); }, options_);
+    }
     window_->Show();
     window_->Activate();
 }
@@ -1620,20 +1623,7 @@ void InstallApplication(huxerui::ApplicationContext& context) {
 }
 
 huxerui::View AppRoot() {
-    // 多窗口分发：主窗口（key 为空）走应用壳；桌宠窗口（key=="pet"，透明
-    // Utility）走 PetContent；信息卡（key=="pet-card"，桌宠的 owner 窗口）走
-    // PetCardContent。WindowIdentity 由框架按窗口种入 Environment。
-    return huxerui::Scope([] -> huxerui::View {
-        const huxerui::WindowIdentity identity =
-            huxerui::UseEnvironment<huxerui::WindowIdentity>();
-        if (identity.key == llmswitch::ui::kPetWindowKey) {
-            return llmswitch::ui::PetContent();
-        }
-        if (identity.key == llmswitch::ui::kPetCardWindowKey) {
-            return llmswitch::ui::PetCardContent();
-        }
-        return llmswitch::ui::AppContent();
-    });
+    return llmswitch::ui::AppContent();
 }
 
 } // namespace llmswitch::ui

@@ -1,7 +1,7 @@
 // pet.h — AI 桌宠（透明工具窗口小圆球）。
 //
-// 框架 501e8ca 起支持运行时多窗口与透明 Utility 窗口（examples/desktop_pet
-// 是同一套能力的官方演示）；llm-switch 在其上做一个 AI 语义的桌宠：
+// 基于 HuxerUI 的运行时多窗口与透明 Utility 窗口能力，llm-switch 做一个
+// AI 语义的桌宠：
 //   * 视觉：石墨玻璃球 + 居中呼吸的品牌莲花（lotus_bloom_raster，冷白
 //     alpha-mask，固定深色玻璃——桌面饰品在深浅桌面下都可读）；
 //   * 状态（每秒轮询本地路由；路由未运行时显示未知）：streaming（在途请求
@@ -29,13 +29,8 @@
 
 namespace llmswitch::ui {
 
-// 桌宠窗口的 WindowOptions::key；AppRoot 按 key 把组合分发到 PetContent。
-inline constexpr std::string_view kPetWindowKey = "pet";
-// 桌宠信息卡窗口的 key；AppRoot 按它分发到 PetCardContent。
-inline constexpr std::string_view kPetCardWindowKey = "pet-card";
-
 // 桌宠窗口参数：透明、无边框 Utility，创建时请求置顶与被动显示
-// （Wayland 拒绝时由 Show 回退到合成器默认策略）。compact 缩为胶囊，
+// （Wayland 不支持时采用合成器默认策略）。compact 缩为胶囊，
 // live2d 用更高的窗口容纳立绘。
 inline huxerui::WindowOptions PetOptions(bool topmost, bool compact, bool live2d) {
     huxerui::Size size{200.0F, 200.0F};
@@ -43,7 +38,6 @@ inline huxerui::WindowOptions PetOptions(bool topmost, bool compact, bool live2d
     if (live2d) size = {300.0F, 420.0F};
     return {
         .title = "llm-switch 桌宠",
-        .key = std::string(kPetWindowKey),
         .initial_size = size,
         .presentation = huxerui::WindowPresentation::Utility,
         .transparent_surface = true,

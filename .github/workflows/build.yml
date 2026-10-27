@@ -71,18 +71,10 @@ concurrency:
 env:
   HUXERUI_REPO: 'https://github.com/FarnaHerry/HuxerUI.git'
   # 该目录 gitignore，不入库，CI 必须自行 clone 并钉 commit，保证可复现。
-  # 501e8ca 是下游 fork farna/main 的集成分支：上游基线 0c51262（含
-  # Application/Window 所有权重构、跨平台 HTTP 流式修复与 64264cb 的
-  # Linux 有界 LRU 文本布局缓存）+ acgu/Clash-Flux 下游补丁 + 本项目
-  # Windows 图标与 macOS P0960 兼容修正（原 cmake/patches，已并入 fork；
-  # d5bd238/#5 安装器命令行静默运行，929ebde/42f0069 同版本安装检测
-  # （InstallerProductState::SameVersion），9333c98 embedded/quiet 无窗
-  # 安装与退出等待修复，00caf9a 桌面触摸板翻页滚动，8e2adda/317328c
-  # Windows/Linux 透明工具窗口与桌面宠物轻量托盘模式，96a0b98 玻璃
-  # 背景材质，0d3acfd/c1cce09 Windows 绘制资源复用与 Linux 玻璃纹理
-  # 快照加速，3ef0a74 跨窗口拖拽传输，eab74b0 Linux 运行时多窗口，
-  # 501e8ca 浮动窗口几何与输入生命周期修正）。
-  HUXERUI_COMMIT: '501e8ca0f5473139568d874aac96324bae33e1ac'
+  # 5873eeb 是下游 fork farna/main 的集成分支：保留既有跨平台应用
+  # 补丁，合并上游显式内容工厂/多窗口生命周期重构，并要求 Linux 部署用
+  # patchelf >=0.19.0；Linux 已知验证限制记录在 HuxerUI 上游文档。
+  HUXERUI_COMMIT: '5873eebcbc47cf659ce465bb89ae6634bfeca64b'
 
 jobs:
   # ------------------------------------------------------------------ Linux
