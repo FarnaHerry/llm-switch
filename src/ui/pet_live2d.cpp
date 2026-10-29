@@ -158,6 +158,8 @@ huxerui::View PetLive2DBody(const std::shared_ptr<PetController>& controller) {
     auto reaction = huxerui::UseState(false);
     auto reactionEpoch = huxerui::UseState(0);
     const auto tasks = huxerui::UseTaskScope();
+    const auto appTasks = huxerui::UseApplicationTaskScope();
+    const auto application = huxerui::UseApplication();
     const auto window = huxerui::UseWindow();
 
     std::shared_ptr<const BundledResources> bundled;
@@ -176,12 +178,13 @@ huxerui::View PetLive2DBody(const std::shared_ptr<PetController>& controller) {
     }
 
     huxerui::Lifecycle([tasks, model, asset, controller2d, status, ready, settled,
-                        loadGeneration, controller, bundled] {
+                        loadGeneration, controller, bundled, appTasks, application] {
         const std::uint64_t request = loadGeneration.Get() + 1;
         loadGeneration = request;
         ready = false;
         tasks.Launch([model, asset, controller2d, status, ready, settled,
-                      loadGeneration, controller, bundled, request]() -> huxerui::Task<void> {
+                      loadGeneration, controller, bundled, request,
+                      appTasks, application]() -> huxerui::Task<void> {
             pet_profile::Live2DModel selectedModel;
             bool hasCustom = false;
             try {
@@ -223,11 +226,20 @@ huxerui::View PetLive2DBody(const std::shared_ptr<PetController>& controller) {
                 status = std::format("{}，已显示莲花球", loaded.Error().message);
                 co_return;
             }
+            const float width = selectedModel.profile.width;
+            const float height = selectedModel.profile.height;
+            const bool resize = controller->live2dWidth != width ||
+                                controller->live2dHeight != height;
+            controller->live2dWidth = width;
+            controller->live2dHeight = height;
             model = std::move(selectedModel);
             controller2d = live2d::ModelController{};
             asset = std::move(loaded).Value();
             settled = false;
             status = "";
+            if (resize) {
+                appTasks.Post([controller, application] { controller->Rebuild(application); });
+            }
         });
         return [loadGeneration, request] {
             if (loadGeneration.Get() == request) loadGeneration = request + 1;

@@ -658,10 +658,10 @@ PetSkinDescriptor PetController::Descriptor() const {
     PetSkinDescriptor descriptor{.kind = kind};
     if (kind == PetSkin::shimeji) {
         descriptor.modelId = shimejiPack.Get();
-        descriptor.size = {160.0F, 160.0F};
+        descriptor.size = {shimejiWidth, shimejiHeight};
     } else if (kind == PetSkin::live2d) {
         descriptor.modelId = live2dModel.Get();
-        descriptor.size = {300.0F, 420.0F};
+        descriptor.size = {live2dWidth, live2dHeight};
         descriptor.available = PetLive2DAvailable();
         if (!descriptor.available) descriptor.status = "此构建未启用 Live2D";
     }

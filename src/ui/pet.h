@@ -177,6 +177,10 @@ struct PetController {
     huxerui::State<PetSkin> skin{PetSkin::lotus};
     huxerui::State<std::string> shimejiPack{std::string{}};
     huxerui::State<std::string> live2dModel{std::string{}};
+    float shimejiWidth = 160.0F;
+    float shimejiHeight = 160.0F;
+    float live2dWidth = 300.0F;
+    float live2dHeight = 420.0F;
     // 系统托盘显示偏好；关闭时不能隐藏最后一个可恢复入口。
     huxerui::State<bool> trayEnabled{true};
     // Tray presentation is application-owned; pet window creation/retirement

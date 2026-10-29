@@ -308,16 +308,25 @@ huxerui::View PetShimejiBody(const std::shared_ptr<PetController>& controller) {
     auto dropping = huxerui::UseState(false);
     auto handledDrop = huxerui::UseState<std::uint64_t>(0);
     const auto tasks = huxerui::UseTaskScope();
+    const auto appTasks = huxerui::UseApplicationTaskScope();
+    const auto application = huxerui::UseApplication();
     const auto window = huxerui::UseWindow();
 
-    huxerui::Lifecycle([runtime, status, controller, tasks] {
-        tasks.Launch([runtime, status, controller]() -> huxerui::Task<void> {
+    huxerui::Lifecycle([runtime, status, controller, tasks, appTasks, application] {
+        tasks.Launch([runtime, status, controller, appTasks, application]() -> huxerui::Task<void> {
             try {
                 auto loaded = co_await huxerui::RunWorker(
                     [selected = controller->shimejiPack.Get()] {
                         return LoadRuntime(selected);
                     });
+                const bool resize = controller->shimejiWidth != loaded->pack.width ||
+                                    controller->shimejiHeight != loaded->pack.height;
+                controller->shimejiWidth = loaded->pack.width;
+                controller->shimejiHeight = loaded->pack.height;
                 runtime = std::move(loaded);
+                if (resize) {
+                    appTasks.Post([controller, application] { controller->Rebuild(application); });
+                }
             } catch (const std::exception& e) {
                 status = std::format("{}，已显示莲花球", e.what());
             }
