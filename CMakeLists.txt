@@ -248,6 +248,7 @@ set(LLMSWITCH_MODULE_UNITS
     src/skills.cppm
     src/sessions.cppm
     src/usage.cppm
+    src/shimeji.cppm
 )
 
 # Agent activity is kept in its own module list so unrelated domain tests do not
@@ -406,6 +407,7 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
     target_link_libraries(llm-switch PRIVATE
         llmswitch_json
         llmswitch_httplib
+        llmswitch_pugixml
         Threads::Threads
     )
     if (WIN32)
@@ -671,6 +673,17 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
         target_link_libraries(test_sessions PRIVATE llmswitch_json Threads::Threads)
         add_test(NAME sessions COMMAND test_sessions)
 
+        # Shimeji 包解析、状态映射与不可信路径/资源上限。
+        add_executable(test_shimeji tests/test_shimeji.cpp src/shimeji.cpp)
+        target_sources(test_shimeji PRIVATE FILE_SET llmswitch_modules TYPE CXX_MODULES
+            BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+            FILES src/shimeji.cppm)
+        set_target_properties(test_shimeji PROPERTIES CXX_MODULE_STD ON CXX_SCAN_FOR_MODULES ON)
+        target_compile_features(test_shimeji PRIVATE cxx_std_23)
+        target_link_libraries(test_shimeji PRIVATE
+            llmswitch_json llmswitch_pugixml Threads::Threads)
+        add_test(NAME shimeji COMMAND test_shimeji)
+
         # 用量导入测试：五种会话日志的解析、去重取值、增量幂等与当天口径。
         add_executable(test_usage tests/test_usage.cpp src/usage.cpp)
         target_sources(test_usage PRIVATE FILE_SET llmswitch_modules TYPE CXX_MODULES
@@ -751,7 +764,7 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
             huxerui_use_library(ui_perf_probe TARGET HuxerUI::SQLite)
             target_link_libraries(ui_perf_probe PRIVATE
                 HuxerUI::huxerui HuxerUI::testing
-                llmswitch_json llmswitch_httplib Threads::Threads)
+                llmswitch_json llmswitch_httplib llmswitch_pugixml Threads::Threads)
             huxerui_enable_codegen(ui_perf_probe)
         endif ()
     endif ()

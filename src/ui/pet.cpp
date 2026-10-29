@@ -950,7 +950,16 @@ huxerui::View PetContent() {
             }
         })
         .On<huxerui::DragEvents::Started>(
-            [window](const huxerui::DragEvent&) { static_cast<void>(window.BeginMove()); });
+            [controller, window](const huxerui::DragEvent&) {
+                controller->dragging = true;
+                static_cast<void>(window.BeginMove());
+            })
+        .On<huxerui::DragEvents::Ended>([controller](const huxerui::DragEvent&) {
+            controller->dragging = false;
+        })
+        .On<huxerui::DragEvents::Canceled>([controller](const huxerui::DragEvent&) {
+            controller->dragging = false;
+        });
 
     // MenuHandle 必须在 Theme 的子作用域内获取：Theme 包在本函数的返回值
     // 上，函数体顶层 UseMenu() 捕获的是默认环境（右键菜单落回框架默认浅色

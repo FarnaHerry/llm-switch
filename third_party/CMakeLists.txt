@@ -26,3 +26,9 @@ target_include_directories(llmswitch_json PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/js
 add_library(llmswitch_httplib INTERFACE)
 target_include_directories(llmswitch_httplib INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/httplib")
 target_compile_features(llmswitch_httplib INTERFACE cxx_std_17)
+
+# ---- pugixml 1.15（MIT）-------------------------------------------------------
+# Shimeji-ee actions.xml / behaviors.xml 只读解析；不启用 XPath 或外部实体能力。
+add_library(llmswitch_pugixml STATIC pugixml/pugixml.cpp)
+target_include_directories(llmswitch_pugixml PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/pugixml")
+target_compile_features(llmswitch_pugixml PUBLIC cxx_std_17)
