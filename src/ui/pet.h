@@ -146,7 +146,7 @@ struct PetController {
     // 信息卡快照（每 Agent 今日请求 / tokens / 失败数，Poll 聚合）。
     huxerui::State<PetCardSnapshot> cardSnapshot{PetCardSnapshot{}};
     // 胶囊模式：桌宠缩为「状态点 + 今日次数」的小胶囊（同一窗口的另一种
-    // 组合，切换经 Retire + 按新尺寸重建）。
+    // 组合，切换经 Close + 按新尺寸重建）。
     huxerui::State<bool> compact{false};
     // Live2D 皮肤（config.petLive2D 的运行时镜像）：开启且编译可用
     // （LLMSWITCH_LIVE2D）且模型存在时，桌宠用 Live2D 模型渲染；窗口更高。
@@ -156,12 +156,12 @@ struct PetController {
     // Tray presentation is application-owned; pet window creation/retirement
     // refreshes its menu even when the control center has never been opened.
     std::function<void()> refreshTray;
-    // 窗口存活性代次：Show/Retire 自增，托盘菜单以它为依赖跟随重建勾选态
-    // （轻量级模式下隐藏即退役，托盘勾选必须随之消失）。
+    // 窗口存活性代次：Show/Close 自增，托盘菜单以它为依赖跟随重建勾选态
+    // （轻量级模式下隐藏即关闭，托盘勾选必须随之消失）。
     huxerui::State<std::uint64_t> epoch{0};
-    // 深浅主题（与应用同一规则：themeMode + 系统偏好），Poll 每秒跟随——
-    // 右键菜单与桌面不变时切换主题，桌宠菜单在一秒内跟上。
-    huxerui::State<bool> darkTheme{true};
+    // 全窗口共享主题选择：0=跟随系统、1=深色、2=浅色；系统偏好由各窗口
+    // UseSystemThemeBrightness() 订阅，不再由 Poll 探测。
+    huxerui::State<int> themeMode{0};
 
     // ---- 批次状态机（Poll 私有，UI 线程独占，不进 State）----
     // 首个 Poll 只对齐日志水位不算活动（启动时的历史日志不触发完成提醒）。
@@ -189,10 +189,11 @@ struct PetController {
         play = PetPlay{current.epoch + 1, (current.kind + 1) % 3};
     }
     // 切换信息卡（右键菜单 / 托盘）：在桌宠旁开锚定卡片窗口（owner =
-    // 桌宠，随桌宠退役），再点收起。配置持久化由调用方负责。
+    // 桌宠，随桌宠关闭），再点收起。配置持久化由调用方负责。
     void ToggleCard(const huxerui::ApplicationHandle& application);
+    void CloseCard();
     // 胶囊模式切换（配置持久化由调用方负责）：存活时按新尺寸重建窗口，
-    // 位置保留；信息卡随 owner 重建自动退役，不搬旧卡。
+    // 位置保留；信息卡随 owner 重建自动关闭，不搬旧卡。
     void SetCompact(bool value, const huxerui::ApplicationHandle& application);
     // Live2D 皮肤切换（配置持久化由调用方负责）：与胶囊切换同一套重建
     // 语义（live2d 优先于 compact 决定窗口尺寸）。
@@ -202,7 +203,7 @@ struct PetController {
     std::uint64_t cardGeneration = 0;
 
     void Show(const huxerui::ApplicationHandle& application);
-    void Retire();
+    void Close();
     void Hide(bool trayAvailable);
     void SetTopmost(bool value);
     // 轻量级开关：对已经藏起的桌宠启用时立即退役（释放资源）；托盘不可用
@@ -242,7 +243,7 @@ inline void UsePetAttachment(const std::shared_ptr<PetController>& controller) {
         }
         if (!controller->saved_position) controller->RecoverPosition();
         return [controller, current] {
-            // 退役先于新窗口挂载时（Retire++generation 已使代次失配），
+            // 旧窗口关闭先于新窗口挂载时（Close++generation 已使代次失配），
             // 旧附件的清理不得清掉新窗口的句柄。
             if (controller->generation == current) controller->pet.reset();
         };

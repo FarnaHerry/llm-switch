@@ -71,10 +71,10 @@ concurrency:
 env:
   HUXERUI_REPO: 'https://github.com/FarnaHerry/HuxerUI.git'
   # 该目录 gitignore，不入库，CI 必须自行 clone 并钉 commit，保证可复现。
-  # 5873eeb 是下游 fork farna/main 的集成分支：保留既有跨平台应用
-  # 补丁，合并上游显式内容工厂/多窗口生命周期重构，并要求 Linux 部署用
-  # patchelf >=0.19.0；Linux 已知验证限制记录在 HuxerUI 上游文档。
-  HUXERUI_COMMIT: '5873eebcbc47cf659ce465bb89ae6634bfeca64b'
+  # b083028 是下游 fork farna/main 的集成分支：保留既有跨平台应用补丁，
+  # 支持每窗口系统深浅色；窗口释放统一走 Close，并以
+  # quit_on_last_window_closed=false 保持托盘常驻。Linux 部署要求 patchelf >=0.19.0。
+  HUXERUI_COMMIT: 'b08302858fe7f3d6ff6d9c0b00a09c1ad0e6524b'
 
 jobs:
   # ------------------------------------------------------------------ Linux

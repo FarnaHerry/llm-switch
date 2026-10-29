@@ -4,8 +4,9 @@ nlohmann::json 以 single header 直接提交在 `json/`；cpp-httplib 以 singl
 header 提交在 `httplib/`；HuxerUI 0.2.0 的 Linux 离线 SDK 包提交在
 `tarballs/` 兜底。日常源码构建跟随下游 fork `FarnaHerry/HuxerUI` 的
 `farna/main` 集成分支（官方 `main` 只作上游基线镜像），CI 固定到
-commit `5873eebcbc47cf659ce465bb89ae6634bfeca64b`。应用窗口按新版 API
-显式提供各自内容工厂；Linux runtime 部署要求 patchelf ≥0.19.0。构建
+commit `b08302858fe7f3d6ff6d9c0b00a09c1ad0e6524b`。应用窗口显式提供各自
+内容工厂，按窗口订阅系统深浅色；释放窗口统一走 `Close()`，并以
+`quit_on_last_window_closed=false` 保持托盘常驻。Linux runtime 部署要求 patchelf ≥0.19.0。构建
 离线、可复现；清单与姊妹项目 Clash-Flux 对齐（无 IXWebSocket）；SQLite 只经由
 下游 fork `FarnaHerry/Lib-SQLite`（`farna/main` 钉 `88f610fe66c57260b1ac38e676fc36b23c900fc2`）
 引入（见顶层 CMakeLists 的 huxerui_use_library），不额外 vendor。

@@ -11,6 +11,7 @@ const huxerui::Application application{
         .window = llmswitch::ui::ControlCenterWindowOptions(),
         // 桌宠优先启动不创建管理窗口；ApplicationHook 根据启动模式按需打开。
         .create_initial_window = false,
+        .quit_on_last_window_closed = false,
         // 应用级安装：托盘激活处理器等 Runtime 生命周期的一次性注册走这里
         // （见 llmswitch::ui::InstallApplication）。
         .application_hooks = {llmswitch::ui::InstallApplication},

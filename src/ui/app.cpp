@@ -225,7 +225,7 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(
                                       if (const auto presentation = weakPresentation.lock()) {
                                           presentation->NotifyConfigurationChanged(1U);
                                       }
-                                      pet->Retire();
+                                      pet->Close();
                                       mainWindow->Activate();
                                   } else {
                                       providerStore().setStartupMode("pet");
@@ -1286,11 +1286,8 @@ void InstallApplication(huxerui::ApplicationContext& context) {
     pet->compact = providerStore().config().petCompact;
     pet->live2d = providerStore().config().petLive2D;
     pet->trayEnabled = providerStore().config().trayEnabled;
-    {
-        const std::string& mode = providerStore().config().themeMode;
-        pet->darkTheme =
-            mode == "dark" || (mode != "light" && cfg::systemPrefersDark());
-    }
+    const std::string& themeMode = providerStore().config().themeMode;
+    pet->themeMode = themeMode == "dark" ? 1 : (themeMode == "light" ? 2 : 0);
     context.Provide(pet);
     auto trayPresentation = std::make_shared<TrayPresentationController>(
         application, tray, mainWindow, pet);
@@ -1375,15 +1372,7 @@ void InstallApplication(huxerui::ApplicationContext& context) {
         huxerui::UseService<TrayPresentationController>();
     const auto& initialConfig = providerStore().config();
     const std::string startupModeValue = initialConfig.startupMode;
-    // 初始值在 UseState 之前算好（组合体内不写 State）：
-    // 主题模式 0=跟随系统 1=深色 2=浅色；配置里的 themeMode 字符串映射。
-    int initialThemeMode = 0;
-    {
-        const std::string& saved = providerStore().config().themeMode;
-        if (saved == "dark") initialThemeMode = 1;
-        if (saved == "light") initialThemeMode = 2;
-    }
-    auto themeMode = huxerui::UseState<int>(std::move(initialThemeMode));
+    auto themeMode = pet->themeMode;
     auto startupMode = huxerui::UseState<std::size_t>(
         startupModeValue == "control-center" ? 1U : 0U);
     auto setupCompleted =
@@ -1447,8 +1436,10 @@ void InstallApplication(huxerui::ApplicationContext& context) {
         return [] {};
     }, 0);
 
+    const bool systemDark =
+        huxerui::UseSystemThemeBrightness() == huxerui::ThemeBrightness::Dark;
     const bool dark =
-        themeMode.Get() == 1 || (themeMode.Get() == 0 && cfg::systemPrefersDark());
+        themeMode.Get() == 1 || (themeMode.Get() == 0 && systemDark);
     const huxerui::ThemeSpec rootSpec = dark ? AppDarkThemeSpec() : AppLightThemeSpec();
 
     // 顶级页面不再有自己的卡片，页面与标题栏共用窗口表面；两者的左右边距

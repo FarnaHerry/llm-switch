@@ -42,10 +42,6 @@ std::size_t CloseBehaviorIndex(std::string_view behavior) {
     return 0;
 }
 
-bool ResolvesToDark(int mode) {
-    return mode == 1 || (mode == 0 && cfg::systemPrefersDark());
-}
-
 ::agents::hooks::HookStatus ReadHookStatus(std::string_view tool) noexcept {
     try {
         return ::agents::hooks::Inspect(tool);
@@ -57,6 +53,8 @@ bool ResolvesToDark(int mode) {
 [[huxerui::composable]] huxerui::View TaijiThemeSelector(
     huxerui::State<int> themeMode) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    const bool systemDark =
+        huxerui::UseSystemThemeBrightness() == huxerui::ThemeBrightness::Dark;
     auto tasks = huxerui::UseTaskScope();
     const auto sceneTransition = huxerui::UseSceneTransition();
     auto hovering = huxerui::UseState(false);
@@ -100,10 +98,13 @@ bool ResolvesToDark(int mode) {
               huxerui::PointerCursor(huxerui::PointerCursorKind::Hand),
               huxerui::Tooltip(tooltip))
         .On<huxerui::ViewEvents::Hover>(startSpin)
-        .OnClick([sceneTransition, themeMode] {
+        .OnClick([sceneTransition, themeMode, systemDark] {
+            const auto resolvesToDark = [systemDark](int selected) {
+                return selected == 1 || (selected == 0 && systemDark);
+            };
             const int next = (themeMode.Get() + 1) % 3;
-            const bool currentlyDark = ResolvesToDark(themeMode.Get());
-            const bool nextIsDark = ResolvesToDark(next);
+            const bool currentlyDark = resolvesToDark(themeMode.Get());
+            const bool nextIsDark = resolvesToDark(next);
 
             huxerui::TransitionSpec transition{
                 huxerui::CircularRevealTransition{},
@@ -511,7 +512,7 @@ bool ResolvesToDark(int mode) {
                                     if (index == 0) {
                                         pet->Show(application);
                                     } else {
-                                        pet->Retire();
+                                        pet->Close();
                                     }
                                 } catch (const std::exception& e) {
                                     toast.Show(e.what());

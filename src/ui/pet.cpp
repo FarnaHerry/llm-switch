@@ -8,7 +8,7 @@
 //   底部角标显示今日请求数，顶部浮标显示活跃 Agent（≤2 个）。
 // 动画走 NodeExtension 的保留绘制（30fps 上限，reduced-motion 下静止——✓ 与
 // 浮标仍显示），统计轮询走 TaskScope + Delay（每秒一次，窗口退役时随作用域
-// 取消）。右键菜单经 PetThemeDefinition 套主应用同款主题（深浅随 Poll 跟随）。
+// 取消）。右键菜单经 PetThemeDefinition 套主应用同款主题（跟随共享主题状态）。
 #include <huxerui/huxerui.h>
 
 #include <chrono>
@@ -27,7 +27,6 @@
 #include "theme_colors.h"
 #include "ui.h"
 
-import llmswitch.config;
 import llmswitch.models;
 import llmswitch.router;
 import llmswitch.store;
@@ -359,7 +358,7 @@ huxerui::View PetLive2DFallback(
 
 // 桌宠窗口唯一的主题化 UI 是右键菜单：套与主应用 AppThemed 同源的 spec +
 // 同一款菜单覆盖（同表面、8px 圆角、同阴影同悬浮态），弹出的菜单与主窗口
-// 右键菜单观感一致。深浅由 PetController::darkTheme（Poll 每秒跟随）驱动。
+// 右键菜单观感一致。深浅由共享 themeMode 与当前窗口的系统外观共同决定。
 // compact_menu：球窗只有 200pt 高，默认行高（36pt + 8pt 行内边距）只能放
 // 5 项；桌宠球窗菜单改用紧凑行高（30pt 行 + 4pt 行内边距，6 项 ≈188pt）。
 // 信息卡窗口复用同一主题定义但传 false，保持默认行高。
@@ -652,12 +651,6 @@ void PetController::Poll() {
         }
         if (cardSnapshot.Get() != next_snapshot) cardSnapshot = next_snapshot;
     }
-
-    // 主题跟随（与主应用同一规则：显式深浅优先，否则系统偏好）。
-    const std::string& mode = providerStore().config().themeMode;
-    const bool next_dark =
-        mode == "dark" || (mode != "light" && cfg::systemPrefersDark());
-    if (darkTheme.Get() != next_dark) darkTheme = next_dark;
 }
 
 void PetController::Show(const huxerui::ApplicationHandle& application) {
@@ -670,7 +663,7 @@ void PetController::Show(const huxerui::ApplicationHandle& application) {
         if (!pet->Capabilities().topmost) topmost = false;
     }
     if (!pet->Capabilities().transparent_surface) {
-        Retire();
+        Close();
         throw std::runtime_error("当前平台不支持透明桌宠窗口");
     }
     pet->Show();
@@ -678,17 +671,20 @@ void PetController::Show(const huxerui::ApplicationHandle& application) {
     if (refreshTray) refreshTray();
 }
 
-void PetController::Retire() {
-    if (pet) saved_position = pet->Position();
-    // 退役是排队操作：先失配代次，旧附件的清理就不会清掉新开的替代窗口。
-    ++generation;
-    // 信息卡 owner 是桌宠，桌宠退役时框架会连带退役它；这里同步失配卡片
-    // 代次并清句柄，ToggleCard 的「开着的卡」判定立即恢复为关。
+void PetController::CloseCard() {
     ++cardGeneration;
-    if (card) card->Retire();
-    card.reset();
-    if (pet) pet->Retire();
-    pet.reset();
+    auto closing_card = std::exchange(card, std::nullopt);
+    if (closing_card) closing_card->Close();
+}
+
+void PetController::Close() {
+    if (pet) saved_position = pet->Position();
+    // 先失配代次并摘下句柄，旧附件的清理不会清掉新开的替代窗口；关闭
+    // 回调也能据此区分控制器主动 Close 与用户的关闭请求。
+    ++generation;
+    CloseCard();
+    auto closing_pet = std::exchange(pet, std::nullopt);
+    if (closing_pet) closing_pet->Close();
     epoch = epoch.Get() + 1;
     if (refreshTray) refreshTray();
 }
@@ -696,7 +692,7 @@ void PetController::Retire() {
 void PetController::Hide(bool trayAvailable) {
     if (!trayAvailable) return;
     if (lightweight.Get()) {
-        Retire();
+        Close();
     } else {
         if (card) card->Hide();
         if (pet) pet->Hide();
@@ -720,9 +716,7 @@ void PetController::SetTopmost(bool value) {
 
 void PetController::ToggleCard(const huxerui::ApplicationHandle& application) {
     if (card) {
-        ++cardGeneration;
-        card->Retire();
-        card.reset();
+        CloseCard();
         return;
     }
     huxerui::WindowOptions options{
@@ -769,7 +763,7 @@ void PetController::SetCompact(bool value,
     // owner 退役，用户需要时再点开（不试图把旧卡搬到新锚点旁）。
     const bool wasVisible =
         pet->LifecycleState() != huxerui::WindowLifecycleState::Background;
-    Retire();
+    Close();
     if (wasVisible || !saved_position) Show(application);
 }
 
@@ -781,7 +775,7 @@ void PetController::SetLive2D(bool value,
     // 与胶囊切换同一套重建语义（live2d 优先于 compact 决定窗口尺寸）。
     const bool wasVisible =
         pet->LifecycleState() != huxerui::WindowLifecycleState::Background;
-    Retire();
+    Close();
     if (wasVisible || !saved_position) Show(application);
 }
 
@@ -851,13 +845,15 @@ huxerui::View PetContent() {
         trayAvailable);
     window.OnCloseRequest(
         [controller, appTasks, trayAvailable] {
-            // 关闭桌宠 = 收起（应用与托盘继续运行）；无托盘时退役，设置页
+            // Close() 先摘下控制器句柄；此时放行框架关闭，避免再次进入本回调。
+            if (!controller->pet) return false;
+            // 用户关闭桌宠 = 收起（应用与托盘继续运行）；无托盘时关闭，设置页
             // 与托盘菜单可随时重建。
             appTasks.Post([controller, trayAvailable] {
                 if (trayAvailable) {
                     controller->Hide(true);
                 } else {
-                    controller->Retire();
+                    controller->Close();
                 }
             });
             return true;
@@ -935,8 +931,12 @@ huxerui::View PetContent() {
     // 上，函数体顶层 UseMenu() 捕获的是默认环境（右键菜单落回框架默认浅色
     // 样式）——与 app.cpp 的 DialogHandle 同款坑（AGENTS.md UI 视觉硬约束）。
     // Scope 的工厂在组合期执行，Use* 合法（app.cpp windowBehavior 同款）。
+    const int themeMode = controller->themeMode.Get();
+    const bool systemDark =
+        huxerui::UseSystemThemeBrightness() == huxerui::ThemeBrightness::Dark;
+    const bool dark = themeMode == 1 || (themeMode == 0 && systemDark);
     return huxerui::Theme(
-        PetThemeDefinition(controller->darkTheme.Get(), true),
+        PetThemeDefinition(dark, true),
         huxerui::Scope([controller, activation, application, nav, appTasks,
                         content = std::move(content)]() mutable -> huxerui::View {
             const auto menu = huxerui::UseMenu();
@@ -1249,11 +1249,12 @@ huxerui::View PetCardContent() {
     const huxerui::TaskScope appTasks = huxerui::UseApplicationTaskScope();
     UseCardAttachment(controller);
 
-    // 自定义标题栏的关闭按钮是窗口内视图：点击在指针派发中同步退役本窗口
+    // 自定义标题栏的关闭按钮是窗口内视图：点击在指针派发中同步关闭本窗口
     // 会在派发返回后访问已释放的 PointerInteraction（use-after-free，与
-    // 桌宠窗口同款坑）。拦截关闭请求并推迟退役。
-    window.OnCloseRequest([window, appTasks] {
-        appTasks.Post([window] { window.Retire(); });
+    // 桌宠窗口同款坑）。用户请求推迟执行；控制器 CloseCard() 已摘下句柄时放行。
+    window.OnCloseRequest([controller, appTasks] {
+        if (!controller->card) return false;
+        appTasks.Post([controller] { controller->CloseCard(); });
         return true;
     });
 
@@ -1262,22 +1263,20 @@ huxerui::View PetCardContent() {
     auto workspacePage = huxerui::UseState<std::size_t>(
         std::size_t{workspace_pages::kHome});
     auto selectedTool = huxerui::UseState<std::size_t>(0);
-    int initialThemeMode = 0;
-    const std::string& savedTheme = providerStore().config().themeMode;
-    if (savedTheme == "dark") initialThemeMode = 1;
-    if (savedTheme == "light") initialThemeMode = 2;
     auto localRevision = huxerui::UseState(0);
-    auto localThemeMode = huxerui::UseState<int>(std::move(initialThemeMode));
     const std::string startupModeValue = providerStore().config().startupMode;
     auto localStartupMode = huxerui::UseState<std::size_t>(
         startupModeValue == "control-center" ? 1U : 0U);
     auto localTrayEnabled = huxerui::UseState(providerStore().config().trayEnabled);
     auto revision = nav->RevisionState().value_or(localRevision);
-    auto themeMode = nav->ThemeModeState().value_or(localThemeMode);
+    auto themeMode = controller->themeMode;
     auto startupMode = nav->StartupModeState().value_or(localStartupMode);
     auto trayEnabled = nav->TrayEnabledState().value_or(localTrayEnabled);
 
-    const bool dark = controller->darkTheme.Get();
+    const bool systemDark =
+        huxerui::UseSystemThemeBrightness() == huxerui::ThemeBrightness::Dark;
+    const bool dark =
+        themeMode.Get() == 1 || (themeMode.Get() == 0 && systemDark);
     const huxerui::ThemeSpec spec = dark
         ? AppDarkThemeSpec() : AppLightThemeSpec();
     huxerui::View content = huxerui::Column {
