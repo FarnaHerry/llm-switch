@@ -71,10 +71,10 @@ concurrency:
 env:
   HUXERUI_REPO: 'https://github.com/FarnaHerry/HuxerUI.git'
   # 该目录 gitignore，不入库，CI 必须自行 clone 并钉 commit，保证可复现。
-  # b083028 是下游 fork farna/main 的集成分支：保留既有跨平台应用补丁，
-  # 支持每窗口系统深浅色；窗口释放统一走 Close，并以
+  # 5dd4009 是下游 fork farna/main 的集成分支：保留既有跨平台应用补丁，
+  # 支持自定义字体、主题字体族和每窗口系统深浅色；窗口释放统一走 Close，并以
   # quit_on_last_window_closed=false 保持托盘常驻。Linux 部署要求 patchelf >=0.19.0。
-  HUXERUI_COMMIT: 'b08302858fe7f3d6ff6d9c0b00a09c1ad0e6524b'
+  HUXERUI_COMMIT: '5dd4009a3f1bb70a4d617fbedf3e5631a7b49a3d'
 
 jobs:
   # ------------------------------------------------------------------ Linux
@@ -112,7 +112,7 @@ jobs:
             clang-21 libc++-21-dev g++ ninja-build pkg-config file gzip \
             dpkg-dev fakeroot rpm \
             python3 python3-pip patchelf \
-            libgtk-4-dev libepoxy-dev libsoup-3.0-dev
+            libgtk-4-dev libepoxy-dev libsoup-3.0-dev libpango1.0-dev libfontconfig-dev
           # 26.04 的 apt cmake 是 3.31（GNU import-std 发现不行），固定 pip 4.4.2
           python3 -m pip install --break-system-packages -q cmake==4.4.2
           cmake --version | head -1
