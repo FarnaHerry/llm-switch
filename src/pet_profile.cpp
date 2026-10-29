@@ -128,6 +128,15 @@ std::vector<Live2DModel> ScanLive2DModels(const fs::path& root) {
     for (const auto& entry : fs::directory_iterator(root, ec)) {
         if (!entry.is_directory()) continue;
         const fs::path modelRoot = entry.path();
+        bool hasModel = false;
+        for (const auto& candidate : fs::directory_iterator(modelRoot, ec)) {
+            if (candidate.is_regular_file() &&
+                candidate.path().filename().string().ends_with(".model3.json")) {
+                hasModel = true;
+                break;
+            }
+        }
+        if (!hasModel) continue;
         const fs::path modelEntry = FindEntry(modelRoot);
         models.push_back({
             .id = modelRoot.filename().string(),

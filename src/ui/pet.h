@@ -143,6 +143,7 @@ struct PetController {
     huxerui::State<bool> topmost{true};
     huxerui::State<bool> animate{true};
     huxerui::State<bool> dragging{false};
+    huxerui::State<std::uint64_t> dropEpoch{0};
     // 轻量级模式（对齐 Clash-Flux 的轻量级托盘）：隐藏时退役窗口、释放
     // UI 树与渲染资源（应用状态/托盘/进程继续运行），唤出时按进程内保留的
     // 位置与偏好重建，波纹相位从头开始。
@@ -254,6 +255,7 @@ bool PetLive2DAvailable();
     const std::shared_ptr<PetController>& controller);
 [[huxerui::composable]] huxerui::View PetSkinFallback(
     const std::shared_ptr<PetController>& controller, std::string status);
+[[huxerui::composable]] huxerui::View PetModelSettings();
 
 inline void UsePetAttachment(const std::shared_ptr<PetController>& controller) {
     const auto window = huxerui::UseWindow();

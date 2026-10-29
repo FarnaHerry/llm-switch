@@ -10,9 +10,10 @@ C++23 modules + HuxerUI，无 Electron。
 
 ## 功能
 
-- **AI 桌宠优先入口**：目标是让桌宠汇总多 Agent 活动并打开快捷信息卡；Live2D 是
-  主角色外观方向，莲花球作为低资源与无 Live2D 构建时的内建皮肤。原生 Agent 活动
-  覆盖与 Live2D 分发验证按[路线图](docs/desktop-pet-roadmap.md)推进。
+- **AI 桌宠优先入口**：桌宠汇总多 Agent 活动并打开快捷信息卡；Shimeji 提供
+  Q 版帧动画，Live2D 提供模型、动作、表情、参数与 HitArea 高阶交互，莲花球作为
+  低资源与加载失败时的内建回退。模型目录可在设置页导入、切换和删除；原生 Agent
+  活动覆盖与 Live2D 分发验证按[路线图](docs/desktop-pet-roadmap.md)推进。
 - **供应商管理**：八个工具组各自维护供应商列表（新增 / 编辑 / 复制 /
   删除），内置 DeepSeek / Kimi / GLM / OpenRouter 等预设模板；API 协议三档
   （OpenAI Chat Completions / OpenAI Responses / Anthropic Messages）。
@@ -92,7 +93,7 @@ push `v*` tag 会自动建 release 并挂上三个平台包；三个平台均通
 - llm-switch 自身数据目录：`~/.local/share/llm-switch/`（遵循 XDG；
   `$XDG_DATA_HOME/llm-switch/`）——`config.json`（配置库）、`backups/`、
   `mcp.json`（MCP 统一清单）、`skills-store/`（Skills 中央库）、
-  `router/requests.jsonl`（路由请求统计）。
+  `router/requests.jsonl`（路由请求统计）、`shimeji/` 与 `live2d/`（用户导入模型）。
 - 操作的 live 文件（工具实际读取的配置）：
   - Claude Code：`~/.claude/settings.json`（另有 MCP 写 `~/.claude.json`）
   - Codex：`~/.codex/auth.json` 与 `~/.codex/config.toml`

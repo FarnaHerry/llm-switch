@@ -956,6 +956,7 @@ huxerui::View PetContent() {
             })
         .On<huxerui::DragEvents::Ended>([controller](const huxerui::DragEvent&) {
             controller->dragging = false;
+            controller->dropEpoch = controller->dropEpoch.Get() + 1;
         })
         .On<huxerui::DragEvents::Canceled>([controller](const huxerui::DragEvent&) {
             controller->dragging = false;

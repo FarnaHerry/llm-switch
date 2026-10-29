@@ -585,6 +585,7 @@ std::size_t CloseBehaviorIndex(std::string_view behavior) {
                                     toast.Show(e.what());
                                 }
                             })),
+                    PetModelSettings(),
                 }.With(huxerui::Spacing(10.0F),
                        huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))),
 

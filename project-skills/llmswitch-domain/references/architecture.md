@@ -17,6 +17,9 @@ claude-code / claude desktop（id=claude）/ codex / opencode / pi / dsh / herme
 | skills | src/skills.cppm、skills.cpp | 中央库管理、工具侧软链接同步与合并视图 |
 | sessions | src/sessions.cppm、sessions.cpp | 会话枚举、摘要、反向分页、导出与安全删除 |
 | usage | src/usage.cppm、usage.cpp | 会话用量解析、扫描和聚合；数据库编排在 UI 层 |
+| shimeji | src/shimeji.cppm、shimeji.cpp | Shimeji-ee 包校验、动作/行为解析与状态映射 |
+| pet_profile | src/pet_profile.cppm、pet_profile.cpp | Live2D 模型目录与动作/表情/参数配置 |
+| pet_packages | src/pet_packages.cppm、pet_packages.cpp | 模型目录导入校验、原子落位与应用内删除 |
 | agents | src/agents/ | 原生活动事件、来源健康、桥接和每 Agent adapter/hook 管理 |
 
 store 实现按职责拆分：store.cpp 为本地 CRUD，store_live.cpp 为 live writer、
@@ -42,7 +45,8 @@ ProviderStore 不强制单例，UI 全局实例是 common.cpp::providerStore()�
 - src/app.cpp 声明 Application，application_hooks 安装应用级服务，默认不创建
   控制中心窗口；窗口按启动模式和用户操作创建，尺寸来自 ControlCenterWindowOptions。
 - src/ui/app.cpp 管理主题、AmbientGlow、标题栏莲花径向导航、IndexedPages、托盘
-  和关闭策略；pet*.cpp 管理桌宠、Live2D/回退与信息卡工作台。当前桌宠路线和完成度
+  和关闭策略；pet*.cpp 管理桌宠、Shimeji/Live2D/莲花球与信息卡工作台，
+  pet_model_settings.cpp 负责模型导入、选择与删除。当前桌宠路线和完成度
   查 [产品路线图](../../../docs/desktop-pet-roadmap.md) 与
   [迁移计划](../../../docs/pet-workbench-migration-plan.md)。
 - agent_page 为工具栏/Pager/表单宿主；providers_page 为供应商列表，provider_* 为

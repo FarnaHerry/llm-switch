@@ -250,6 +250,7 @@ set(LLMSWITCH_MODULE_UNITS
     src/usage.cppm
     src/shimeji.cppm
     src/pet_profile.cppm
+    src/pet_packages.cppm
 )
 
 # Agent activity is kept in its own module list so unrelated domain tests do not
@@ -694,6 +695,18 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
         target_compile_features(test_pet_profile PRIVATE cxx_std_23)
         target_link_libraries(test_pet_profile PRIVATE llmswitch_json Threads::Threads)
         add_test(NAME pet_profile COMMAND test_pet_profile)
+
+        # 模型目录导入校验、原子落位与应用内删除边界。
+        add_executable(test_pet_packages tests/test_pet_packages.cpp
+            src/pet_packages.cpp src/shimeji.cpp src/pet_profile.cpp)
+        target_sources(test_pet_packages PRIVATE FILE_SET llmswitch_modules TYPE CXX_MODULES
+            BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+            FILES src/pet_packages.cppm src/shimeji.cppm src/pet_profile.cppm)
+        set_target_properties(test_pet_packages PROPERTIES CXX_MODULE_STD ON CXX_SCAN_FOR_MODULES ON)
+        target_compile_features(test_pet_packages PRIVATE cxx_std_23)
+        target_link_libraries(test_pet_packages PRIVATE
+            llmswitch_json llmswitch_pugixml Threads::Threads)
+        add_test(NAME pet_packages COMMAND test_pet_packages)
 
         # 用量导入测试：五种会话日志的解析、去重取值、增量幂等与当天口径。
         add_executable(test_usage tests/test_usage.cpp src/usage.cpp)

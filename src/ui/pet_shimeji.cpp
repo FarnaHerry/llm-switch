@@ -305,6 +305,8 @@ huxerui::View PetShimejiBody(const std::shared_ptr<PetController>& controller) {
     auto scheduledAction = huxerui::UseState<std::string>({});
     auto reaction = huxerui::UseState(false);
     auto reactionEpoch = huxerui::UseState(0);
+    auto dropping = huxerui::UseState(false);
+    auto handledDrop = huxerui::UseState<std::uint64_t>(0);
     const auto tasks = huxerui::UseTaskScope();
     const auto window = huxerui::UseWindow();
 
@@ -333,6 +335,17 @@ huxerui::View PetShimejiBody(const std::shared_ptr<PetController>& controller) {
         });
     }, playEpoch);
 
+    const std::uint64_t dropEpoch = controller->dropEpoch.Get();
+    huxerui::Lifecycle([dropEpoch, dropping, handledDrop, tasks] {
+        if (dropEpoch == 0 || handledDrop.Get() == dropEpoch) return;
+        handledDrop = dropEpoch;
+        dropping = true;
+        tasks.Launch([dropEpoch, dropping, handledDrop]() -> huxerui::Task<void> {
+            co_await huxerui::Delay(std::chrono::milliseconds{600});
+            if (handledDrop.Get() == dropEpoch) dropping = false;
+        });
+    }, dropEpoch);
+
     const auto current = runtime.Get();
     if (!current) {
         if (!status.Get().empty()) return PetSkinFallback(controller, status.Get());
@@ -342,9 +355,10 @@ huxerui::View PetShimejiBody(const std::shared_ptr<PetController>& controller) {
     const shimeji::Activity activity = CurrentActivity(controller);
     std::string desired = ActivityAction(*current, activity);
     if (reaction.Get()) desired = ActivityAction(*current, shimeji::Activity::completed);
+    if (dropping.Get()) desired = current->pack.stateActions.falling;
     if (controller->dragging.Get()) desired = current->pack.stateActions.dragged;
     if (activity == shimeji::Activity::idle && !scheduledAction.Get().empty() &&
-        !reaction.Get() && !controller->dragging.Get()) {
+        !reaction.Get() && !dropping.Get() && !controller->dragging.Get()) {
         desired = scheduledAction.Get();
     }
     if (!shimeji::FindAction(current->pack, desired)) {

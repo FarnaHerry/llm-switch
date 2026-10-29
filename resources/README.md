@@ -15,6 +15,30 @@ HuxerUI 资源根（`huxerui_add_app` 以 `app` 命名空间注册，codegen 生
 （`parseUsageTemplates` / `suggestUsageQuery`），仓库内这份文件由
 `test_store` 每次校验可解析且已知厂商可命中。
 
+## 桌宠模型包
+
+模型由用户在设置页按目录导入，分别放在 `dataDir()/shimeji/` 与
+`dataDir()/live2d/`。导入先校验再原子落位，不覆盖同名模型；应用内删除只针对
+这些数据目录，不触碰源目录。未确认许可的角色不得加入默认发行包。
+
+Shimeji 使用常见 `conf/actions.xml`、`conf/behaviors.xml` 与 `img/<角色>/`。
+当前兼容站立、坐、走、拖拽、落地及 AI 状态映射；不执行 Java `Class`、XML
+表达式，也不支持其他窗口交互、分裂或 ZIP/RAR。可选 `pet.json` 提供
+`display_name`、`license`、`window` 和 `actions.{idle,working,waiting,completed,failed,dragged,falling}`。
+XML 单文件上限 4 MiB；单动作最多 256 帧，图片最大 2048×2048、单帧编码
+8 MiB、单动作编码合计 32 MiB；运行时最多保留 4 个动作的帧缓存。
+
+Live2D 每个模型目录含一个 `.model3.json` 及依赖文件。可选 `pet.json` 提供
+`display_name`、`license`、`window`、`states` 与 `hit_areas`；动作项支持
+`motion`、`expression`、`priority`、`loop` 和 `parameters`（`id/value/blend/weight`，
+blend 为 `override` 或 `add`）。状态键为 `idle/working/waiting/completed/failed`。
+未声明时使用 `Idle` / `TapBody` 约定；未暴露的动作、表情或参数不会强行应用。
+`LLMSWITCH_LIVE2D` 与 Cubism SDK/模型许可、平台验收仍是独立发布门禁。
+
+两类导入合计最多 2048 个文件、512 MiB，不能包含符号链接。`pet.json`
+上限 64 KiB。只支持目录包；读取、解析与复制在 Worker 执行，失败显示原因并
+回退莲花球，不影响控制中心与活动数据。
+
 ## 水墨图标规范（新增图标必须遵守）
 
 项目内所有 24×24 功能图标使用同一套“无色 alpha-mask + 水墨材质”语言：
