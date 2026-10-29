@@ -1,23 +1,10 @@
-// pet_live2d.cpp — Live2D 桌宠皮肤（LLMSWITCH_LIVE2D=ON 才编译；禁用时由
-// pet_live2d_stub.cpp 顶替，PetLive2DAvailable() 恒 false）。
-//
-// 模型解析优先级：dataDir()/live2d/<目录>/<名>.model3.json（用户自放，
-// 扫描到的第一个，File 重载）；内置示例 Hiyori（构建期从 Lib-Live2D
-// preview 暂存进资源包 resources/raw/live2d/，含 model_licenses 许可声明；
-// RawResource 重载 + 组合期解析的 map 开启器——UseRawResource 是组合期
-// API，不能在加载任务的开启回调里调用，故组合期把 18 个文件全部解析成
-// RawAsset 捕获，与 Lib-Live2D preview 的模式一致）。缺模型、加载失败或
-// 播放器失败时切回内建莲花球并显示简短状态说明。
-//
-// 渲染：HuxerUI::Live2D 的 ModelView 经 ExternalTexture 发布帧——透明
-// Utility 表面支持的外部纹理路径。模型自带自动眨眼/呼吸；路由 streaming
-// 时 playback_rate 提到 1.15（「思考变快」）；Ready 后循环 Idle 组；点击
-// 命中区播 TapBody。
 #include <huxerui/huxerui.h>
 #include <huxerui/live2d.h>
 
-#include <cstdio>  // stderr（std 模块不导出 stdout/stderr 宏）
-#include <filesystem>
+#include <algorithm>
+#include <chrono>
+#include <cstdint>
+#include <format>
 #include <map>
 #include <memory>
 #include <optional>
@@ -28,15 +15,13 @@
 #include "theme_colors.h"
 
 import llmswitch.config;
+import llmswitch.pet_profile;
 
 namespace llmswitch::ui {
 namespace {
 
-namespace fs = std::filesystem;
 namespace live2d = huxerui::live2d;
 
-// 内置示例（Lib-Live2D preview 的 Hiyori，钉版文件清单——Lib-Live2D
-// 钉 commit，文件集固定）。key 相对资源包 raw 根，与开启器收到的路径同构。
 constexpr const char* kBundledEntryKey = "live2d/Hiyori/Hiyori.model3.json";
 constexpr std::string_view kBundledFiles[] = {
     "live2d/Hiyori/Hiyori.model3.json",
@@ -58,40 +43,103 @@ constexpr std::string_view kBundledFiles[] = {
     "live2d/Hiyori/motions/Hiyori_m09.motion3.json",
     "live2d/Hiyori/motions/Hiyori_m10.motion3.json",
 };
-
-// 组合期解析出的内置示例资源（key → RawAsset）。解析失败（资源缺失等）
-// 为空，加载任务据此跳过内置回退。
 using BundledResources = std::map<std::string, huxerui::RawAsset>;
 
-// 扫描 dataDir()/live2d 下第一个 *.model3.json（文件 IO 放 worker 线程）。
-// 注意 extension() 只返回最后一个后缀（".json"），必须按完整文件名后缀判。
-std::optional<std::string> FindModelEntry() {
-    std::error_code ec;
-    const fs::path root = cfg::dataDir() / "live2d";
-    if (!fs::exists(root, ec)) return std::nullopt;
-    // 深度限两层：<live2d>/<模型目录>/<名>.model3.json。
-    for (const auto& dir : fs::directory_iterator(root, ec)) {
-        if (!dir.is_directory()) continue;
-        for (const auto& file : fs::directory_iterator(dir.path(), ec)) {
-            if (file.is_regular_file(ec) &&
-                file.path().filename().string().ends_with(".model3.json")) {
-                return file.path().string();
-            }
-        }
-    }
-    return std::nullopt;
-}
-
-// 在模型动作组里找首选组：Exact 优先，否则首个有动作的组。
 std::optional<live2d::MotionGroup> FindMotionGroup(
-    const live2d::ModelAsset& asset, const std::string& preferred) {
+    const live2d::ModelAsset& asset, const std::string& preferred,
+    bool allowFirst = false) {
     std::optional<live2d::MotionGroup> first;
     for (const auto& group : asset.Info().motion_groups) {
         if (group.count <= 0) continue;
         if (group.name == preferred) return group;
-        if (!first.has_value()) first = group;
+        if (!first) first = group;
     }
-    return first;
+    return allowFirst ? first : std::nullopt;
+}
+
+std::string CurrentState(const std::shared_ptr<PetController>& controller) {
+    if (controller->failure.Get()) return "failed";
+    if (controller->donePendingAck.Get()) return "completed";
+    if (controller->waitingForInput.Get()) return "waiting";
+    if (controller->streaming.Get() || controller->agentWorking.Get()) return "working";
+    return "idle";
+}
+
+const pet_profile::MotionCue& IdleCue(const pet_profile::Live2DProfile& profile) {
+    static const pet_profile::MotionCue fallback{.motion = "Idle", .loop = true};
+    if (const auto* cue = pet_profile::FindMotionCue(profile, "idle")) return *cue;
+    return fallback;
+}
+
+const pet_profile::MotionCue& CueForState(
+    const pet_profile::Live2DProfile& profile, const std::string& state) {
+    if (const auto* cue = pet_profile::FindMotionCue(profile, state)) return *cue;
+    return IdleCue(profile);
+}
+
+bool PlayCue(const live2d::ModelAsset& asset, const live2d::ModelController& command,
+             const pet_profile::MotionCue& cue) {
+    bool played = false;
+    if (!cue.motion.empty()) {
+        if (const auto group = FindMotionGroup(asset, cue.motion, cue.motion == "Idle")) {
+            const auto result = command.PlayMotion(
+                group->name, 0,
+                {.priority = cue.priority, .force = cue.priority > 1, .loop = cue.loop});
+            played = result.Succeeded();
+        }
+    }
+    if (!cue.expression.empty()) {
+        static_cast<void>(command.SetExpression(cue.expression));
+    } else {
+        static_cast<void>(command.ClearExpression());
+    }
+    return played;
+}
+
+std::vector<live2d::ParameterInput> ParametersForCue(
+    const live2d::ModelAsset& asset, const pet_profile::MotionCue& cue) {
+    std::vector<live2d::ParameterInput> result;
+    for (const auto& parameter : cue.parameters) {
+        const auto declared = std::ranges::find_if(
+            asset.Info().parameters, [&](const live2d::ParameterInfo& candidate) {
+                return candidate.id == parameter.id;
+            });
+        if (declared == asset.Info().parameters.end()) continue;
+        result.push_back({
+            .id = parameter.id,
+            .value = parameter.value,
+            .blend = parameter.blend == "add" ? live2d::ParameterBlend::Add
+                                              : live2d::ParameterBlend::Override,
+            .weight = parameter.weight,
+        });
+    }
+    return result;
+}
+
+pet_profile::Live2DModel BundledModel() {
+    pet_profile::Live2DModel model{.id = "Hiyori"};
+    model.profile.displayName = "Hiyori";
+    model.profile.states = {
+        {"idle", {.motion = "Idle", .loop = true}},
+        {"completed", {.motion = "TapBody", .priority = 3}},
+        {"failed", {.motion = "TapBody", .priority = 3}},
+    };
+    return model;
+}
+
+huxerui::View LoadingBadge(std::string text, bool error = false) {
+    return huxerui::Text(std::move(text))
+        .Style(huxerui::TextStyle{
+            huxerui::Font::System(font_size::kCaption),
+            error ? huxerui::Color::Rgb(240, 115, 108)
+                  : huxerui::Color::Rgb(224, 242, 254)})
+        .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(14.0F, 6.0F)),
+              huxerui::Background(huxerui::Color::Rgb(16, 18, 20, 0.86F)),
+              huxerui::CornerRadius(12.0F),
+              huxerui::Border{huxerui::Color::Rgb(224, 242, 254, 0.14F)},
+              huxerui::Align(huxerui::HorizontalAlignment::Center,
+                             huxerui::VerticalAlignment::Center),
+              huxerui::Grow(1.0F));
 }
 
 } // namespace
@@ -100,15 +148,18 @@ bool PetLive2DAvailable() { return true; }
 
 [[huxerui::composable]]
 huxerui::View PetLive2DBody(const std::shared_ptr<PetController>& controller) {
+    auto model = huxerui::UseState(pet_profile::Live2DModel{});
     auto asset = huxerui::UseState(live2d::ModelAsset{});
     auto controller2d = huxerui::UseState(live2d::ModelController{});
     auto status = huxerui::UseState<std::string>({});
+    auto ready = huxerui::UseState(false);
+    auto settled = huxerui::UseState(false);
+    auto loadGeneration = huxerui::UseState<std::uint64_t>(0);
+    auto reaction = huxerui::UseState(false);
+    auto reactionEpoch = huxerui::UseState(0);
     const auto tasks = huxerui::UseTaskScope();
+    const auto window = huxerui::UseWindow();
 
-    // 内置示例在组合期解析（UseRawResource 是组合期 API，开启回调不能调）。
-    // RawResource 的 key 带 raw/ 前缀（生成标识符 app::raw::<key>）；开启器
-    // 收到的路径则不带前缀（包相对）。任一文件缺失则整体放弃内置（用户仍可
-    // 自放模型）。
     std::shared_ptr<const BundledResources> bundled;
     {
         auto resources = std::make_shared<BundledResources>();
@@ -124,123 +175,146 @@ huxerui::View PetLive2DBody(const std::shared_ptr<PetController>& controller) {
         if (complete) bundled = std::move(resources);
     }
 
-    // 首次挂载触发一次加载（重组不重载；窗口退役随作用域取消任务）。
-    huxerui::Lifecycle([tasks, asset, controller2d, status, bundled] {
-        tasks.Launch([asset, controller2d, status,
-                      bundled]() -> huxerui::Task<void> {
-            // ① 用户自放模型（dataDir，File 重载）。
-            const std::optional<std::string> entry =
-                co_await huxerui::RunWorker([] { return FindModelEntry(); });
-            if (entry.has_value()) {
-                auto loaded = co_await live2d::LoadModelAsync(huxerui::File(*entry));
-                if (loaded.Succeeded()) {
-                    controller2d = live2d::ModelController{};
-                    asset = std::move(loaded).Value();
+    huxerui::Lifecycle([tasks, model, asset, controller2d, status, ready, settled,
+                        loadGeneration, controller, bundled] {
+        const std::uint64_t request = loadGeneration.Get() + 1;
+        loadGeneration = request;
+        ready = false;
+        tasks.Launch([model, asset, controller2d, status, ready, settled,
+                      loadGeneration, controller, bundled, request]() -> huxerui::Task<void> {
+            pet_profile::Live2DModel selectedModel;
+            bool hasCustom = false;
+            try {
+                selectedModel = co_await huxerui::RunWorker([selected = controller->live2dModel.Get()] {
+                    return pet_profile::ResolveLive2DModel(cfg::dataDir() / "live2d", selected);
+                });
+                hasCustom = true;
+            } catch (const std::exception& e) {
+                if (!controller->live2dModel.Get().empty() || !bundled) {
+                    status = std::format("{}，已显示莲花球", e.what());
                     co_return;
                 }
-                status = "自定义 Live2D 模型加载失败，已显示莲花球";
-                co_return;
             }
-            // ② 内置示例（RawResource 重载 + 捕获的解析结果；entry 同样带
-            // raw/ 前缀，开启器收到的依赖路径不带）。
-            if (bundled) {
-                auto loaded = co_await live2d::LoadModelAsync(
-                    huxerui::RawResource{"app",
-                                         std::string("raw/") + kBundledEntryKey},
+            if (loadGeneration.Get() != request) co_return;
+            huxerui::Result<live2d::ModelAsset, live2d::LoadError> loaded =
+                co_await [&]() -> huxerui::Task<
+                    huxerui::Result<live2d::ModelAsset, live2d::LoadError>> {
+                if (hasCustom) {
+                    co_return co_await live2d::LoadModelAsync(
+                        huxerui::File(selectedModel.entry.string()));
+                }
+                selectedModel = BundledModel();
+                co_return co_await live2d::LoadModelAsync(
+                    huxerui::RawResource{"app", std::string("raw/") + kBundledEntryKey},
                     [bundled](std::string path)
-                        -> huxerui::Task<
-                            huxerui::IoResult<huxerui::AsyncInputStream>> {
+                        -> huxerui::Task<huxerui::IoResult<huxerui::AsyncInputStream>> {
                         const auto it = bundled->find(path);
                         if (it == bundled->end()) {
-                            co_return huxerui::IoResult<
-                                huxerui::AsyncInputStream>::
-                                Failure({huxerui::IoErrorCode::NotFound,
-                                         "内置示例资源缺失：" + path});
+                            co_return huxerui::IoResult<huxerui::AsyncInputStream>::Failure(
+                                {huxerui::IoErrorCode::NotFound,
+                                 "内置示例资源缺失：" + path});
                         }
-                        co_return huxerui::IoResult<
-                            huxerui::AsyncInputStream>::
-                            Success(co_await it->second.OpenReadAsync());
+                        co_return huxerui::IoResult<huxerui::AsyncInputStream>::Success(
+                            co_await it->second.OpenReadAsync());
                     });
-                if (loaded.Succeeded()) {
-                    controller2d = live2d::ModelController{};
-                    asset = std::move(loaded).Value();
-                    co_return;
-                }
-                status = "内置 Live2D 模型加载失败，已显示莲花球";
+            }();
+            if (loadGeneration.Get() != request) co_return;
+            if (!loaded.Succeeded()) {
+                status = std::format("{}，已显示莲花球", loaded.Error().message);
                 co_return;
             }
-            status = "未找到 Live2D 模型，已显示莲花球";
+            model = std::move(selectedModel);
+            controller2d = live2d::ModelController{};
+            asset = std::move(loaded).Value();
+            settled = false;
+            status = "";
         });
+        return [loadGeneration, request] {
+            if (loadGeneration.Get() == request) loadGeneration = request + 1;
+        };
     });
+
+    const int playEpoch = controller->play.Get().epoch;
+    huxerui::Lifecycle([playEpoch, reaction, reactionEpoch, tasks] {
+        if (playEpoch <= 0 || reactionEpoch.Get() == playEpoch) return;
+        reactionEpoch = playEpoch;
+        reaction = true;
+        tasks.Launch([playEpoch, reaction, reactionEpoch]() -> huxerui::Task<void> {
+            co_await huxerui::Delay(std::chrono::milliseconds{900});
+            if (reactionEpoch.Get() == playEpoch) reaction = false;
+        });
+    }, playEpoch);
 
     const live2d::ModelAsset current = asset.Get();
     if (!current.HasValue()) {
         if (!status.Get().empty()) return PetSkinFallback(controller, status.Get());
-        // 模型加载期间显示深色玻璃药丸。
-        return huxerui::Text("加载模型…")
-            .Style(huxerui::TextStyle{huxerui::Font::System(font_size::kCaption),
-                                      huxerui::Color::Rgb(224, 242, 254)})
-            .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(14.0F, 6.0F)),
-                  huxerui::Background(huxerui::Color::Rgb(16, 18, 20, 0.86F)),
-                  huxerui::CornerRadius(12.0F),
-                  huxerui::Border{huxerui::Color::Rgb(224, 242, 254, 0.14F)},
-                  huxerui::Align(huxerui::HorizontalAlignment::Center,
-                                 huxerui::VerticalAlignment::Center),
-                  huxerui::Grow(1.0F));
+        return LoadingBadge("加载 Live2D…");
     }
 
     const live2d::ModelController command = controller2d.Get();
-    const auto play_idle = [current, command] {
-        if (const auto group = FindMotionGroup(current, "Idle")) {
-            static_cast<void>(command.PlayMotion(group->name, 0,
-                                                 {.priority = 1, .loop = true}));
-        }
-    };
-    const auto play_tap = [current, command, play_idle] {
-        if (const auto group = FindMotionGroup(current, "TapBody")) {
-            static_cast<void>(command.PlayMotion(group->name, 0, {.priority = 3, .force = true}));
-        } else {
-            play_idle();
-        }
+    const pet_profile::Live2DModel currentModel = model.Get();
+    const pet_profile::Live2DProfile& profile = currentModel.profile;
+    const std::string baseState = CurrentState(controller);
+    const std::string state = reaction.Get() ? "completed" : baseState;
+    const pet_profile::MotionCue cue = CueForState(profile, state);
+    const auto play_cue = [current, command](const pet_profile::MotionCue& selected) {
+        return PlayCue(current, command, selected);
     };
 
-    // 诊断（临时）：Live2D 栈在 Linux 透明表面属首次验证，Ready/失败
-    // 都打到 stderr 并在底部徽标显示状态，便于定位「纯透明」类问题。
-    huxerui::View body =
-        live2d::ModelView(current,
-                          {
-                              .controller = command,
-                              .fit = huxerui::ImageFit::Contain,
-                              // streaming 时播放速率 +15%：与莲花球
-                              // 「呼吸加速」同语义的思考态。
-                              .playback_rate =
-                                  controller->streaming.Get() ? 1.15F : 1.0F,
-                          })
-            .On<live2d::ModelEvents::Ready>([play_idle] {
-                std::fprintf(stderr, "live2d: Ready\n");
-                play_idle();
+    huxerui::Lifecycle([current, command, cue, ready, settled, play_cue] {
+        settled = false;
+        if (ready.Get()) static_cast<void>(play_cue(cue));
+    }, current, state, ready.Get());
+
+    const pet_profile::MotionCue& parameterCue = settled.Get()
+        ? (baseState == "completed" || baseState == "failed"
+               ? IdleCue(profile)
+               : CueForState(profile, baseState))
+        : cue;
+    huxerui::View body = live2d::ModelView(
+        current,
+        {
+            .controller = command,
+            .fit = huxerui::ImageFit::Contain,
+            .paused = window.LifecycleState() == huxerui::WindowLifecycleState::Background,
+            .playback_rate = baseState == "working" ? 1.15F : 1.0F,
+            .parameters = ParametersForCue(current, parameterCue),
+        })
+        .On<live2d::ModelEvents::Ready>([ready, settled, cue, play_cue] {
+            ready = true;
+            settled = false;
+            static_cast<void>(play_cue(cue));
+        })
+        .On<live2d::ModelEvents::HitAreaTapped>(
+            [profile, play_cue, settled](std::string area) {
+                const auto it = profile.hitAreas.find(area);
+                if (it != profile.hitAreas.end()) {
+                    static_cast<void>(play_cue(it->second));
+                } else {
+                    static_cast<void>(play_cue(CueForState(profile, "completed")));
+                }
+                settled = false;
             })
-            .On<live2d::ModelEvents::HitAreaTapped>([play_tap](std::string) { play_tap(); })
-            .On<live2d::ModelEvents::PlaybackFailed>(
-                [asset, status](live2d::PlaybackError) {
-                    std::fprintf(stderr, "live2d: PlaybackFailed: %s\n",
-                                 "falling back to lotus");
-                    status = "Live2D 渲染失败，已显示莲花球";
-                    asset = live2d::ModelAsset{};
-                })
-            .With(huxerui::Grow(1.0F));
+        .On<live2d::ModelEvents::MotionFinished>(
+            [profile, baseState, play_cue, settled](live2d::MotionFinished) {
+                const std::string restore =
+                    baseState == "completed" || baseState == "failed" ? "idle" : baseState;
+                static_cast<void>(play_cue(CueForState(profile, restore)));
+                settled = true;
+            })
+        .On<live2d::ModelEvents::PlaybackFailed>(
+            [asset, status, ready](live2d::PlaybackError error) {
+                ready = false;
+                status = std::format("Live2D 渲染失败：{}，已显示莲花球", error.message);
+                asset = live2d::ModelAsset{};
+            })
+        .With(huxerui::Grow(1.0F));
     if (!status.Get().empty()) {
         body = huxerui::Stack {
             std::move(body),
-            huxerui::Text(status.Get())
-                .Style(huxerui::TextStyle{huxerui::Font::System(font_size::kCaption),
-                                          huxerui::Color::Rgb(240, 115, 108)})
-                .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(10.0F, 4.0F)),
-                      huxerui::Background(huxerui::Color::Rgb(16, 18, 20, 0.86F)),
-                      huxerui::CornerRadius(9.0F),
-                      huxerui::Align(huxerui::HorizontalAlignment::Center,
-                                     huxerui::VerticalAlignment::End),
-                      huxerui::Padding(huxerui::EdgeInsets{.bottom = 6.0F})),
+            LoadingBadge(status.Get(), true)
+                .With(huxerui::Align(huxerui::HorizontalAlignment::Center,
+                                     huxerui::VerticalAlignment::End)),
         }.With(huxerui::Grow(1.0F));
     }
     return body;
