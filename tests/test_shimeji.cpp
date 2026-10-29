@@ -76,8 +76,36 @@ bool Throws(F&& function) {
 
 } // namespace
 
-int main() {
+int main(int argc, char** argv) {
     namespace fs = std::filesystem;
+    if (argc > 1) {
+        const shimeji::Pack sample = shimeji::LoadPack(fs::path(argv[1]));
+        CHECK(sample.id == "lotus-sprout");
+        CHECK(!sample.license.empty());
+        CHECK(sample.warnings.empty());
+        CHECK(sample.actions.size() == 7);
+        const auto& states = sample.stateActions;
+        for (const auto& name : {states.idle, states.working, states.waiting,
+                                 states.completed, states.failed, states.dragged,
+                                 states.falling}) {
+            const auto* action = shimeji::FindAction(sample, name);
+            CHECK(action != nullptr);
+            if (!action) continue;
+            CHECK(!action->poses.empty());
+            for (const auto& pose : action->poses) {
+                const fs::path image = shimeji::ImagePath(sample, pose);
+                std::ifstream input(image, std::ios::binary);
+                std::array<unsigned char, 8> signature{};
+                input.read(reinterpret_cast<char*>(signature.data()), signature.size());
+                const std::array<unsigned char, 8> png{137, 80, 78, 71, 13, 10, 26, 10};
+                CHECK(input.good());
+                CHECK(signature == png);
+                CHECK(pose.durationTicks > 0);
+                CHECK(pose.velocity == shimeji::Vec2{});
+            }
+        }
+        CHECK(shimeji::NextIdleAction(sample, states.idle, 42) == states.idle);
+    }
     TempDirectory temp{fs::temp_directory_path() /
                        std::format("llmswitch-test-shimeji-{}", std::chrono::steady_clock::now()
                            .time_since_epoch().count())};

@@ -1,0 +1,17 @@
+{
+  "display_name": "小莲芽（本地测试）",
+  "license": "AI-generated original · local testing only · see README.md",
+  "window": {
+    "width": 180,
+    "height": 180
+  },
+  "actions": {
+    "idle": "Stand",
+    "working": "Work",
+    "waiting": "Sit",
+    "completed": "Bouncing",
+    "failed": "Tripping",
+    "dragged": "Pinched",
+    "falling": "Falling"
+  }
+}

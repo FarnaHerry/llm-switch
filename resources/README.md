@@ -21,6 +21,10 @@ HuxerUI 资源根（`huxerui_add_app` 以 `app` 命名空间注册，codegen 生
 `dataDir()/live2d/`。导入先校验再原子落位，不覆盖同名模型；应用内删除只针对
 这些数据目录，不触碰源目录。未确认许可的角色不得加入默认发行包。
 
+仓库提供可显示的默认本地测试包 [小莲芽](../samples/shimeji/lotus-sprout/README.md)：
+原创 AI 生成透明立绘加七种状态的轻量位移动画，可通过设置页导入；它位于
+`samples/`，不随默认发行包安装，资源来源和本地测试使用范围见包内说明。
+
 Shimeji 使用常见 `conf/actions.xml`、`conf/behaviors.xml` 与 `img/<角色>/`。
 当前兼容站立、坐、走、拖拽、落地及 AI 状态映射；不执行 Java `Class`、XML
 表达式，也不支持其他窗口交互、分裂或 ZIP/RAR。可选 `pet.json` 提供

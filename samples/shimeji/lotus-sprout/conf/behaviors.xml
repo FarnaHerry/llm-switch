@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Mascot>
+  <BehaviorList>
+    <Behavior Name="Stand" Frequency="1" />
+  </BehaviorList>
+</Mascot>

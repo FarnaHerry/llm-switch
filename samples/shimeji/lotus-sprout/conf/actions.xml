@@ -1,0 +1,55 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<Mascot>
+  <ActionList>
+    <Action Name="Stand" Type="Stay" Loop="true">
+      <Animation>
+        <Pose Image="/sprout.png" ImageAnchor="627,1254" Velocity="0,0" Duration="40" />
+        <Pose Image="/sprout.png" ImageAnchor="627,1269" Velocity="0,0" Duration="40" />
+      </Animation>
+    </Action>
+    <Action Name="Work" Type="Stay" Loop="true">
+      <Animation>
+        <Pose Image="/sprout.png" ImageAnchor="612,1254" Velocity="0,0" Duration="10" />
+        <Pose Image="/sprout.png" ImageAnchor="627,1283" Velocity="0,0" Duration="10" />
+        <Pose Image="/sprout.png" ImageAnchor="642,1254" Velocity="0,0" Duration="10" />
+        <Pose Image="/sprout.png" ImageAnchor="627,1283" Velocity="0,0" Duration="10" />
+      </Animation>
+    </Action>
+    <Action Name="Sit" Type="Stay" Loop="true">
+      <Animation>
+        <Pose Image="/sprout.png" ImageAnchor="627,1225" Velocity="0,0" Duration="60" />
+        <Pose Image="/sprout.png" ImageAnchor="627,1234" Velocity="0,0" Duration="60" />
+      </Animation>
+    </Action>
+    <Action Name="Bouncing" Type="Animate" Loop="false">
+      <Animation>
+        <Pose Image="/sprout.png" ImageAnchor="627,1254" Velocity="0,0" Duration="8" />
+        <Pose Image="/sprout.png" ImageAnchor="627,1323" Velocity="0,0" Duration="8" />
+        <Pose Image="/sprout.png" ImageAnchor="627,1352" Velocity="0,0" Duration="8" />
+        <Pose Image="/sprout.png" ImageAnchor="627,1293" Velocity="0,0" Duration="8" />
+        <Pose Image="/sprout.png" ImageAnchor="627,1254" Velocity="0,0" Duration="16" />
+      </Animation>
+    </Action>
+    <Action Name="Tripping" Type="Animate" Loop="false">
+      <Animation>
+        <Pose Image="/sprout.png" ImageAnchor="598,1225" Velocity="0,0" Duration="12" />
+        <Pose Image="/sprout.png" ImageAnchor="656,1225" Velocity="0,0" Duration="12" />
+        <Pose Image="/sprout.png" ImageAnchor="612,1225" Velocity="0,0" Duration="12" />
+        <Pose Image="/sprout.png" ImageAnchor="642,1225" Velocity="0,0" Duration="12" />
+        <Pose Image="/sprout.png" ImageAnchor="627,1254" Velocity="0,0" Duration="30" />
+      </Animation>
+    </Action>
+    <Action Name="Pinched" Type="Stay" Loop="true">
+      <Animation>
+        <Pose Image="/sprout.png" ImageAnchor="627,1293" Velocity="0,0" Duration="20" />
+      </Animation>
+    </Action>
+    <Action Name="Falling" Type="Animate" Loop="false">
+      <Animation>
+        <Pose Image="/sprout.png" ImageAnchor="627,1323" Velocity="0,0" Duration="8" />
+        <Pose Image="/sprout.png" ImageAnchor="627,1293" Velocity="0,0" Duration="8" />
+        <Pose Image="/sprout.png" ImageAnchor="627,1254" Velocity="0,0" Duration="12" />
+      </Animation>
+    </Action>
+  </ActionList>
+</Mascot>
