@@ -672,8 +672,16 @@ void PetController::Show(const huxerui::ApplicationHandle& application) {
     if (!pet) {
         auto options = PetOptions(topmost.Get(), compact.Get(), Descriptor());
         options.initial_position = saved_position;
-        pet = application.OpenWindow(
-            [] { return PetContent(); }, options);
+        try {
+            pet = application.OpenWindow(
+                [] { return PetContent(); }, options);
+        } catch (const std::logic_error&) {
+            options.show_without_activation = false;
+            options.topmost = false;
+            pet = application.OpenWindow(
+                [] { return PetContent(); }, options);
+            topmost = false;
+        }
         if (!pet->Capabilities().topmost) topmost = false;
     }
     if (!pet->Capabilities().transparent_surface) {
