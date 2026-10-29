@@ -478,9 +478,11 @@ export struct AppConfig {
     bool petLightweight = false;
     // 胶囊模式：桌宠缩为小胶囊（状态点 + 今日请求数），点击同样展开信息卡。
     bool petCompact = false;
-    // Live2D 皮肤：桌宠用 Live2D 模型渲染（构建需开 LLMSWITCH_LIVE2D，且
-    // dataDir()/live2d/ 下放有模型；任一不满足回退莲花球）。
-    bool petLive2D = false;
+    // 桌宠皮肤：lotus / shimeji / live2d；旧 petLive2D 布尔值在读取时迁移。
+    std::string petSkin = "lotus";
+    // 数据目录内的模型包相对路径；空字符串表示尚未选择。
+    std::string petShimejiPack;
+    std::string petLive2DModel;
 
     bool operator==(const AppConfig&) const = default;
 };
@@ -689,7 +691,9 @@ export nlohmann::json toJson(const AppConfig& c) {
     j["petTopmost"] = c.petTopmost;
     j["petLightweight"] = c.petLightweight;
     j["petCompact"] = c.petCompact;
-    j["petLive2D"] = c.petLive2D;
+    j["petSkin"] = c.petSkin;
+    j["petShimejiPack"] = c.petShimejiPack;
+    j["petLive2DModel"] = c.petLive2DModel;
     return j;
 }
 
@@ -742,7 +746,15 @@ export AppConfig fromJson(const nlohmann::json& j) {
     c.petTopmost = j.value("petTopmost", true);
     c.petLightweight = j.value("petLightweight", false);
     c.petCompact = j.value("petCompact", false);
-    c.petLive2D = j.value("petLive2D", false);
+    const std::string legacySkin =
+        j.value("petLive2D", false) ? "live2d" : "lotus";
+    c.petSkin = j.value("petSkin", legacySkin);
+    if (c.petSkin != "lotus" && c.petSkin != "shimeji" &&
+        c.petSkin != "live2d") {
+        c.petSkin = "lotus";
+    }
+    c.petShimejiPack = j.value("petShimejiPack", "");
+    c.petLive2DModel = j.value("petLive2DModel", "");
     // 字段存在且为数组时尊重显式选择（包括空数组）；过滤未知 id 与重复项。
     // 字段缺失则保留 AppConfig 的“全部启用”默认值，兼容旧配置。
     if (j.contains("routerTools") && j["routerTools"].is_array()) {

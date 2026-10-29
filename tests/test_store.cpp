@@ -237,14 +237,16 @@ int main() {
         CHECK(petSettings.config().petTopmost == true);
         CHECK(petSettings.config().petLightweight == false);
         CHECK(petSettings.config().petCompact == false);
-        CHECK(petSettings.config().petLive2D == false);
+        CHECK(petSettings.config().petSkin == "lotus");
+        CHECK(petSettings.config().petShimejiPack.empty());
+        CHECK(petSettings.config().petLive2DModel.empty());
         const auto explicitPet = models::fromJson(nlohmann::json::parse(
             R"json({"petEnabled":true,"petTopmost":false,"petLightweight":true,"petCompact":true,"petLive2D":true})json"));
         CHECK(explicitPet.startupMode == "pet");
         CHECK(explicitPet.petTopmost == false);
         CHECK(explicitPet.petLightweight == true);
         CHECK(explicitPet.petCompact == true);
-        CHECK(explicitPet.petLive2D == true);
+        CHECK(explicitPet.petSkin == "live2d");
         const auto explicitPetOff = models::fromJson(
             nlohmann::json::parse(R"json({"petEnabled":false})json"));
         CHECK(explicitPetOff.startupMode == "control-center");
@@ -260,23 +262,34 @@ int main() {
         const auto newModeWins = models::fromJson(nlohmann::json::parse(
             R"json({"startupMode":"pet","petEnabled":false})json"));
         CHECK(newModeWins.startupMode == "pet");
+        const auto newSkinWins = models::fromJson(nlohmann::json::parse(
+            R"json({"petSkin":"shimeji","petLive2D":true,"petShimejiPack":"packs/chibi","petLive2DModel":"models/hero"})json"));
+        CHECK(newSkinWins.petSkin == "shimeji");
+        CHECK(newSkinWins.petShimejiPack == "packs/chibi");
+        CHECK(newSkinWins.petLive2DModel == "models/hero");
+        CHECK(models::fromJson(nlohmann::json::parse(
+                  R"json({"petSkin":"invalid"})json")).petSkin == "lotus");
         petSettings.setStartupMode("control-center");
         CHECK(petSettings.config().startupMode == "control-center");
         petSettings.setStartupMode("pet");
         petSettings.setPetTopmost(false);
         petSettings.setPetLightweight(true);
         petSettings.setPetCompact(true);
-        petSettings.setPetLive2D(true);
+        petSettings.setPetSkin("shimeji");
+        petSettings.setPetShimejiPack("packs/chibi");
+        petSettings.setPetLive2DModel("models/hero");
         auto petReloaded = store::ProviderStore::load();
         CHECK(petReloaded.config().startupMode == "pet");
         CHECK(readJson(cfg::configFile())["petEnabled"] == true);
         CHECK(petReloaded.config().petTopmost == false);
         CHECK(petReloaded.config().petLightweight == true);
         CHECK(petReloaded.config().petCompact == true);
-        CHECK(petReloaded.config().petLive2D == true);
-        petReloaded.completeFirstRunSetup(true, false, true, false, true);
+        CHECK(petReloaded.config().petSkin == "shimeji");
+        CHECK(petReloaded.config().petShimejiPack == "packs/chibi");
+        CHECK(petReloaded.config().petLive2DModel == "models/hero");
+        petReloaded.completeFirstRunSetup("live2d", false, true, false, true);
         CHECK(petReloaded.config().firstRunSetupCompleted == true);
-        CHECK(petReloaded.config().petLive2D == true);
+        CHECK(petReloaded.config().petSkin == "live2d");
         CHECK(petReloaded.config().petTopmost == false);
         CHECK(petReloaded.config().launchAtLogin == true);
         CHECK(petReloaded.config().trayEnabled == false);

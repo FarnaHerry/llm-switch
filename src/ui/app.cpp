@@ -325,7 +325,8 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(
     huxerui::State<bool> setupCompleted,
     huxerui::State<bool> trayEnabled,
     huxerui::TaskScope appTasks, huxerui::ToastHandle toast) {
-    const auto live2d = huxerui::UseState(providerStore().config().petLive2D);
+    const auto skin = huxerui::UseState(
+        PetSkinFromString(providerStore().config().petSkin));
     const auto topmost = huxerui::UseState(providerStore().config().petTopmost);
     const auto launchAtLogin =
         huxerui::UseState(providerStore().config().launchAtLogin);
@@ -341,17 +342,13 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(
     std::error_code helperPathError;
     const bool nativeHooksAvailable = activityBridge->Running() &&
         std::filesystem::is_regular_file(cfg::agentHookExecutable(), helperPathError);
-    const bool live2dAvailable = PetLive2DAvailable();
     const bool trayAvailable = tray.IsAvailable();
-    huxerui::View appearance =
-        huxerui::Text("莲花球（内建皮肤；当前构建未启用 Live2D）");
-    if (live2dAvailable) {
-        appearance = huxerui::SegmentedButton(
-                         {"莲花球", "Live2D"}, live2d.Get() ? 1U : 0U)
-                         .OnChanged([live2d](std::size_t index) {
-                             if (index < 2) live2d = index == 1;
-                         });
-    }
+    huxerui::View appearance = huxerui::SegmentedButton(
+        {"莲花球", "Shimeji", "Live2D"},
+        static_cast<std::size_t>(skin.Get()))
+        .OnChanged([skin](std::size_t index) {
+            if (index < 3) skin = static_cast<PetSkin>(index);
+        });
 
     huxerui::View setup = huxerui::Column {
         huxerui::Text("设置你的桌面伙伴", huxerui::TextRole::Title),
@@ -413,13 +410,13 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(
             huxerui::Spacer(),
             huxerui::Button("完成并启动桌宠")
                 .OnClick([context, window, application, tray, pet, startupMode,
-                          setupCompleted, trayEnabled, appTasks, toast, live2d,
+                          setupCompleted, trayEnabled, appTasks, toast, skin,
                           topmost, launchAtLogin, showTray, routerEnabled,
                           claudeHooksEnabled, codexHooksEnabled,
                           activityBridge,
                           claudeInitiallyInstalled = claudeHookInitial.installed,
                           codexInitiallyInstalled = codexHookInitial.installed] {
-                    const bool selectedLive2D = live2d.Get();
+                    const PetSkin selectedSkin = skin.Get();
                     const bool selectedTopmost = topmost.Get();
                     const bool selectedLaunchAtLogin = launchAtLogin.Get();
                     const bool selectedTray = showTray.Get();
@@ -428,7 +425,7 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(
                     const bool selectedCodexHooks = codexHooksEnabled.Get();
                     appTasks.Post([context, window, application, tray, pet,
                                    startupMode, setupCompleted, trayEnabled,
-                                   toast, selectedLive2D, selectedTopmost,
+                                   toast, selectedSkin, selectedTopmost,
                                    selectedLaunchAtLogin, selectedTray,
                                    selectedRouter, selectedClaudeHooks,
                                    selectedCodexHooks, claudeInitiallyInstalled,
@@ -442,9 +439,9 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(
                             }
                             try {
                                 providerStore().completeFirstRunSetup(
-                                    selectedLive2D, selectedTopmost,
-                                    selectedLaunchAtLogin, selectedTray,
-                                    selectedRouter);
+                                    std::string(PetSkinName(selectedSkin)),
+                                    selectedTopmost, selectedLaunchAtLogin,
+                                    selectedTray, selectedRouter);
                             } catch (...) {
                                 if (selectedLaunchAtLogin !=
                                     previousLaunchAtLogin) {
@@ -462,7 +459,7 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(
                         }
 
                         context.Dismiss();
-                        pet->live2d = selectedLive2D;
+                        pet->skin = selectedSkin;
                         pet->topmost = selectedTopmost;
                         pet->trayEnabled = selectedTray;
                         trayEnabled = selectedTray;
@@ -1284,7 +1281,9 @@ void InstallApplication(huxerui::ApplicationContext& context) {
     pet->topmost = providerStore().config().petTopmost;
     pet->lightweight = providerStore().config().petLightweight;
     pet->compact = providerStore().config().petCompact;
-    pet->live2d = providerStore().config().petLive2D;
+    pet->skin = PetSkinFromString(providerStore().config().petSkin);
+    pet->shimejiPack = providerStore().config().petShimejiPack;
+    pet->live2dModel = providerStore().config().petLive2DModel;
     pet->trayEnabled = providerStore().config().trayEnabled;
     const std::string& themeMode = providerStore().config().themeMode;
     pet->themeMode = themeMode == "dark" ? 1 : (themeMode == "light" ? 2 : 0);

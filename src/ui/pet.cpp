@@ -337,7 +337,7 @@ huxerui::View PetLotusBody(
 }
 
 [[huxerui::composable]]
-huxerui::View PetLive2DFallback(
+huxerui::View PetSkinFallback(
     const std::shared_ptr<PetController>& controller, std::string status) {
     return huxerui::Stack {
         PetLotusBody(controller),
@@ -653,10 +653,24 @@ void PetController::Poll() {
     }
 }
 
+PetSkinDescriptor PetController::Descriptor() const {
+    const PetSkin kind = skin.Get();
+    PetSkinDescriptor descriptor{.kind = kind};
+    if (kind == PetSkin::shimeji) {
+        descriptor.modelId = shimejiPack.Get();
+        descriptor.size = {160.0F, 160.0F};
+    } else if (kind == PetSkin::live2d) {
+        descriptor.modelId = live2dModel.Get();
+        descriptor.size = {300.0F, 420.0F};
+        descriptor.available = PetLive2DAvailable();
+        if (!descriptor.available) descriptor.status = "此构建未启用 Live2D";
+    }
+    return descriptor;
+}
+
 void PetController::Show(const huxerui::ApplicationHandle& application) {
     if (!pet) {
-        auto options = PetOptions(topmost.Get(), compact.Get(),
-                                  live2d.Get() && PetLive2DAvailable());
+        auto options = PetOptions(topmost.Get(), compact.Get(), Descriptor());
         options.initial_position = saved_position;
         pet = application.OpenWindow(
             [] { return PetContent(); }, options);
@@ -733,9 +747,7 @@ void PetController::ToggleCard(const huxerui::ApplicationHandle& application) {
         constexpr float kCardWidth = 1080.0F;
         constexpr float kCardHeight = 720.0F;
         constexpr float kCardGap = 16.0F;
-        const float petWidth = live2d.Get() && PetLive2DAvailable()
-                                   ? 300.0F
-                                   : (compact.Get() ? 150.0F : 200.0F);
+        const float petWidth = compact.Get() ? 150.0F : Descriptor().size.width;
         const std::optional<huxerui::Point> anchor = pet->Position();
         if (anchor && pet->WorkArea()) {
             const huxerui::Rect work = *pet->WorkArea();
@@ -754,29 +766,40 @@ void PetController::ToggleCard(const huxerui::ApplicationHandle& application) {
     card->Activate();
 }
 
-void PetController::SetCompact(bool value,
-                               const huxerui::ApplicationHandle& application) {
-    if (compact.Get() == value) return;
-    compact = value;
+void PetController::Rebuild(const huxerui::ApplicationHandle& application) {
     if (!pet) return;
-    // 同一窗口不能改尺寸约定：退役后按新尺寸重建，位置保留；信息卡随
-    // owner 退役，用户需要时再点开（不试图把旧卡搬到新锚点旁）。
     const bool wasVisible =
         pet->LifecycleState() != huxerui::WindowLifecycleState::Background;
     Close();
     if (wasVisible || !saved_position) Show(application);
 }
 
-void PetController::SetLive2D(bool value,
-                              const huxerui::ApplicationHandle& application) {
-    if (live2d.Get() == value) return;
-    live2d = value;
-    if (!pet) return;
-    // 与胶囊切换同一套重建语义（live2d 优先于 compact 决定窗口尺寸）。
-    const bool wasVisible =
-        pet->LifecycleState() != huxerui::WindowLifecycleState::Background;
-    Close();
-    if (wasVisible || !saved_position) Show(application);
+void PetController::SetCompact(bool value,
+                               const huxerui::ApplicationHandle& application) {
+    if (compact.Get() == value) return;
+    compact = value;
+    Rebuild(application);
+}
+
+void PetController::SetSkin(PetSkin value,
+                            const huxerui::ApplicationHandle& application) {
+    if (skin.Get() == value) return;
+    skin = value;
+    Rebuild(application);
+}
+
+void PetController::SetShimejiPack(
+    std::string value, const huxerui::ApplicationHandle& application) {
+    if (shimejiPack.Get() == value) return;
+    shimejiPack = std::move(value);
+    Rebuild(application);
+}
+
+void PetController::SetLive2DModel(
+    std::string value, const huxerui::ApplicationHandle& application) {
+    if (live2dModel.Get() == value) return;
+    live2dModel = std::move(value);
+    Rebuild(application);
 }
 
 void PetController::RecoverPosition() {
@@ -865,11 +888,13 @@ huxerui::View PetContent() {
     const bool activityUnknown = controller->activityUnknown.Get();
     const bool compact = controller->compact.Get();
 
-    // 主体形态（互斥，live2d 优先）：Live2D 皮肤 / 胶囊 / 莲花球。三种形态
-    // 共用同一组交互（拖拽 / 点击分流 / 右键 / 语义）。
+    // 角色皮肤优先于胶囊；所有形态共用拖拽、点击分流与右键语义。
     huxerui::View body;
-    if (controller->live2d.Get() && PetLive2DAvailable()) {
+    const PetSkin skin = controller->skin.Get();
+    if (skin == PetSkin::live2d) {
         body = PetLive2DBody(controller);
+    } else if (skin == PetSkin::shimeji) {
+        body = PetShimejiBody(controller);
     } else if (compact) {
         // 状态点：等待输入暖黄 / 工作青蓝 / failure 误差红 / done 冷白。
         Color dot = Color::Rgb(154, 161, 170, 0.9F);

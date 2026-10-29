@@ -315,11 +315,14 @@ void ProviderStore::setStartupMode(std::string mode) {
     save();
 }
 
-void ProviderStore::completeFirstRunSetup(bool live2d, bool topmost,
+void ProviderStore::completeFirstRunSetup(std::string skin, bool topmost,
                                           bool launchAtLogin,
                                           bool trayEnabled,
                                           bool routerEnabled) {
-    config_.petLive2D = live2d;
+    if (skin != "lotus" && skin != "shimeji" && skin != "live2d") {
+        throw std::invalid_argument("无效的桌宠皮肤");
+    }
+    config_.petSkin = std::move(skin);
     config_.petTopmost = topmost;
     config_.launchAtLogin = launchAtLogin;
     config_.trayEnabled = trayEnabled;
@@ -353,8 +356,21 @@ void ProviderStore::setPetCompact(bool compact) {
     save();
 }
 
-void ProviderStore::setPetLive2D(bool enabled) {
-    config_.petLive2D = enabled;
+void ProviderStore::setPetSkin(std::string skin) {
+    if (skin != "lotus" && skin != "shimeji" && skin != "live2d") {
+        throw std::invalid_argument("无效的桌宠皮肤");
+    }
+    config_.petSkin = std::move(skin);
+    save();
+}
+
+void ProviderStore::setPetShimejiPack(std::string path) {
+    config_.petShimejiPack = std::move(path);
+    save();
+}
+
+void ProviderStore::setPetLive2DModel(std::string path) {
+    config_.petLive2DModel = std::move(path);
     save();
 }
 

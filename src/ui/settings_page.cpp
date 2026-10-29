@@ -242,7 +242,6 @@ std::size_t CloseBehaviorIndex(std::string_view behavior) {
         huxerui::UseState(providerStore().config().petLightweight);
     auto petCompact = huxerui::UseState(providerStore().config().petCompact);
     const bool petLive2DBuilt = PetLive2DAvailable();
-    auto petLive2D = huxerui::UseState(providerStore().config().petLive2D);
     const auto activityBridge = huxerui::UseService<::agents::ActivityBridge>();
     std::error_code helperPathError;
     const bool agentBridgeReady = activityBridge->Running() &&
@@ -567,27 +566,25 @@ std::size_t CloseBehaviorIndex(std::string_view behavior) {
                                         toast.Show(e.what());
                                     }
                                 })),
-                    // Live2D 皮肤：构建期需 LLMSWITCH_LIVE2D=ON（默认构建没有
-                    // 此能力，开关禁用）；模型包放 数据目录/live2d/ 下任一
-                    // 子目录（.model3.json），无模型时桌宠显示占位提示。
                     SettingRow(
-                        "Live2D 皮肤",
+                        "桌宠皮肤",
                         std::string(petLive2DBuilt
-                                        ? "用 Live2D 模型渲染桌宠（模型放 数据目录/live2d/ 下）"
-                                        : "此构建未启用（需要 -DLLMSWITCH_LIVE2D=ON + Cubism SDK）"),
-                        huxerui::Switch(petLive2D.Get())
-                            .OnChanged(
-                                [pet, application, petLive2D, toast,
-                                 petLive2DBuilt](bool on) {
-                                    try {
-                                        providerStore().setPetLive2D(on);
-                                        pet->SetLive2D(on, application);
-                                        petLive2D = on;
-                                    } catch (const std::exception& e) {
-                                        toast.Show(e.what());
-                                    }
-                                })
-                            .With(huxerui::Enabled(petLive2DBuilt))),
+                                        ? "Shimeji 用于 Q 版帧动画；Live2D 用于高阶模型与交互"
+                                        : "Shimeji 用于 Q 版；此构建未启用 Live2D（需要 Cubism SDK）"),
+                        huxerui::SegmentedButton(
+                            {"莲花球", "Shimeji", "Live2D"},
+                            static_cast<std::size_t>(pet->skin.Get()))
+                            .OnChanged([pet, application, toast](std::size_t index) {
+                                if (index > 2) return;
+                                const auto skin = static_cast<PetSkin>(index);
+                                try {
+                                    providerStore().setPetSkin(
+                                        std::string(PetSkinName(skin)));
+                                    pet->SetSkin(skin, application);
+                                } catch (const std::exception& e) {
+                                    toast.Show(e.what());
+                                }
+                            })),
                 }.With(huxerui::Spacing(10.0F),
                        huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))),
 

@@ -104,7 +104,7 @@ public:
     // 应用启动入口（pet / control-center），立即落盘并结束旧配置迁移选择。
     void setStartupMode(std::string mode);
     // 首次设置向导一次性保存所有选择。
-    void completeFirstRunSetup(bool live2d, bool topmost, bool launchAtLogin,
+    void completeFirstRunSetup(std::string skin, bool topmost, bool launchAtLogin,
                                bool trayEnabled, bool routerEnabled);
     void setLaunchAtLogin(bool enabled);
     void setTrayEnabled(bool enabled);
@@ -112,7 +112,9 @@ public:
     void setPetTopmost(bool topmost);
     void setPetLightweight(bool lightweight);
     void setPetCompact(bool compact);
-    void setPetLive2D(bool enabled);
+    void setPetSkin(std::string skin);
+    void setPetShimejiPack(std::string path);
+    void setPetLive2DModel(std::string path);
 
     // ---- CRUD（均立即落盘）----
     // id/createdAt 为空/0 时自动生成；返回实际使用的 id（zcode 保存流程

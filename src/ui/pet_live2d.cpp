@@ -175,7 +175,7 @@ huxerui::View PetLive2DBody(const std::shared_ptr<PetController>& controller) {
 
     const live2d::ModelAsset current = asset.Get();
     if (!current.HasValue()) {
-        if (!status.Get().empty()) return PetLive2DFallback(controller, status.Get());
+        if (!status.Get().empty()) return PetSkinFallback(controller, status.Get());
         // 模型加载期间显示深色玻璃药丸。
         return huxerui::Text("加载模型…")
             .Style(huxerui::TextStyle{huxerui::Font::System(font_size::kCaption),

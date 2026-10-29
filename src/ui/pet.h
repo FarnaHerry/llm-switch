@@ -29,13 +29,37 @@
 
 namespace llmswitch::ui {
 
+enum class PetSkin { lotus = 0, shimeji = 1, live2d = 2 };
+
+inline PetSkin PetSkinFromString(std::string_view value) {
+    if (value == "shimeji") return PetSkin::shimeji;
+    if (value == "live2d") return PetSkin::live2d;
+    return PetSkin::lotus;
+}
+
+inline std::string_view PetSkinName(PetSkin value) {
+    switch (value) {
+        case PetSkin::shimeji: return "shimeji";
+        case PetSkin::live2d: return "live2d";
+        case PetSkin::lotus: break;
+    }
+    return "lotus";
+}
+
+struct PetSkinDescriptor {
+    PetSkin kind = PetSkin::lotus;
+    std::string modelId;
+    huxerui::Size size{200.0F, 200.0F};
+    bool available = true;
+    std::string status;
+};
+
 // 桌宠窗口参数：透明、无边框 Utility，创建时请求置顶与被动显示
 // （Wayland 不支持时采用合成器默认策略）。compact 缩为胶囊，
-// live2d 用更高的窗口容纳立绘。
-inline huxerui::WindowOptions PetOptions(bool topmost, bool compact, bool live2d) {
-    huxerui::Size size{200.0F, 200.0F};
-    if (compact) size = {150.0F, 44.0F};
-    if (live2d) size = {300.0F, 420.0F};
+// 角色皮肤使用各自的窗口尺寸。
+inline huxerui::WindowOptions PetOptions(bool topmost, bool compact,
+                                         const PetSkinDescriptor& skin) {
+    const huxerui::Size size = compact ? huxerui::Size{150.0F, 44.0F} : skin.size;
     return {
         .title = "llm-switch 桌宠",
         .initial_size = size,
@@ -148,9 +172,9 @@ struct PetController {
     // 胶囊模式：桌宠缩为「状态点 + 今日次数」的小胶囊（同一窗口的另一种
     // 组合，切换经 Close + 按新尺寸重建）。
     huxerui::State<bool> compact{false};
-    // Live2D 皮肤（config.petLive2D 的运行时镜像）：开启且编译可用
-    // （LLMSWITCH_LIVE2D）且模型存在时，桌宠用 Live2D 模型渲染；窗口更高。
-    huxerui::State<bool> live2d{false};
+    huxerui::State<PetSkin> skin{PetSkin::lotus};
+    huxerui::State<std::string> shimejiPack{std::string{}};
+    huxerui::State<std::string> live2dModel{std::string{}};
     // 系统托盘显示偏好；关闭时不能隐藏最后一个可恢复入口。
     huxerui::State<bool> trayEnabled{true};
     // Tray presentation is application-owned; pet window creation/retirement
@@ -192,12 +216,13 @@ struct PetController {
     // 桌宠，随桌宠关闭），再点收起。配置持久化由调用方负责。
     void ToggleCard(const huxerui::ApplicationHandle& application);
     void CloseCard();
-    // 胶囊模式切换（配置持久化由调用方负责）：存活时按新尺寸重建窗口，
-    // 位置保留；信息卡随 owner 重建自动关闭，不搬旧卡。
     void SetCompact(bool value, const huxerui::ApplicationHandle& application);
-    // Live2D 皮肤切换（配置持久化由调用方负责）：与胶囊切换同一套重建
-    // 语义（live2d 优先于 compact 决定窗口尺寸）。
-    void SetLive2D(bool value, const huxerui::ApplicationHandle& application);
+    void SetSkin(PetSkin value, const huxerui::ApplicationHandle& application);
+    void SetShimejiPack(std::string value,
+                        const huxerui::ApplicationHandle& application);
+    void SetLive2DModel(std::string value,
+                        const huxerui::ApplicationHandle& application);
+    [[nodiscard]] PetSkinDescriptor Descriptor() const;
 
     std::optional<huxerui::WindowHandle> card;
     std::uint64_t cardGeneration = 0;
@@ -206,10 +231,11 @@ struct PetController {
     void Close();
     void Hide(bool trayAvailable);
     void SetTopmost(bool value);
-    // 轻量级开关：对已经藏起的桌宠启用时立即退役（释放资源）；托盘不可用
+    // 轻量级开关：对已经藏起的桌宠启用时立即关闭（释放资源）；托盘不可用
     // 时无唤出入口，拒绝开启。
     void SetLightweight(bool value, bool trayAvailable);
     void RecoverPosition();
+    void Rebuild(const huxerui::ApplicationHandle& application);
 };
 
 // 桌宠窗口内容组合与窗口句柄绑定（生命周期挂载 / 卸载）。
@@ -218,17 +244,14 @@ struct PetController {
 // 信息卡窗口内容组合（owner 锚定在桌宠旁的小窗）。
 [[huxerui::composable]] huxerui::View PetCardContent();
 
-// ---- Live2D 皮肤（pet_live2d.cpp / pet_live2d_stub.cpp 二选一编译）----
-// 构译期可用性：LLMSWITCH_LIVE2D=ON 时 true。禁用时配置里的 petLive2D
-// 不生效，桌宠回退莲花球。
 bool PetLive2DAvailable();
-// Live2D 皮肤主体（组合内调用）：扫描 dataDir()/live2d/ 下的第一个
-// *.model3.json 异步加载渲染；无模型、加载或播放失败时用莲花球回退。
 [[huxerui::composable]] huxerui::View PetLive2DBody(
+    const std::shared_ptr<PetController>& controller);
+[[huxerui::composable]] huxerui::View PetShimejiBody(
     const std::shared_ptr<PetController>& controller);
 [[huxerui::composable]] huxerui::View PetLotusBody(
     const std::shared_ptr<PetController>& controller);
-[[huxerui::composable]] huxerui::View PetLive2DFallback(
+[[huxerui::composable]] huxerui::View PetSkinFallback(
     const std::shared_ptr<PetController>& controller, std::string status);
 
 inline void UsePetAttachment(const std::shared_ptr<PetController>& controller) {
