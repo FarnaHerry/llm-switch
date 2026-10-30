@@ -9,7 +9,7 @@
 # 常用命令：
 #   huxerui build linux [--profile debug|release]   # CLI 构建（.huxerui/build/linux/...）
 #   huxerui run linux                               # CLI 构建并运行
-#   cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+#   cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
 #   cmake --build build --parallel 4                 # 直接 Ninja 流程（默认）
 #   ctest --test-dir build                          # 冒烟 + 领域层测试
 #   ./run.sh                                        # 运行 build/ 出的 GUI
@@ -65,10 +65,10 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
     # 不影响可能的 C++17 子项目。
     set(CMAKE_CXX_MODULE_STD OFF)
 
-    # 默认 Release（单配置生成器）；调试请显式 -DCMAKE_BUILD_TYPE=Debug
+    # 本地默认 Debug（单配置生成器）；CI / 打包显式传 Release。
     # （huxerui CLI 会按 --profile 显式传入，不受此默认影响）
     if (NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
-        set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Build type" FORCE)
+        set(CMAKE_BUILD_TYPE "Debug" CACHE STRING "Build type" FORCE)
     endif ()
 
     find_package(Threads REQUIRED)

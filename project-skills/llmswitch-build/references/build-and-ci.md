@@ -7,15 +7,16 @@
 ## 本地构建与运行
 
 ```bash
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+# 本地开发：Debug；CI / 打包 / 性能验收才用 Release
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
 cmake --build build --parallel 4
 ctest --test-dir build --output-on-failure
 ./run.sh
 ```
 
 Ninja 是默认生成器；已有目录若用其它生成器，不原地切换或删除，另建目录。
-Debug 将 Release 改为 Debug，或用 `cmake --preset ninja-release` / ninja-debug
-配置及对应 build/test preset。
+`ninja-debug` preset 使用单独的 `build-debug`，`ninja-release` 使用 `build`；
+CI 在干净目录显式传 Release，不受本地默认影响。
 ./run.sh 优先运行已启用 Live2D 的 build-live2d，否则用 build；HuxerUI CLI 的
 `huxerui run linux` 使用 .huxerui/build/linux/，不能混淆这几个构建来源。
 固定收尾顺序以 [根规范](../../../AGENTS.md) 为准，文档变更也执行本地完整编译测试。

@@ -83,8 +83,8 @@ UI 工作还必须读取实际使用版本的 `huxerui-app-development/SKILL.md`
 
 以下流程对文档修改同样适用；CI 跳过纯文档提交不免除本地门禁。
 
-1. 使用 Ninja 配置并完整编译：
-   `cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release`
+1. 本地开发用 Debug 配置并完整编译（Release 只用于 CI、打包和性能验收）：
+   `cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug`
    `cmake --build build --parallel 4`
    已有构建目录若用其他生成器，不原地切换或删除，另建目录并相应替换后续路径。
 2. 运行相关测试，默认至少 `ctest --test-dir build --output-on-failure`。

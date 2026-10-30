@@ -10,7 +10,7 @@ else
     BIN="build/llm-switch"
 fi
 if [ ! -x "$BIN" ]; then
-    echo "binary not found — run \`cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build build --parallel 4\` first" >&2
+    echo "binary not found — run \`cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug && cmake --build build --parallel 4\` first" >&2
     exit 1
 fi
 if [[ "$BIN" == "build-live2d/llm-switch" ]]; then

@@ -72,14 +72,16 @@ C++23 modules + HuxerUI，无 Electron。
 ## 构建 / 运行 / 测试
 
 ```bash
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+# 本地开发默认 Debug；CI / 打包用 Release
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
 cmake --build build --parallel 4
 ctest --test-dir build --output-on-failure
 ./run.sh                 # 或 huxerui run linux（CLI 流程）
 ```
 
-项目也提供了 Ninja 预设：`cmake --preset ninja-release`、
-`cmake --build --preset ninja-release`。
+项目也提供了 Ninja 预设：`cmake --preset ninja-debug`、
+`cmake --build --preset ninja-debug`、`ctest --preset ninja-debug`；
+发布用 `ninja-release`。
 
 `./run.sh` 会优先启动已配置为 `LLMSWITCH_LIVE2D=ON` 的
 `build-live2d/llm-switch`，否则启动 `build/llm-switch`；可用

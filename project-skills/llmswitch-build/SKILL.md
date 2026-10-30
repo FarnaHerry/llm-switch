@@ -22,7 +22,8 @@ description: 处理 llm-switch 的 C++23 模块、RAII、CMake 构建、依赖�
 ## 工程约束
 
 - Ninja 是默认生成器，不原地切换或删除已有其它生成器的构建目录。
-  Release 默认使用 `build`，Debug 可改配置或使用对应 preset。
+  本地开发默认 Debug（`build`，或 `ninja-debug` preset 的 `build-debug`）；
+  CI、打包和性能验收才用 Release（`ninja-release`）。
 - HuxerUI 选用顺序：显式源码、仓库内源码、安装 SDK、Linux 离线 SDK；
   源码缺平台开发依赖时按 CMake 回落，FORCE_SDK 是显式跳过源码的开关。
 - API 依据实际使用的 HuxerUI 版本；pin 集中在现有依赖文档、CMake/CI，
