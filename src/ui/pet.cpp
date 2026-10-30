@@ -899,6 +899,9 @@ huxerui::View PetContent() {
     const bool compact = controller->compact.Get();
 
     // 角色皮肤优先于胶囊；所有形态共用拖拽、点击分流与右键语义。
+    // TODO(pet-theme): 明暗皮肤素材接入后，在这里结合
+    // controller->followDarkMode、themeMode 与系统亮度选择 body；当前所有
+    // 皮肤只有一套资源，followDarkMode 仅保存偏好，不影响渲染。
     huxerui::View body;
     const PetSkin skin = controller->skin.Get();
     if (skin == PetSkin::live2d) {

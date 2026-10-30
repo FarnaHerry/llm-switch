@@ -261,6 +261,8 @@ std::size_t CloseBehaviorIndex(std::string_view behavior) {
     auto petLightweight =
         huxerui::UseState(providerStore().config().petLightweight);
     auto petCompact = huxerui::UseState(providerStore().config().petCompact);
+    auto petFollowDarkMode =
+        huxerui::UseState(providerStore().config().petFollowDarkMode);
     const bool petLive2DBuilt = PetLive2DAvailable();
     const auto activityBridge = huxerui::UseService<::agents::ActivityBridge>();
     std::error_code helperPathError;
@@ -615,6 +617,21 @@ std::size_t CloseBehaviorIndex(std::string_view behavior) {
                                     providerStore().setPetTopmost(on);
                                     pet->SetTopmost(on);
                                     petTopmost = on;
+                                } catch (const std::exception& e) {
+                                    toast.Show(e.what());
+                                }
+                            })),
+                    SettingRow(
+                        "跟随深色模式",
+                        "桌宠外观跟随应用深浅色变化；皮肤素材尚未接入，当前只保存偏好",
+                        huxerui::Switch(petFollowDarkMode.Get())
+                            .OnChanged([pet, petFollowDarkMode, toast](bool on) {
+                                try {
+                                    providerStore().setPetFollowDarkMode(on);
+                                    pet->followDarkMode = on;
+                                    petFollowDarkMode = on;
+                                    // TODO(pet-theme): 素材就绪后在这里触发
+                                    // 桌宠按新明暗主题重绘/换肤。
                                 } catch (const std::exception& e) {
                                     toast.Show(e.what());
                                 }

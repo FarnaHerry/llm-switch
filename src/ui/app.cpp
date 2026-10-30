@@ -1283,6 +1283,7 @@ void InstallApplication(huxerui::ApplicationContext& context) {
     pet->topmost = providerStore().config().petTopmost;
     pet->lightweight = providerStore().config().petLightweight;
     pet->compact = providerStore().config().petCompact;
+    pet->followDarkMode = providerStore().config().petFollowDarkMode;
     pet->skin = PetSkinFromString(providerStore().config().petSkin);
     pet->shimejiPack = providerStore().config().petShimejiPack;
     pet->live2dModel = providerStore().config().petLive2DModel;

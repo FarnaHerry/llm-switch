@@ -544,6 +544,11 @@ export struct AppConfig {
     bool petLightweight = false;
     // 胶囊模式：桌宠缩为小胶囊（状态点 + 今日请求数），点击同样展开信息卡。
     bool petCompact = false;
+    // 桌宠是否跟随应用深浅色变化。皮肤素材尚未接入，目前只持久化偏好，
+    // 渲染层暂不消费。
+    // TODO(pet-theme): 接入明暗两套桌宠皮肤后，在 PetController / PetContent
+    // 中按该标记与当前 themeMode 切换资源。
+    bool petFollowDarkMode = true;
     // 桌宠皮肤：lotus / shimeji / live2d；旧 petLive2D 布尔值在读取时迁移。
     std::string petSkin = "lotus";
     // 数据目录内的模型包相对路径；空字符串表示尚未选择。
@@ -758,6 +763,7 @@ export nlohmann::json toJson(const AppConfig& c) {
     j["petTopmost"] = c.petTopmost;
     j["petLightweight"] = c.petLightweight;
     j["petCompact"] = c.petCompact;
+    j["petFollowDarkMode"] = c.petFollowDarkMode;
     j["petSkin"] = c.petSkin;
     j["petShimejiPack"] = c.petShimejiPack;
     j["petLive2DModel"] = c.petLive2DModel;
@@ -813,6 +819,7 @@ export AppConfig fromJson(const nlohmann::json& j) {
     c.petTopmost = j.value("petTopmost", true);
     c.petLightweight = j.value("petLightweight", false);
     c.petCompact = j.value("petCompact", false);
+    c.petFollowDarkMode = j.value("petFollowDarkMode", true);
     const std::string legacySkin =
         j.value("petLive2D", false) ? "live2d" : "lotus";
     c.petSkin = j.value("petSkin", legacySkin);

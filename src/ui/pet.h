@@ -175,6 +175,10 @@ struct PetController {
     // 胶囊模式：桌宠缩为「状态点 + 今日次数」的小胶囊（同一窗口的另一种
     // 组合，切换经 Close + 按新尺寸重建）。
     huxerui::State<bool> compact{false};
+    // 是否随深浅色切换桌宠外观。素材未就绪：状态已保留，渲染暂不消费。
+    // TODO(pet-theme): 在 PetContent / 各皮肤 Body 中按该标记与 themeMode
+    // 选择明暗资源；在此之前不要把它当成已实现的自适应换肤。
+    huxerui::State<bool> followDarkMode{true};
     huxerui::State<PetSkin> skin{PetSkin::lotus};
     huxerui::State<std::string> shimejiPack{std::string{}};
     huxerui::State<std::string> live2dModel{std::string{}};

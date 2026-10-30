@@ -117,6 +117,8 @@ public:
     void setPetTopmost(bool topmost);
     void setPetLightweight(bool lightweight);
     void setPetCompact(bool compact);
+    // 桌宠是否跟随深浅色；素材未接入前只落盘偏好，渲染暂不消费。
+    void setPetFollowDarkMode(bool follow);
     void setPetSkin(std::string skin);
     void setPetShimejiPack(std::string path);
     void setPetLive2DModel(std::string path);

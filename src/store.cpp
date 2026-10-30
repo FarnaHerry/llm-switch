@@ -382,6 +382,11 @@ void ProviderStore::setPetCompact(bool compact) {
     save();
 }
 
+void ProviderStore::setPetFollowDarkMode(bool follow) {
+    config_.petFollowDarkMode = follow;
+    save();
+}
+
 void ProviderStore::setPetSkin(std::string skin) {
     if (skin != "lotus" && skin != "shimeji" && skin != "live2d") {
         throw std::invalid_argument("无效的桌宠皮肤");

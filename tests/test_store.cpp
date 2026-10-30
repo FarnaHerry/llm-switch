@@ -251,6 +251,7 @@ int main() {
         CHECK(petSettings.config().petTopmost == true);
         CHECK(petSettings.config().petLightweight == false);
         CHECK(petSettings.config().petCompact == false);
+        CHECK(petSettings.config().petFollowDarkMode == true);
         CHECK(petSettings.config().petSkin == "lotus");
         CHECK(petSettings.config().petShimejiPack.empty());
         CHECK(petSettings.config().petLive2DModel.empty());
@@ -260,7 +261,11 @@ int main() {
         CHECK(explicitPet.petTopmost == false);
         CHECK(explicitPet.petLightweight == true);
         CHECK(explicitPet.petCompact == true);
+        CHECK(explicitPet.petFollowDarkMode == true);
         CHECK(explicitPet.petSkin == "live2d");
+        CHECK(models::fromJson(nlohmann::json::parse(
+                  R"json({"petFollowDarkMode":false})json"))
+                  .petFollowDarkMode == false);
         const auto explicitPetOff = models::fromJson(
             nlohmann::json::parse(R"json({"petEnabled":false})json"));
         CHECK(explicitPetOff.startupMode == "control-center");
@@ -289,6 +294,7 @@ int main() {
         petSettings.setPetTopmost(false);
         petSettings.setPetLightweight(true);
         petSettings.setPetCompact(true);
+        petSettings.setPetFollowDarkMode(false);
         petSettings.setPetSkin("shimeji");
         petSettings.setPetShimejiPack("packs/chibi");
         petSettings.setPetLive2DModel("models/hero");
@@ -298,6 +304,7 @@ int main() {
         CHECK(petReloaded.config().petTopmost == false);
         CHECK(petReloaded.config().petLightweight == true);
         CHECK(petReloaded.config().petCompact == true);
+        CHECK(petReloaded.config().petFollowDarkMode == false);
         CHECK(petReloaded.config().petSkin == "shimeji");
         CHECK(petReloaded.config().petShimejiPack == "packs/chibi");
         CHECK(petReloaded.config().petLive2DModel == "models/hero");
