@@ -163,7 +163,8 @@ std::array<WorkspaceModuleInfo, 8> WorkspaceModules() {
                        .Key("workspace-router"),
                    WorkspaceMcpPage(revision).Key("workspace-mcp"),
                    WorkspaceSkillsPage(revision).Key("workspace-skills"),
-                   SettingsPage(themeMode, revision, startupMode, trayEnabled)
+                   SettingsPage(themeMode, revision, startupMode, trayEnabled,
+                                navPage, workspacePage, true)
                        .Key("workspace-settings"),
                    AboutPage().Key("workspace-about"),
                },

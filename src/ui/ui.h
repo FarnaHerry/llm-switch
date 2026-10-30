@@ -132,7 +132,10 @@ huxerui::View ProvidersPage(std::string tool, huxerui::State<int> revision,
 huxerui::View SettingsPage(huxerui::State<int> themeMode,
                            huxerui::State<int> revision,
                            huxerui::State<std::size_t> startupMode,
-                           huxerui::State<bool> trayEnabled);
+                           huxerui::State<bool> trayEnabled,
+                           huxerui::State<std::size_t> navPage,
+                           huxerui::State<std::size_t> workspacePage,
+                           bool inWorkspace);
 
 // 为当前用户设置或移除登录启动项；失败时抛出中文错误。
 void SetLaunchAtLogin(bool enabled);

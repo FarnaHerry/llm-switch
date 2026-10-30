@@ -1036,7 +1036,8 @@ constexpr double kCollapseSeconds = 0.12;
         nextPages->push_back(
             SessionsPage().Key("sessions").With(huxerui::Grow(1.0F)));
         nextPages->push_back(SettingsPage(themeMode, revision, startupMode,
-                                          trayEnabled)
+                                          trayEnabled, navPage,
+                                          huxerui::State<std::size_t>{}, false)
                                  .Key("settings")
                                  .With(huxerui::Grow(1.0F)));
         nextPages->push_back(

@@ -200,22 +200,30 @@ std::size_t CloseBehaviorIndex(std::string_view behavior) {
         theme.colors.on_surface_variant});
 }
 
-// 配置文件路径行。openable 为真时整行可点击，用系统默认编辑器打开；
-// 展示解析结果用等宽小字，路径本身用强调色提示可交互。
+// 配置文件路径行。每次展示都重新 stat；不存在时显示「未创建」且不可点击，
+// 避免把尚未生成的 live 文件伪装成可编辑项。
 [[huxerui::composable]] huxerui::View PathRow(const std::string& label,
                                               const std::string& path,
                                               bool openable = false) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto toast = huxerui::UseToast();
+    std::error_code existsError;
+    const bool exists =
+        !path.empty() &&
+        std::filesystem::exists(std::filesystem::path(path), existsError);
+    const bool canOpen = openable && exists;
     huxerui::View row = huxerui::Column {
         huxerui::Text(label).Style(huxerui::TextStyle{
             huxerui::Font::System(font_size::kChip), theme.colors.on_surface}),
-        huxerui::Text(path).Style(huxerui::TextStyle{
-            huxerui::Font::Monospace(font_size::kCaption),
-            openable ? theme.colors.primary : theme.colors.on_surface_variant}),
+        huxerui::Text(exists ? path : path + "  （未创建）")
+            .Style(huxerui::TextStyle{
+                huxerui::Font::Monospace(font_size::kCaption),
+                canOpen ? theme.colors.primary
+                        : (exists ? theme.colors.on_surface_variant
+                                  : theme.colors.outline)}),
     }.With(huxerui::Spacing(2.0F),
            huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
-    if (!openable || path.empty()) return row;
+    if (!canOpen) return row;
     return std::move(row)
         .OnClick([path, toast] {
             if (!OpenInSystemEditor(path)) {
@@ -230,7 +238,18 @@ std::size_t CloseBehaviorIndex(std::string_view behavior) {
 [[huxerui::composable]] huxerui::View SettingsPage(
     huxerui::State<int> themeMode, huxerui::State<int> revision,
     huxerui::State<std::size_t> startupMode,
-    huxerui::State<bool> trayEnabled) {
+    huxerui::State<bool> trayEnabled,
+    huxerui::State<std::size_t> navPage,
+    huxerui::State<std::size_t> workspacePage, bool inWorkspace) {
+    // 订阅当前页：切回设置页时重新做一遍配置文件存在性检查，避免外部新建
+    // 文件后仍显示旧的「未创建」状态。
+    if (inWorkspace) {
+        (void)workspacePage.Get();
+    } else {
+        (void)navPage.Get();
+    }
+    auto configRefresh = huxerui::UseState<int>(0);
+    (void)configRefresh.Get();
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto tasks = huxerui::UseTaskScope();
     auto toast = huxerui::UseToast();
@@ -752,10 +771,19 @@ std::size_t CloseBehaviorIndex(std::string_view behavior) {
 
                 PageSection(SectionTitle("配置"),
                             huxerui::Column {
-                    huxerui::Text("点击彩色配置路径，用系统默认编辑器打开。")
-                        .Style(huxerui::TextStyle{
-                            huxerui::Font::System(font_size::kCaption),
-                            theme.colors.on_surface_variant}),
+                    huxerui::Row {
+                        huxerui::Text("点击彩色配置路径，用系统默认编辑器打开；"
+                                      "灰色「未创建」表示文件尚不存在。")
+                            .Style(huxerui::TextStyle{
+                                huxerui::Font::System(font_size::kCaption),
+                                theme.colors.on_surface_variant})
+                            .With(huxerui::Grow(1.0F)),
+                        huxerui::Button("重新检查").OnClick([configRefresh] {
+                            configRefresh = configRefresh.Get() + 1;
+                        }),
+                    }.With(huxerui::Spacing(8.0F),
+                           huxerui::CrossAlign(
+                               huxerui::CrossAxisAlignment::Center)),
                     PathRow("Claude Code 设置（live）",
                             cfg::claudeSettingsFile().string(), true),
                     PathRow("Codex 凭据（live）", cfg::codexAuthFile().string(),
