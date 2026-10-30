@@ -19,6 +19,10 @@ C++23 modules + HuxerUI，无 Electron。
   （OpenAI Chat Completions / OpenAI Responses / Anthropic Messages），
   Kimi Code 另有自己的 Kimi 协议档；推理档位支持规范七档，Kimi 另含最高
   `ultra`，还可追加自定义 `support_efforts` 值。
+- **聚合供应商**：把多条完整 API（URL / Key / 模型）组织成一个可选供应商；
+  选中后 Agent 走本地路由，按请求 model 优先匹配成员，429/5xx 或连接失败时
+  自动切换下一条；成员协议需与目标 Agent 一致（聚合内兜底不受组级故障转移
+  开关影响）。
 - **按需显示**：设置页「管理的 Agent」可关闭不常用的工具，供应商、路由、
   会话、MCP / Skills 页面随之隐藏；只影响展示，不改已有 live 配置。
 - **一键切换**：把选中供应商写进工具的 live 配置文件——

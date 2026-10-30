@@ -1764,6 +1764,39 @@ void ProviderStore::switchTo(std::string_view tool, const std::string& id) {
     if (target == nullptr) {
         throw std::runtime_error(std::format("供应商不存在：{}", id));
     }
+    // 聚合供应商没有自己的直连地址：把 Agent 指向本地路由的 /<tool>/。
+    // 路由由 UI 在切换前启动并把该工具加入 routerTools；这里只负责写 live
+    // 配置。副本在栈上存活到函数结束，后续 target-> 字段读取保持简单。
+    models::Provider aggregateTarget;
+    if (models::isAggregateProvider(*target)) {
+        aggregateTarget = *target;
+        aggregateTarget.baseUrl = std::format(
+            "http://127.0.0.1:{}/{}", config_.routerPort, tool);
+        aggregateTarget.fullUrl = true;
+        if (aggregateTarget.apiKey.empty()) {
+            // 本地路由不校验入站鉴权，但部分 Agent 要求 key 非空。
+            aggregateTarget.apiKey = "llmswitch-aggregate";
+        }
+        if (aggregateTarget.model.empty()) {
+            for (const auto& upstream : aggregateTarget.upstreams) {
+                if (!upstream.model.empty()) {
+                    aggregateTarget.model = upstream.model;
+                    break;
+                }
+            }
+        }
+        if (tool == "codex" && aggregateTarget.codexConfigToml.empty()) {
+            // Codex 只改 auth.json 时不会替换 base_url；没有模板就生成一个
+            // 最小 model_providers 段，让下面的 applyCodexBaseUrl 能落到路由。
+            aggregateTarget.codexConfigToml =
+                "model_provider = \"llmswitch\"\n\n"
+                "[model_providers.llmswitch]\n"
+                "name = \"llm-switch aggregate\"\n"
+                "base_url = \"\"\n"
+                "wire_api = \"chat\"\n";
+        }
+        target = &aggregateTarget;
+    }
     const std::string baseUrl = models::effectiveBaseUrl(*target);
 
     if (tool == "claude-code") {

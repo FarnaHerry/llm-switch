@@ -187,9 +187,11 @@ namespace llmswitch::ui {
         [tasks, formToolId, target, toolIndex, formToolIndex, formTarget,
          formInitial, formDataTarget, formLoading] {
             formDataTarget = "";
-            formLoading = !target.empty() && target != "new";
+            const bool aggregateNew = target == "aggregate:new";
+            formLoading =
+                !target.empty() && target != "new" && !aggregateNew;
             if (target.empty()) return;
-            if (target == "new") {
+            if (target == "new" || aggregateNew) {
                 formDataTarget = target;
                 formLoading = false;
                 return;
@@ -204,7 +206,11 @@ namespace llmswitch::ui {
                     co_return;
                 }
                 const std::string id =
-                    target.starts_with("usage:") ? target.substr(6) : target;
+                    target.starts_with("usage:")
+                        ? target.substr(6)
+                        : (target.starts_with("aggregate:")
+                               ? target.substr(10)
+                               : target);
                 models::Provider loaded;
                 for (const auto& provider :
                      providerStore().group(formToolId).providers) {
@@ -301,6 +307,24 @@ namespace llmswitch::ui {
                 }));
     }
     if (!visibleIndices.empty()) {
+        // dsh / ZCode 有各自的供应商页和写回器，Kimi Code 新增 provider 时
+        // 会立即写 live 多条目；聚合编辑页只接在通用 ProviderCard 路径上，
+        // 这三个工具先不露出入口，避免写出无法编辑或空 URL 的 live 条目。
+        const std::string currentTool =
+            selectedTool.Get() < registry.size()
+                ? std::string(registry[selectedTool.Get()].id)
+                : std::string{};
+        if (currentTool != "dsh" && currentTool != "zcode" &&
+            currentTool != "kimi-code") {
+            pageActions.push_back(
+                huxerui::IconButton(app::images::subrouter, "新增聚合供应商")
+                    .OnClick([formToolIndex, formTarget, selectedTool] {
+                        formToolIndex = selectedTool.Get();
+                        formTarget = "aggregate:new";
+                    })
+                    .With(huxerui::Tooltip(
+                        "新增聚合供应商（多条 API 经本地路由分发）")));
+        }
         pageActions.push_back(
             huxerui::IconButton(app::images::add, "新增供应商")
                 .OnClick(requestAddProvider)
@@ -365,7 +389,7 @@ namespace llmswitch::ui {
         // 标志，而关闭上一次表单时它已被清空，会让新增页先闪一帧「编辑供应商
         // / 正在加载供应商配置…」的旧脚手架（左上角还不是目标 Agent 选择器）。
         const bool formReady =
-            target == "new" ||
+            target == "new" || target == "aggregate:new" ||
             (formDataTarget.Get() == target && !formLoading.Get());
         auto goBack = [formTarget] { formTarget = ""; };
         if (!formReady) {
@@ -401,6 +425,16 @@ namespace llmswitch::ui {
                 UsageFormPage(formToolId, formInitial.Get(), revision,
                               formTarget)
                     .Key("usage:" + target.substr(6));
+        } else if (target == "aggregate:new" ||
+                   target.starts_with("aggregate:")) {
+            models::Provider aggregateInitial =
+                target == "aggregate:new" ? models::Provider{}
+                                          : formInitial.Get();
+            agentForm =
+                AggregateFormPage(formToolId, std::move(aggregateInitial),
+                                  target == "aggregate:new", revision,
+                                  formTarget)
+                    .Key("aggregate:" + target);
         } else {
             agentForm =
                 ProviderFormPage(formToolId, formInitial.Get(),

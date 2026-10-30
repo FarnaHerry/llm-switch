@@ -28,6 +28,14 @@
   store 有对应 setter；AppRoot 首组合时自启（见 src/ui/app.cpp 的 Lifecycle）。
   LocalRouter 内部以 mutex 保护启用集合，运行中切换无需重启；禁用路径返回 403，
   且在 resolver、上游与统计之前短路。
+- **聚合供应商**：`Provider.upstreams` 非空即聚合（无单一直连 baseUrl）。
+  选中时 `switchTo` 把 Agent 指向 `127.0.0.1:<routerPort>/<tool>/` 并写占位
+  key；`SwitchProvider`（UI 入口）先启动本地路由、启用该工具的 routerTools
+  并落盘 routerEnabled，避免下次启动失效。LocalRouter 把每个成员当作独立
+  尝试：请求体 `model` 精确匹配的成员优先，其余按配置顺序；成员 429/5xx/连接
+  失败继续下一条，不受组级 routerFailover 关闭影响。Codex 没有 config.toml
+  模板时由 store 生成最小 `model_providers.llmswitch` 段（wire_api=chat）。
+  成员 URL 按完整地址保存，必须与目标 Agent 协议一致。
 - **文件安全约定**（store*.cpp 中的文件助手）：`atomicWrite`（`.tmp` →
   rename，失败回落 remove+rename）；`readJsonOrNull`（解析失败把坏文件挪到
   `<file>.corrupt-<毫秒>` 再按无内容继续，绝不崩溃）；`backupLiveFile`（改写

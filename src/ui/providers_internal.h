@@ -35,6 +35,12 @@ huxerui::View ProviderFormPage(std::string tool, models::Provider initial,
                                huxerui::State<std::string> formTarget,
                                huxerui::View targetSelector);
 
+// 聚合供应商编辑页（provider_form_aggregate.cpp）：名称/默认模型 + 多条
+// 完整 API 地址（URL / Key / 模型）。只对当前 Agent 生效。
+huxerui::View AggregateFormPage(std::string tool, models::Provider initial,
+                                bool isNew, huxerui::State<int> revision,
+                                huxerui::State<std::string> formTarget);
+
 huxerui::View UsageFormPage(std::string tool, models::Provider initial,
                             huxerui::State<int> revision,
                             huxerui::State<std::string> formTarget);

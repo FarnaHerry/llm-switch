@@ -368,6 +368,70 @@ int main() {
         up1.status = 200;
     }
 
+    // 3b. 聚合供应商：按请求 model 优先匹配成员；成员 500 时继续下一条，
+    //     即使组级 failover 关闭也保持聚合内兜底。
+    {
+        groups["codex"].providers.push_back(models::Provider{
+            .id = "agg",
+            .name = "聚合源",
+            .upstreams = {
+                models::ProviderUpstream{.name = "甲",
+                                         .baseUrl = up1.baseUrl(),
+                                         .apiKey = "sk-agg-1",
+                                         .model = "model-a"},
+                models::ProviderUpstream{.name = "乙",
+                                         .baseUrl = up2.baseUrl(),
+                                         .apiKey = "sk-agg-2",
+                                         .model = "model-b"},
+            }});
+        groups["codex"].current = "agg";
+        router1.setFailoverEnabled(false);
+        router1.clearStats();
+        up1.status = 500;
+        up2.status = 200;
+        up1.hits = 0;
+        up2.hits = 0;
+        auto res = cli.Post("/codex/chat/completions",
+                            R"({"model":"model-b"})", "application/json");
+        CHECK(res && res->status == 200);
+        {
+            std::lock_guard lk(up1.mu);
+            CHECK(up1.hits == 0);  // model-b 命中乙，甲不应被先试
+        }
+        {
+            std::lock_guard lk(up2.mu);
+            CHECK(up2.hits == 1);
+            CHECK(up2.lastAuth == "Bearer sk-agg-2");
+            CHECK(up2.lastPath == "/chat/completions");
+        }
+        auto snap = router1.snapshot();
+        CHECK(snap.totalRequests == 1);
+        CHECK(perProviderCount(snap, "聚合源 · 乙") == 1);
+
+        // 未匹配到 model 时按配置顺序：甲先 500，再兜底到乙 200。
+        up1.hits = 0;
+        up2.hits = 0;
+        router1.clearStats();
+        res = cli.Post("/codex/chat/completions",
+                       R"({"model":"model-unknown"})", "application/json");
+        CHECK(res && res->status == 200);
+        {
+            std::lock_guard lk(up1.mu);
+            CHECK(up1.hits == 1);
+        }
+        {
+            std::lock_guard lk(up2.mu);
+            CHECK(up2.hits == 1);
+        }
+        snap = router1.snapshot();
+        CHECK(snap.totalRequests == 2);
+        CHECK(snap.successCount == 1);
+        groups["codex"].current = "c1";
+        up1.status = 200;
+        up2.status = 200;
+        router1.clearStats();
+    }
+
     // 4. 未知工具 → 404；组无 current → 502（均为中文 JSON 错误体）。
     {
         auto res = cli.Get("/nope/x");
@@ -376,8 +440,8 @@ int main() {
         res = cli.Get("/pi/v1/chat");
         CHECK(res && res->status == 502);
         CHECK(res->body.contains("当前供应商"));
-        // 错误响应不记入 stats
-        CHECK(router1.snapshot().totalRequests == 1);
+        // 错误响应不记入 stats（聚合测试结尾已 clearStats）。
+        CHECK(router1.snapshot().totalRequests == 0);
     }
 
     // 4b. 非完整 URL 的 OpenAI 上游格式自动追加 /v1。

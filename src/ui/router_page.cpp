@@ -104,6 +104,29 @@ std::string Truncate(std::string s, std::size_t max) {
     return s;
 }
 
+// 聚合供应商的 live base URL 指向本地路由：停路由或换端口会让它的请求直接
+// 断掉，操作前先要求用户切回普通供应商。
+bool AggregateProviderInUse(std::string_view tool) {
+    try {
+        const auto& group = providerStore().group(std::string(tool));
+        if (group.current.empty()) return false;
+        for (const auto& provider : group.providers) {
+            if (provider.id == group.current) {
+                return models::isAggregateProvider(provider);
+            }
+        }
+    } catch (...) {
+    }
+    return false;
+}
+
+bool AnyAggregateProviderInUse() {
+    for (const auto& spec : models::toolRegistry()) {
+        if (AggregateProviderInUse(spec.id)) return true;
+    }
+    return false;
+}
+
 std::string FormatTokens(std::int64_t prompt, std::int64_t completion) {
     auto one = [](std::int64_t v) {
         return v < 0 ? std::string("—") : std::to_string(v);
@@ -242,6 +265,11 @@ huxerui::Color StatusColor(int status, const huxerui::ThemeSpec& theme) {
 
     // 启用开关：start/stop 为快操作，UI 线程直接做；立即落盘 routerEnabled。
     auto setRunning = [=](bool on) {
+        if (!on && AnyAggregateProviderInUse()) {
+            toast.Show("有聚合供应商正在使用本地路由，请先切换到普通供应商");
+            running = routerInstance().running();
+            return;
+        }
         try {
             if (on) {
                 routerInstance().start(providerStore().config().routerPort);
@@ -267,6 +295,10 @@ huxerui::Color StatusColor(int status, const huxerui::ThemeSpec& theme) {
             toast.Show("端口无效：请输入 1-65535 的整数");
             return;
         }
+        if (routerInstance().running() && AnyAggregateProviderInUse()) {
+            toast.Show("有聚合供应商正在使用本地路由，请先切换到普通供应商再改端口");
+            return;
+        }
         try {
             if (routerInstance().running()) {
                 routerInstance().stop();
@@ -290,6 +322,11 @@ huxerui::Color StatusColor(int status, const huxerui::ThemeSpec& theme) {
     // 单 Agent 开关：先持久化，再更新线程安全的运行时路由表；运行中的服务
     // 无需重启。失败时保持 UI 与运行时原状态。
     auto setToolEnabled = [=](std::string tool, bool on) {
+        if (!on && AggregateProviderInUse(tool)) {
+            toast.Show(std::format("{} 当前使用聚合供应商，不能关闭代理",
+                                   ToolName(tool)));
+            return;
+        }
         try {
             providerStore().setRouterToolEnabled(tool, on);
             routerInstance().setToolEnabled(tool, on);

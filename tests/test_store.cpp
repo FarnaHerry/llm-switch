@@ -407,6 +407,36 @@ int main() {
         CHECK(s.group("claude-code").current == idA);
     }
 
+    // 3aa. 聚合供应商：live 配置指向本地路由，写本地占位 key；默认模型
+    //      取 provider.model，没有时回退第一条成员模型。
+    models::Provider aggregate{
+        .name = "聚合供应商",
+        .model = "model-agg",
+        .upstreams = {
+            models::ProviderUpstream{.name = "甲",
+                                     .baseUrl = "https://agg-a.example.com/v1",
+                                     .apiKey = "sk-agg-a",
+                                     .model = "model-a"},
+            models::ProviderUpstream{.name = "乙",
+                                     .baseUrl = "https://agg-b.example.com/v1",
+                                     .apiKey = "sk-agg-b",
+                                     .model = "model-b"},
+        }};
+    s.addProvider("claude-code", aggregate);
+    const std::string idAgg = s.group("claude-code").providers.back().id;
+    s.switchTo("claude-code", idAgg);
+    {
+        const auto j = readJson(claudeSettings);
+        CHECK(j["env"]["ANTHROPIC_BASE_URL"] ==
+              std::format("http://127.0.0.1:{}/claude-code",
+                          s.config().routerPort));
+        CHECK(j["env"]["ANTHROPIC_AUTH_TOKEN"] == "llmswitch-aggregate");
+        CHECK(j["env"]["ANTHROPIC_MODEL"] == "model-agg");
+        CHECK(s.group("claude-code").current == idAgg);
+        CHECK(s.group("claude-code").providers.back().upstreams.size() == 2);
+    }
+    s.switchTo("claude-code", idA);
+
     // 3a. Claude Code 跳过初次安装检查：写入 DISABLE_INSTALLATION_CHECKS=1，
     // 关闭时只移除该键。
     CHECK(!s.claudeCodeSkipInstallationChecks());
@@ -463,12 +493,44 @@ int main() {
         CHECK(s.detectCurrent("codex") == idC);
     }
 
-    // 5. 备份生成在 backups 目录（claude-code 切了两次 → ≥2 份；codex 各 1 份）
+    // 4a. 聚合供应商给 Codex：没有 config.toml 模板时生成最小
+    //     model_providers 段；base_url 落到本地路由，model 用默认成员模型。
+    models::Provider codexAggregate{
+        .name = "Codex 聚合",
+        .model = "model-codex-a",
+        .upstreams = {
+            models::ProviderUpstream{.name = "甲",
+                                     .baseUrl = "https://codex-a.example.com/v1",
+                                     .apiKey = "sk-codex-a",
+                                     .model = "model-codex-a"},
+            models::ProviderUpstream{.name = "乙",
+                                     .baseUrl = "https://codex-b.example.com/v1",
+                                     .apiKey = "sk-codex-b",
+                                     .model = "model-codex-b"},
+        }};
+    s.addProvider("codex", codexAggregate);
+    const std::string codexAggregateId =
+        s.group("codex").providers.back().id;
+    s.switchTo("codex", codexAggregateId);
+    {
+        const auto j = readJson(codexAuth);
+        CHECK(j["OPENAI_API_KEY"] == "llmswitch-aggregate");
+        const std::string toml = readText(codexConfig);
+        CHECK(toml.contains("model = \"model-codex-a\""));
+        CHECK(toml.contains("model_provider = \"llmswitch\""));
+        CHECK(toml.contains(std::format(
+            "base_url = \"http://127.0.0.1:{}/codex\"",
+            s.config().routerPort)));
+        CHECK(toml.contains("wire_api = \"chat\""));
+    }
+    s.switchTo("codex", idC);
+
+    // 5. 备份生成在 backups 目录（claude-code 切了两次 → ≥2 份；codex 各 3 份）
     {
         const auto backups = cfg::backupsDir();
         CHECK(countBackups(backups / "claude-code", "settings.json") >= 2);
-        CHECK(countBackups(backups / "codex", "auth.json") == 1);
-        CHECK(countBackups(backups / "codex", "config.toml") == 1);
+        CHECK(countBackups(backups / "codex", "auth.json") == 3);
+        CHECK(countBackups(backups / "codex", "config.toml") == 3);
     }
 
     // 6. detectCurrent：不匹配 → 空串；live 文件改回匹配值 → 恢复命中
@@ -2714,10 +2776,10 @@ int main() {
     s.exportTo(exportPath);
     CHECK(fs::exists(exportPath));
     s.removeProvider("claude-code", idA);
-    CHECK(s.group("claude-code").providers.size() == 3);
+    CHECK(s.group("claude-code").providers.size() == 4);
     s.importFrom(exportPath);
     {
-        CHECK(s.group("claude-code").providers.size() == 4);
+        CHECK(s.group("claude-code").providers.size() == 5);
         bool found = false;
         for (const auto& p : s.group("claude-code").providers) {
             if (p.id == idA) found = true;
@@ -2808,6 +2870,28 @@ int main() {
             models::providerFromJson(models::toJson(customFetch));
         CHECK(customFetchDecoded.modelFetchUrl ==
               "https://models.example.com/v1/models");
+        models::Provider aggregate{
+            .name = "聚合编码",
+            .upstreams = {
+                models::ProviderUpstream{.name = "甲",
+                                         .baseUrl = "https://a.example.com/v1",
+                                         .apiKey = "sk-a",
+                                         .model = "model-a"},
+                models::ProviderUpstream{.name = "乙",
+                                         .baseUrl = "https://b.example.com/v1",
+                                         .apiKey = "sk-b",
+                                         .model = "model-b"},
+            }};
+        const auto aggregateDecoded =
+            models::providerFromJson(models::toJson(aggregate));
+        CHECK(models::isAggregateProvider(aggregateDecoded));
+        CHECK(aggregateDecoded.upstreams.size() == 2);
+        CHECK(aggregateDecoded.upstreams[1].name == "乙");
+        CHECK(aggregateDecoded.upstreams[1].baseUrl ==
+              "https://b.example.com/v1");
+        CHECK(aggregateDecoded.upstreams[1].apiKey == "sk-b");
+        CHECK(aggregateDecoded.upstreams[1].model == "model-b");
+        CHECK(!models::isAggregateProvider(encoded));
         const auto legacy = models::providerFromJson(
             nlohmann::json{{"baseUrl", "https://legacy.example.com/v1"}});
         CHECK(legacy.fullUrl);

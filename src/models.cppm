@@ -436,6 +436,17 @@ export std::string formatTokenCount(std::int64_t value) {
 
 // ---- 数据模型 -----------------------------------------------------------------
 
+// 聚合供应商中的一条上游 API。baseUrl 存调用方填写的完整地址（含 /v1、
+// /anthropic 等路径），router 直接拼接剩余请求路径，不再追加格式后缀。
+// model 用于按请求体的 model 选择优先上游；空 = 不参与精确匹配。
+export struct ProviderUpstream {
+    std::string name;
+    std::string baseUrl;
+    std::string apiKey;
+    std::string model;
+    bool operator==(const ProviderUpstream&) const = default;
+};
+
 export struct Provider {
     std::string id;         // 生成：毫秒时间戳 + 随机 hex（见 llmswitch.store）
     std::string name;
@@ -495,9 +506,18 @@ export struct Provider {
     // 新增表单会显式设为 false，让访问时按 upstreamFormat 追加默认后缀。
     std::string upstreamFormat = "openai";  // "anthropic" / "openai"
     bool fullUrl = true;
+    // 非空 = 聚合供应商：该条目本身不直连，选中后由本地路由把请求分发到
+    // 这些完整 API 地址；空 = 普通单上游供应商。apiFormat / upstreamFormat
+    // 仍描述对 Agent 暴露的协议，成员必须与之一致。
+    std::vector<ProviderUpstream> upstreams;
 
     bool operator==(const Provider&) const = default;
 };
+
+// 聚合供应商没有单一可探测/可直连的 baseUrl，统一用这个谓词判断。
+export bool isAggregateProvider(const Provider& provider) {
+    return !provider.upstreams.empty();
+}
 
 // 一个工具的供应商集合。
 export struct ProviderGroup {
@@ -608,6 +628,17 @@ export nlohmann::json toJson(const Provider& p) {
     if (!p.inputModalities.empty()) {
         j["inputModalities"] = p.inputModalities;  // dsh 模型条目的输入模态
     }
+    if (!p.upstreams.empty()) {
+        j["upstreams"] = nlohmann::json::array();
+        for (const auto& upstream : p.upstreams) {
+            j["upstreams"].push_back({
+                {"name", upstream.name},
+                {"baseUrl", upstream.baseUrl},
+                {"apiKey", upstream.apiKey},
+                {"model", upstream.model},
+            });
+        }
+    }
     return j;
 }
 
@@ -666,6 +697,20 @@ export Provider providerFromJson(const nlohmann::json& j) {
             if (value.is_string()) modalities.push_back(value.get<std::string>());
         }
         p.inputModalities = normalizeInputModalities(modalities);
+    }
+    if (j.contains("upstreams") && j["upstreams"].is_array()) {
+        for (const auto& item : j["upstreams"]) {
+            if (!item.is_object()) continue;
+            ProviderUpstream upstream{
+                .name = item.value("name", ""),
+                .baseUrl = item.value("baseUrl", ""),
+                .apiKey = item.value("apiKey", ""),
+                .model = item.value("model", ""),
+            };
+            if (!upstream.baseUrl.empty()) {
+                p.upstreams.push_back(std::move(upstream));
+            }
+        }
     }
     // 缺少新字段的旧配置保存的是已经可直接访问的 URL，不能按默认
     // 后缀再次拼接，否则会把 /v1 或 /anthropic 复制一遍。

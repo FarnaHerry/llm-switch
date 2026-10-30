@@ -159,6 +159,7 @@ huxerui::View StatusText(const StatusPreview& preview, const std::string& full,
     const std::string id = provider.id;
     const std::string name = provider.name;
     const std::string accessUrl = models::effectiveBaseUrl(provider);
+    const bool aggregate = models::isAggregateProvider(provider);
 
     // 连通检测状态（卡片级）：latency 空 = 未检测；检测中禁用按钮。
     // State 经 .Key(id) 随卡片保活，revision 重读不丢。
@@ -190,9 +191,9 @@ huxerui::View StatusText(const StatusPreview& preview, const std::string& full,
     // 纯导航直接写 State；表单页由 AgentPage 换页挂载，卸载由后续帧完成。
     // 两个 State 一起写：formToolIndex 说明表单属于哪个 Agent 组（供应商 id
     // 只在组内唯一，所以目标组必须跟着入口一起确定）。
-    auto showEdit = [formToolIndex, formTarget, tool, id] {
+    auto showEdit = [formToolIndex, formTarget, tool, id, aggregate] {
         formToolIndex = ToolRegistryIndex(tool);
-        formTarget = id;
+        formTarget = aggregate ? "aggregate:" + id : id;
     };
     auto showUsage = [formToolIndex, formTarget, tool, id] {
         formToolIndex = ToolRegistryIndex(tool);
@@ -227,6 +228,35 @@ huxerui::View StatusText(const StatusPreview& preview, const std::string& full,
     refreshIndication.geometry.clip_corner_radii =
         huxerui::CornerRadii{theme.shapes.extra_small};
 
+    huxerui::View kindBadge =
+        aggregate
+            ? huxerui::View{
+                  huxerui::Text(
+                      std::format("聚合 {} 个 API", provider.upstreams.size()))
+                      .Style(huxerui::TextStyle{
+                          huxerui::Font::System(font_size::kCaption),
+                          theme.colors.on_surface_variant})}
+                  .With(huxerui::Padding(
+                            huxerui::EdgeInsets::Symmetric(8.0F, 2.0F)),
+                        huxerui::Background(theme.colors.surface_container_high),
+                        huxerui::CornerRadius(islands.nested_radius))
+            : huxerui::View{huxerui::Row{}};
+    huxerui::View accessLine =
+        aggregate
+            ? huxerui::View{
+                  huxerui::Text(
+                      "经本地路由按 model 匹配成员，429/5xx 时切换下一条")
+                      .Style(huxerui::TextStyle{
+                          huxerui::Font::System(font_size::kChip),
+                          theme.colors.on_surface_variant})}
+            : (accessUrl.empty()
+                   ? huxerui::View{huxerui::Row{}}
+                   : huxerui::View{
+                         huxerui::Text(accessUrl)
+                             .Style(huxerui::TextStyle{
+                                 huxerui::Font::Monospace(font_size::kChip),
+                                 theme.colors.on_surface_variant})});
+
     // 三段式：左信息列（Grow 吃满剩余宽度）｜ 中间状态行（延迟 + 用量
     // 横向排列，垂直居中落在内容与操作组之间）｜ 右侧操作图标组（自绘
     // 图标 + Tooltip）。
@@ -247,14 +277,10 @@ huxerui::View StatusText(const StatusPreview& preview, const std::string& full,
                                 huxerui::Background(theme.colors.primary),
                                 huxerui::CornerRadius(islands.nested_radius))
                     : huxerui::View{huxerui::Row{}},
+                std::move(kindBadge),
             }.With(huxerui::Spacing(6.0F),
                    huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
-            accessUrl.empty()
-                ? huxerui::View{huxerui::Row{}}
-                : huxerui::View{huxerui::Text(accessUrl)
-                                    .Style(huxerui::TextStyle{
-                                        huxerui::Font::Monospace(font_size::kChip),
-                                        theme.colors.on_surface_variant})},
+            std::move(accessLine),
             provider.notes.empty()
                 ? huxerui::View{huxerui::Row{}}
                 : huxerui::View{huxerui::Text(provider.notes)
@@ -320,7 +346,7 @@ huxerui::View StatusText(const StatusPreview& preview, const std::string& full,
             huxerui::IconButton(app::images::swap, "切换")
                 .OnClick([toast, tool, id, name, bump] {
                     try {
-                        providerStore().switchTo(tool, id);
+                        SwitchProvider(tool, id);
                         toast.Show(std::format("已切换到 {}", name) +
                                    RestartHintSuffix(tool));
                     } catch (const std::exception& e) {
@@ -329,7 +355,12 @@ huxerui::View StatusText(const StatusPreview& preview, const std::string& full,
                     bump();
                 })
                 .With(huxerui::Enabled(!isCurrent),
-                      huxerui::Tooltip(isCurrent ? "当前使用" : "切换到此供应商")),
+                      huxerui::Tooltip(
+                          isCurrent
+                              ? "当前使用"
+                              : (aggregate
+                                     ? "切换到此聚合供应商（自动启用本地路由）"
+                                     : "切换到此供应商"))),
             // 联通检测：HuxerUI HttpClient 等待响应头，最长 10s，完成后回 UI
             // 线程写卡片 State。URL 空（codex 可留空）时禁用。
             huxerui::IconButton(app::images::activity, "联通检测")
@@ -350,16 +381,22 @@ huxerui::View StatusText(const StatusPreview& preview, const std::string& full,
                     });
                 })
                 .With(huxerui::Enabled(!checking.Get() &&
-                                       !accessUrl.empty()),
-                      huxerui::Tooltip(accessUrl.empty()
-                                           ? "该供应商未设置 URL"
-                                           : "检测实际访问 URL 的连通性与延迟")),
+                                       !accessUrl.empty() && !aggregate),
+                      huxerui::Tooltip(
+                          aggregate
+                              ? "聚合供应商没有单一探测 URL；请求经本地路由转发"
+                              : (accessUrl.empty()
+                                     ? "该供应商未设置 URL"
+                                     : "检测实际访问 URL 的连通性与延迟"))),
             huxerui::IconButton(app::images::edit, "编辑")
                 .OnClick([showEdit] { showEdit(); })
                 .With(huxerui::Tooltip("编辑")),
             huxerui::IconButton(app::images::gauge, "用量查询配置")
                 .OnClick([showUsage] { showUsage(); })
-                .With(huxerui::Tooltip("用量查询配置")),
+                .With(huxerui::Enabled(!aggregate),
+                      huxerui::Tooltip(aggregate
+                                           ? "聚合供应商没有单一用量端点"
+                                           : "用量查询配置")),
             huxerui::IconButton(app::images::copy, "复制")
                 .OnClick([toast, tool, id, bump] {
                     try {

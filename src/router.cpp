@@ -114,6 +114,20 @@ UpstreamResponse ShapeUpstreamResponse(UpstreamResponse response) {
     return response;
 }
 
+// 请求体里的 model（仅 JSON 对象）；聚合供应商用它优先选择匹配的上游。
+// 非 JSON / 非对象 / 无 model 一律返回空串，按配置顺序回退。
+std::string RequestedModel(const httplib::Request& req) {
+    if (req.body.empty() || (req.method != "POST" && req.method != "PUT" &&
+                             req.method != "PATCH")) {
+        return {};
+    }
+    const auto body = nlohmann::json::parse(req.body, nullptr, false);
+    if (body.is_discarded() || !body.is_object()) return {};
+    const auto it = body.find("model");
+    if (it == body.end() || !it->is_string()) return {};
+    return it->get<std::string>();
+}
+
 // 出站转发：鉴权替换 + 其余头透传。anthropic 协议（apiFormat=="anthropic"
 // 或 claude-code/claude 工具）注入 x-api-key + Authorization 双头，
 // 其余只注入 Authorization: Bearer。
@@ -357,12 +371,54 @@ struct LocalRouter::Impl {
             return;
         }
 
-        // 尝试顺序：当前供应商优先；故障转移开时追加组内其余供应商
-        // （每个只试一次，最多试全组）。
-        std::vector<std::size_t> order{curIdx};
+        // 尝试顺序：当前供应商优先；故障转移开时追加组内其余供应商。
+        // 聚合供应商的每个成员都是一次独立尝试：请求体的 model 精确匹配
+        // 的成员排在最前，其余按配置顺序；成员失败时继续下一个，不受
+        // 组级 failover 开关影响（聚合本身就需要多上游兜底）。
+        struct Attempt {
+            models::Provider provider;
+            std::string label;
+        };
+        std::vector<Attempt> attempts;
+        const std::string requestedModel = RequestedModel(req);
+        const auto appendProvider = [&attempts, &requestedModel](
+                                        const models::Provider& configured) {
+            if (!models::isAggregateProvider(configured)) {
+                attempts.push_back(Attempt{configured, configured.name});
+                return;
+            }
+            std::vector<const models::ProviderUpstream*> members;
+            members.reserve(configured.upstreams.size());
+            for (const auto& member : configured.upstreams) {
+                if (!member.model.empty() && member.model == requestedModel) {
+                    members.push_back(&member);
+                }
+            }
+            for (const auto& member : configured.upstreams) {
+                if (!member.model.empty() && member.model == requestedModel) {
+                    continue;
+                }
+                members.push_back(&member);
+            }
+            for (const auto* member : members) {
+                models::Provider provider = configured;
+                provider.baseUrl = member->baseUrl;
+                provider.apiKey = member->apiKey;
+                provider.model = member->model;
+                provider.fullUrl = true;
+                const std::string label =
+                    member->name.empty()
+                        ? (member->model.empty() ? configured.name
+                                                 : member->model)
+                        : member->name;
+                attempts.push_back(Attempt{
+                    std::move(provider), configured.name + " · " + label});
+            }
+        };
+        appendProvider(group->providers[curIdx]);
         if (failover.load()) {
             for (std::size_t i = 0; i < group->providers.size(); ++i) {
-                if (i != curIdx) order.push_back(i);
+                if (i != curIdx) appendProvider(group->providers[i]);
             }
         }
         // 在途计数守卫：从这里起请求正式尝试上游，循环的中止/失败/异常
@@ -373,8 +429,8 @@ struct LocalRouter::Impl {
             ~InflightRelease() { count.fetch_sub(1, std::memory_order_release); }
         } inflightRelease{inflightCount};
         UpstreamResponse last;
-        for (std::size_t k = 0; k < order.size(); ++k) {
-            const auto& provider = group->providers[order[k]];
+        for (std::size_t k = 0; k < attempts.size(); ++k) {
+            const auto& provider = attempts[k].provider;
             std::string url =
                 trimTrailingSlash(models::effectiveBaseUrl(provider)) + "/" +
                 std::string(rest);
@@ -393,7 +449,7 @@ struct LocalRouter::Impl {
             RequestLog log{.tsMillis = nowMillis(),
                            .tool = tool,
                            .providerId = provider.id,
-                           .providerName = provider.name,
+                           .providerName = attempts[k].label,
                            .method = req.method,
                            .path = std::string(target),
                            .status = static_cast<int>(last.status),
@@ -403,7 +459,7 @@ struct LocalRouter::Impl {
 
             const bool retryable =
                 last.status == 429 || last.status >= 500 || last.status == 0;
-            if (k + 1 >= order.size() || !retryable) break;
+            if (k + 1 >= attempts.size() || !retryable) break;
         }
 
         if (last.status == 0) {

@@ -174,7 +174,7 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(
                 huxerui::MenuItem(name, [tool, id, name, mainWindow,
                                          weakPresentation] {
                     try {
-                        providerStore().switchTo(tool, id);
+                        SwitchProvider(tool, id);
                         mainWindow->ShowMessage(std::format(
                             "{} 已切换到 {}", ToolName(tool), name));
                     } catch (const std::exception& e) {
