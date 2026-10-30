@@ -1,8 +1,7 @@
-// settings_page.cpp — 设置页：外观主题用单个太极选择器循环切换
-// 跟随系统/玄墨/宣纸（平衡/玄墨突出/宣纸突出，悬停旋转且移出冻结角度），
-// 存 AppConfig.themeMode 的 system/dark/light 并即时生效；Claude Code 安装检查、
-// live 配置文件路径展示、导入/导出。版本与项目信息在关于页，用量查询开关与
-// 刷新间隔在各供应商的独立用量配置页维护。
+// settings_page.cpp — 设置页：外观主题用三枚普通图标（深色/浅色/跟随系统）
+// 单选，存 AppConfig.themeMode 的 system/dark/light 并即时生效；Claude Code
+// 安装检查、live 配置文件路径展示、导入/导出。版本与项目信息在关于页，
+// 用量查询开关与刷新间隔在各供应商的独立用量配置页维护。
 //
 // 导入/导出优先走 FilePicker 系统文件对话框（SaveFileAsync/OpenFileAsync）；
 // 平台不可用（CanSaveFiles/CanOpenFiles 为 false，如无 xdg-desktop-portal）时
@@ -10,8 +9,6 @@
 #include <huxerui/huxerui.h>
 
 #include <algorithm>
-#include <chrono>
-#include <cmath>
 #include <filesystem>
 #include <string_view>
 #include <string>
@@ -31,10 +28,7 @@ import llmswitch.agents.hook_manager;
 namespace llmswitch::ui {
 namespace {
 
-// 主题显示名：冷调命名（石墨=深色、晴石=浅色），存值仍是 system/dark/light。
-// 仅在悬停提示里出现；选择器本体保持纯图形，不显示文字。
-const std::vector<std::string> kThemeNames{"跟随系统", "石墨（深色）",
-                                           "晴石（浅色）"};
+// 主题存值仍是 system/dark/light；选择器只显示图标，不显示文字。
 const std::vector<std::string> kThemeModes{"system", "dark", "light"};
 
 std::size_t CloseBehaviorIndex(std::string_view behavior) {
@@ -51,76 +45,71 @@ std::size_t CloseBehaviorIndex(std::string_view behavior) {
     }
 }
 
-[[huxerui::composable]] huxerui::View TaijiThemeSelector(
+[[huxerui::composable]] huxerui::View ThemeModeSelector(
     huxerui::State<int> themeMode) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     const bool systemDark =
         huxerui::UseSystemThemeBrightness() == huxerui::ThemeBrightness::Dark;
-    auto tasks = huxerui::UseTaskScope();
     const auto sceneTransition = huxerui::UseSceneTransition();
-    auto hovering = huxerui::UseState(false);
-    auto angle = huxerui::UseState(0.0F);
-
     const int mode = themeMode.Get();
-    const auto icon = mode == 1 ? app::images::taiji_dark
-                               : mode == 2 ? app::images::taiji_light
-                                           : app::images::taiji;
-    const std::string tooltip =
-        std::format("{}；点击切换主题", kThemeNames[mode]);
 
-    // 用显式角度 State 驱动旋转：移出时任务停止，但不重置 angle，因此再次
-    // 悬停会从冻结位置继续。reduced-motion 下保留切换能力但不启动旋转。
-    auto startSpin = [=](const huxerui::HoverEvent& event) {
-        if (event.type == huxerui::HoverEventType::Leave) {
-            hovering = false;
-            return;
+    huxerui::IconButtonStyle iconOn = huxerui::IconButtonStyle::Default();
+    iconOn.foreground = theme.colors.primary;
+    iconOn.icon_size = 20.0F;
+    iconOn.minimum_interactive_size = 36.0F;
+    iconOn.state_layer_size = 30.0F;
+    iconOn.corner_radius = 18.0F;
+    huxerui::IconButtonStyle iconOff = iconOn;
+    iconOff.foreground = theme.colors.on_surface_variant;
+    huxerui::ThemeDefinition iconOnTheme;
+    iconOnTheme.Set(iconOn);
+    huxerui::ThemeDefinition iconOffTheme;
+    iconOffTheme.Set(iconOff);
+
+    const auto select = [sceneTransition, themeMode, systemDark](int next) {
+        if (next == themeMode.Get()) return;
+        const auto resolvesToDark = [systemDark](int selected) {
+            return selected == 1 || (selected == 0 && systemDark);
+        };
+        huxerui::TransitionSpec transition{
+            huxerui::CircularRevealTransition{},
+            huxerui::TweenSpec{.duration = 0.36},
+        };
+        if (resolvesToDark(themeMode.Get()) && !resolvesToDark(next)) {
+            transition = transition.Reversed();
         }
-        if (event.type != huxerui::HoverEventType::Enter || hovering.Get() ||
-            theme.motion.reduced_motion) {
-            return;
-        }
-        hovering = true;
-        tasks.Launch([hovering, angle]() -> huxerui::Task<void> {
-            while (hovering.Get()) {
-                co_await huxerui::Delay(std::chrono::milliseconds{16});
-                if (!hovering.Get()) co_return;
-                angle = std::fmod(angle.Get() + 2.4F, 360.0F);
-            }
-        });
+        sceneTransition.RunFromCurrentInteraction(
+            std::move(transition), [themeMode, next] {
+                themeMode = next;
+                providerStore().setThemeMode(kThemeModes[next]);
+            });
     };
 
-    return huxerui::Image(icon)
-        .With(huxerui::Frame{.width = 42.0F, .height = 42.0F},
-              huxerui::Rotation(angle.Get()),
-              huxerui::Padding(5.0F),
-              huxerui::Background(theme.colors.surface_container_high),
-              huxerui::CornerRadius(21.0F),
-              sceneTransition.Anchor(),
-              huxerui::PointerCursor(huxerui::PointerCursorKind::Hand),
-              huxerui::Tooltip(tooltip))
-        .On<huxerui::ViewEvents::Hover>(startSpin)
-        .OnClick([sceneTransition, themeMode, systemDark] {
-            const auto resolvesToDark = [systemDark](int selected) {
-                return selected == 1 || (selected == 0 && systemDark);
-            };
-            const int next = (themeMode.Get() + 1) % 3;
-            const bool currentlyDark = resolvesToDark(themeMode.Get());
-            const bool nextIsDark = resolvesToDark(next);
+    const auto button = [&theme, &iconOnTheme, &iconOffTheme, mode, select](
+                            huxerui::ImageResource resource, int value,
+                            std::string_view label) {
+        const bool selected = mode == value;
+        huxerui::View view =
+            huxerui::Theme(selected ? iconOnTheme : iconOffTheme,
+                           huxerui::IconButton(std::move(resource),
+                                               std::string(label))
+                               .OnClick([select, value] { select(value); })
+                               .With(huxerui::Tooltip(std::string(label))));
+        if (selected) {
+            view = std::move(view).With(
+                huxerui::Background(theme.colors.surface_container_high),
+                huxerui::CornerRadius(18.0F));
+        }
+        return view;
+    };
 
-            huxerui::TransitionSpec transition{
-                huxerui::CircularRevealTransition{},
-                huxerui::TweenSpec{.duration = 0.36},
-            };
-            if (currentlyDark && !nextIsDark) {
-                transition = transition.Reversed();
-            }
-
-            sceneTransition.RunFromCurrentInteraction(
-                std::move(transition), [themeMode, next] {
-                    themeMode = next;
-                    providerStore().setThemeMode(kThemeModes[next]);
-                });
-        });
+    return huxerui::Row {
+        button(app::images::theme_dark, 1, "深色模式"),
+        button(app::images::theme_light, 2, "浅色模式"),
+        button(app::images::theme_system, 0, "跟随系统"),
+    }.With(huxerui::Spacing(2.0F),
+           huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
+           sceneTransition.Anchor());
 }
 
 // 版本号编译期常量由顶层 CMake 注入（hcg 不支持 composable 内条件编译，
@@ -517,8 +506,8 @@ std::size_t CloseBehaviorIndex(std::string_view behavior) {
                 PageSection(SectionTitle("通用"),
                             huxerui::Column {
                     SettingRow(
-                        "主题", "",
-                        TaijiThemeSelector(themeMode)),
+                        "主题", "深色 / 浅色 / 跟随系统",
+                        ThemeModeSelector(themeMode)),
                     SettingRow(
                         "点击页面后收起导航盘",
                         "标题栏中心莲花阵：点选顶级页面后立即收起；关闭则保持展开，指针移出才收起",
