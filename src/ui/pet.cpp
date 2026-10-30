@@ -755,7 +755,8 @@ void PetController::ToggleCard(const huxerui::ApplicationHandle& application) {
         constexpr float kCardWidth = 1080.0F;
         constexpr float kCardHeight = 720.0F;
         constexpr float kCardGap = 16.0F;
-        const float petWidth = compact.Get() ? 150.0F : Descriptor().size.width;
+        const float petWidth = PetOptions(topmost.Get(), compact.Get(), Descriptor())
+                                   .initial_size.width;
         const std::optional<huxerui::Point> anchor = pet->Position();
         if (anchor && pet->WorkArea()) {
             const huxerui::Rect work = *pet->WorkArea();
@@ -993,7 +994,7 @@ huxerui::View PetContent() {
                     // 高放 6 项无分隔短标签菜单（30pt 行高，总高 ≈188pt）。
                     // 长标签仍会被截断；隐藏桌宠走托盘的「AI 桌宠」勾选项，
                     // 完成提醒点击即消解，都不进这里。
-                    if (controller->compact.Get()) {
+                    if (controller->compact.Get() && controller->skin.Get() == PetSkin::lotus) {
                         controller->ToggleCard(application);
                         return;
                     }

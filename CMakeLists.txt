@@ -687,6 +687,12 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
         add_test(NAME shimeji COMMAND test_shimeji
             "${CMAKE_CURRENT_SOURCE_DIR}/samples/shimeji/lotus-sprout")
 
+        add_executable(test_pet_window tests/test_pet_window.cpp)
+        target_compile_features(test_pet_window PRIVATE cxx_std_23)
+        target_include_directories(test_pet_window PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+        target_link_libraries(test_pet_window PRIVATE HuxerUI::huxerui)
+        add_test(NAME pet_window COMMAND test_pet_window)
+
         # Live2D 模型目录与动作/表情/参数配置。
         add_executable(test_pet_profile tests/test_pet_profile.cpp src/pet_profile.cpp)
         target_sources(test_pet_profile PRIVATE FILE_SET llmswitch_modules TYPE CXX_MODULES

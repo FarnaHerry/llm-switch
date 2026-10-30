@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "pet.h"
+#include "pet_sprite_motion.h"
 #include "theme_colors.h"
 
 import llmswitch.config;
@@ -141,6 +142,8 @@ struct Sprite {
     std::string action;
     bool animate = true;
     bool dragging = false;
+    PetPlay play;
+    huxerui::Color sparkleColor;
     bool operator==(const Sprite&) const = default;
 };
 
@@ -150,6 +153,11 @@ public:
 
     void Update(huxerui::ViewNode&, const Sprite& sprite) {
         const bool changed = sprite_ != sprite;
+        if (sprite.play.epoch != sprite_.play.epoch && sprite.play.epoch > 0 && sprite.animate) {
+            reaction_.Set(0.0F);
+            reaction_.AnimateTo(1.0F, huxerui::TweenSpec{0.85, huxerui::Easing::Linear});
+        }
+        if (!sprite.animate || sprite.dragging) reaction_.Set(1.0F);
         sprite_ = sprite;
         if (!sprite_.runtime) return;
         if (sprite_.runtime->cache.contains(sprite_.action) &&
@@ -160,10 +168,12 @@ public:
     }
 
     FrameResult OnFrame(huxerui::ViewNode&, const huxerui::FrameInfo& frame) override {
+        const auto reaction = reaction_.Advance(frame);
+        if (reaction.changed) InvalidatePaint();
         const ActionFrames* frames = CurrentFrames();
-        if (!frames || frames->frames.empty()) return {};
+        if (!frames || frames->frames.empty()) return {.needs_frame = reaction.needs_frame};
         const bool moving = !frame.reduced_motion && sprite_.animate && !sprite_.dragging && !finished_;
-        if (!moving) return {};
+        if (!moving) return {.needs_frame = reaction.needs_frame};
         const float delta = static_cast<float>(std::clamp(frame.delta_time, 0.0, 0.1));
         elapsed_ += delta * 60.0F;
         bool changed = false;
@@ -211,18 +221,35 @@ public:
         const float anchorY = frame.pose.anchor.y == 0.0F
                                   ? intrinsic.height
                                   : frame.pose.anchor.y;
-        const Rect destination{
+        Rect destination{
             (available.width - width) * 0.5F + (intrinsic.width * 0.5F - anchorX) * scale,
             available.height - anchorY * scale,
             width,
             height,
         };
+        const auto interaction = SamplePetSpriteReaction(sprite_.play.kind, reaction_.Value());
+        destination.x += interaction.x * available.width - width * (interaction.scale - 1.0F) * 0.5F;
+        destination.y += interaction.y * available.height - height * (interaction.scale - 1.0F);
+        destination.width *= interaction.scale;
+        destination.height *= interaction.scale;
         const bool flip = frame.pose.velocity.x > 0.0F;
         if (flip) {
             paint.PushTransform({.m11 = -1.0F, .translate_x = available.width});
         }
         paint.DrawImage(frame.image, destination);
         if (flip) paint.PopTransform();
+        if (interaction.sparkle > 0.0F) {
+            auto color = sprite_.sparkleColor;
+            color.alpha *= interaction.sparkle;
+            const float radius = std::min(available.width, available.height) * 0.025F;
+            for (int i = 0; i < 3; ++i) {
+                const Point center{available.width * (0.22F + 0.28F * i),
+                                   available.height * (0.28F - 0.1F * reaction_.Value())};
+                const huxerui::StrokeStyle stroke{.width = 1.5F, .cap = huxerui::StrokeCap::Round};
+                paint.DrawLine({center.x - radius, center.y}, {center.x + radius, center.y}, color, stroke);
+                paint.DrawLine({center.x, center.y - radius}, {center.x, center.y + radius}, color, stroke);
+            }
+        }
     }
 
 private:
@@ -280,6 +307,7 @@ private:
     bool finished_ = false;
     Point pendingMove_{};
     std::uint64_t randomState_ = 1;
+    huxerui::MotionController reaction_{1.0F};
 };
 
 huxerui::View LoadingBadge(std::string text) {
@@ -307,6 +335,8 @@ huxerui::View PetShimejiBody(const std::shared_ptr<PetController>& controller) {
     auto reactionEpoch = huxerui::UseState(0);
     auto dropping = huxerui::UseState(false);
     auto handledDrop = huxerui::UseState<std::uint64_t>(0);
+    auto hovered = huxerui::UseState(false);
+    const auto theme = huxerui::UseTheme();
     const auto tasks = huxerui::UseTaskScope();
     const auto appTasks = huxerui::UseApplicationTaskScope();
     const auto application = huxerui::UseApplication();
@@ -363,7 +393,6 @@ huxerui::View PetShimejiBody(const std::shared_ptr<PetController>& controller) {
 
     const shimeji::Activity activity = CurrentActivity(controller);
     std::string desired = ActivityAction(*current, activity);
-    if (reaction.Get()) desired = ActivityAction(*current, shimeji::Activity::completed);
     if (dropping.Get()) desired = current->pack.stateActions.falling;
     if (controller->dragging.Get()) desired = current->pack.stateActions.dragged;
     if (activity == shimeji::Activity::idle && !scheduledAction.Get().empty() &&
@@ -397,9 +426,24 @@ huxerui::View PetShimejiBody(const std::shared_ptr<PetController>& controller) {
                .action = desired,
                .animate = window.LifecycleState() != huxerui::WindowLifecycleState::Background &&
                           controller->animate.Get(),
-               .dragging = controller->dragging.Get()},
-        huxerui::Grow(1.0F));
+               .dragging = controller->dragging.Get(),
+               .play = controller->play.Get(),
+               .sparkleColor = theme.colors.primary},
+        huxerui::Frame{.width = current->pack.width, .height = current->pack.height},
+        huxerui::Grow(1.0F),
+        huxerui::PointerCursor(controller->dragging.Get() ? huxerui::PointerCursorKind::Grabbing
+                                                         : huxerui::PointerCursorKind::Grab),
+        huxerui::Scale(huxerui::AnimateTo(
+            !controller->animate.Get() ? 1.0F : controller->dragging.Get() ? 0.94F
+                                                 : hovered.Get() ? 1.035F : 1.0F,
+            huxerui::SpringSpec{.stiffness = 260.0F, .damping_ratio = 0.65F})),
+        huxerui::Rotation(huxerui::AnimateTo(
+            controller->animate.Get() && controller->dragging.Get() ? -9.0F : 0.0F,
+            huxerui::SpringSpec{.stiffness = 220.0F, .damping_ratio = 0.55F})));
     sprite = std::move(sprite)
+        .On<huxerui::ViewEvents::Hover>([hovered](const huxerui::HoverEvent& event) {
+            hovered = event.type != huxerui::HoverEventType::Leave;
+        })
         .On<ShimejiEvents::ActionRequested>([scheduledAction](std::string action) {
             scheduledAction = std::move(action);
         })

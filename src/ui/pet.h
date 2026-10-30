@@ -59,7 +59,8 @@ struct PetSkinDescriptor {
 // 角色皮肤使用各自的窗口尺寸。
 inline huxerui::WindowOptions PetOptions(bool topmost, bool compact,
                                          const PetSkinDescriptor& skin) {
-    const huxerui::Size size = compact ? huxerui::Size{150.0F, 44.0F} : skin.size;
+    const bool capsule = compact && skin.kind == PetSkin::lotus;
+    const huxerui::Size size = capsule ? huxerui::Size{150.0F, 44.0F} : skin.size;
     return {
         .title = "llm-switch 桌宠",
         .initial_size = size,
