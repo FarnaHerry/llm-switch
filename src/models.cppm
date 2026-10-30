@@ -205,12 +205,14 @@ export std::string_view apiFormatLabel(std::string_view apiFormat) {
     return "OpenAI Chat Completions";
 }
 
-// ---- dsh 推理档位（reasoningEfforts）-------------------------------------------
+// ---- 推理档位（reasoningEfforts / Kimi support_efforts）-----------------------
 // dsh 的 llm-pi-ai 适配器把「模型是否支持思考」当 per-model 能力：手工声明的
 // 路由若不在模型条目里写 reasoningEfforts，模型被当成不支持推理，模型菜单里
 // 连「推理等级」都不出现。档位全集与顺序取自 pi-ai 的 thinking level
-// （off / minimal / low / medium / high / xhigh / max）；值即上线拼写，本应用
-// 只声明与档位同名的拼写（自定义拼写留给手改 settings.yaml）。
+// （off / minimal / low / medium / high / xhigh / max）；值即上线拼写。
+// Kimi 的 support_efforts 复用这套规范档位，并允许厂商以后追加自定义值，
+// 因此配置往返用 orderedReasoningEfforts() 保留未知拼写；dsh 写 live 前仍
+// 走 normalizeReasoningEfforts()，不把未知值写进 settings.yaml。
 
 // 规范档位（升序）。表单按这个顺序展示，写入也按这个顺序。
 export const std::vector<std::string>& reasoningLevels() {
@@ -242,6 +244,28 @@ export std::vector<std::string> normalizeReasoningEfforts(
                 out.push_back(known);
                 break;
             }
+        }
+    }
+    return out;
+}
+
+// 规范档位在前、按 reasoningLevels() 升序；其余拼写按输入顺序追加并去重。
+// Kimi 的 support_efforts 允许厂商以后新增档位，配置往返时不能像 dsh 那样
+// 把未知值直接丢掉；dsh 写 live 时仍走 normalizeReasoningEfforts()。
+export std::vector<std::string> orderedReasoningEfforts(
+    const std::vector<std::string>& levels) {
+    std::vector<std::string> out = normalizeReasoningEfforts(levels);
+    for (const auto& raw : levels) {
+        const auto begin = raw.find_first_not_of(" \t\r\n");
+        if (begin == std::string::npos) continue;
+        const auto end = raw.find_last_not_of(" \t\r\n");
+        const std::string value = raw.substr(begin, end - begin + 1);
+        if (std::ranges::find(reasoningLevels(), value) !=
+            reasoningLevels().end()) {
+            continue;
+        }
+        if (std::ranges::find(out, value) == out.end()) {
+            out.push_back(value);
         }
     }
     return out;
@@ -474,6 +498,10 @@ export struct AppConfig {
     // 键 = 注册表工具 id（claude-code / ... / kimi-code）；用 map 而非固定
     // 字段，新增工具不改序列化结构。
     std::map<std::string, ProviderGroup> groups;
+    // 用户关闭管理的 Agent id；空 = 全部启用。存「关闭项」而不是「启用项」，
+    // 这样以后新增工具默认可见，旧配置也不需要迁移。只影响管理页面展示，
+    // 不改变路由 / live 配置。
+    std::vector<std::string> disabledTools;
     std::string themeMode = "system";  // system / dark / light
     // 窗口关闭行为：ask（询问）/ tray（最小化到托盘）/ quit（直接关闭）。
     std::string closeBehavior = "ask";
@@ -610,7 +638,7 @@ export Provider providerFromJson(const nlohmann::json& j) {
         for (const auto& level : j["reasoningEfforts"]) {
             if (level.is_string()) levels.push_back(level.get<std::string>());
         }
-        p.reasoningEfforts = normalizeReasoningEfforts(levels);
+        p.reasoningEfforts = orderedReasoningEfforts(levels);
     }
     p.contextWindow = j.value("contextWindow", std::int64_t{0});
     p.maxTokens = j.value("maxTokens", std::int64_t{0});
@@ -700,6 +728,7 @@ export nlohmann::json toJson(const AppConfig& c) {
     for (const auto& [id, g] : c.groups) {
         j["groups"][id] = toJson(g);
     }
+    j["disabledTools"] = c.disabledTools;
     j["themeMode"] = c.themeMode;
     j["closeBehavior"] = c.closeBehavior;
     j["radialNavAutoClose"] = c.radialNavAutoClose;
@@ -780,6 +809,20 @@ export AppConfig fromJson(const nlohmann::json& j) {
     }
     c.petShimejiPack = j.value("petShimejiPack", "");
     c.petLive2DModel = j.value("petLive2DModel", "");
+    // 关闭管理的 Agent：过滤未知 id 与重复项，字段缺失 = 全部启用。
+    if (j.contains("disabledTools") && j["disabledTools"].is_array()) {
+        c.disabledTools.clear();
+        for (const auto& item : j["disabledTools"]) {
+            if (!item.is_string()) continue;
+            const std::string id = item.get<std::string>();
+            if (findTool(id) == nullptr ||
+                std::ranges::find(c.disabledTools, id) !=
+                    c.disabledTools.end()) {
+                continue;
+            }
+            c.disabledTools.push_back(id);
+        }
+    }
     // 字段存在且为数组时尊重显式选择（包括空数组）；过滤未知 id 与重复项。
     // 字段缺失则保留 AppConfig 的“全部启用”默认值，兼容旧配置。
     if (j.contains("routerTools") && j["routerTools"].is_array()) {
@@ -795,6 +838,21 @@ export AppConfig fromJson(const nlohmann::json& j) {
         }
     }
     return c;
+}
+
+// 该 Agent 是否在管理页面展示；未注册 id 一律 false。
+export bool toolEnabled(const AppConfig& c, std::string_view id) {
+    return findTool(id) != nullptr &&
+           std::ranges::find(c.disabledTools, id) == c.disabledTools.end();
+}
+
+// 管理页面可见工具的注册表下标（保持注册表顺序）。
+export std::vector<std::size_t> enabledToolIndices(const AppConfig& c) {
+    std::vector<std::size_t> out;
+    for (std::size_t i = 0; i < kToolRegistry.size(); ++i) {
+        if (toolEnabled(c, kToolRegistry[i].id)) out.push_back(i);
+    }
+    return out;
 }
 
 // ---- 内置预设 -----------------------------------------------------------------

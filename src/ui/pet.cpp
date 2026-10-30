@@ -561,6 +561,7 @@ void PetController::Poll() {
         next_snapshot.todayRequests = next_today;
         next_snapshot.rows.reserve(models::toolRegistry().size());
         for (const auto& spec : models::toolRegistry()) {
+            if (!models::toolEnabled(providerStore().config(), spec.id)) continue;
             next_snapshot.rows.push_back(PetAgentRow{.tool = std::string(spec.id)});
         }
         for (auto& row : next_snapshot.rows) {

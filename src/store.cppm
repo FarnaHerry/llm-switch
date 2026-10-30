@@ -90,6 +90,11 @@ public:
     // 标题栏中心莲花阵：点击切换页面后是否立即收起导航盘，立即落盘。
     void setRadialNavAutoClose(bool enabled);
 
+    // Agent 管理页开关：关闭后供应商/路由/会话等页面不再展示该 Agent。
+    // 只影响展示，不修改 live 配置或路由开关；立即落盘。
+    bool toolEnabled(std::string_view tool) const;
+    void setToolEnabled(std::string_view tool, bool enabled);
+
     // Claude Code 安装检查：写入/移除 settings.json env.DISABLE_INSTALLATION_CHECKS。
     bool claudeCodeSkipInstallationChecks() const;
     void setClaudeCodeSkipInstallationChecks(bool enabled);

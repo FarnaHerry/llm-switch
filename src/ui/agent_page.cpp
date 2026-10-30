@@ -11,8 +11,10 @@
 // 已带壳层内边距的 Pager 页里），表单标题与工具栏、其他页面标题同一条左边线。
 #include <huxerui/huxerui.h>
 
+#include <algorithm>
 #include <cstddef>
 #include <functional>
+#include <iterator>
 #include <map>
 #include <memory>
 #include <string>
@@ -70,13 +72,16 @@ namespace llmswitch::ui {
 
 [[huxerui::composable]] huxerui::View AgentPager(
     std::shared_ptr<std::vector<huxerui::View>> pages,
-    huxerui::State<std::size_t> selectedTool, std::size_t pageCount) {
-    auto selectTool = [selectedTool, pageCount](std::size_t index) {
-        if (index < pageCount) {
-            selectedTool = index;
+    huxerui::State<std::size_t> pagerIndex,
+    huxerui::State<std::size_t> selectedTool,
+    std::vector<std::size_t> visibleIndices) {
+    auto selectTool = [selectedTool, visibleIndices = std::move(visibleIndices)](
+                          std::size_t index) {
+        if (index < visibleIndices.size()) {
+            selectedTool = visibleIndices[index];
         }
     };
-    return huxerui::Pager(*pages, selectedTool)
+    return huxerui::Pager(*pages, pagerIndex)
         .ScrollAxis(huxerui::Axis::Horizontal)
         .DragEnabled(true)
         .OnChanged(selectTool);
@@ -90,6 +95,16 @@ namespace llmswitch::ui {
     const auto& registry = models::toolRegistry();
     if (registry.empty()) {
         return huxerui::Text("没有可用的 Agent 工具");
+    }
+
+    // 设置页关闭的 Agent 不进入工具栏 / Pager；selectedTool 仍是注册表下标
+    // （表单、卡片和桌宠入口共用），Pager 用 visibleIndices 换算可见位置。
+    const auto visibleIndices =
+        models::enabledToolIndices(providerStore().config());
+    std::string visibleKey;
+    for (const std::size_t index : visibleIndices) {
+        if (!visibleKey.empty()) visibleKey += ",";
+        visibleKey += registry[index].id;
     }
 
     auto usageCache = huxerui::UseState<std::map<std::string, std::string>>({});
@@ -106,6 +121,15 @@ namespace llmswitch::ui {
     // 用下标而不是 tool id 作为唯一真源：新增页的左上角就是这条注册表工具栏，
     // 选中态与点击落点天然一致（ToolRegistryIndex 供卡片入口换算）。
     const std::size_t allToolsIndex = registry.size();
+    const auto visiblePosition = [&visibleIndices](std::size_t regIndex) {
+        const auto it = std::ranges::find(visibleIndices, regIndex);
+        return it == visibleIndices.end()
+                   ? std::size_t{0}
+                   : static_cast<std::size_t>(
+                         std::distance(visibleIndices.begin(), it));
+    };
+    auto pagerIndex = huxerui::UseState<std::size_t>(
+        visiblePosition(selectedTool.Get()));
     auto formToolIndex = huxerui::UseState<std::size_t>(0);
     auto formTarget = huxerui::UseState<std::string>({});
     auto formInitial = huxerui::UseState<models::Provider>({});
@@ -127,6 +151,27 @@ namespace llmswitch::ui {
             return [] {};
         },
         addProviderRequest.Get());
+
+    // 设置页关掉当前选中的 Agent 后，把选择落到第一个可见项；从桌宠等入口
+    // 直接改 selectedTool 时同步 Pager 位置。
+    huxerui::Lifecycle(
+        [selectedTool, pagerIndex, visibleIndices] {
+            const auto it =
+                std::ranges::find(visibleIndices, selectedTool.Get());
+            if (it == visibleIndices.end()) {
+                if (!visibleIndices.empty() &&
+                    selectedTool.Get() != visibleIndices.front()) {
+                    selectedTool = visibleIndices.front();
+                }
+                if (pagerIndex.Get() != 0) pagerIndex = 0;
+            } else {
+                const auto pos = static_cast<std::size_t>(
+                    std::distance(visibleIndices.begin(), it));
+                if (pagerIndex.Get() != pos) pagerIndex = pos;
+            }
+            return [] {};
+        },
+        selectedTool.Get(), visibleKey);
 
     const std::string target = formTarget.Get();
     const std::size_t toolIndex =
@@ -182,12 +227,13 @@ namespace llmswitch::ui {
 
     auto toolButtonCache =
         huxerui::UseState<std::shared_ptr<std::vector<huxerui::View>>>({});
+    auto toolButtonKey = huxerui::UseState<std::string>({});
     std::shared_ptr<std::vector<huxerui::View>> cachedButtons =
         toolButtonCache.Get();
-    if (!cachedButtons || cachedButtons->size() != registry.size()) {
+    if (!cachedButtons || toolButtonKey.Get() != visibleKey) {
         auto nextButtons = std::make_shared<std::vector<huxerui::View>>();
-        nextButtons->reserve(registry.size());
-        for (std::size_t index = 0; index < registry.size(); ++index) {
+        nextButtons->reserve(visibleIndices.size());
+        for (const std::size_t index : visibleIndices) {
             const auto& spec = registry[index];
             const std::string id(spec.id);
             nextButtons->push_back(
@@ -196,17 +242,22 @@ namespace llmswitch::ui {
                     .Key("agent-tool:" + id));
         }
         toolButtonCache = nextButtons;
+        toolButtonKey = visibleKey;
         cachedButtons = std::move(nextButtons);
     }
 
     auto providerPageCache =
         huxerui::UseState<std::shared_ptr<std::vector<huxerui::View>>>({});
+    auto providerPageKey = huxerui::UseState<std::string>({});
     std::shared_ptr<std::vector<huxerui::View>> cachedPages =
         providerPageCache.Get();
-    if (!cachedPages || cachedPages->size() != registry.size()) {
+    if (!cachedPages || providerPageKey.Get() != visibleKey) {
+        // 可见集合变化时先把 Pager 位置夹到合法范围，避免 Pager 读到上一组
+        // 的越界下标（selectedTool 指向已关闭项时取第一个可见项）。
+        pagerIndex = visiblePosition(selectedTool.Get());
         auto nextPages = std::make_shared<std::vector<huxerui::View>>();
-        nextPages->reserve(registry.size());
-        for (std::size_t index = 0; index < registry.size(); ++index) {
+        nextPages->reserve(visibleIndices.size());
+        for (const std::size_t index : visibleIndices) {
             const auto& spec = registry[index];
             const std::string id(spec.id);
             nextPages->push_back(
@@ -216,14 +267,26 @@ namespace llmswitch::ui {
                     .Key("agent-providers:" + id)
                     .With(huxerui::Grow(1.0F)));
         }
+        if (nextPages->empty()) {
+            nextPages->push_back(
+                huxerui::Text("所有 Agent 已关闭；可在设置 → 管理的 Agent 中重新开启。")
+                    .With(huxerui::Grow(1.0F),
+                          huxerui::MainAlign(
+                              huxerui::MainAxisAlignment::Center),
+                          huxerui::CrossAlign(
+                              huxerui::CrossAxisAlignment::Center)));
+        }
         providerPageCache = nextPages;
+        providerPageKey = visibleKey;
         cachedPages = std::move(nextPages);
     }
 
     auto requestAddProvider = [selectedTool, addProviderRequest] {
         const auto& currentRegistry = models::toolRegistry();
         const std::size_t index = selectedTool.Get();
-        if (index < currentRegistry.size()) {
+        if (index < currentRegistry.size() &&
+            models::toolEnabled(providerStore().config(),
+                                currentRegistry[index].id)) {
             addProviderRequest = std::string(currentRegistry[index].id);
         }
     };
@@ -237,10 +300,12 @@ namespace llmswitch::ui {
                     workspacePage = workspace_pages::kHome;
                 }));
     }
-    pageActions.push_back(
-        huxerui::IconButton(app::images::add, "新增供应商")
-            .OnClick(requestAddProvider)
-            .With(huxerui::Tooltip("新增供应商")));
+    if (!visibleIndices.empty()) {
+        pageActions.push_back(
+            huxerui::IconButton(app::images::add, "新增供应商")
+                .OnClick(requestAddProvider)
+                .With(huxerui::Tooltip("新增供应商")));
+    }
     huxerui::View actionGroup =
         huxerui::Row(std::move(pageActions))
             .With(huxerui::Spacing(theme.spacing.small),
@@ -257,7 +322,7 @@ namespace llmswitch::ui {
         }.With(huxerui::Spacing(theme.spacing.small),
                huxerui::MainAlign(huxerui::MainAxisAlignment::SpaceBetween),
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
-        AgentPager(cachedPages, selectedTool, registry.size())
+        AgentPager(cachedPages, pagerIndex, selectedTool, visibleIndices)
             .With(huxerui::Grow(1.0F)),
     }.With(huxerui::Padding(huxerui::EdgeInsets{.top = 0.0F,
                                                .right = inset,
@@ -274,8 +339,8 @@ namespace llmswitch::ui {
     huxerui::View targetSelector;
     if (target == "new") {
         std::vector<huxerui::View> selectorButtons;
-        selectorButtons.reserve(registry.size() + 1);
-        for (std::size_t index = 0; index < registry.size(); ++index) {
+        selectorButtons.reserve(visibleIndices.size() + 1);
+        for (const std::size_t index : visibleIndices) {
             const auto& spec = registry[index];
             selectorButtons.push_back(
                 AgentToolButton(ToolIcon(spec.iconName),

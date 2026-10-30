@@ -103,9 +103,11 @@ struct FormStates {
     huxerui::State<std::string> upstreamFormatTool;
     huxerui::State<bool> fullUrl;
     huxerui::State<int> apiFormat;            // opencode / pi / kimi-code 展示
-    // dsh 推理档位位掩码（下标 = models::reasoningLevels() 的下标）；
+    // dsh / Kimi 推理档位位掩码（下标 = models::reasoningLevels() 的下标）；
     // 其他 agent 不展示也不用。
     huxerui::State<int> reasoningMask;
+    // 规范档位之外的自定义档位（逗号分隔；仅 Kimi 展示与保存）。
+    huxerui::State<huxerui::TextEditingValue> customReasoning;
     // dsh 模型条目的官方能力声明：输入模态位掩码（下标 =
     // models::inputModalities() 的下标）、上下文窗口与最大输出 token 数
     // （文本输入，支持 262144 / 256K / 1M 拼写；空 = 不声明）。
@@ -151,6 +153,7 @@ struct FormStates {
                       : (p).apiFormat == "openai-responses" ? 2             \
                                                             : 0),           \
      huxerui::UseState(models::reasoningEffortMask((p).reasoningEfforts)),   \
+     huxerui::UseState(huxerui::TextEditingValue{}),                        \
      huxerui::UseState(models::inputModalityMask((p).inputModalities)),     \
      huxerui::UseState(huxerui::TextEditingValue{                           \
          models::formatTokenCount((p).contextWindow)}),                     \
@@ -192,6 +195,8 @@ struct AgentFormPolicy {
     bool showDshModelFields = false;
     // Kimi Code 复用同一区块，但 max_context_size 是 Kimi 的必填字段。
     bool contextRequired = false;
+    // 允许在规范档位之外追加厂商自定义档位（Kimi support_efforts）。
+    bool customReasoning = false;
 };
 const AgentFormPolicy& AgentPolicyFor(std::string_view tool);
 const AgentFormPolicy& ClaudeCodeFormPolicy();

@@ -132,8 +132,9 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(
     const std::weak_ptr<TrayPresentationController> weakPresentation =
         trayPresentation;
     auto& st = providerStore();
-    // 按注册表列出全部工具组，覆盖当前登记的八个 Agent。
+    // 按注册表列出启用管理的工具组；设置里关闭的 Agent 不再出现在托盘。
     for (const auto& spec : models::toolRegistry()) {
+        if (!models::toolEnabled(st.config(), spec.id)) continue;
         const std::string tool(spec.id);
         const auto& g = st.group(tool);
         const std::string_view official = models::officialVendorName(tool);

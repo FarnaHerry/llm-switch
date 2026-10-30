@@ -24,6 +24,7 @@ const AgentFormPolicy& KimiFormPolicy() {
         .showToml = false,
         .showDshModelFields = true,
         .contextRequired = true,
+        .customReasoning = true,
     };
     return policy;
 }

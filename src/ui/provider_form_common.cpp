@@ -44,6 +44,17 @@ void FillForm(const FormStates& fs, const models::Provider& p) {
                    : p.apiFormat == "kimi"             ? 3
                                                        : 0;
     fs.reasoningMask = models::reasoningEffortMask(p.reasoningEfforts);
+    std::string customReasoning;
+    for (const auto& level : p.reasoningEfforts) {
+        if (std::ranges::find(models::reasoningLevels(), level) !=
+            models::reasoningLevels().end()) {
+            continue;
+        }
+        if (!customReasoning.empty()) customReasoning += ", ";
+        customReasoning += level;
+    }
+    fs.customReasoning =
+        huxerui::TextEditingValue{std::move(customReasoning)};
     fs.inputMask = models::inputModalityMask(p.inputModalities);
     fs.contextWindow =
         huxerui::TextEditingValue{models::formatTokenCount(p.contextWindow)};

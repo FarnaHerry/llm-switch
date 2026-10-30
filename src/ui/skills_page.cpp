@@ -72,6 +72,7 @@ bool InvolvesTool(const skills::SkillInfo& skill, std::string_view toolId) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     std::vector<huxerui::View> icons;
     for (const std::string_view toolId : kSkillTools) {
+        if (!models::toolEnabled(providerStore().config(), toolId)) continue;
         if (!InvolvesTool(skill, toolId)) continue;
         const auto* spec = models::findTool(toolId);
         if (spec == nullptr) continue;
@@ -292,6 +293,7 @@ bool InvolvesTool(const skills::SkillInfo& skill, std::string_view toolId) {
     std::vector<ImportItem> items;
     for (const auto& s : store.Get().skills()) {
         for (const auto& tool : s.installedOnlyTools) {
+            if (!models::toolEnabled(providerStore().config(), tool)) continue;
             items.push_back(ImportItem{s.name, std::string(tool)});
         }
     }

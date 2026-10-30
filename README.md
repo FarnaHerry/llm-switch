@@ -17,7 +17,10 @@ C++23 modules + HuxerUI，无 Electron。
 - **供应商管理**：九个工具组各自维护供应商列表（新增 / 编辑 / 复制 /
   删除），内置 DeepSeek / Kimi / GLM / OpenRouter 等预设模板；API 协议三档
   （OpenAI Chat Completions / OpenAI Responses / Anthropic Messages），
-  Kimi Code 另有自己的 Kimi 协议档。
+  Kimi Code 另有自己的 Kimi 协议档；推理档位支持规范七档，Kimi 还可追加
+  自定义 `support_efforts` 值。
+- **按需显示**：设置页「管理的 Agent」可关闭不常用的工具，供应商、路由、
+  会话、MCP / Skills 页面随之隐藏；只影响展示，不改已有 live 配置。
 - **一键切换**：把选中供应商写进工具的 live 配置文件——
   Claude Code 深合并 `~/.claude/settings.json` 的 env 块
   （`ANTHROPIC_BASE_URL` / `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_MODEL`，其余字段

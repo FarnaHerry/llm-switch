@@ -8,8 +8,11 @@
 // 策略常量与专属区块文件里。
 #include <huxerui/huxerui.h>
 
+#include <cctype>
 #include <format>
 #include <string>
+#include <string_view>
+#include <vector>
 
 #include "providers_internal.h"
 
@@ -19,6 +22,32 @@ import llmswitch.store;
 import nlohmann.json;
 
 namespace llmswitch::ui {
+namespace {
+
+// 自定义推理档位：逗号/分号/空白分隔，去空、去重，规范档位交给
+// models::orderedReasoningEfforts 归并排序。
+std::vector<std::string> ParseCustomReasoning(std::string_view text) {
+    std::vector<std::string> out;
+    std::size_t pos = 0;
+    while (pos < text.size()) {
+        while (pos < text.size() &&
+               (text[pos] == ',' || text[pos] == ';' ||
+                std::isspace(static_cast<unsigned char>(text[pos])))) {
+            ++pos;
+        }
+        const std::size_t begin = pos;
+        while (pos < text.size() && text[pos] != ',' && text[pos] != ';' &&
+               !std::isspace(static_cast<unsigned char>(text[pos]))) {
+            ++pos;
+        }
+        if (pos > begin) {
+            out.emplace_back(text.substr(begin, pos - begin));
+        }
+    }
+    return out;
+}
+
+} // namespace
 
 // 新增/编辑供应商页（整页表单，不再是弹窗——字段太多弹窗太挤）。
 // 表单状态以 initial 为初值（UseState 初值只在首次组合生效；调用方用
@@ -211,10 +240,18 @@ namespace llmswitch::ui {
                     p.notes = fs.notes.Get().text;
                     p.codexConfigToml = fs.toml.Get().text;
                     p.apiFormat = ApiFormatFromIndex(fs.apiFormat.Get());
-                    // 推理档位（仅 dsh 展示；其他 agent 掩码恒为 0）。
+                    // 推理档位（dsh / Kimi 展示）：规范档位 + 可选自定义值。
                     p.reasoningEfforts =
                         models::reasoningEffortsFromMask(
                             fs.reasoningMask.Get());
+                    if (policy.customReasoning) {
+                        const auto custom =
+                            ParseCustomReasoning(fs.customReasoning.Get().text);
+                        p.reasoningEfforts.insert(p.reasoningEfforts.end(),
+                                                  custom.begin(), custom.end());
+                        p.reasoningEfforts = models::orderedReasoningEfforts(
+                            p.reasoningEfforts);
+                    }
                     // dsh 模型条目的官方能力声明（仅 dsh 展示；其他 agent
                     // 掩码恒为 0 / 容量恒为空）。
                     p.inputModalities = DshInputModalities(fs);
@@ -248,6 +285,11 @@ namespace llmswitch::ui {
                             // 与逐组新增一致的默认态）。
                             for (const auto& groupSpec :
                                  models::toolRegistry()) {
+                                if (!models::toolEnabled(
+                                        providerStore().config(),
+                                        groupSpec.id)) {
+                                    continue;
+                                }
                                 models::Provider copy = p;
                                 providerStore().addProvider(groupSpec.id,
                                                             std::move(copy));

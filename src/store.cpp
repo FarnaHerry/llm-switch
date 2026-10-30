@@ -313,6 +313,26 @@ void ProviderStore::setRadialNavAutoClose(bool enabled) {
     save();
 }
 
+bool ProviderStore::toolEnabled(std::string_view tool) const {
+    return models::toolEnabled(config_, tool);
+}
+
+void ProviderStore::setToolEnabled(std::string_view tool, bool enabled) {
+    if (models::findTool(tool) == nullptr) {
+        throw std::runtime_error(std::format("未知的工具：{}", tool));
+    }
+    auto& disabled = config_.disabledTools;
+    const auto it = std::ranges::find(disabled, tool);
+    if (enabled && it != disabled.end()) {
+        disabled.erase(it);
+    } else if (!enabled && it == disabled.end()) {
+        disabled.push_back(std::string(tool));
+    } else {
+        return;
+    }
+    save();
+}
+
 void ProviderStore::setStartupMode(std::string mode) {
     if (mode != "pet" && mode != "control-center") {
         throw std::invalid_argument("无效的应用启动入口");

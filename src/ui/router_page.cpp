@@ -309,6 +309,7 @@ huxerui::Color StatusColor(int status, const huxerui::ThemeSpec& theme) {
     std::vector<huxerui::View> endpoints;
     std::vector<huxerui::View> toolToggles;
     for (const auto& spec : models::toolRegistry()) {
+        if (!models::toolEnabled(providerStore().config(), spec.id)) continue;
         const bool enabled =
             std::ranges::find(enabledTools.Get(), spec.id) !=
             enabledTools.Get().end();

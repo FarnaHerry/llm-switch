@@ -526,29 +526,49 @@ std::string FormatSize(std::uintmax_t bytes) {
     const auto& registry = models::toolRegistry();
     auto selectedAgent = huxerui::UseState<std::size_t>(0);
 
+    const auto visibleIndices =
+        models::enabledToolIndices(providerStore().config());
     std::vector<huxerui::View> agentButtons;
     std::vector<huxerui::View> agentPages;
-    agentButtons.reserve(registry.size());
-    agentPages.reserve(registry.size());
-    for (std::size_t index = 0; index < registry.size(); ++index) {
-        const auto& spec = registry[index];
+    agentButtons.reserve(visibleIndices.size());
+    agentPages.reserve(visibleIndices.size());
+    for (std::size_t position = 0; position < visibleIndices.size();
+         ++position) {
+        const auto& spec = registry[visibleIndices[position]];
         const std::string id(spec.id);
         const std::string label(spec.displayName);
         huxerui::View button =
             huxerui::IconButton(ToolIcon(spec.iconName), label)
-                .OnClick([selectedAgent, index] { selectedAgent = index; })
+                .OnClick([selectedAgent, position] {
+                    selectedAgent = position;
+                })
                 .With(huxerui::Tooltip(label));
-        if (selectedAgent.Get() == index) {
+        if (selectedAgent.Get() == position) {
             button = std::move(button).With(
                 huxerui::Background(islands.raised),
                 huxerui::CornerRadius(islands.nested_radius));
         }
         agentButtons.push_back(button);
         agentPages.push_back(
-            AgentSessionsPanel(id, selectedSession, selectedAgent, index,
+            AgentSessionsPanel(id, selectedSession, selectedAgent, position,
                                pageActive)
                 .Key("session-agent:" + id));
     }
+    if (agentPages.empty()) {
+        agentPages.push_back(
+            huxerui::Text("所有 Agent 已关闭；可在设置 → 管理的 Agent 中重新开启。")
+                .With(huxerui::Grow(1.0F),
+                      huxerui::MainAlign(
+                          huxerui::MainAxisAlignment::Center),
+                      huxerui::CrossAlign(
+                          huxerui::CrossAxisAlignment::Center)));
+    }
+    huxerui::Lifecycle(
+        [selectedAgent, count = agentPages.size()] {
+            if (selectedAgent.Get() >= count) selectedAgent = 0;
+            return [] {};
+        },
+        selectedAgent.Get(), agentPages.size());
 
     huxerui::View actions = huxerui::Row(std::move(agentButtons))
         .With(huxerui::Spacing(8.0F),

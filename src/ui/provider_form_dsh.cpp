@@ -145,10 +145,7 @@ std::vector<std::string> DshInputModalities(const FormStates& fs) {
                                                         bool kimi) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     std::vector<huxerui::View> chips;
-    // Kimi 的 support_efforts 目前只认 low / high / max；展示全集会让用户
-    // 选出 Kimi 不认的档位。
-    static const std::vector<std::string> kimiLevels{"low", "high", "max"};
-    const auto& levels = kimi ? kimiLevels : models::reasoningLevels();
+    const auto& levels = models::reasoningLevels();
     for (std::size_t i = 0; i < levels.size(); ++i) {
         const int bit = 1 << static_cast<int>(i);
         const bool selected = (fs.reasoningMask.Get() & bit) != 0;
@@ -170,6 +167,15 @@ std::vector<std::string> DshInputModalities(const FormStates& fs) {
                 theme.colors.on_surface_variant}),
         // 档位较多，用 Flow 自动换行避免单行 Row 横向溢出。
         huxerui::Flow(std::move(chips)).With(huxerui::Spacing(8.0F)),
+        kimi ? huxerui::View{
+                   huxerui::TextField(fs.customReasoning.Get())
+                       .Label("自定义档位（可选，逗号分隔）")
+                       .Placeholder("如 none / auto / ultra")
+                       .Variant(huxerui::TextFieldVariant::Outlined)
+                       .OnChanged([fs](const huxerui::TextEditingValue& v) {
+                           fs.customReasoning = v;
+                       })}
+             : huxerui::View{huxerui::Row{}},
     }.With(huxerui::Spacing(8.0F),
            huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 }

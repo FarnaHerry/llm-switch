@@ -9,6 +9,7 @@
 // 回落：导出到 dataDir()/exports/ 并展示路径，导入提供路径输入框。
 #include <huxerui/huxerui.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <filesystem>
@@ -333,6 +334,41 @@ std::size_t CloseBehaviorIndex(std::string_view behavior) {
         }
     }
 
+    // Agent 管理开关：关闭项存 AppConfig.disabledTools，其他页面按它过滤。
+    // 这里保留一份 State 副本驱动 Switch 重组，同时写回 store。
+    auto disabledTools =
+        huxerui::UseState(providerStore().config().disabledTools);
+    std::vector<huxerui::View> managedAgentRows;
+    managedAgentRows.reserve(models::toolRegistry().size());
+    for (const auto& spec : models::toolRegistry()) {
+        const std::string id(spec.id);
+        const bool enabled =
+            std::ranges::find(disabledTools.Get(), id) ==
+            disabledTools.Get().end();
+        managedAgentRows.push_back(
+            SettingRow(
+                std::string(spec.displayName),
+                "关闭后供应商、路由、会话等页面不再显示这个 Agent；不影响已写入的配置",
+                huxerui::Switch(enabled).OnChanged(
+                    [disabledTools, revision, toast, id](bool on) {
+                        auto next = disabledTools.Get();
+                        const auto it = std::ranges::find(next, id);
+                        if (on && it != next.end()) {
+                            next.erase(it);
+                        } else if (!on && it == next.end()) {
+                            next.push_back(id);
+                        }
+                        try {
+                            providerStore().setToolEnabled(id, on);
+                            disabledTools = next;
+                            revision = revision.Get() + 1;
+                        } catch (const std::exception& e) {
+                            toast.Show(e.what());
+                        }
+                    }))
+                .Key("managed-agent:" + id));
+    }
+
     const bool canSave = picker && picker->CanSaveFiles();
     const bool canOpen = picker && picker->CanOpenFiles();
 
@@ -495,6 +531,10 @@ std::size_t CloseBehaviorIndex(std::string_view behavior) {
 
                 // AI 桌宠：启动入口可即时切换；置顶切换同步到现存窗口；
                 // 轻量级模式下隐藏即退役、唤出重建。
+                PageSection(
+                    SectionTitle("管理的 Agent"),
+                    huxerui::Column(std::move(managedAgentRows))
+                        .With(huxerui::Spacing(12.0F))),
                 PageSection(SectionTitle("AI 桌宠"),
                             huxerui::Column {
                     SettingRow(

@@ -2741,6 +2741,15 @@ int main() {
                   {"high", "bogus", "off", "high", "low", ""}) ==
               std::vector<std::string>({"off", "low", "high"}));
         CHECK(models::normalizeReasoningEfforts({}).empty());
+        // Kimi 自定义档位：规范档位优先排序，未知拼写保留在尾部并去重。
+        CHECK(models::orderedReasoningEfforts(
+                  {"high", "ultra", "off", "ultra", "bogus"}) ==
+              std::vector<std::string>({"off", "high", "ultra", "bogus"}));
+        const auto customEfforts = models::providerFromJson(
+            nlohmann::json::parse(
+                R"json({"name":"x","reasoningEfforts":["max","ultra","max"]})json"));
+        CHECK(customEfforts.reasoningEfforts ==
+              std::vector<std::string>({"max", "ultra"}));
         CHECK(models::reasoningEffortMask({"high", "off"}) != 0);
         CHECK(models::reasoningEffortsFromMask(
                   models::reasoningEffortMask({"high", "off"})) ==
@@ -2976,6 +2985,35 @@ int main() {
               restored.config().routerTools.end());
         CHECK(throwsRuntimeError(
             [&] { restored.setRouterToolEnabled("unknown", true); }));
+    }
+
+    // Agent 管理开关：旧配置默认全部可见；关闭项持久化，未知 id 忽略。
+    {
+        const auto legacy = models::fromJson(nlohmann::json::object());
+        CHECK(legacy.disabledTools.empty());
+        CHECK(models::toolEnabled(legacy, "kimi-code"));
+        CHECK(models::enabledToolIndices(legacy).size() ==
+              models::toolRegistry().size());
+
+        const auto parsed = models::fromJson(nlohmann::json::parse(
+            R"json({"disabledTools":["codex","unknown","codex"]})json"));
+        CHECK(parsed.disabledTools.size() == 1);
+        CHECK(parsed.disabledTools.front() == "codex");
+        CHECK(!models::toolEnabled(parsed, "codex"));
+        CHECK(models::toolEnabled(parsed, "kimi-code"));
+        CHECK(models::enabledToolIndices(parsed).size() + 1 ==
+              models::toolRegistry().size());
+
+        auto managed = store::ProviderStore::load();
+        managed.setToolEnabled("codex", false);
+        auto reloaded = store::ProviderStore::load();
+        CHECK(!reloaded.toolEnabled("codex"));
+        CHECK(!models::toJson(reloaded.config())["disabledTools"].empty());
+        reloaded.setToolEnabled("codex", true);
+        auto restored = store::ProviderStore::load();
+        CHECK(restored.toolEnabled("codex"));
+        CHECK(throwsRuntimeError(
+            [&] { restored.setToolEnabled("unknown", false); }));
     }
 
     // 12. codex 模型行级重写（switchTo 时 Provider.model 写进 config.toml

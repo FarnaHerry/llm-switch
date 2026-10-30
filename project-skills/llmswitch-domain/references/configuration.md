@@ -20,6 +20,9 @@
   `models::parseUsageTemplates` 容错解析、`suggestUsageQuery` 按 baseUrl
   子串匹配。配置页、惰性刷新、缓存和隐藏页取消约束统一见
   [UI 页面行为](../../llmswitch-ui/references/page-behavior.md)。
+- **管理可见性**：AppConfig.disabledTools 存用户关闭的 Agent id（空 = 全部
+  启用；存关闭项让新增工具默认可见）。只影响供应商/路由/会话/MCP/Skills 等
+  页面展示，不修改 live 配置或 routerTools。
 - **本地路由设置**：AppConfig.routerEnabled（启动自启）/ routerPort（默认
   15731）/ routerFailover / routerTools（逐 Agent 代理选择，旧配置默认全开），
   store 有对应 setter；AppRoot 首组合时自启（见 src/ui/app.cpp 的 Lifecycle）。

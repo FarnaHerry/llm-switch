@@ -317,6 +317,7 @@ void ShowMcpForm(huxerui::DialogHandle dialog, huxerui::ToastHandle toast,
     // （如「该工具暂不支持 MCP 管理」）。
     std::vector<huxerui::View> toggles;
     for (const std::string_view toolId : kMcpTools) {
+        if (!models::toolEnabled(providerStore().config(), toolId)) continue;
         const bool enabled =
             std::find(server.enabledTools.begin(), server.enabledTools.end(),
                       toolId) != server.enabledTools.end();
@@ -378,6 +379,7 @@ void ShowMcpForm(huxerui::DialogHandle dialog, huxerui::ToastHandle toast,
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     std::vector<huxerui::View> items;
     for (const std::string_view toolId : kImportTools) {
+        if (!models::toolEnabled(providerStore().config(), toolId)) continue;
         const std::string tool = std::string(toolId);
         items.push_back(
             huxerui::Text(std::string(ToolName(toolId)))
