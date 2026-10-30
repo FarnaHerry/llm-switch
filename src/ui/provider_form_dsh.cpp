@@ -10,6 +10,9 @@
 //                       模型菜单里连「推理等级」都不出现。
 // 三者都是 per-model 能力声明，主模型为空时整块不生效，所以这里只写进
 // llmswitch-* 条目的首个模型条目（见 store 的 dsh 写入端）。
+//
+// Kimi Code 复用同一区块（kimi=true）：max_context_size 是 Kimi 模型条目的
+// 必填字段，能力写 capabilities / support_efforts；不展示 max_output_size。
 #include <huxerui/huxerui.h>
 
 #include <string>
@@ -60,7 +63,8 @@ std::vector<std::string> DshInputModalities(const FormStates& fs) {
 
 // 输入模态 chips：文本 / 图像。两个都不选 = 不声明（dsh 退回 catalog 值或路由
 // 默认，即只收文本），所以这里不强制至少选一个。
-[[huxerui::composable]] huxerui::View DshInputFields(const FormStates& fs) {
+[[huxerui::composable]] huxerui::View DshInputFields(const FormStates& fs,
+                                                     bool kimi) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     std::vector<huxerui::View> chips;
     const auto& modalities = models::inputModalities();
@@ -86,9 +90,13 @@ std::vector<std::string> DshInputModalities(const FormStates& fs) {
                 }));
     }
     return huxerui::Column {
-        huxerui::Text("输入模态（写入 dsh 的 input）：只有声明了 image，"
-                      "dsh 才会把图片附件发给这条路由；不选 = 不声明。"
-                      "文本是底座，勾图像会一并声明文本")
+        huxerui::Text(
+            kimi ? "输入模态（写入 Kimi 的 capabilities）：勾图像会写 "
+                   "image_in，Kimi 才把图片附件发给这条路由；文本是底座，"
+                   "勾图像会一并声明文本"
+                 : "输入模态（写入 dsh 的 input）：只有声明了 image，"
+                   "dsh 才会把图片附件发给这条路由；不选 = 不声明。"
+                   "文本是底座，勾图像会一并声明文本")
             .Style(huxerui::TextStyle{
                 huxerui::Font::System(font_size::kCaption),
                 theme.colors.on_surface_variant}),
@@ -99,16 +107,27 @@ std::vector<std::string> DshInputModalities(const FormStates& fs) {
 
 // 容量两栏：上下文窗口 / 最大输出 token 数。接受十进制数或 K/M 后缀
 // （256K、1M），与 dsh 官方设置页同一套拼写。
-[[huxerui::composable]] huxerui::View DshCapacityFields(const FormStates& fs) {
-    return huxerui::Row {
+[[huxerui::composable]] huxerui::View DshCapacityFields(const FormStates& fs,
+                                                        bool kimi) {
+    huxerui::View context =
         huxerui::TextField(fs.contextWindow.Get())
-            .Label("上下文窗口（可选）")
+            .Label(kimi ? "上下文窗口（必填）" : "上下文窗口（可选）")
             .Placeholder("131072 / 256K / 1M")
             .Variant(huxerui::TextFieldVariant::Outlined)
             .OnChanged([fs](const huxerui::TextEditingValue& v) {
                 fs.contextWindow = v;
             })
-            .With(huxerui::Grow(1.0F)),
+            .With(huxerui::Grow(1.0F));
+    if (kimi) {
+        // Kimi 的 model 条目只有 max_context_size 必填；max_output_size
+        // 并非 Kimi 配置字段，表单不展示也不写。
+        huxerui::View only = std::move(context);
+        return huxerui::Row {std::move(only)}.With(
+            huxerui::Spacing(12.0F),
+            huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
+    }
+    return huxerui::Row {
+        std::move(context),
         huxerui::TextField(fs.maxTokens.Get())
             .Label("最大输出 token 数（可选）")
             .Placeholder("8192 / 64K / 1M")
@@ -122,10 +141,14 @@ std::vector<std::string> DshInputModalities(const FormStates& fs) {
 }
 
 // 推理档位 chips。
-[[huxerui::composable]] huxerui::View DshReasoningChips(const FormStates& fs) {
+[[huxerui::composable]] huxerui::View DshReasoningChips(const FormStates& fs,
+                                                        bool kimi) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     std::vector<huxerui::View> chips;
-    const auto& levels = models::reasoningLevels();
+    // Kimi 的 support_efforts 目前只认 low / high / max；展示全集会让用户
+    // 选出 Kimi 不认的档位。
+    static const std::vector<std::string> kimiLevels{"low", "high", "max"};
+    const auto& levels = kimi ? kimiLevels : models::reasoningLevels();
     for (std::size_t i = 0; i < levels.size(); ++i) {
         const int bit = 1 << static_cast<int>(i);
         const bool selected = (fs.reasoningMask.Get() & bit) != 0;
@@ -138,8 +161,10 @@ std::vector<std::string> DshInputModalities(const FormStates& fs) {
                 }));
     }
     return huxerui::Column {
-        huxerui::Text("推理档位（写入 dsh 的 reasoningEfforts；不选 = 不声明，"
-                      "dsh 视为不支持思考）")
+        huxerui::Text(
+            kimi ? "推理档位（写入 Kimi 的 support_efforts；不选 = 不声明）"
+                 : "推理档位（写入 dsh 的 reasoningEfforts；不选 = 不声明，"
+                   "dsh 视为不支持思考）")
             .Style(huxerui::TextStyle{
                 huxerui::Font::System(font_size::kCaption),
                 theme.colors.on_surface_variant}),
@@ -149,11 +174,12 @@ std::vector<std::string> DshInputModalities(const FormStates& fs) {
            huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 }
 
-[[huxerui::composable]] huxerui::View DshModelFields(const FormStates& fs) {
+[[huxerui::composable]] huxerui::View DshModelFields(const FormStates& fs,
+                                                     bool kimi) {
     return huxerui::Column {
-        DshInputFields(fs),
-        DshCapacityFields(fs),
-        DshReasoningChips(fs),
+        DshInputFields(fs, kimi),
+        DshCapacityFields(fs, kimi),
+        DshReasoningChips(fs, kimi),
     }.With(huxerui::Spacing(12.0F),
            huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 }

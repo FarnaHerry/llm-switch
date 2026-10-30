@@ -2,8 +2,8 @@
 
 桌宠优先的本地 AI 桌面伙伴与多 Agent 控制中心。桌宠是日常入口；主窗口用于管理
 Claude Code / Claude Desktop / Codex / opencode / pi / DeepSeek Harness（dsh）/
-Hermes Agent / ZCode 八款工具的供应商配置，并提供本地路由、用量、MCP、Skills
-与会话管理。产品方向与实施顺序见 [桌宠路线图](docs/desktop-pet-roadmap.md)。
+Hermes Agent / ZCode / Kimi Code 九款工具的供应商配置，并提供本地路由、用量、
+MCP、Skills 与会话管理。产品方向与实施顺序见 [桌宠路线图](docs/desktop-pet-roadmap.md)。
 
 项目是 [cc-switch](https://github.com/farion1231/cc-switch) 的 C++ 重写，使用
 C++23 modules + HuxerUI，无 Electron。
@@ -14,9 +14,10 @@ C++23 modules + HuxerUI，无 Electron。
   Q 版帧动画，Live2D 提供模型、动作、表情、参数与 HitArea 高阶交互，莲花球作为
   低资源与加载失败时的内建回退。模型目录可在设置页导入、切换和删除；原生 Agent
   活动覆盖与 Live2D 分发验证按[路线图](docs/desktop-pet-roadmap.md)推进。
-- **供应商管理**：八个工具组各自维护供应商列表（新增 / 编辑 / 复制 /
+- **供应商管理**：九个工具组各自维护供应商列表（新增 / 编辑 / 复制 /
   删除），内置 DeepSeek / Kimi / GLM / OpenRouter 等预设模板；API 协议三档
-  （OpenAI Chat Completions / OpenAI Responses / Anthropic Messages）。
+  （OpenAI Chat Completions / OpenAI Responses / Anthropic Messages），
+  Kimi Code 另有自己的 Kimi 协议档。
 - **一键切换**：把选中供应商写进工具的 live 配置文件——
   Claude Code 深合并 `~/.claude/settings.json` 的 env 块
   （`ANTHROPIC_BASE_URL` / `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_MODEL`，其余字段
@@ -26,7 +27,9 @@ C++23 modules + HuxerUI，无 Electron。
   `~/.dsh/settings.yaml` 的 llm-pi-ai 路由并把密钥写进
   `~/.dsh/.credentials.yaml`（apiKeyEnv 引用，热监听即时生效）；
   hermes 行级改写 `~/.hermes/config.yaml` 的 custom_providers 列表并
-  指向顶层 model 节；
+  指向顶层 model 节；Kimi Code 增量改写 `~/.kimi-code/config.toml` 的
+  `[providers.*]` / `[models.*]`，切换只改 `default_model`（CLI 与 Desktop
+  共用同一份配置，热监听即时生效）；
   Claude Desktop 3p profile（仅 macOS / Windows）。
 - **本地路由**：内置反向代理监听 `http://127.0.0.1:<port>/<tool>/`（默认
   15731），转发到该工具当前供应商并自动替换鉴权头；上游 429/5xx 可选故障

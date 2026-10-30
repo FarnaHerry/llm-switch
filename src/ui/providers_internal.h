@@ -80,8 +80,8 @@ int UsageIntervalIndex(int minutes);
 // 表单字段集合：新增/编辑共用一组 State 句柄（State 是可拷贝句柄，
 // 归打开表单页的组合作用域所有）。upstreamFormat 为上游 URL 格式下标
 // （0=Anthropic，1=OpenAI）；fullUrl 打开时 URL 原样使用，不追加默认后缀。
-// apiFormat 为 opencode / pi 的 API 适配器下标（0=OpenAI 兼容（默认，
-// 存空串）/ 1=anthropic / 2=openai-responses）。
+// apiFormat 为 opencode / pi / kimi-code 的 API 适配器下标（0=OpenAI 兼容
+// （默认，存空串）/ 1=anthropic / 2=openai-responses / 3=kimi）。
 // model 及 haiku/sonnet/opus 为模型字段；后三档映射（claude 系）每档包含
 // 菜单显示名、实际请求模型和 supports1m 声明。各模型下拉只保留搜索值：
 // 选中后清空控件显示，实际模型始终由对应的 TextField 状态保存。
@@ -102,7 +102,7 @@ struct FormStates {
     // 这样切换目标不需要回写 State 再等一帧。
     huxerui::State<std::string> upstreamFormatTool;
     huxerui::State<bool> fullUrl;
-    huxerui::State<int> apiFormat;                   // 仅 opencode / pi 展示
+    huxerui::State<int> apiFormat;            // opencode / pi / kimi-code 展示
     // dsh 推理档位位掩码（下标 = models::reasoningLevels() 的下标）；
     // 其他 agent 不展示也不用。
     huxerui::State<int> reasoningMask;
@@ -190,6 +190,8 @@ struct AgentFormPolicy {
     bool showToml;                  // codex config.toml 原文
     // dsh 模型条目的官方能力区块（输入模态 / 容量 / 推理档位）。
     bool showDshModelFields = false;
+    // Kimi Code 复用同一区块，但 max_context_size 是 Kimi 的必填字段。
+    bool contextRequired = false;
 };
 const AgentFormPolicy& AgentPolicyFor(std::string_view tool);
 const AgentFormPolicy& ClaudeCodeFormPolicy();
@@ -197,6 +199,7 @@ const AgentFormPolicy& ClaudeDesktopFormPolicy();
 const AgentFormPolicy& CodexFormPolicy();
 const AgentFormPolicy& OpenAiCliFormPolicy();  // opencode / pi 共用
 const AgentFormPolicy& DshFormPolicy();        // dsh：OpenAI 兼容 + 推理档位
+const AgentFormPolicy& KimiFormPolicy();       // kimi-code：TOML + 模型别名
 const AgentFormPolicy& ZcodeFormPolicy();
 
 // ---- 公共区块（provider_form_common.cpp）----
@@ -229,20 +232,28 @@ const AgentFormPolicy& ZcodeFormPolicy();
 // codex：config.toml 原文（多行，切换时整体替换）。
 [[huxerui::composable]] huxerui::View TomlField(const FormStates& fs);
 // opencode / pi：API 协议（OpenAI 兼容 / Anthropic / OpenAI Responses）。
-[[huxerui::composable]] huxerui::View ApiFormatFields(const FormStates& fs);
+// includeKimi 时多一档 Kimi（type = "kimi"，端点是 api.kimi.com/coding/v1）；
+// 只有 Kimi Code 表单打开，别的工具写不出第四种协议值。
+[[huxerui::composable]] huxerui::View ApiFormatFields(const FormStates& fs,
+                                                      bool includeKimi);
 
 // dsh：模型条目的官方能力声明（输入模态 input / 容量 contextWindow、maxTokens /
 // 推理档位 reasoningEfforts）。dsh 的 llm-pi-ai 把「模型能力」放在模型条目上，
 // 手工声明的路由不声明就什么都没有：不声明 input 收不了图片、不声明
 // reasoningEfforts 模型菜单里连「推理等级」都不出现。字段名与 dsh 官方设置页
 // （@deepseek-ai/dsh-llm-pi-ai 的 PiAiModelProfile）一致。
-[[huxerui::composable]] huxerui::View DshModelFields(const FormStates& fs);
+[[huxerui::composable]] huxerui::View DshModelFields(const FormStates& fs,
+                                                     bool kimi);
 
 // 校验 dsh 的容量输入（0 = 空 = 不声明；负数 = 无法解析），失败时 toast 并
 // 返回 false，由调用方中止保存。返回解析结果供装配使用。
 bool DshCapacitiesValid(const FormStates& fs, huxerui::ToastHandle toast);
 std::vector<std::string> DshInputModalities(const FormStates& fs);
 std::int64_t DshCapacity(const huxerui::State<huxerui::TextEditingValue>& field);
+
+// Kimi Code：max_context_size 是 config.toml 里 model 条目的必填字段，
+// 空或无法解析时 toast 并中止保存。
+bool KimiContextValid(const FormStates& fs, huxerui::ToastHandle toast);
 
 // zcode：条目启用开关 + 模型清单（每模型参数面板：输入/输出模态、
 // 上下文窗口、最大输出、思维链——直接改 modelsMeta 原值）。

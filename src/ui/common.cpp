@@ -46,6 +46,9 @@ huxerui::ImageResource ToolIcon(std::string_view iconName) {
     if (iconName == "zcode") {
         return app::images::zcode;
     }
+    if (iconName == "kimi") {
+        return app::images::kimi;
+    }
     return app::images::error;
 }
 

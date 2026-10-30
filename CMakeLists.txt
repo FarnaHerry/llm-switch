@@ -610,7 +610,7 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
         # 单元（store*.cpp 是普通 .cpp，须随源扫描拿到 -fmodules-ts）。
         add_executable(test_store tests/test_store.cpp
             src/store.cpp src/store_live.cpp src/store_import.cpp
-            src/store_zcode.cpp)
+            src/store_zcode.cpp src/store_kimi.cpp)
         target_sources(test_store PRIVATE FILE_SET llmswitch_modules TYPE CXX_MODULES
             BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
             FILES ${LLMSWITCH_MODULE_UNITS})

@@ -7,7 +7,8 @@
 // opencode（additive upsert、顶层 model、anthropic 变体、JSON5 报错不碰文件）、
 // pi（双文件、权限位、apiFormat 映射）、claude desktop（Linux 不支持报错 +
 // 覆盖后四文件）、备份生成、detectCurrent、导出/导入回滚、apiFormat 三档
-// 映射与归一、usage 三字段与全局设置持久化、逐 Agent 路由开关持久化、
+// 映射与归一、Kimi Code config.toml 的 providers/models 增量与 default_model
+// 切换/官方恢复、usage 三字段与全局设置持久化、逐 Agent 路由开关持久化、
 // Claude Code 跳过初次安装检查开关、
 // restoreOfficial 三工具还原
 // （codex 模型收回）、官方厂商名（officialVendorName）与预设列表、
@@ -143,6 +144,7 @@ int main() {
     const fs::path dshSettings = dshDir / "settings.yaml";
     const fs::path dshCredentials = dshDir / ".credentials.yaml";
     const fs::path hermesConfig = root / "hermes" / "config.yaml";
+    const fs::path kimiConfig = root / "kimi-code" / "config.toml";
     testenv::setenv("LLMSWITCH_CLAUDE_SETTINGS", claudeSettings);
     testenv::setenv("LLMSWITCH_CODEX_AUTH", codexAuth);
     testenv::setenv("LLMSWITCH_CODEX_CONFIG", codexConfig);
@@ -152,9 +154,11 @@ int main() {
     testenv::setenv("LLMSWITCH_DSH_SETTINGS", dshSettings);
     testenv::setenv("LLMSWITCH_DSH_CREDENTIALS", dshCredentials);
     testenv::setenv("LLMSWITCH_HERMES_CONFIG", hermesConfig);
+    testenv::setenv("LLMSWITCH_KIMI_CONFIG", kimiConfig);
     testenv::unsetenv("PI_CODING_AGENT_DIR");
     testenv::unsetenv("DSH_HOME");
     testenv::unsetenv("HERMES_HOME");
+    testenv::unsetenv("KIMI_CODE_HOME");
     testenv::unsetenv("LLMSWITCH_CLAUDE_DESKTOP_DIR");  // 默认 Linux 不支持
 
     // 1. 空环境 load → 默认空配置
@@ -172,8 +176,8 @@ int main() {
               s.config().routerTools.end());
         CHECK(s.detectCurrent("claude-code").empty());
         CHECK(s.detectCurrent("claude").empty());  // Linux 无桌面目录 → 空
-        // 注册表自检：8 个工具、id 可互查
-        CHECK(models::toolRegistry().size() == 8);
+        // 注册表自检：9 个工具、id 可互查
+        CHECK(models::toolRegistry().size() == 9);
         CHECK(models::findTool("claude-code") != nullptr);
         CHECK(models::findTool("opencode")->needsModel);
         CHECK(models::findTool("pi")->hasApiFormat);
@@ -192,23 +196,33 @@ int main() {
         CHECK(models::findTool("hermes")->needsModel);
         CHECK(models::findTool("hermes")->hasApiFormat);
         CHECK(models::findTool("hermes")->needsRestart);
+        CHECK(models::findTool("kimi-code") != nullptr);
+        CHECK(models::findTool("kimi-code")->needsModel);
+        CHECK(models::findTool("kimi-code")->hasApiFormat);
+        CHECK(!models::findTool("kimi-code")->hasModelMappings);
+        CHECK(!models::findTool("kimi-code")->additiveProviders);
+        CHECK(!models::findTool("kimi-code")->needsRestart);
         CHECK(models::findTool("zcode")->hasApiFormat);
         CHECK(!models::findTool("codex")->needsModel);
         CHECK(models::findTool("claude-code")->hasModelMappings);
         CHECK(models::findTool("claude")->hasModelMappings);
         CHECK(!models::findTool("codex")->hasModelMappings);
         // needsRestart：claude-code 运行中重读配置、dsh 两份 YAML 均被热
-        // 监听，切换无需重启；其余工具（codex / zcode / hermes 等）live
-        // 配置在进程启动时读取，切换后需重启
+        // 监听、Kimi Code 监听 config.toml，切换无需重启；其余工具
+        // （codex / zcode / hermes 等）live 配置在进程启动时读取，切换后
+        // 需重启
         CHECK(!models::findTool("claude-code")->needsRestart);
         CHECK(!models::findTool("dsh")->needsRestart);
         CHECK(std::ranges::all_of(
             models::toolRegistry(), [](const auto& t) {
-                return t.id == "claude-code" || t.id == "dsh" || t.needsRestart;
+                return t.id == "claude-code" || t.id == "dsh" ||
+                       t.id == "kimi-code" || t.needsRestart;
             }));
         CHECK(std::ranges::find(s.config().routerTools, "dsh") !=
               s.config().routerTools.end());
         CHECK(std::ranges::find(s.config().routerTools, "hermes") !=
+              s.config().routerTools.end());
+        CHECK(std::ranges::find(s.config().routerTools, "kimi-code") !=
               s.config().routerTools.end());
         CHECK(models::findTool("nope") == nullptr);
     }
@@ -2388,6 +2402,233 @@ int main() {
         }
     }
 
+    // 8d. Kimi Code：CLI 与 Desktop 共用 config.toml。providers / models 是
+    //     多条并存的表，切换只改 default_model；新增 / 更新 / 删除只碰自己
+    //     的 llmswitch-* 条目，官方 OAuth、原生 provider、注释与 [thinking]
+    //     全部原样保留。
+    {
+        writeFile(kimiConfig,
+                  "# Kimi Code 配置（注释应保留）\n"
+                  "default_model = \"kimi-code/kimi-for-coding\"\n"
+                  "\n"
+                  "[providers.\"managed:kimi-code\"]\n"
+                  "type = \"kimi\"\n"
+                  "api_key = \"\"\n"
+                  "base_url = \"https://api.kimi.com/coding/v1\"\n"
+                  "\n"
+                  "[providers.\"managed:kimi-code\".oauth]\n"
+                  "storage = \"file\"\n"
+                  "key = \"oauth/kimi-code\"\n"
+                  "\n"
+                  "[providers.native-relay]\n"
+                  "type = \"openai\"\n"
+                  "base_url = \"https://relay.example.com/v1\"\n"
+                  "api_key = \"sk-native\"\n"
+                  "\n"
+                  "[models.\"kimi-code/kimi-for-coding\"]\n"
+                  "provider = \"managed:kimi-code\"\n"
+                  "model = \"kimi-for-coding\"\n"
+                  "max_context_size = 262144\n"
+                  "\n"
+                  "[models.\"native-model\"]\n"
+                  "provider = \"native-relay\"\n"
+                  "model = \"relay-model\"\n"
+                  "max_context_size = 131072\n"
+                  "capabilities = [\n"
+                  "  \"thinking\", # 行尾注释\n"
+                  "  \"image_in\", # 行尾注释\n"
+                  "] # 收尾注释\n"
+                  "\n"
+                  "[thinking]\n"
+                  "enabled = true\n"
+                  "\n"
+                  "[[hooks]]\n"
+                  "event = \"session_start\"\n"
+                  "command = [\"echo\", \"hi\"]\n");
+        auto ks = store::ProviderStore::load();
+        models::Provider pk{.name = "Kimi 中转",
+                            .baseUrl = "https://kimi-relay.example.com/v1",
+                            .apiKey = "sk-kimi",
+                            .model = "kimi-k3",
+                            .contextWindow = 262144,
+                            .inputModalities = {"text", "image"},
+                            .apiFormat = "kimi"};
+        const std::string idK = ks.addProvider("kimi-code", pk);
+        {
+            const std::string t = readTextFile(kimiConfig);
+            CHECK(t.find("# Kimi Code 配置（注释应保留）") != std::string::npos);
+            CHECK(t.find("[providers.\"llmswitch-" + idK + "\"]") !=
+                  std::string::npos);
+            CHECK(t.find("type = \"kimi\"") != std::string::npos);
+            CHECK(t.find("base_url = \"https://kimi-relay.example.com/v1\"") !=
+                  std::string::npos);
+            CHECK(t.find("[models.\"llmswitch-" + idK + "\"]") !=
+                  std::string::npos);
+            CHECK(t.find("provider = \"llmswitch-" + idK + "\"") !=
+                  std::string::npos);
+            CHECK(t.find("max_context_size = 262144") != std::string::npos);
+            CHECK(t.find("capabilities = [\"tool_use\", \"thinking\", \"image_in\"]") !=
+                  std::string::npos);
+            // 新增不改当前指向；OAuth / 原生 / 无关节全保留。
+            CHECK(t.find("default_model = \"kimi-code/kimi-for-coding\"") !=
+                  std::string::npos);
+            CHECK(t.find("[providers.\"managed:kimi-code\".oauth]") !=
+                  std::string::npos);
+            CHECK(t.find("[models.\"native-model\"]") != std::string::npos);
+            CHECK(t.find("[thinking]\nenabled = true") != std::string::npos);
+        }
+        // 官方 OAuth provider 的 api_key 是空串；同端点的空密钥新卡不得被
+        // 误认成 managed:kimi-code，更不能覆盖官方条目。
+        {
+            const std::string before = readTextFile(kimiConfig);
+            models::Provider pkOfficial{
+                .name = "Kimi 官方直连",
+                .baseUrl = "https://api.kimi.com/coding/v1",
+                .apiKey = "",
+                .model = "kimi-for-coding",
+                .contextWindow = 1048576,
+                .apiFormat = "kimi"};
+            const std::string idO = ks.addProvider("kimi-code", pkOfficial);
+            const std::string t = readTextFile(kimiConfig);
+            CHECK(t.find("[providers.\"llmswitch-" + idO + "\"]") !=
+                  std::string::npos);
+            CHECK(t.find("api_key = \"\"") != std::string::npos);
+            CHECK(before.find("[providers.\"managed:kimi-code\"]") ==
+                      t.find("[providers.\"managed:kimi-code\"]"));
+            CHECK(ks.detectCurrent("kimi-code").empty());
+            ks.removeProvider("kimi-code", idO, /*eraseLive=*/true);
+            CHECK(readTextFile(kimiConfig).find(
+                      "[providers.\"managed:kimi-code\"]") !=
+                  std::string::npos);
+        }
+        // 切换：只改 default_model，不重建条目。
+        ks.switchTo("kimi-code", idK);
+        {
+            const std::string t = readTextFile(kimiConfig);
+            CHECK(t.find("default_model = \"llmswitch-" + idK + "\"") !=
+                  std::string::npos);
+            CHECK(t.find("[providers.\"llmswitch-" + idK + "\"]") !=
+                  std::string::npos);
+            CHECK(ks.detectCurrent("kimi-code") == idK);
+            CHECK(t.find("[providers.native-relay]") != std::string::npos);
+            CHECK(t.find("[thinking]\nenabled = true") != std::string::npos);
+            // 重启全量对齐：current 仍跟 default_model 一致。
+            auto reloaded = store::ProviderStore::load();
+            CHECK(reloaded.detectCurrent("kimi-code") == idK);
+            CHECK(reloaded.group("kimi-code").current == idK);
+        }
+        // 更新：只改自己那条 provider 与 model 别名，default 不动。
+        {
+            models::Provider updated;
+            for (const auto& cur : ks.group("kimi-code").providers) {
+                if (cur.id == idK) updated = cur;
+            }
+            updated.baseUrl = "https://kimi-relay-2.example.com/v1";
+            updated.apiKey = "sk-kimi-2";
+            updated.contextWindow = 131072;
+            ks.updateProvider("kimi-code", updated);
+            const std::string t = readTextFile(kimiConfig);
+            CHECK(t.find("base_url = \"https://kimi-relay-2.example.com/v1\"") !=
+                  std::string::npos);
+            CHECK(t.find("api_key = \"sk-kimi-2\"") != std::string::npos);
+            CHECK(t.find("max_context_size = 131072") != std::string::npos);
+            CHECK(t.find("default_model = \"llmswitch-" + idK + "\"") !=
+                  std::string::npos);
+            CHECK(t.find("[providers.native-relay]") != std::string::npos);
+        }
+        // 全量收编：本应用卡原位更新，原生条目录成独立卡，OAuth 不收编。
+        {
+            const auto imported = ks.importLive("kimi-code");
+            CHECK(imported.id == idK);
+            CHECK(imported.apiKey == "sk-kimi-2");
+            const auto native = std::ranges::find_if(
+                ks.group("kimi-code").providers, [](const models::Provider& p) {
+                    return p.id == "native-relay";
+                });
+            CHECK(native != ks.group("kimi-code").providers.end());
+            if (native != ks.group("kimi-code").providers.end()) {
+                CHECK(native->model == "relay-model");
+                CHECK(native->contextWindow == 131072);
+                CHECK(native->apiFormat.empty());
+                // 跨行数组 + 行尾注释里的 image_in 也要被读到。
+                CHECK(std::ranges::find(native->inputModalities, "image") !=
+                      native->inputModalities.end());
+            }
+            CHECK(std::ranges::none_of(
+                ks.group("kimi-code").providers, [](const models::Provider& p) {
+                    return p.id.starts_with("managed:");
+                }));
+            CHECK(ks.detectCurrent("kimi-code") == idK);
+        }
+        // 官方恢复：llmswitch-* 条目删除，default 指回 managed 的模型别名。
+        {
+            ks.restoreOfficial("kimi-code");
+            const std::string t = readTextFile(kimiConfig);
+            CHECK(t.find("llmswitch-" + idK) == std::string::npos);
+            CHECK(t.find("default_model = \"kimi-code/kimi-for-coding\"") !=
+                  std::string::npos);
+            CHECK(t.find("[providers.\"managed:kimi-code\".oauth]") !=
+                  std::string::npos);
+            CHECK(t.find("[providers.native-relay]") != std::string::npos);
+            CHECK(t.find("[models.\"native-model\"]") != std::string::npos);
+            CHECK(t.find("[thinking]\nenabled = true") != std::string::npos);
+            CHECK(ks.detectCurrent("kimi-code").empty());
+            CHECK(ks.group("kimi-code").current.empty());
+            auto reloaded = store::ProviderStore::load();
+            CHECK(reloaded.detectCurrent("kimi-code").empty());
+            CHECK(reloaded.group("kimi-code").current.empty());
+        }
+        // 删除边界：收编的原生条目（id 即原生键）可随卡一起删除；官方
+        // OAuth 账号永不删除。
+        {
+            ks.removeProvider("kimi-code", "native-relay", /*eraseLive=*/true);
+            const std::string t = readTextFile(kimiConfig);
+            CHECK(t.find("[providers.native-relay]") == std::string::npos);
+            CHECK(t.find("[models.\"native-model\"]") == std::string::npos);
+            CHECK(t.find("[providers.\"managed:kimi-code\"]") !=
+                  std::string::npos);
+            CHECK(t.find("[thinking]\nenabled = true") != std::string::npos);
+        }
+        // 本应用条目：删除只影响自己，官方 OAuth 不动。
+        {
+            models::Provider pk2{.name = "Kimi 备用",
+                                 .baseUrl = "https://kimi-backup.example.com/v1",
+                                 .apiKey = "sk-backup",
+                                 .model = "kimi-k3",
+                                 .contextWindow = 262144,
+                                 .apiFormat = "kimi"};
+            const std::string idK2 = ks.addProvider("kimi-code", pk2);
+            CHECK(readTextFile(kimiConfig).find("llmswitch-" + idK2) !=
+                  std::string::npos);
+            ks.removeProvider("kimi-code", idK2, /*eraseLive=*/true);
+            const std::string t = readTextFile(kimiConfig);
+            CHECK(t.find("llmswitch-" + idK2) == std::string::npos);
+            CHECK(t.find("[providers.\"managed:kimi-code\"]") !=
+                  std::string::npos);
+        }
+        // 没有 managed:kimi-code（未登录官方账号）时恢复官方必须报错，
+        // 不能把 default_model 指到不存在的别名。
+        {
+            writeFile(kimiConfig,
+                      "default_model = \"only-local\"\n"
+                      "[providers.only-local]\n"
+                      "type = \"openai\"\n"
+                      "base_url = \"https://example.com/v1\"\n"
+                      "api_key = \"sk\"\n"
+                      "[models.\"only-local\"]\n"
+                      "provider = \"only-local\"\n"
+                      "model = \"m\"\n"
+                      "max_context_size = 1024\n");
+            bool threw = false;
+            try {
+                ks.restoreOfficial("kimi-code");
+            } catch (const std::exception&) {
+                threw = true;
+            }
+            CHECK(threw);
+        }
+    }
+
     // 9. claude desktop：Linux 默认不支持（抛错）；设覆盖目录后写四个文件
     models::Provider pd{.name = "桌面网关",
                         .baseUrl = "https://desktop.example.com/anthropic",
@@ -2970,6 +3211,27 @@ int main() {
         CHECK(hmDs != hm.metered.end() && hmDs->usageEnabled &&
               hmDs->apiFormat == "openai-chat");
 
+        // Kimi Code：官方走常驻卡，订阅组只有 Kimi For Coding（type=kimi，
+        // 端点直连），按量组两家 Moonshot（国内 / 国际），都带容量声明。
+        CHECK(models::officialVendorName("kimi-code") == "Kimi Code 官方");
+        const auto kc = models::builtinPresets("kimi-code");
+        CHECK(kc.subscription.size() == 1);
+        CHECK(kc.subscription.front().name == "Kimi For Coding" &&
+              kc.subscription.front().apiFormat == "kimi" &&
+              kc.subscription.front().fullUrl &&
+              kc.subscription.front().contextWindow == 1048576);
+        CHECK(kc.metered.size() == 2);
+        CHECK(std::ranges::all_of(kc.metered, [](const models::Provider& p) {
+            return p.apiFormat == "kimi" && p.fullUrl &&
+                   p.contextWindow > 0 && p.model == "kimi-k3.1-pro";
+        }));
+        const auto kcIntl = std::ranges::find_if(kc.metered,
+            [](const models::Provider& p) {
+                return p.baseUrl == "https://api.moonshot.ai/v1";
+            });
+        CHECK(kcIntl != kc.metered.end() && kcIntl->usageEnabled &&
+              kcIntl->usageLabel == "USD");
+
         // 所有默认模板（两个计费组、所有 Agent）必须登记可复用的厂商图标。
         for (const auto& tool : models::toolRegistry()) {
             const auto presets = models::builtinPresets(tool.id);
@@ -3157,6 +3419,15 @@ int main() {
         writeFile(cli, "#!/bin/sh\nexit 0\n");
 #ifndef _WIN32
         fs::permissions(cli, fs::perms::owner_all, ec);
+#endif
+#ifndef _WIN32
+        // Kimi Code 安装在 ~/.kimi-code/bin，默认不在 PATH；findExecutable
+        // 的兜底目录必须能找到它，否则「已安装」判断会误报。
+        const fs::path kimiBin = home / ".kimi-code" / "bin" / "kimi";
+        writeFile(kimiBin, "#!/bin/sh\nexit 0\n");
+        fs::permissions(kimiBin, fs::perms::owner_all, ec);
+        CHECK(!cfg::findExecutable("kimi").empty());
+        fs::remove(kimiBin, ec);
 #endif
         const char* oldPath = std::getenv("PATH");
         const std::string savedPath = oldPath != nullptr ? oldPath : "";

@@ -1902,6 +1902,12 @@ void ProviderStore::switchTo(std::string_view tool, const std::string& id) {
         // .credentials.yaml（apiKeyEnv 引用）。两份文件都被 dsh 热监听 →
         // 切换即时生效，无需重启。
         writeDshEntry(*target, /*overwrite=*/false, /*makeDefault=*/true);
+    } else if (tool == "kimi-code") {
+        // config.toml：切换 = 只改 default_model 指向；目标条目已在 live 里
+        // 时内容原样保留，不在时补写 provider + model 别名（避免指空），
+        // 别的 provider / model / 注释一个字都不动。Kimi Code 监听
+        // config.toml（watch 默认开启）→ 切换即时生效，无需重启。
+        writeKimiEntry(*target, /*overwrite=*/false, /*makeDefault=*/true);
     } else if (tool == "hermes") {
         // config.yaml：custom_providers 列表删旧 llmswitch-* 条目后追加新
         // 条目（api_mode 三档映射），顶层 model 节写 provider（总是）与
@@ -2164,6 +2170,11 @@ void ProviderStore::restoreOfficial(std::string_view tool) {
                         rewriteDshSettings(text, {}, removeKeys, true, "", "",
                                            ""));
         }
+    } else if (tool == "kimi-code") {
+        // 回到 managed:kimi-code 的 OAuth 官方状态：摘掉本应用写的
+        // llmswitch-* provider / model 别名，default_model 指回官方模型。
+        // 原生 provider、oauth 子表与用户的其它模型原样保留。
+        restoreKimiOfficial();
     } else if (tool == "claude") {
         // 撤掉 3p 直连：两份 claude_desktop_config.json 删 deploymentMode 键；
         // _meta.json 移除本应用 profile 条目并清 appliedId（profile 文件本体

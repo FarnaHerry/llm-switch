@@ -32,10 +32,13 @@
   只留最近 10 份）。importFrom 前额外备份 config.json 本体。
 - **首次导入**：`ProviderStore::load()` 在组为空且 live 文件存在时自动
   `importLive`——把当前生效配置收编成名为「当前配置」的 provider 并设为
-  current（已有匹配项则复用不重复建）。
+  current（已有匹配项则复用不重复建）。zcode / kimi-code 例外：每次 load
+  都按 live 配置全量对齐，只补/更新本地卡，不删除本地卡，current 跟
+  default/enabled 状态一致。
 - **detectCurrent**：读 live 文件与组内 provider 匹配（claude 按
   baseUrl+apiKey，codex 按 apiKey，opencode 按顶层 model 前缀，dsh/hermes
-  按默认路由键），只读不改配置。pi 特殊：先看 settings.json 的
+  按默认路由键，kimi-code 按 default_model → model 别名 → provider 键），
+  只读不改配置。pi 特殊：先看 settings.json 的
   defaultProvider 是否就是组内 id；是别家的键（用户手写路由）时**只按那一条
   条目**的 baseUrl+apiKey 匹配，不遍历 models.json 的其它条目——本应用切换
   只 upsert、从不删旧条目，历史条目会一直留在文件里，扫全部会把「pi 实际用着
@@ -43,8 +46,8 @@
   （指向不存在的条目）才退回遍历全部条目。pi 的探测走 readJsonPassive（解析
   失败按无内容，不挪文件），与「只读」契约一致。
 - **restoreOfficial**：恢复厂商原生状态（UI 入口 = 供应商列表首位的
-  「官方」常驻卡，claude-code / claude / codex / zcode / dsh 等
-  officialVendorName 非空的工具；opencode / pi / hermes 无官方
+  「官方」常驻卡，claude-code / claude / codex / zcode / dsh / kimi-code
+  等 officialVendorName 非空的工具；opencode / pi / hermes 无官方
   默认态抛错）——claude-code 删 settings.json env 块的 ANTHROPIC_* 六键；
   codex 删 auth.json 的 OPENAI_API_KEY（删完为空对象则删文件），
   config.toml 仅当内容与组内某 provider 的模板（应用 model 后）完全一致
@@ -52,7 +55,9 @@
   deploymentMode 键 + _meta.json 移除本应用条目/清 appliedId；dsh 删
   settings.yaml 的 agent-default-model 块与 llmswitch-* 手写路由条目，
   回到内置 deepseek-official 路由（.credentials.yaml 的密钥不代清）。
-  ZCode 关闭 llmswitch:* 并重新启用首个 builtin:*，细节见 [ZCode 契约](zcode.md)。
+  ZCode 关闭 llmswitch:* 并重新启用首个 builtin:*，细节见 [ZCode 契约](zcode.md)；
+  Kimi Code 删全部 llmswitch-* provider/model 别名并把 default_model 指回
+  managed:kimi-code 的官方模型。
   改前照常备份，组 current 清空。
 - **内置预设**：只收第三方兼容端点（官方厂商由常驻卡承担，不进预设）；
   opencode / pi / hermes 无官方厂商故只有第三方。
@@ -61,7 +66,8 @@
   / `LLMSWITCH_OPENCODE_CONFIG` / `LLMSWITCH_PI_DIR` /
   `LLMSWITCH_ZCODE_CONFIG` /
   `LLMSWITCH_DSH_SETTINGS` / `LLMSWITCH_DSH_CREDENTIALS` /
-  `LLMSWITCH_HERMES_CONFIG` /
+  `LLMSWITCH_HERMES_CONFIG` / `LLMSWITCH_KIMI_CONFIG`（后者的默认路径还
+  尊重官方 `KIMI_CODE_HOME` 目录覆盖）/
   `LLMSWITCH_CLAUDE_DESKTOP_DIR`（live 配置）；
   `LLMSWITCH_CLAUDE_JSON`（~/.claude.json，MCP）/
   `LLMSWITCH_SKILLS_STORE` / `LLMSWITCH_CLAUDE_SKILLS` / `LLMSWITCH_CODEX_SKILLS`

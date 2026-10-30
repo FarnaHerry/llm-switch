@@ -50,16 +50,18 @@ export struct ToolSpec {
 
 // 注册表顺序即 UI 侧栏/托盘菜单顺序。
 //
-// installCommand 的核实来源（2026-09-20 逐条对 registry 查过，不照抄文档）：
+// installCommand 的核实来源（2026-09-20 逐条对 registry 查过，不照抄文档；
+// 2026-10-30 补 Kimi Code）：
 //   npm ：@anthropic-ai/claude-code / @openai/codex / @deepseek-ai/dsh /
-//         @earendil-works/pi-coding-agent / opencode-ai
+//         @earendil-works/pi-coding-agent / opencode-ai /
+//         @moonshot-ai/kimi-code
 //         —— 均在 registry.npmjs.org/<包名> 上有 latest 标签。
 //   PyPI：hermes-agent（pypi.org/pypi/hermes-agent）。
 //   zcode 没有统一命令：实测由发行版系统包提供（/opt/ZCode/zcode，rpm zcode-*），
 //   装法随平台而异，故留空。
 // 参考：上游 cc-switch 的「手动安装命令」只列了 claude/codex/gemini/opencode/
 // openclaw/hermes；本项目另有 pi/dsh/zcode，不能照抄。
-export constexpr std::array<ToolSpec, 8> kToolRegistry{{
+export constexpr std::array<ToolSpec, 9> kToolRegistry{{
     ToolSpec{.id = "claude-code",
              .displayName = "Claude Code",
              .iconName = "claudecode",
@@ -148,6 +150,25 @@ export constexpr std::array<ToolSpec, 8> kToolRegistry{{
              .binary = "zcode",
              .installCommand = "",
              .additiveProviders = true},
+    // Kimi Code（Moonshot，CLI 命令 kimi）：~/.kimi-code/config.toml（或
+    // $KIMI_CODE_HOME/config.toml）的 providers / models 是**多条并存**的原生
+    // 表，`default_model` 指向当前模型别名。本应用把组内供应商写成
+    // llmswitch-<id> provider + 同名 model 别名，「切换」只改 default_model；
+    // 收编时保留原生键与它的其它模型，绝不整组重建。
+    // 官方 OAuth 供应商 managed:kimi-code 不参与收编，由「Kimi Code 官方」
+    // 常驻卡表达（官方登录由 kimi /login 自己管理）。
+    // Kimi Code 默认监听 config.toml（watch 默认开启）→ 切换无需重启；
+    // CLI 与 Desktop 共用这个目录，因此只登记一个工具。
+    ToolSpec{.id = "kimi-code",
+             .displayName = "Kimi Code",
+             .iconName = "kimi",
+             .needsModel = true,
+             .hasApiFormat = true,
+             .hasModelMappings = false,
+             .needsRestart = false,
+             .binary = "kimi",
+             .installCommand =
+                 "npm install -g @moonshot-ai/kimi-code@latest"},
 }};
 
 export std::span<const ToolSpec> toolRegistry() { return kToolRegistry; }
@@ -175,6 +196,9 @@ export std::string_view normalizeApiFormat(std::string_view apiFormat) {
 
 // 显示名（表单/详情用）。
 export std::string_view apiFormatLabel(std::string_view apiFormat) {
+    // Kimi Code 的 provider type 是独立一档（"kimi"），但线上协议仍是
+    // OpenAI Chat Completions；normalizeApiFormat 保持三档，这里单独显示。
+    if (apiFormat == "kimi") return "Kimi Code";
     const auto f = normalizeApiFormat(apiFormat);
     if (f == "anthropic") return "Anthropic Messages（原生）";
     if (f == "openai-responses") return "OpenAI Responses";
@@ -419,8 +443,9 @@ export struct Provider {
     std::string website;
     std::string notes;
     std::string codexConfigToml;  // 仅 codex 组用：config.toml 整段原文（空 = 切换时不改 config.toml）
-    std::string apiFormat;        // 仅 opencode / pi 组用："" / "openai-chat"（默认）/
-                                  // "openai-responses" / "anthropic"
+    std::string apiFormat;        // opencode / pi / kimi-code 组用："" / "openai-chat"
+                                  // （默认）/ "openai-responses" / "anthropic"；
+                                  // kimi-code 另有 "kimi"（Kimi For Coding 原生协议）
     // 用量查询（可选；usageEnabled 关闭或 usageUrl 为空 = 不查）：
     bool usageEnabled = false;
     int usageRefreshMinutes = 10;  // 0 = 仅手动刷新
@@ -446,8 +471,8 @@ export struct ProviderGroup {
 };
 
 export struct AppConfig {
-    // 键 = 注册表工具 id（claude-code / claude / codex / opencode / pi）；
-    // 用 map 而非固定字段，新增工具不改序列化结构。
+    // 键 = 注册表工具 id（claude-code / ... / kimi-code）；用 map 而非固定
+    // 字段，新增工具不改序列化结构。
     std::map<std::string, ProviderGroup> groups;
     std::string themeMode = "system";  // system / dark / light
     // 窗口关闭行为：ask（询问）/ tray（最小化到托盘）/ quit（直接关闭）。
@@ -462,7 +487,7 @@ export struct AppConfig {
     // 允许通过本地路由代理的工具 id；旧配置缺字段时默认全部启用，保持兼容。
     std::vector<std::string> routerTools{
         "claude-code", "claude", "codex", "opencode", "pi", "dsh", "hermes",
-        "zcode"};
+        "zcode", "kimi-code"};
     // 应用启动入口：pet / control-center。未保存过选择的新旧配置默认桌宠优先。
     std::string startupMode = "pet";
     // 新安装首次设置向导是否完成。旧版已有配置视作已完成，避免升级时打扰。
@@ -796,7 +821,8 @@ export std::string_view builtinPresetIconName(std::string_view providerName) {
     if (providerName == "AICodeMirror") return "aicodemirror";
     if (providerName == "88code") return "code88";
     if (providerName == "DuckCoding") return "duckcoding";
-    if (providerName == "Kimi For Coding" || providerName == "Kimi（Moonshot）") {
+    if (providerName == "Kimi For Coding" || providerName == "Kimi（Moonshot）" ||
+        providerName == "Kimi 国际（Moonshot）") {
         return "kimi";
     }
     if (providerName == "火山引擎 Coding Plan") return "volcengine";
@@ -1394,6 +1420,55 @@ wire_api = "responses"
         };
         return groups;
     }
+    if (tool == "kimi-code") {
+        // Kimi Code（Moonshot）：type = "kimi" 同时覆盖 Kimi Code 托管服务与
+        // Kimi Platform API 密钥（OpenAI 兼容，额外支持视频上传）；Moonshot
+        // 国内 / 国际开放平台都按它写。官方 OAuth 登录（managed:kimi-code）
+        // 由「Kimi Code 官方」常驻卡承担，这里只列可用 API Key 接入的入口。
+        groups.subscription = {
+            Provider{.name = "Kimi For Coding",
+                     .baseUrl = "https://api.kimi.com/coding/v1",
+                     .model = "kimi-for-coding",
+                     .reasoningEfforts = {"low", "high", "max"},
+                     .contextWindow = 1048576,
+                     .inputModalities = {"text", "image"},
+                     .website = "https://www.kimi.com/code/",
+                     .apiFormat = "kimi",
+                     .upstreamFormat = "openai",
+                     .fullUrl = true},
+        };
+        groups.metered = {
+            Provider{.name = "Kimi（Moonshot）",
+                     .baseUrl = "https://api.moonshot.cn/v1",
+                     .model = "kimi-k3.1-pro",
+                     .reasoningEfforts = {"low", "high", "max"},
+                     .contextWindow = 1048576,
+                     .inputModalities = {"text", "image"},
+                     .website = "https://platform.moonshot.cn",
+                     .apiFormat = "kimi",
+                     .usageEnabled = true,
+                     .usageUrl = "https://api.moonshot.cn/v1/users/me/balance",
+                     .usagePath = "data.available_balance",
+                     .usageLabel = "CNY",
+                     .upstreamFormat = "openai",
+                     .fullUrl = true},
+            Provider{.name = "Kimi 国际（Moonshot）",
+                     .baseUrl = "https://api.moonshot.ai/v1",
+                     .model = "kimi-k3.1-pro",
+                     .reasoningEfforts = {"low", "high", "max"},
+                     .contextWindow = 1048576,
+                     .inputModalities = {"text", "image"},
+                     .website = "https://platform.moonshot.ai",
+                     .apiFormat = "kimi",
+                     .usageEnabled = true,
+                     .usageUrl = "https://api.moonshot.ai/v1/users/me/balance",
+                     .usagePath = "data.available_balance",
+                     .usageLabel = "USD",
+                     .upstreamFormat = "openai",
+                     .fullUrl = true},
+        };
+        return groups;
+    }
     if (tool == "opencode" || tool == "pi") {
         // OpenAI 兼容端点（opencode 走 @ai-sdk/openai-compatible；pi 走
         // openai-completions），model 填各家的主力模型。订阅站无已核实端点，
@@ -1562,6 +1637,9 @@ export std::string_view officialVendorName(std::string_view tool) {
     // DeepSeek 官方 = dsh 内置 deepseek-official 路由接管（无
     // agent-default-model 覆盖、无 llmswitch-* 手写路由）。
     if (tool == "dsh") return "DeepSeek 官方";
+    // Kimi Code 官方 = managed:kimi-code 的 OAuth 登录（由 kimi /login 管理，
+    // 本应用不收编；default_model 指回它的模型别名即官方状态）。
+    if (tool == "kimi-code") return "Kimi Code 官方";
     return "";
 }
 

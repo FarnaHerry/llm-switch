@@ -12,7 +12,7 @@ description: 修改 llm-switch 的供应商配置、live 写入、路由、MCP�
 - 首次定位模块或修改跨层职责时读 [架构与定位](references/architecture.md)。
 - 改 Provider、AppConfig、格式归一、探测、恢复、导入或测试路径时，必读
   [共享配置契约](references/configuration.md)；live 写入和收编还须读下面对应工具。
-- Claude Code/Desktop、Codex、OpenCode、Pi、Hermes：读
+- Claude Code/Desktop、Codex、OpenCode、Pi、Hermes、Kimi Code：读
   [live 工具契约](references/live-providers.md) 的相应章节。
 - dsh 的增删改、切换、收编、凭据、YAML 或模型能力：必读
   [dsh 契约](references/dsh.md)，不得改成隐式整组重建。
@@ -34,7 +34,7 @@ description: 修改 llm-switch 的供应商配置、live 写入、路由、MCP�
    原子落盘，保留无关字段、原生键和其它模型，收编与切换不能混为同一操作。
 3. apiFormat、upstreamFormat、容量和能力字段复用 models 归一函数，兼容旧配置；
    空清单和 0 按“不声明”，不猜默认能力；测试覆盖保存、写入和读回。
-4. dsh/ZCode 每行操作只动一条，原生条目收编不改名、不改写；删除区分仅本地
+4. dsh/ZCode/Kimi Code 每次操作只动自己那一条，原生条目收编不改名、不改写；删除区分仅本地
    与连同 live。当前选择在左列，批量同步只走明确的 sync 入口。
 5. 路由禁用在 resolver、上游和统计之前短路；旧 routerTools 缺字段默认全开，
    显式空数组保持全关。逐请求日志不迁入 SQLite 队列。

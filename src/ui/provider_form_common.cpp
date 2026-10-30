@@ -41,6 +41,7 @@ void FillForm(const FormStates& fs, const models::Provider& p) {
     fs.fullUrl = p.fullUrl;
     fs.apiFormat = p.apiFormat == "anthropic"      ? 1
                    : p.apiFormat == "openai-responses" ? 2
+                   : p.apiFormat == "kimi"             ? 3
                                                        : 0;
     fs.reasoningMask = models::reasoningEffortMask(p.reasoningEfforts);
     fs.inputMask = models::inputModalityMask(p.inputModalities);
@@ -68,6 +69,7 @@ void FillForm(const FormStates& fs, const models::Provider& p) {
 std::string ApiFormatFromIndex(int index) {
     if (index == 1) return "anthropic";
     if (index == 2) return "openai-responses";
+    if (index == 3) return "kimi";
     return "";
 }
 
@@ -89,6 +91,7 @@ const AgentFormPolicy& AgentPolicyFor(std::string_view tool) {
         return OpenAiCliFormPolicy();
     }
     if (tool == "dsh") return DshFormPolicy();
+    if (tool == "kimi-code") return KimiFormPolicy();
     if (tool == "zcode") return ZcodeFormPolicy();
     // 未单列策略的 agent（zcode 等）：标签按注册表 flags 推导。
     static std::map<std::string, AgentFormPolicy> generic;

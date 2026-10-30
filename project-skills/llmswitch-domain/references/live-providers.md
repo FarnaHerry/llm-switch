@@ -1,4 +1,4 @@
-# Claude、Codex、OpenCode、Pi 与 Hermes live 契约
+# Claude、Codex、OpenCode、Pi、Hermes 与 Kimi Code live 契约
 
 live 文件是被切换工具实际读取的配置文件。文件安全、探测与恢复另见
 [共享配置契约](configuration.md)。代码路径相对仓库根目录。
@@ -49,6 +49,26 @@ anthropic→anthropic_messages / openai-responses→codex_responses /
 default（model 非空时），agent / mcp_servers / v12+ providers dict
 等其余节原样保留（目录 0700、文件 0600）；hermes 无官方默认态，
 restoreOfficial 抛错。
+
+## Kimi Code
+
+CLI 与 Desktop 共用 `~/.kimi-code/config.toml`（`KIMI_CODE_HOME` 可覆盖目录；
+旧 kimi-cli 的 `~/.kimi/config.toml` 需用户自行 `kimi migrate --config-only`，
+本应用不把它当第二个工具）。Kimi 的供应商是两条并存的表：`[providers.<key>]`
+（type `kimi` / `openai` / `openai_responses` / `anthropic`、base_url、api_key
+或 api_key_env / oauth 子表）与 `[models.<alias>]`（provider、model、必填的
+max_context_size，可选 capabilities / support_efforts / display_name）；顶层
+`default_model` 指向当前模型别名。
+
+本应用只增改自己的 `llmswitch-<id>` provider 与模型别名：新增 / 更新走单条
+增量，**切换只改 default_model**；已有条目在切换时内容原样保留（用户在
+Kimi 侧的手改由表单「保存」显式覆盖）。`managed:kimi-code`（OAuth 官方账号）
+不收编、不覆盖、不删除，由「Kimi Code 官方」常驻卡表达；restoreOfficial 摘掉
+全部 `llmswitch-*` 条目并把 default_model 指回官方模型别名。删除本地卡
+（连同 live）删选中 provider 及其 model 别名——本应用条目是 `llmswitch-*`，
+收编条目是原生键；managed:* 永不删除。Kimi 监听
+config.toml（watch 默认开启），切换无需重启。TOML 写入是行级子集：保留注释、
+未知表、oauth 子表与其它 provider/model；写前备份、原子落盘。
 
 ## Claude Desktop
 

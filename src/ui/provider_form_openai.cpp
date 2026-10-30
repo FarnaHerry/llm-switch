@@ -23,15 +23,19 @@ const AgentFormPolicy& OpenAiCliFormPolicy() {
     return policy;
 }
 
-[[huxerui::composable]] huxerui::View ApiFormatFields(const FormStates& fs) {
+[[huxerui::composable]] huxerui::View ApiFormatFields(const FormStates& fs,
+                                                      bool includeKimi) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    std::vector<huxerui::StringVariant> labels{"OpenAI 兼容", "Anthropic",
+                                               "OpenAI Responses"};
+    if (includeKimi) labels.emplace_back("Kimi");
     return huxerui::Column {
         huxerui::Text("API 协议")
             .Style(huxerui::TextStyle{
                 huxerui::Font::System(font_size::kCaption),
                 theme.colors.on_surface_variant}),
         huxerui::SegmentedButton(
-            {"OpenAI 兼容", "Anthropic", "OpenAI Responses"},
+            std::move(labels),
             static_cast<std::size_t>(fs.apiFormat.Get()))
             .OnChanged([fs](std::size_t index) {
                 fs.apiFormat = static_cast<int>(index);

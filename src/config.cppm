@@ -17,6 +17,8 @@
 //   LLMSWITCH_DSH_CREDENTIALS   → ~/.dsh/.credentials.yaml       （dsh）
 //   LLMSWITCH_HERMES_CONFIG     → ~/.hermes/config.yaml          （hermes，
 //                                 Windows %LOCALAPPDATA%\hermes）
+//   LLMSWITCH_KIMI_CONFIG       → ~/.kimi-code/config.toml       （kimi-code；
+//                                 官方 KIMI_CODE_HOME 亦受尊重，优先级低于前者）
 module;
 
 #ifdef _WIN32
@@ -244,6 +246,19 @@ export std::filesystem::path zcodeConfigFile() {
         return std::filesystem::path(e);
     }
     return homeDir() / ".zcode" / "v2" / "config.json";
+}
+
+// Kimi Code（CLI 与 Desktop 共用）的运行配置：providers / models 表 +
+// 顶层 default_model。$KIMI_CODE_HOME 是官方目录覆盖变量，优先于默认
+// ~/.kimi-code，低于 LLMSWITCH_KIMI_CONFIG 覆盖（测试隔离用）。
+export std::filesystem::path kimiConfigFile() {
+    if (const char* e = std::getenv("LLMSWITCH_KIMI_CONFIG"); e && *e) {
+        return std::filesystem::path(e);
+    }
+    if (const char* e = std::getenv("KIMI_CODE_HOME"); e && *e) {
+        return std::filesystem::path(e) / "config.toml";
+    }
+    return homeDir() / ".kimi-code" / "config.toml";
 }
 
 // DeepSeek Harness（dsh）主设置（llm-pi-ai.providers 手写路由 +
@@ -543,6 +558,7 @@ export std::filesystem::path findExecutable(std::string_view name) {
     }
     for (const auto& fallback :
          {homeDir() / ".local" / "bin", homeDir() / ".opencode" / "bin",
+          homeDir() / ".kimi-code" / "bin",
           homeDir() / ".local" / "share" / "pnpm" / "bin"}) {
         if (auto hit = probe(fallback); !hit.empty()) return hit;
     }

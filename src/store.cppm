@@ -402,6 +402,57 @@ struct HermesConfigInfo {
 };
 HermesConfigInfo parseHermesConfig(std::string_view text);
 
+// Kimi Code（CLI 与 Desktop 共用）config.toml 的读取结果与助手（定义在
+// store_kimi.cpp）。providers / models 是多条并存的原生 TOML 表，顶层
+// default_model 指向当前模型别名；写侧只增改自己那条 provider + model 别名，
+// 其余表、注释与子表（oauth / env 等）一律不动。
+struct KimiModelEntry {
+    std::string alias;
+    std::string provider;
+    std::string model;
+    std::string displayName;
+    std::int64_t maxContextSize = 0;
+    std::int64_t maxOutputSize = 0;
+    std::vector<std::string> capabilities;
+    std::vector<std::string> supportEfforts;
+    std::string defaultEffort;
+};
+struct KimiProviderEntry {
+    std::string key;
+    std::string type;
+    std::string baseUrl;
+    std::string apiKey;
+    std::string apiKeyEnv;
+    bool hasApiKey = false;
+    bool hasApiKeyEnv = false;
+};
+struct KimiConfigInfo {
+    std::string defaultModel;
+    std::vector<KimiProviderEntry> providers;
+    std::vector<KimiModelEntry> models;
+};
+KimiConfigInfo parseKimiConfig(std::string_view text);
+KimiConfigInfo readKimiConfig(const std::filesystem::path& file);
+// apiFormat ↔ Kimi provider type：kimi / anthropic / openai /
+// openai_responses。空与未知值按 OpenAI 兼容处理。
+std::string kimiProviderTypeValue(std::string_view apiFormat);
+std::string kimiApiFormatValue(std::string_view type);
+// 组内 id → live provider 键：本应用自己创建的条目是 llmswitch-<id>；
+// 收编的原生 provider 保持它自己的键（按 baseUrl + apiKey 匹配）。
+std::string kimiEntryKeyFor(const std::vector<KimiProviderEntry>& providers,
+                            const models::Provider& target);
+// 单条增量写入：provider 表 + 该 provider 下与 target.model 对应的 model
+// 别名；makeDefault 时把顶层 default_model 指过去。overwrite=false 用于
+// 「切换」——已有条目内容原样保留，只补缺失的 model 别名并改指向。
+void writeKimiEntry(const models::Provider& target, bool overwrite,
+                    bool makeDefault);
+// 只删除本应用创建的 llmswitch-<id> provider 及其同名 model 别名；收编的
+// 原生条目一律不动（返回 false 表示没有可删的本应用条目）。
+bool eraseKimiEntry(const std::string& id);
+// 官方恢复：摘掉全部 llmswitch-* 条目，把 default_model 指回
+// managed:kimi-code 的模型别名（OAuth 登录由 Kimi 自己管理）。
+void restoreKimiOfficial();
+
 // Claude Desktop 3p profile 的固定 id（对齐 cc-switch，configLibrary 按 id
 // 索引，entries 里注册同名条目）。
 inline constexpr std::string_view kClaudeDesktopProfileId =

@@ -229,6 +229,44 @@ std::string ProviderStore::detectCurrent(std::string_view tool) const {
         }
         return "";
     }
+    if (tool == "kimi-code") {
+        // default_model → model 别名 → 它的 provider 键。本应用条目是
+        // llmswitch-<id>（剥前缀命中组内 id）；managed:kimi-code 是 OAuth
+        // 官方域（不产供应商卡，返回空让官方卡亮）；其余原生键按端点+密钥
+        // 匹配组内收编卡。
+        const auto file = cfg::kimiConfigFile();
+        std::error_code ec;
+        if (!std::filesystem::exists(file, ec)) return "";
+        const auto info = parseKimiConfig(readTextFile(file));
+        if (info.defaultModel.empty()) return "";
+        std::string key;
+        std::string model;
+        for (const auto& entry : info.models) {
+            if (entry.alias == info.defaultModel) {
+                key = entry.provider;
+                model = entry.model;
+                break;
+            }
+        }
+        if (key.empty()) return "";
+        if (key.starts_with("managed:")) return "";
+        const std::string id = key.starts_with("llmswitch-")
+                                   ? key.substr(10)
+                                   : key;
+        for (const auto& p : g.providers) {
+            if (p.id == id) return p.id;
+        }
+        for (const auto& provider : info.providers) {
+            if (provider.key != key) continue;
+            for (const auto& p : g.providers) {
+                if (p.baseUrl == provider.baseUrl &&
+                    p.apiKey == provider.apiKey && p.model == model) {
+                    return p.id;
+                }
+            }
+        }
+        return "";
+    }
     if (tool == "claude") {
         const auto profile = claudeDesktopProfileFile();
         if (profile.empty()) return "";  // Linux 不支持
@@ -506,6 +544,123 @@ models::Provider ProviderStore::importLive(std::string_view tool) {
         if (currentId.empty()) {
             // 没有任何启用的自建条目（仅 builtin 原生启用或全部停用）
             // = 官方原生状态，current 置空让「ZCode 官方」卡亮起。
+            g.current.clear();
+            save();
+            return {};
+        }
+        g.current = currentId;
+        for (const auto& p : g.providers) {
+            if (p.id == currentId) {
+                save();
+                return p;
+            }
+        }
+        return {};
+    }
+    if (tool == "kimi-code") {
+        // 全量收编：config.toml 里每个非 OAuth 的 provider 都进列表（模型
+        // 清单取它名下的全部 model 别名，主模型优先 default_model 指向的
+        // 那一条）。managed:kimi-code 是 Kimi 官方 OAuth 账号，不收编成供应
+        // 商卡，由「Kimi Code 官方」常驻卡表达。
+        const auto file = cfg::kimiConfigFile();
+        if (!std::filesystem::exists(file, ec)) return {};
+        const auto info = parseKimiConfig(readTextFile(file));
+        std::string currentKey;
+        for (const auto& entry : info.models) {
+            if (entry.alias == info.defaultModel) {
+                currentKey = entry.provider;
+                break;
+            }
+        }
+        std::string currentId;
+        for (const auto& provider : info.providers) {
+            if (provider.key.starts_with("managed:")) continue;
+            std::vector<const KimiModelEntry*> providerModels;
+            for (const auto& entry : info.models) {
+                if (entry.provider == provider.key) {
+                    providerModels.push_back(&entry);
+                }
+            }
+            if (providerModels.empty()) continue;
+            const KimiModelEntry* chosen = providerModels.front();
+            for (const auto* entry : providerModels) {
+                if (entry->alias == info.defaultModel) {
+                    chosen = entry;
+                    break;
+                }
+            }
+            models::Provider p;
+            p.id = provider.key.starts_with("llmswitch-")
+                       ? provider.key.substr(10)
+                       : provider.key;
+            p.name = provider.key;
+            p.baseUrl = provider.baseUrl;
+            p.apiKey = provider.apiKey;
+            p.model = chosen->model;
+            for (const auto* entry : providerModels) {
+                p.models.push_back(entry->model);
+            }
+            p.apiFormat = kimiApiFormatValue(provider.type);
+            p.contextWindow = chosen->maxContextSize;
+            p.inputModalities = {"text"};
+            if (std::ranges::find(chosen->capabilities, "image_in") !=
+                chosen->capabilities.end()) {
+                p.inputModalities.push_back("image");
+            }
+            p.reasoningEfforts = chosen->supportEfforts;
+            p.upstreamFormat = "openai";
+            p.fullUrl = true;
+
+            models::Provider* slot = nullptr;
+            for (auto& cur : g.providers) {
+                if (cur.id == p.id) {
+                    slot = &cur;
+                    break;
+                }
+            }
+            if (slot == nullptr) {
+                // 上一次收编时原生键与已有 id 撞名，卡片被改了 id；按
+                // name（= 原生键）找回，避免每次启动都新建一张。
+                for (auto& cur : g.providers) {
+                    if (cur.name == provider.key) {
+                        slot = &cur;
+                        break;
+                    }
+                }
+            }
+            if (slot == nullptr) {
+                for (auto& cur : g.providers) {
+                    if (cur.baseUrl == p.baseUrl && cur.apiKey == p.apiKey &&
+                        cur.model == p.model) {
+                        slot = &cur;
+                        break;
+                    }
+                }
+            }
+            if (slot == nullptr) {
+                p.id = importId(g, p.id);
+                p.createdAt = nowMillis();
+                g.providers.push_back(std::move(p));
+                if (provider.key == currentKey) {
+                    currentId = g.providers.back().id;
+                }
+                continue;
+            }
+            // 已有卡保留 id / name / createdAt / 用量设置，只同步 live 事实。
+            slot->baseUrl = p.baseUrl;
+            slot->apiKey = p.apiKey;
+            slot->model = p.model;
+            slot->models = p.models;
+            slot->apiFormat = p.apiFormat;
+            slot->contextWindow = p.contextWindow;
+            slot->inputModalities = p.inputModalities;
+            slot->reasoningEfforts = p.reasoningEfforts;
+            slot->upstreamFormat = "openai";
+            slot->fullUrl = true;
+            if (provider.key == currentKey) currentId = slot->id;
+        }
+        if (currentId.empty()) {
+            // 仅官方 OAuth 账号生效（或没有可收编条目）= 官方原生状态。
             g.current.clear();
             save();
             return {};

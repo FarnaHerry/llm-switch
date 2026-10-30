@@ -128,10 +128,12 @@ namespace llmswitch::ui {
             ModelFetchButton(fs, fetching, fetchedModels, tasks, http, toast),
             policy.showMappings ? MappingFields(fs, fetchedModels)
                                 : huxerui::View{huxerui::Row{}},
-            policy.showApiFormat ? ApiFormatFields(fs)
-                                 : huxerui::View{huxerui::Row{}},
-            policy.showDshModelFields ? DshModelFields(fs)
-                                      : huxerui::View{huxerui::Row{}},
+            policy.showApiFormat
+                ? ApiFormatFields(fs, tool == "kimi-code")
+                : huxerui::View{huxerui::Row{}},
+            policy.showDshModelFields
+                ? DshModelFields(fs, policy.contextRequired)
+                : huxerui::View{huxerui::Row{}},
             policy.showToml ? TomlField(fs) : huxerui::View{huxerui::Row{}},
         }.With(huxerui::Spacing(12.0F),
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
@@ -178,7 +180,11 @@ namespace llmswitch::ui {
                         !ZcodeModelListValid(modelList, toast)) {
                         return;
                     }
-                    if (policy.showDshModelFields &&
+                    if (policy.contextRequired &&
+                        !KimiContextValid(fs, toast)) {
+                        return;
+                    }
+                    if (policy.showDshModelFields && !policy.contextRequired &&
                         !DshCapacitiesValid(fs, toast)) {
                         return;
                     }

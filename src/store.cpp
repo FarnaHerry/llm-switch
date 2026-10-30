@@ -55,6 +55,9 @@ bool liveFileExists(std::string_view tool) {
     if (tool == "hermes") {
         return std::filesystem::exists(cfg::hermesConfigFile(), ec);
     }
+    if (tool == "kimi-code") {
+        return std::filesystem::exists(cfg::kimiConfigFile(), ec);
+    }
     if (tool == "claude") {
         const auto profile = claudeDesktopProfileFile();
         return !profile.empty() && std::filesystem::exists(profile, ec);
@@ -235,16 +238,19 @@ ProviderStore ProviderStore::load() {
         // 的显式选择已在 fromJson 中迁移为 pet / control-center。
     }
     // 首次导入：组为空且 live 文件存在 → 把当前生效配置收编进来。
-    // 例外：zcode 每次启动都全量同步——它的 config.json 是自己 provider/
-    // 模型清单的事实源（不定长 models、外部可自行增删），收编按条目键
-    // 原位更新，llm-switch 侧的用量设置等字段不受影响。
+    // 例外：zcode / kimi-code 每次启动都全量同步——它们的 live 配置是自己
+    // provider / 模型清单的事实源（外部可自行增删），收编按条目键原位更新，
+    // llm-switch 侧的用量设置等字段不受影响。
     // importLive 失败（如 opencode 的 JSON5 注释文件）静默跳过——不能因为
     // 一个工具的 live 文件让 load 整个垮掉，用户可在 UI 里看到组为空再处理。
     for (const auto& t : models::toolRegistry()) {
         const auto it = store.config_.groups.find(std::string(t.id));
         const bool empty = it == store.config_.groups.end() ||
                            it->second.providers.empty();
-        const bool resync = t.id == "zcode";
+        // Kimi Code 与 zcode 一样是外部可编辑的多条目配置：每次启动全量
+        // 对齐一次（只补/更新，不删本地卡），current 始终跟 default_model
+        // 一致——用户在 Kimi 桌面端切回官方账号后，官方卡能立刻亮起。
+        const bool resync = t.id == "zcode" || t.id == "kimi-code";
 
         // Codex 官方订阅使用 OAuth（auth_mode=chatgpt + tokens），没有
         // OPENAI_API_KEY。旧版本曾把这种 auth.json 收编成空白「当前配置」
@@ -456,6 +462,17 @@ std::string ProviderStore::addProvider(std::string_view tool,
             throw;
         }
     }
+    // Kimi Code 的 providers / models 同样是多条并存：新增只写自己这条
+    // llmswitch-<id> + model 别名，不动 default_model 与别人的条目。
+    if (tool == "kimi-code") {
+        try {
+            writeKimiEntry(g.providers.back(), /*overwrite=*/true,
+                           /*makeDefault=*/false);
+        } catch (...) {
+            g.providers.pop_back();
+            throw;
+        }
+    }
     save();
     return id;
 }
@@ -486,6 +503,17 @@ void ProviderStore::updateProvider(std::string_view tool,
                     throw;
                 }
             }
+            if (tool == "kimi-code") {
+                // 只更新这一条 provider + 对应 model 别名；若它正是当前卡，
+                // default_model 跟着指向新别名（改了模型名也不会断线）。
+                try {
+                    writeKimiEntry(cur, /*overwrite=*/true,
+                                   /*makeDefault=*/g.current == cur.id);
+                } catch (...) {
+                    cur = previous;
+                    throw;
+                }
+            }
             save();
             return;
         }
@@ -497,7 +525,8 @@ void ProviderStore::removeProvider(std::string_view tool, const std::string& id,
                                    bool eraseLive) {
     auto& g = groupRef(tool);
     std::optional<models::ProviderGroup> snapshot;
-    if ((tool == "dsh" || tool == "zcode") && eraseLive) {
+    if ((tool == "dsh" || tool == "zcode" || tool == "kimi-code") &&
+        eraseLive) {
         snapshot = g;  // live 写失败 ⇒ 回滚删除
     }
     std::erase_if(g.providers, [&](const models::Provider& p) { return p.id == id; });
@@ -539,6 +568,17 @@ void ProviderStore::removeProvider(std::string_view tool, const std::string& id,
             throw;
         }
     }
+    if (tool == "kimi-code" && eraseLive) {
+        // 删除选中的 provider 与它名下的 model 别名：本应用条目是
+        // llmswitch-<id>，收编条目保持原生键（id 就是键）；managed:*
+        // 官方账号永不删除。
+        try {
+            eraseKimiEntry(id);
+        } catch (...) {
+            if (snapshot) g = std::move(*snapshot);
+            throw;
+        }
+    }
     save();
 }
 
@@ -565,6 +605,15 @@ models::Provider ProviderStore::duplicateProvider(std::string_view tool,
             try {
                 writeZcodeEntry(copy, /*overwrite=*/true,
                                 /*makeEnabled=*/false);
+            } catch (...) {
+                g.providers.erase(g.providers.begin() +
+                                  static_cast<std::ptrdiff_t>(i + 1));
+                throw;
+            }
+        }
+        if (tool == "kimi-code") {
+            try {
+                writeKimiEntry(copy, /*overwrite=*/true, /*makeDefault=*/false);
             } catch (...) {
                 g.providers.erase(g.providers.begin() +
                                   static_cast<std::ptrdiff_t>(i + 1));

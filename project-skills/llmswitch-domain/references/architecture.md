@@ -1,7 +1,8 @@
 # 模块职责与代码定位
 
 代码路径相对仓库根目录。当前工具清单以 models::toolRegistry() 为准：
-claude-code / claude desktop（id=claude）/ codex / opencode / pi / dsh / hermes / zcode。
+claude-code / claude desktop（id=claude）/ codex / opencode / pi / dsh / hermes /
+zcode / kimi-code。
 历史里程碑中的工具数量、文件布局与旧主题不是当前实现依据。
 
 ## 领域模块
@@ -23,7 +24,8 @@ claude-code / claude desktop（id=claude）/ codex / opencode / pi / dsh / herme
 | agents | src/agents/ | 原生活动事件、来源健康、桥接和每 Agent adapter/hook 管理 |
 
 store 实现按职责拆分：store.cpp 为本地 CRUD，store_live.cpp 为 live writer、
-切换/探测/恢复和 dsh，store_import.cpp 为导入，store_zcode.cpp 为 ZCode 增量操作。
+切换/探测/恢复和 dsh，store_import.cpp 为导入，store_zcode.cpp 为 ZCode 增量
+操作，store_kimi.cpp 为 Kimi Code 的 config.toml 增量读写。
 ProviderStore 不强制单例，UI 全局实例是 common.cpp::providerStore()，测试独立实例化。
 
 ## 数据模型定位
