@@ -8,6 +8,7 @@
 // 策略常量与专属区块文件里。
 #include <huxerui/huxerui.h>
 
+#include <algorithm>
 #include <cctype>
 #include <format>
 #include <string>
@@ -81,11 +82,12 @@ std::vector<std::string> ParseCustomReasoning(std::string_view text) {
     const bool allTools = isNew && tool.empty();
     const FormStates fs LLMSWITCH_FORM_STATES_INIT(formInitial);
     const std::string editingId = isNew ? "" : initial.id;
-    // 「获取模型」拉取状态：fetching 驱动按钮加载态。fetchedModels 只是
-    // fetch 结果的选择源（供各选择弹层挑选），不直接变成清单；modelList
-    // 才是供应商的模型清单（仅 zcode 有清单 UI：唯一模型输入；其他工具
-    // 无清单 UI，仅承装已保存清单，保存时原样回存不丢数据），
-    // 初值 = 已保存清单，由逐条添加/移除维护。两个清单都必须走
+    // 「获取模型」拉取状态：fetching 驱动按钮加载态。fetchedModels 是
+    // fetch 结果的选择源（供各选择弹层挑选）；非 zcode 保存时也会并入
+    // Provider.models，供聚合编辑页带入全部模型。modelList 才是 zcode
+    // 的供应商模型清单（唯一模型输入；其他工具无清单 UI，仅承装已保存
+    // 清单，保存时原样回存不丢数据），初值 = 已保存清单，由逐条添加/移除
+    // 维护。两个清单都必须走
     // UseStateList 初值重载（和 UseState 一样只在首次组合生效）：在组合体
     // 里逐项 PushBack 会在每次重组合时重复追加，弹出列表的重复 key 直接
     // abort。
@@ -225,9 +227,21 @@ std::vector<std::string> ParseCustomReasoning(std::string_view text) {
                     p.apiKey = fs.apiKey.Get().text;
                     p.model = model;
                     // 模型清单 = 表单当前清单（初值来自已保存清单，手动
-                    // 增删都体现在这里）。
+                    // 增删都体现在这里）。非 ZCode 工具没有单独的模型清单
+                    // UI，但「获取模型」结果会一并保存：聚合编辑页要按这份
+                    // 清单带入供应商的全部模型。ZCode 的清单由下方
+                    // AssembleZcodeProvider 按 zcode 页面语义重建。
                     for (std::size_t i = 0; i < modelList.Size(); ++i) {
                         p.models.push_back(modelList.At(i));
+                    }
+                    if (tool != "zcode") {
+                        for (std::size_t i = 0; i < fetchedModels.Size(); ++i) {
+                            const std::string& fetched = fetchedModels.At(i);
+                            if (std::ranges::find(p.models, fetched) ==
+                                p.models.end()) {
+                                p.models.push_back(fetched);
+                            }
+                        }
                     }
                     if (tool == "zcode") {
                         AssembleZcodeProvider(p, modelList, modelMeta);

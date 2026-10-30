@@ -437,7 +437,21 @@ int main() {
     }
     s.switchTo("claude-code", idA);
 
-    // 3ab. 引用型聚合成员：没有 provider.model 时用第一个可解析成员的模型。
+    // 3ab. 聚合编辑页的模型来源：主模型优先，再按 models 清单补全并去重。
+    {
+        models::Provider source{
+            .name = "模型来源",
+            .model = "model-b",
+            .models = {"model-a", "model-b", "model-c"},
+        };
+        CHECK(models::knownModels(source) ==
+              std::vector<std::string>({"model-b", "model-a", "model-c"}));
+        models::Provider onlyModel{.model = "only"};
+        CHECK(models::knownModels(onlyModel) ==
+              std::vector<std::string>({"only"}));
+    }
+
+    // 3ac. 引用型聚合成员：没有 provider.model 时用第一个可解析成员的模型。
     {
         models::Provider refAggregate{
             .name = "引用聚合",

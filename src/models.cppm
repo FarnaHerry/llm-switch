@@ -438,8 +438,9 @@ export std::string formatTokenCount(std::int64_t value) {
 
 // 聚合供应商的一条成员。providerId 非空时引用同组现有 Provider（推荐，
 // 凭据只存一份，成员改动自动跟随）；baseUrl/apiKey/model 是旧版直填成员
-// 的兼容字段，providerId 为空时才使用。model 用于按请求体的 model 选择
-// 优先成员；空 = 不参与精确匹配。
+// 的兼容字段，providerId 为空时才使用。model 是这条成员对应的上游模型：
+// 聚合里一个模型一条，同一供应商的全部模型会重复 providerId；router 用
+// 它按请求体的 model 精确匹配，空 = 不参与精确匹配。
 export struct ProviderUpstream {
     std::string name;
     std::string providerId;
@@ -462,7 +463,8 @@ export struct Provider {
     std::string apiKey;
     std::string model;          // 可选，空 = 切换时不写 env.ANTHROPIC_MODEL
     // 完整模型清单（不定长；zcode 等工具的 models 是列表语义）。空 = 只有
-    // model 一个；「获取模型」拉取成功后整体写入，切换时全量写回。
+    // model 一个；「获取模型」拉取成功后写入，切换时全量写回；聚合编辑页
+    // 通过 knownModels() 带入全部模型。
     std::vector<std::string> models;
     // 每个模型的完整参数（zcode 条目 models map 的原值：reasoning / limit /
     // modalities / zcode 元数据）。收编时原样捕获、写入时原样回放，键不在
@@ -524,6 +526,22 @@ export struct Provider {
 // 聚合供应商没有单一可探测/可直连的 baseUrl，统一用这个谓词判断。
 export bool isAggregateProvider(const Provider& provider) {
     return !provider.upstreams.empty();
+}
+
+// 供应商已知的全部模型：主模型优先，再按 models 清单原顺序补其余模型。
+// 模型清单可能来自「获取模型」、ZCode/dsh 收编或历史配置；去重后供聚合
+// 编辑页一次性带入所有模型。没有主模型也没有清单时返回空。
+export std::vector<std::string> knownModels(const Provider& provider) {
+    std::vector<std::string> models;
+    const auto add = [&models](const std::string& model) {
+        if (model.empty()) return;
+        if (std::ranges::find(models, model) == models.end()) {
+            models.push_back(model);
+        }
+    };
+    add(provider.model);
+    for (const auto& model : provider.models) add(model);
+    return models;
 }
 
 // 一个工具的供应商集合。
@@ -618,7 +636,7 @@ export nlohmann::json toJson(const Provider& p) {
     j["upstreamFormat"] = p.upstreamFormat;
     j["fullUrl"] = p.fullUrl;
     if (!p.models.empty()) {
-        j["models"] = p.models;  // 完整模型清单（仅 zcode 写入器消费）
+        j["models"] = p.models;  // 完整模型清单（zcode 写入器与聚合编辑页消费）
     }
     if (!p.modelsMeta.empty()) {
         j["modelsMeta"] = p.modelsMeta;  // 每模型参数原值（zcode 往返）

@@ -33,16 +33,18 @@ void SwitchProvider(std::string_view tool, const std::string& id) {
             // 的情况，避免先启动路由再写失败。
             bool memberModel = false;
             for (const auto& upstream : target->upstreams) {
-                if (!upstream.providerId.empty()) {
+                if (upstream.providerId.empty()) {
+                    if (!upstream.model.empty()) memberModel = true;
+                } else {
                     for (const auto& provider : group.providers) {
                         if (provider.id == upstream.providerId &&
-                            !provider.model.empty()) {
+                            (!upstream.model.empty() ||
+                             !provider.model.empty() ||
+                             !provider.models.empty())) {
                             memberModel = true;
                             break;
                         }
                     }
-                } else if (!upstream.model.empty()) {
-                    memberModel = true;
                 }
                 if (memberModel) break;
             }

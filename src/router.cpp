@@ -373,7 +373,8 @@ struct LocalRouter::Impl {
 
         // 尝试顺序：当前供应商优先；故障转移开时追加组内其余供应商。
         // 聚合供应商的每个成员都是一次独立尝试：请求体的 model 精确匹配
-        // 的成员排在最前，其余按配置顺序；成员失败时继续下一个，不受
+        // 的成员（引用成员用 entry.model）排在最前，其余按配置顺序；成员
+        // 失败时继续下一个，不受
         // 组级 failover 开关影响（聚合本身就需要多上游兜底）。
         struct Attempt {
             models::Provider provider;
@@ -406,6 +407,9 @@ struct LocalRouter::Impl {
                         }
                     }
                     if (provider.baseUrl.empty()) continue;
+                    // 聚合内一个模型一条成员：引用条目的 model 覆盖供应商
+                    // 主模型，才能按请求 model 精确命中同供应商的其他模型。
+                    if (!entry.model.empty()) provider.model = entry.model;
                 } else if (!entry.baseUrl.empty()) {
                     provider.name = entry.name;
                     provider.baseUrl = entry.baseUrl;

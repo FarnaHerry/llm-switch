@@ -1,12 +1,16 @@
 // provider_form_aggregate.cpp — 聚合供应商编辑页。
 //
-// 聚合供应商不再手填 URL/Key：直接从当前 Agent 的现有供应商里勾选成员，
-// 凭据只保留在原供应商条目里。选中后 Agent 的 live 配置指向本地路由，由
-// router 按请求 model 优先匹配成员，并在 429/5xx 时按列表顺序继续尝试。
-// 成员必须与目标 Agent 使用同一协议；聚合项不能嵌套另一个聚合项。
+// 聚合供应商不再手填 URL/Key：直接从当前 Agent 的现有供应商里勾选供应商，
+// 凭据只保留在原供应商条目里。勾选会带入它已知的全部模型（主模型
+// 优先，再按 models 清单顺序），每个模型单独一条成员，可拖拽或用上下按钮
+// 调整尝试顺序。选中后 Agent 的 live 配置指向本地路由，由 router 按请求
+// model 精确匹配成员，并在 429/5xx 时按列表顺序继续尝试。成员必须与目标
+// Agent 使用同一协议；聚合项不能嵌套另一个聚合项。
 #include <huxerui/huxerui.h>
 
 #include <algorithm>
+#include <chrono>
+#include <cstddef>
 #include <exception>
 #include <format>
 #include <iterator>
@@ -15,6 +19,7 @@
 #include <utility>
 #include <vector>
 
+#include "app_resources.h"
 #include "providers_internal.h"
 
 import llmswitch.models;
@@ -26,9 +31,33 @@ namespace {
 struct MemberInfo {
     std::string id;
     std::string name;
-    std::string model;
     std::string url;
+    std::vector<std::string> models;
 };
+
+// 聚合的一条模型成员。同一供应商会按模型拆成多条；顺序就是 router 的
+// 兜底顺序。
+struct ModelEntry {
+    std::string providerId;
+    std::string providerName;
+    std::string model;
+
+    bool operator==(const ModelEntry&) const = default;
+};
+
+struct ModelDrag {
+    std::string key;
+};
+
+std::string EntryKey(const ModelEntry& entry) {
+    return entry.providerId + "\x1f" + entry.model;
+}
+
+std::string ModelSummary(const std::vector<std::string>& models) {
+    if (models.empty()) return "未设置模型";
+    if (models.size() == 1) return "1 个模型：" + models.front();
+    return std::format("{} 个模型 · 首个 {}", models.size(), models.front());
+}
 
 std::vector<MemberInfo> CandidateMembers(std::string_view tool,
                                          std::string_view selfId) {
@@ -43,8 +72,8 @@ std::vector<MemberInfo> CandidateMembers(std::string_view tool,
             members.push_back(MemberInfo{
                 .id = provider.id,
                 .name = provider.name,
-                .model = provider.model,
                 .url = models::effectiveBaseUrl(provider),
+                .models = models::knownModels(provider),
             });
         }
     } catch (...) {
@@ -52,10 +81,38 @@ std::vector<MemberInfo> CandidateMembers(std::string_view tool,
     return members;
 }
 
-std::vector<std::string> InitialSelection(
+bool HasEntry(const std::vector<ModelEntry>& entries,
+              std::string_view providerId, std::string_view model) {
+    return std::ranges::any_of(
+        entries, [providerId, model](const ModelEntry& entry) {
+            return entry.providerId == providerId && entry.model == model;
+        });
+}
+
+void AppendMemberModels(std::vector<ModelEntry>& entries,
+                        const MemberInfo& member) {
+    if (member.models.empty()) {
+        if (!HasEntry(entries, member.id, {})) {
+            entries.push_back(ModelEntry{.providerId = member.id,
+                                         .providerName = member.name,
+                                         .model = {}});
+        }
+        return;
+    }
+    for (const auto& model : member.models) {
+        if (!HasEntry(entries, member.id, model)) {
+            entries.push_back(ModelEntry{.providerId = member.id,
+                                         .providerName = member.name,
+                                         .model = model});
+        }
+    }
+}
+
+std::vector<ModelEntry> InitialEntries(
     const models::Provider& initial,
     const std::vector<MemberInfo>& candidates) {
-    std::vector<std::string> selected;
+    std::vector<ModelEntry> existing;
+    std::vector<std::string> selectedProviders;
     for (const auto& member : initial.upstreams) {
         std::string id = member.providerId;
         if (id.empty()) {
@@ -70,31 +127,79 @@ std::vector<std::string> InitialSelection(
             }
         }
         if (id.empty()) continue;
-        const bool exists = std::ranges::any_of(
-            candidates, [&id](const MemberInfo& candidate) {
-                return candidate.id == id;
+        const auto candidate =
+            std::ranges::find_if(candidates, [&id](const MemberInfo& c) {
+                return c.id == id;
             });
-        if (exists &&
-            std::ranges::find(selected, id) == selected.end()) {
-            selected.push_back(std::move(id));
+        if (candidate == candidates.end()) continue;
+        if (std::ranges::find(selectedProviders, id) ==
+            selectedProviders.end()) {
+            selectedProviders.push_back(id);
+        }
+        // model 为空的旧成员不先造占位行；下面按供应商展开时统一补。
+        if (!member.model.empty() &&
+            !HasEntry(existing, candidate->id, member.model)) {
+            existing.push_back(ModelEntry{.providerId = candidate->id,
+                                          .providerName = candidate->name,
+                                          .model = member.model});
         }
     }
-    return selected;
+    // 按供应商首次出现的顺序输出：保留已有模型顺序，再补该供应商其余
+    // 已知模型。旧聚合每个供应商通常只有一条，编辑时自然展开成整组。
+    std::vector<ModelEntry> entries;
+    for (const auto& id : selectedProviders) {
+        const auto candidate =
+            std::ranges::find_if(candidates, [&id](const MemberInfo& c) {
+                return c.id == id;
+            });
+        if (candidate == candidates.end()) continue;
+        std::vector<ModelEntry> providerEntries;
+        for (const auto& entry : existing) {
+            if (entry.providerId == id) providerEntries.push_back(entry);
+        }
+        AppendMemberModels(providerEntries, *candidate);
+        for (auto& entry : providerEntries) {
+            entries.push_back(std::move(entry));
+        }
+    }
+    return entries;
 }
 
-std::vector<std::string> AvailableModels(
-    const std::vector<MemberInfo>& candidates,
-    const std::vector<std::string>& selected) {
+std::vector<std::string> ModelChoices(const std::vector<ModelEntry>& entries) {
     std::vector<std::string> models;
-    for (const auto& candidate : candidates) {
-        if (candidate.model.empty() ||
-            std::ranges::find(selected, candidate.id) == selected.end() ||
-            std::ranges::find(models, candidate.model) != models.end()) {
-            continue;
+    for (const auto& entry : entries) {
+        if (!entry.model.empty() &&
+            std::ranges::find(models, entry.model) == models.end()) {
+            models.push_back(entry.model);
         }
-        models.push_back(candidate.model);
     }
     return models;
+}
+
+std::string InitialDefaultModel(const models::Provider& initial,
+                                const std::vector<ModelEntry>& entries) {
+    if (!initial.model.empty() &&
+        std::ranges::any_of(entries, [&initial](const ModelEntry& entry) {
+            return entry.model == initial.model;
+        })) {
+        return initial.model;
+    }
+    for (const auto& entry : entries) {
+        if (!entry.model.empty()) return entry.model;
+    }
+    return {};
+}
+
+void MoveEntry(huxerui::State<std::vector<ModelEntry>> entries,
+               std::size_t index, std::ptrdiff_t offset) {
+    auto list = entries.Get();
+    const auto target = static_cast<std::ptrdiff_t>(index) + offset;
+    if (target < 0 ||
+        target >= static_cast<std::ptrdiff_t>(list.size())) {
+        return;
+    }
+    std::swap(list[index], list[static_cast<std::size_t>(target)]);
+    entries = std::move(list);
 }
 
 } // namespace
@@ -103,21 +208,22 @@ std::vector<std::string> AvailableModels(
     std::string tool, models::Provider initial, bool isNew,
     huxerui::State<int> revision, huxerui::State<std::string> formTarget) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
-    const IslandTheme islands = ResolveIslandTheme(theme);
     auto toast = huxerui::UseToast();
 
     auto name = huxerui::UseState(
         huxerui::TextEditingValue{initial.name});
     auto notes = huxerui::UseState(
         huxerui::TextEditingValue{initial.notes});
-    auto chosenModel = huxerui::UseState(initial.model);
     const std::vector<MemberInfo> candidates =
         CandidateMembers(tool, initial.id);
-    auto selected = huxerui::UseState(InitialSelection(initial, candidates));
+    auto ordered = huxerui::UseState(
+        InitialEntries(initial, candidates));
+    auto chosenModel = huxerui::UseState(
+        InitialDefaultModel(initial, ordered.Get()));
+    auto dropTargetKey = huxerui::UseState<std::string>({});
 
-    const std::vector<std::string> selectedIds = selected.Get();
-    const std::vector<std::string> models =
-        AvailableModels(candidates, selectedIds);
+    const std::vector<ModelEntry> entries = ordered.Get();
+    const std::vector<std::string> models = ModelChoices(entries);
     std::string effectiveModel = chosenModel.Get();
     if (std::ranges::find(models, effectiveModel) == models.end()) {
         effectiveModel = models.empty() ? std::string{} : models.front();
@@ -136,20 +242,20 @@ std::vector<std::string> AvailableModels(
     std::vector<huxerui::View> memberRows;
     memberRows.reserve(candidates.size());
     for (const auto& candidate : candidates) {
-        const bool checked =
-            std::ranges::find(selectedIds, candidate.id) != selectedIds.end();
+        const std::size_t selectedCount = static_cast<std::size_t>(
+            std::ranges::count_if(entries, [&candidate](const ModelEntry& entry) {
+                return entry.providerId == candidate.id;
+            }));
+        const bool checked = selectedCount > 0;
         huxerui::View row = huxerui::Row {
             huxerui::Checkbox(checked).OnChanged(
-                [selected, id = candidate.id](bool on) {
-                    auto list = selected.Get();
-                    const auto found =
-                        std::ranges::find(list, id);
-                    if (on && found == list.end()) {
-                        list.push_back(id);
-                    } else if (!on && found != list.end()) {
-                        list.erase(found);
-                    }
-                    selected = std::move(list);
+                [ordered, member = candidate](bool on) {
+                    auto list = ordered.Get();
+                    std::erase_if(list, [&member](const ModelEntry& entry) {
+                        return entry.providerId == member.id;
+                    });
+                    if (on) AppendMemberModels(list, member);
+                    ordered = std::move(list);
                 }),
             huxerui::Column {
                 huxerui::Text(candidate.name).Style(huxerui::TextStyle{
@@ -157,9 +263,8 @@ std::vector<std::string> AvailableModels(
                         .WithWeight(huxerui::FontWeight::SemiBold),
                     theme.colors.on_surface}),
                 huxerui::Text(
-                    candidate.model.empty()
-                        ? "未设置默认模型"
-                        : std::format("模型 {}", candidate.model))
+                    checked ? std::format("已带入 {} 个模型", selectedCount)
+                            : ModelSummary(candidate.models))
                     .Style(huxerui::TextStyle{
                         huxerui::Font::System(font_size::kChip),
                         theme.colors.on_surface_variant}),
@@ -193,6 +298,123 @@ std::vector<std::string> AvailableModels(
                           theme.colors.on_surface_variant})}
             : huxerui::View{huxerui::Column(std::move(memberRows))
                                 .With(huxerui::Spacing(8.0F),
+                                      huxerui::CrossAlign(
+                                          huxerui::CrossAxisAlignment::Stretch))};
+
+    std::vector<huxerui::View> orderRows;
+    orderRows.reserve(entries.size());
+    for (std::size_t index = 0; index < entries.size(); ++index) {
+        const ModelEntry entry = entries[index];
+        const std::string key = EntryKey(entry);
+        const bool dropActive = dropTargetKey.Get() == key;
+        huxerui::View dragHandle =
+            huxerui::Image(app::images::menu)
+                .With(huxerui::Frame{24.0F, 24.0F},
+                      huxerui::Tooltip("按住拖动调整顺序"),
+                      huxerui::PointerCursor(
+                          huxerui::PointerCursorKind::Grab),
+                      huxerui::DragSource(
+                          ModelDrag{.key = key},
+                          huxerui::DragGesture{
+                              .minimum_press_duration =
+                                  std::chrono::duration<double>{0.18}}))
+                .On<huxerui::DragSourceEvents::Ended>(
+                    [dropTargetKey](const huxerui::DragDropResult&) {
+                        dropTargetKey = "";
+                    })
+                .On<huxerui::DragSourceEvents::Canceled>(
+                    [dropTargetKey](const huxerui::DragEvent&) {
+                        dropTargetKey = "";
+                    })
+                .Key("aggregate-drag:" + key);
+        huxerui::View entryRow = huxerui::Row {
+            std::move(dragHandle),
+            huxerui::Text(std::format("{:02}", index + 1))
+                .Style(huxerui::TextStyle{
+                    huxerui::Font::Monospace(font_size::kChip),
+                    theme.colors.on_surface_variant}),
+            huxerui::Column {
+                huxerui::Text(entry.model.empty() ? "未设置模型" : entry.model)
+                    .Style(huxerui::TextStyle{
+                        huxerui::Font::Monospace(font_size::kBody),
+                        theme.colors.on_surface}),
+                huxerui::Text(entry.providerName)
+                    .Style(huxerui::TextStyle{
+                        huxerui::Font::System(font_size::kChip),
+                        theme.colors.on_surface_variant}),
+            }.With(huxerui::Spacing(2.0F), huxerui::Grow(1.0F)),
+            huxerui::Button("上移")
+                .OnClick([ordered, index] { MoveEntry(ordered, index, -1); })
+                .With(huxerui::Enabled(index > 0),
+                      huxerui::Tooltip("向前移动，提高兜底优先级")),
+            huxerui::Button("下移")
+                .OnClick([ordered, index] { MoveEntry(ordered, index, 1); })
+                .With(huxerui::Enabled(index + 1 < entries.size()),
+                      huxerui::Tooltip("向后移动，降低兜底优先级")),
+        }.With(huxerui::Spacing(8.0F),
+               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
+               huxerui::Padding(
+                   huxerui::EdgeInsets::Symmetric(10.0F, 7.0F)),
+               huxerui::Background(dropActive ? theme.colors.primary_container
+                                              : theme.colors.surface_container_high),
+               huxerui::CornerRadius(theme.shapes.extra_small),
+               huxerui::Border{dropActive ? theme.colors.primary
+                                          : theme.colors.outline,
+                               1.0F},
+               huxerui::DropTarget::Accepts<ModelDrag>())
+            .On<huxerui::DropEvents<ModelDrag>::Entered>(
+                [dropTargetKey, key](const ModelDrag&,
+                                     const huxerui::DropEvent&) {
+                    dropTargetKey = key;
+                })
+            .On<huxerui::DropEvents<ModelDrag>::Exited>(
+                [dropTargetKey, key](const ModelDrag&,
+                                     const huxerui::DropEvent&) {
+                    if (dropTargetKey.Get() == key) dropTargetKey = "";
+                })
+            .On<huxerui::DropEvents<ModelDrag>::Dropped>(
+                [ordered, dropTargetKey, key](const ModelDrag& payload,
+                                               const huxerui::DropEvent&) {
+                    dropTargetKey = "";
+                    if (payload.key == key) return;
+                    auto list = ordered.Get();
+                    const auto from = std::ranges::find_if(
+                        list, [&payload](const ModelEntry& entry) {
+                            return EntryKey(entry) == payload.key;
+                        });
+                    if (from == list.end()) return;
+                    const auto target = std::ranges::find_if(
+                        list, [&key](const ModelEntry& entry) {
+                            return EntryKey(entry) == key;
+                        });
+                    if (target == list.end() || from == target) return;
+                    const bool movingDown =
+                        std::distance(list.begin(), from) <
+                        std::distance(list.begin(), target);
+                    ModelEntry value = std::move(*from);
+                    list.erase(from);
+                    auto insertAt = std::ranges::find_if(
+                        list, [&key](const ModelEntry& entry) {
+                            return EntryKey(entry) == key;
+                        });
+                    if (insertAt == list.end()) return;
+                    if (movingDown) ++insertAt;
+                    list.insert(insertAt, std::move(value));
+                    ordered = std::move(list);
+                });
+        orderRows.push_back(std::move(entryRow).Key("aggregate-order:" + key));
+    }
+
+    huxerui::View orderList =
+        orderRows.empty()
+            ? huxerui::View{
+                  huxerui::Text(
+                      "勾选供应商后，它的全部已知模型会按默认顺序出现在这里。")
+                      .Style(huxerui::TextStyle{
+                          huxerui::Font::System(font_size::kCaption),
+                          theme.colors.on_surface_variant})}
+            : huxerui::View{huxerui::Column(std::move(orderRows))
+                                .With(huxerui::Spacing(6.0F),
                                       huxerui::CrossAlign(
                                           huxerui::CrossAxisAlignment::Stretch))};
 
@@ -233,9 +455,10 @@ std::vector<std::string> AvailableModels(
             huxerui::Column {
                 huxerui::Text(
                     "聚合供应商把当前 Agent 的多个现有供应商组织成一个可选"
-                    "条目。切换后请求先发到本地路由，按请求里的 model 优先"
-                    "匹配成员；成员返回 429/5xx 或连接失败时，按下方列表顺序"
-                    "继续尝试下一条。成员协议必须与目标 Agent 一致。")
+                    "条目。勾选供应商会带入它保存的全部模型，每个模型是一条"
+                    "成员；请求先发到本地路由，按请求里的 model 精确匹配，"
+                    "成员返回 429/5xx 或连接失败时按下方模型顺序继续尝试。"
+                    "成员协议必须与目标 Agent 一致。")
                     .Style(huxerui::TextStyle{
                         huxerui::Font::System(font_size::kCaption),
                         theme.colors.on_surface_variant}),
@@ -258,7 +481,9 @@ std::vector<std::string> AvailableModels(
                             .WithWeight(huxerui::FontWeight::SemiBold),
                         theme.colors.on_surface}),
                 huxerui::Text(
-                    "按列表顺序作为兜底顺序；凭据仍只保存在原供应商条目里。")
+                    "勾选会默认带入该供应商的全部已知模型（主模型优先，再按"
+                    "模型清单顺序；清单来自供应商页「获取模型列表」并保存的"
+                    "结果）；凭据仍只保存在原供应商条目里。")
                     .Style(huxerui::TextStyle{
                         huxerui::Font::System(font_size::kCaption),
                         theme.colors.on_surface_variant}),
@@ -272,6 +497,18 @@ std::vector<std::string> AvailableModels(
                                   theme.colors.error})}
                     : huxerui::View{huxerui::Row{}},
                 std::move(memberList),
+                huxerui::Text("模型尝试顺序")
+                    .Style(huxerui::TextStyle{
+                        huxerui::Font::System(font_size::kBody)
+                            .WithWeight(huxerui::FontWeight::SemiBold),
+                        theme.colors.on_surface}),
+                huxerui::Text(
+                    "拖动手柄，或用「上移 / 下移」调整。请求的 model 精确命中"
+                    "的成员优先；未命中时按这里的顺序逐条兜底。")
+                    .Style(huxerui::TextStyle{
+                        huxerui::Font::System(font_size::kCaption),
+                        theme.colors.on_surface_variant}),
+                std::move(orderList),
                 std::move(modelPicker),
             }.With(huxerui::Spacing(10.0F),
                    huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)))
@@ -285,27 +522,22 @@ std::vector<std::string> AvailableModels(
                         toast.Show("名称不能为空");
                         return;
                     }
-                    const std::vector<std::string> currentSelection =
-                        selected.Get();
-                    std::vector<models::ProviderUpstream> upstreams;
-                    for (const auto& candidate : candidates) {
-                        if (std::ranges::find(currentSelection,
-                                              candidate.id) ==
-                            currentSelection.end()) {
-                            continue;
-                        }
-                        upstreams.push_back(models::ProviderUpstream{
-                            .name = candidate.name,
-                            .providerId = candidate.id,
-                            .model = candidate.model,
-                        });
-                    }
-                    if (upstreams.empty()) {
+                    const std::vector<ModelEntry> currentEntries = ordered.Get();
+                    if (currentEntries.empty()) {
                         toast.Show("至少选择一个现有供应商");
                         return;
                     }
+                    std::vector<models::ProviderUpstream> upstreams;
+                    upstreams.reserve(currentEntries.size());
+                    for (const auto& entry : currentEntries) {
+                        upstreams.push_back(models::ProviderUpstream{
+                            .name = entry.providerName,
+                            .providerId = entry.providerId,
+                            .model = entry.model,
+                        });
+                    }
                     const std::vector<std::string> modelChoices =
-                        AvailableModels(candidates, currentSelection);
+                        ModelChoices(currentEntries);
                     std::string defaultModel = chosenModel.Get();
                     if (std::ranges::find(modelChoices, defaultModel) ==
                         modelChoices.end()) {
@@ -323,6 +555,7 @@ std::vector<std::string> AvailableModels(
                     provider.name = formName;
                     provider.notes = notes.Get().text;
                     provider.model = std::move(defaultModel);
+                    provider.models.clear();
                     provider.baseUrl.clear();
                     provider.modelFetchUrl.clear();
                     provider.apiKey =

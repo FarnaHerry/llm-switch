@@ -503,6 +503,53 @@ int main() {
         router1.clearStats();
     }
 
+    // 3d. 引用聚合同一条供应商的两个模型：请求精确命中第二个模型时，
+    //     不能退回供应商主模型或按配置顺序先打第一个成员。
+    {
+        groups["codex"].providers.push_back(models::Provider{
+            .id = "ref-c",
+            .name = "引用丙",
+            .baseUrl = up2.baseUrl(),
+            .apiKey = "sk-ref-c",
+            .model = "primary-ref-c",
+            .fullUrl = true,
+        });
+        groups["codex"].providers.push_back(models::Provider{
+            .id = "agg-ref-multi",
+            .name = "引用全模型",
+            .upstreams = {
+                models::ProviderUpstream{.providerId = "ref-a",
+                                         .model = "model-ref-a"},
+                models::ProviderUpstream{.providerId = "ref-c",
+                                         .model = "model-ref-c-entry"},
+            }});
+        groups["codex"].current = "agg-ref-multi";
+        up1.status = 200;
+        up2.status = 200;
+        up1.hits = 0;
+        up2.hits = 0;
+        router1.clearStats();
+        auto res = cli.Post("/codex/chat/completions",
+                            R"({"model":"model-ref-c-entry"})",
+                            "application/json");
+        CHECK(res && res->status == 200);
+        {
+            std::lock_guard lk(up1.mu);
+            CHECK(up1.hits == 0);
+        }
+        {
+            std::lock_guard lk(up2.mu);
+            CHECK(up2.hits == 1);
+            CHECK(up2.lastAuth == "Bearer sk-ref-c");
+        }
+        groups["codex"].current = "c1";
+        auto& providers = groups["codex"].providers;
+        std::erase_if(providers, [](const models::Provider& provider) {
+            return provider.id == "agg-ref-multi" || provider.id == "ref-c";
+        });
+        router1.clearStats();
+    }
+
     // 4. 未知工具 → 404；组无 current → 502（均为中文 JSON 错误体）。
     {
         auto res = cli.Get("/nope/x");

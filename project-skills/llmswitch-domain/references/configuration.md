@@ -29,14 +29,17 @@
   LocalRouter 内部以 mutex 保护启用集合，运行中切换无需重启；禁用路径返回 403，
   且在 resolver、上游与统计之前短路。
 - **聚合供应商**：`Provider.upstreams` 非空即聚合（无单一直连 baseUrl）。
-  编辑页只从当前 Agent 的现有 Provider 勾选成员，写入
-  `ProviderUpstream.providerId`（凭据仍只存原 Provider）；旧的直填
+  编辑页只从当前 Agent 的现有 Provider 勾选供应商，默认把
+  `models::knownModels()`（主模型 + models 清单去重）展开成每个模型一条
+  `ProviderUpstream`，同一供应商重复 `providerId`、各自带 `model`；顺序可
+  拖拽或上下移动，顺序即兜底顺序。凭据仍只存原 Provider；旧的直填
   `baseUrl/apiKey/model` 成员继续兼容，`providerId` 为空时才使用。
   选中时 `switchTo` 把 Agent 指向 `127.0.0.1:<routerPort>/<tool>` 并写占位
   key；`SwitchProvider`（UI 入口）先启动本地路由、启用该工具的 routerTools
   并落盘 routerEnabled，避免下次启动失效。LocalRouter 把每个成员当作独立
-  尝试：请求体 `model` 精确匹配的成员优先，其余按配置顺序；引用成员从同组
-  Provider 解析 URL/key/model，指向聚合项或已删除项的引用跳过；成员
+  尝试：请求体 `model` 精确匹配的成员优先（引用成员用 `ProviderUpstream.model`，
+  而不是被引用 Provider 的主模型），其余按配置顺序；引用成员从同组 Provider
+  解析 URL/key，指向聚合项或已删除项的引用跳过；成员
   429/5xx/连接失败继续下一条，不受组级 routerFailover 关闭影响。Codex
   没有 config.toml 模板时由 store 生成最小 `model_providers.llmswitch` 段
   （wire_api=chat）。成员协议必须与目标 Agent 一致。
