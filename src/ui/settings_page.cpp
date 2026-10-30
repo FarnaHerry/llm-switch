@@ -89,18 +89,19 @@ std::size_t CloseBehaviorIndex(std::string_view behavior) {
                             huxerui::ImageResource resource, int value,
                             std::string_view label) {
         const bool selected = mode == value;
-        huxerui::View view =
-            huxerui::Theme(selected ? iconOnTheme : iconOffTheme,
-                           huxerui::IconButton(std::move(resource),
-                                               std::string(label))
-                               .OnClick([select, value] { select(value); })
-                               .With(huxerui::Tooltip(std::string(label))));
+        huxerui::View button =
+            huxerui::IconButton(std::move(resource), std::string(label))
+                .OnClick([select, value] { select(value); })
+                .With(huxerui::Tooltip(std::string(label)));
+        // 背景必须加在 Theme 内部的按钮上；Theme 是 Environment 节点，
+        // 不能给 Environment 节点声明 Background 等视图行为。
         if (selected) {
-            view = std::move(view).With(
+            button = std::move(button).With(
                 huxerui::Background(theme.colors.surface_container_high),
                 huxerui::CornerRadius(18.0F));
         }
-        return view;
+        return huxerui::Theme(selected ? iconOnTheme : iconOffTheme,
+                              std::move(button));
     };
 
     return huxerui::Row {
