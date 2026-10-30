@@ -200,18 +200,29 @@ std::size_t CloseBehaviorIndex(std::string_view behavior) {
         theme.colors.on_surface_variant});
 }
 
-// 配置文件路径行（只读展示解析结果，等宽小字）。
+// 配置文件路径行。openable 为真时整行可点击，用系统默认编辑器打开；
+// 展示解析结果用等宽小字，路径本身用强调色提示可交互。
 [[huxerui::composable]] huxerui::View PathRow(const std::string& label,
-                                              const std::string& path) {
+                                              const std::string& path,
+                                              bool openable = false) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
-    return huxerui::Column {
+    auto toast = huxerui::UseToast();
+    huxerui::View row = huxerui::Column {
         huxerui::Text(label).Style(huxerui::TextStyle{
             huxerui::Font::System(font_size::kChip), theme.colors.on_surface}),
         huxerui::Text(path).Style(huxerui::TextStyle{
             huxerui::Font::Monospace(font_size::kCaption),
-            theme.colors.on_surface_variant}),
+            openable ? theme.colors.primary : theme.colors.on_surface_variant}),
     }.With(huxerui::Spacing(2.0F),
            huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
+    if (!openable || path.empty()) return row;
+    return std::move(row)
+        .OnClick([path, toast] {
+            if (!OpenInSystemEditor(path)) {
+                toast.Show("无法用系统编辑器打开：" + path);
+            }
+        })
+        .With(huxerui::Tooltip("点击用系统默认编辑器打开"));
 }
 
 } // namespace
@@ -741,10 +752,38 @@ std::size_t CloseBehaviorIndex(std::string_view behavior) {
 
                 PageSection(SectionTitle("配置"),
                             huxerui::Column {
+                    huxerui::Text("点击彩色配置路径，用系统默认编辑器打开。")
+                        .Style(huxerui::TextStyle{
+                            huxerui::Font::System(font_size::kCaption),
+                            theme.colors.on_surface_variant}),
                     PathRow("Claude Code 设置（live）",
-                            cfg::claudeSettingsFile().string()),
-                    PathRow("Codex 凭据（live）", cfg::codexAuthFile().string()),
-                    PathRow("Codex 主配置（live）", cfg::codexConfigFile().string()),
+                            cfg::claudeSettingsFile().string(), true),
+                    PathRow("Codex 凭据（live）", cfg::codexAuthFile().string(),
+                            true),
+                    PathRow("Codex 主配置（live）",
+                            cfg::codexConfigFile().string(), true),
+                    PathRow("opencode 配置（live）",
+                            cfg::opencodeConfigFile().string(), true),
+                    PathRow("pi 模型注册表（live）",
+                            cfg::piModelsFile().string(), true),
+                    PathRow("pi 设置（live）",
+                            cfg::piSettingsFile().string(), true),
+                    PathRow("ZCode 配置（live）",
+                            cfg::zcodeConfigFile().string(), true),
+                    PathRow("Kimi Code 配置（live）",
+                            cfg::kimiConfigFile().string(), true),
+                    PathRow("dsh 设置（live）",
+                            cfg::dshSettingsFile().string(), true),
+                    PathRow("Hermes 配置（live）",
+                            cfg::hermesConfigFile().string(), true),
+                    cfg::claudeDesktopDir().empty()
+                        ? huxerui::View{huxerui::Row{}}
+                        : huxerui::View{PathRow(
+                              "Claude Desktop 配置（live）",
+                              (cfg::claudeDesktopDir() /
+                               "claude_desktop_config.json")
+                                  .string(),
+                              true)},
                     PathRow("llm-switch 配置库", cfg::configFile().string()),
                     PathRow("用量模板（可选覆盖）",
                             cfg::usageTemplatesFile().string()),

@@ -5,6 +5,7 @@
 #include <huxerui/huxerui.h>
 
 #include <cstddef>
+#include <filesystem>
 #include <map>
 #include <string>
 #include <string_view>
@@ -135,6 +136,9 @@ huxerui::View SettingsPage(huxerui::State<int> themeMode,
 
 // 为当前用户设置或移除登录启动项；失败时抛出中文错误。
 void SetLaunchAtLogin(bool enabled);
+
+// 用系统默认编辑器打开配置文件；启动失败返回 false（不等待编辑器退出）。
+bool OpenInSystemEditor(const std::filesystem::path& path);
 
 // ---- 通用部件（common.cpp）----
 
