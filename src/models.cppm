@@ -208,28 +208,32 @@ export std::string_view apiFormatLabel(std::string_view apiFormat) {
 // ---- 推理档位（reasoningEfforts / Kimi support_efforts）-----------------------
 // dsh 的 llm-pi-ai 适配器把「模型是否支持思考」当 per-model 能力：手工声明的
 // 路由若不在模型条目里写 reasoningEfforts，模型被当成不支持推理，模型菜单里
-// 连「推理等级」都不出现。档位全集与顺序取自 pi-ai 的 thinking level
+// 连「推理等级」都不出现。dsh 的档位全集与顺序取自 pi-ai 的 thinking level
 // （off / minimal / low / medium / high / xhigh / max）；值即上线拼写。
-// Kimi 的 support_efforts 复用这套规范档位，并允许厂商以后追加自定义值，
-// 因此配置往返用 orderedReasoningEfforts() 保留未知拼写；dsh 写 live 前仍
-// 走 normalizeReasoningEfforts()，不把未知值写进 settings.yaml。
+// Kimi 的 support_efforts 复用这套规范档位，另加厂商最高的 ultra，并允许
+// 以后追加自定义值，因此配置往返用 orderedReasoningEfforts() 保留未知拼写；
+// dsh 写 live 前仍走 normalizeReasoningEfforts()，不把 ultra / 未知值写进
+// settings.yaml。
 
-// 规范档位（升序）。表单按这个顺序展示，写入也按这个顺序。
+// dsh 的规范档位（升序）。表单按这个顺序展示，写入也按这个顺序。
 export const std::vector<std::string>& reasoningLevels() {
     static const std::vector<std::string> levels{
         "off", "minimal", "low", "medium", "high", "xhigh", "max"};
     return levels;
 }
 
-// 档位显示名（表单 chip 用）：中文档位名，拼写保留英文以免与上线值混淆。
+// Kimi 的档位：dsh 规范档位 + 厂商最高档 ultra。
+export const std::vector<std::string>& kimiReasoningLevels() {
+    static const std::vector<std::string> levels = [] {
+        std::vector<std::string> out = reasoningLevels();
+        out.emplace_back("ultra");
+        return out;
+    }();
+    return levels;
+}
+
+// 档位显示名（表单 chip 用）：直接使用上线拼写，避免中英文混排。
 export std::string_view reasoningLevelLabel(std::string_view level) {
-    if (level == "off") return "关闭思考 off";
-    if (level == "minimal") return "最低 minimal";
-    if (level == "low") return "低 low";
-    if (level == "medium") return "中 medium";
-    if (level == "high") return "高 high";
-    if (level == "xhigh") return "极高 xhigh";
-    if (level == "max") return "最高 max";
     return level;
 }
 
@@ -249,19 +253,27 @@ export std::vector<std::string> normalizeReasoningEfforts(
     return out;
 }
 
-// 规范档位在前、按 reasoningLevels() 升序；其余拼写按输入顺序追加并去重。
+// 已知档位在前、按 Kimi 档位顺序升序；其余拼写按输入顺序追加并去重。
 // Kimi 的 support_efforts 允许厂商以后新增档位，配置往返时不能像 dsh 那样
 // 把未知值直接丢掉；dsh 写 live 时仍走 normalizeReasoningEfforts()。
 export std::vector<std::string> orderedReasoningEfforts(
     const std::vector<std::string>& levels) {
-    std::vector<std::string> out = normalizeReasoningEfforts(levels);
+    std::vector<std::string> out;
+    for (const auto& known : kimiReasoningLevels()) {
+        for (const auto& level : levels) {
+            if (level == known) {
+                out.push_back(known);
+                break;
+            }
+        }
+    }
     for (const auto& raw : levels) {
         const auto begin = raw.find_first_not_of(" \t\r\n");
         if (begin == std::string::npos) continue;
         const auto end = raw.find_last_not_of(" \t\r\n");
         const std::string value = raw.substr(begin, end - begin + 1);
-        if (std::ranges::find(reasoningLevels(), value) !=
-            reasoningLevels().end()) {
+        if (std::ranges::find(kimiReasoningLevels(), value) !=
+            kimiReasoningLevels().end()) {
             continue;
         }
         if (std::ranges::find(out, value) == out.end()) {
@@ -271,10 +283,10 @@ export std::vector<std::string> orderedReasoningEfforts(
     return out;
 }
 
-// 档位清单 → 位掩码（下标 = reasoningLevels() 的下标），供 UI State<int> 用。
+// 档位清单 → 位掩码（下标 = kimiReasoningLevels() 的下标），供 UI State<int> 用。
 export int reasoningEffortMask(const std::vector<std::string>& levels) {
     int mask = 0;
-    const auto& known = reasoningLevels();
+    const auto& known = kimiReasoningLevels();
     for (std::size_t i = 0; i < known.size(); ++i) {
         for (const auto& level : levels) {
             if (level == known[i]) {
@@ -287,9 +299,10 @@ export int reasoningEffortMask(const std::vector<std::string>& levels) {
 }
 
 // 位掩码 → 档位清单（规范升序）。未置位与未知位都忽略。
-export std::vector<std::string> reasoningEffortsFromMask(int mask) {
+export std::vector<std::string> reasoningEffortsFromMask(
+    int mask, bool includeUltra = false) {
     std::vector<std::string> out;
-    const auto& known = reasoningLevels();
+    const auto& known = includeUltra ? kimiReasoningLevels() : reasoningLevels();
     for (std::size_t i = 0; i < known.size(); ++i) {
         if ((mask & (1 << static_cast<int>(i))) != 0) out.push_back(known[i]);
     }

@@ -46,8 +46,8 @@ void FillForm(const FormStates& fs, const models::Provider& p) {
     fs.reasoningMask = models::reasoningEffortMask(p.reasoningEfforts);
     std::string customReasoning;
     for (const auto& level : p.reasoningEfforts) {
-        if (std::ranges::find(models::reasoningLevels(), level) !=
-            models::reasoningLevels().end()) {
+        if (std::ranges::find(models::kimiReasoningLevels(), level) !=
+            models::kimiReasoningLevels().end()) {
             continue;
         }
         if (!customReasoning.empty()) customReasoning += ", ";

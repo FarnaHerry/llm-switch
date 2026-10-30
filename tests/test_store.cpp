@@ -2737,6 +2737,9 @@ int main() {
         CHECK(models::reasoningLevels() ==
               std::vector<std::string>({"off", "minimal", "low", "medium",
                                         "high", "xhigh", "max"}));
+        CHECK(models::kimiReasoningLevels() ==
+              std::vector<std::string>({"off", "minimal", "low", "medium",
+                                        "high", "xhigh", "max", "ultra"}));
         CHECK(models::normalizeReasoningEfforts(
                   {"high", "bogus", "off", "high", "low", ""}) ==
               std::vector<std::string>({"off", "low", "high"}));
@@ -2756,8 +2759,16 @@ int main() {
               std::vector<std::string>({"off", "high"}));
         CHECK(models::reasoningEffortsFromMask(0).empty());
         CHECK(models::reasoningEffortsFromMask(-1) == models::reasoningLevels());
-        CHECK(models::reasoningLevelLabel("off") == "关闭思考 off");
-        CHECK(models::reasoningLevelLabel("max") == "最高 max");
+        CHECK(models::reasoningEffortsFromMask(-1, true) ==
+              models::kimiReasoningLevels());
+        const int ultraMask = models::reasoningEffortMask({"high", "ultra"});
+        CHECK(models::reasoningEffortsFromMask(ultraMask) ==
+              std::vector<std::string>({"high"}));
+        CHECK(models::reasoningEffortsFromMask(ultraMask, true) ==
+              std::vector<std::string>({"high", "ultra"}));
+        CHECK(models::reasoningLevelLabel("off") == "off");
+        CHECK(models::reasoningLevelLabel("max") == "max");
+        CHECK(models::reasoningLevelLabel("ultra") == "ultra");
         CHECK(models::upstreamFormatSuffix("anthropic") == "/anthropic");
         CHECK(models::upstreamFormatSuffix("openai") == "/v1");
         CHECK(models::effectiveBaseUrl("https://api.example.com/", "anthropic",

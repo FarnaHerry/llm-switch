@@ -145,7 +145,8 @@ std::vector<std::string> DshInputModalities(const FormStates& fs) {
                                                         bool kimi) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     std::vector<huxerui::View> chips;
-    const auto& levels = models::reasoningLevels();
+    const auto& levels =
+        kimi ? models::kimiReasoningLevels() : models::reasoningLevels();
     for (std::size_t i = 0; i < levels.size(); ++i) {
         const int bit = 1 << static_cast<int>(i);
         const bool selected = (fs.reasoningMask.Get() & bit) != 0;
@@ -170,7 +171,7 @@ std::vector<std::string> DshInputModalities(const FormStates& fs) {
         kimi ? huxerui::View{
                    huxerui::TextField(fs.customReasoning.Get())
                        .Label("自定义档位（可选，逗号分隔）")
-                       .Placeholder("如 none / auto / ultra")
+                       .Placeholder("如 none / auto / unlimited")
                        .Variant(huxerui::TextFieldVariant::Outlined)
                        .OnChanged([fs](const huxerui::TextEditingValue& v) {
                            fs.customReasoning = v;

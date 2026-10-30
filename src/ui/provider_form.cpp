@@ -240,10 +240,12 @@ std::vector<std::string> ParseCustomReasoning(std::string_view text) {
                     p.notes = fs.notes.Get().text;
                     p.codexConfigToml = fs.toml.Get().text;
                     p.apiFormat = ApiFormatFromIndex(fs.apiFormat.Get());
-                    // 推理档位（dsh / Kimi 展示）：规范档位 + 可选自定义值。
+                    // 推理档位（dsh / Kimi 展示）：规范档位 + 可选自定义值；
+                    // 只有 Kimi 的掩码包含最高档 ultra。
                     p.reasoningEfforts =
                         models::reasoningEffortsFromMask(
-                            fs.reasoningMask.Get());
+                            fs.reasoningMask.Get(),
+                            policy.customReasoning);
                     if (policy.customReasoning) {
                         const auto custom =
                             ParseCustomReasoning(fs.customReasoning.Get().text);

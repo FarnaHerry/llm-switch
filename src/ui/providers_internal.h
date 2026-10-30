@@ -103,8 +103,9 @@ struct FormStates {
     huxerui::State<std::string> upstreamFormatTool;
     huxerui::State<bool> fullUrl;
     huxerui::State<int> apiFormat;            // opencode / pi / kimi-code 展示
-    // dsh / Kimi 推理档位位掩码（下标 = models::reasoningLevels() 的下标）；
-    // 其他 agent 不展示也不用。
+    // dsh / Kimi 推理档位位掩码（下标 = models::reasoningLevels() /
+    // kimiReasoningLevels() 的下标；bit 7 是 Kimi 的 ultra）；其他 agent
+    // 不展示也不用。
     huxerui::State<int> reasoningMask;
     // 规范档位之外的自定义档位（逗号分隔；仅 Kimi 展示与保存）。
     huxerui::State<huxerui::TextEditingValue> customReasoning;
