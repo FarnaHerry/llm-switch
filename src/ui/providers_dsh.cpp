@@ -207,6 +207,15 @@ void ShowDshDeleteConfirm(huxerui::DialogHandle dialog,
 
     const std::string name =
         live.displayName.empty() ? live.key : live.displayName;
+    bool aggregateLive = false;
+    if (!live.providerId.empty()) {
+        for (const auto& provider : providerStore().group("dsh").providers) {
+            if (provider.id == live.providerId) {
+                aggregateLive = models::isAggregateProvider(provider);
+                break;
+            }
+        }
+    }
     std::vector<huxerui::View> badges;
     if (live.isDefault) {
         badges.push_back(DshBadge("使用中", theme.colors.primary,
@@ -237,13 +246,20 @@ void ShowDshDeleteConfirm(huxerui::DialogHandle dialog,
     // 官方行上的同一枚按钮则是「清回内置官方路由」（= 删掉那个块）。
     const bool builtinOfficial = live.builtin || live.key == kDshOfficialKey;
     const bool canSetDefault = !live.isDefault;
-    auto setDefault = [toast, live, name, bump] {
+    auto setDefault = [toast, live, name, bump, aggregateLive] {
         try {
-            providerStore().setDshDefaultKey(live.builtin ? std::string{}
-                                                          : live.key);
-            toast.Show(live.builtin
-                           ? "已清回 dsh 内置官方路由"
-                           : std::format("已把 {} 设为 dsh 默认路由", name));
+            if (aggregateLive) {
+                SwitchProvider("dsh", live.providerId);
+                toast.Show(std::format("已切换到聚合供应商 {}", name));
+            } else {
+                providerStore().setDshDefaultKey(live.builtin
+                                                     ? std::string{}
+                                                     : live.key);
+                toast.Show(live.builtin
+                               ? "已清回 dsh 内置官方路由"
+                               : std::format("已把 {} 设为 dsh 默认路由",
+                                             name));
+            }
         } catch (const std::exception& e) {
             toast.Show(e.what());
         }
@@ -342,7 +358,10 @@ void ShowDshDeleteConfirm(huxerui::DialogHandle dialog,
 
     const std::string id = provider.id;
     const std::string name = provider.name;
-    const std::string accessUrl = models::effectiveBaseUrl(provider);
+    const bool aggregate = models::isAggregateProvider(provider);
+    const std::string accessUrl =
+        providerStore().targetBaseUrl("dsh", provider);
+    const std::string testUrl = aggregate ? std::string{} : accessUrl;
     auto checking = huxerui::UseState(false);
     auto latency = huxerui::UseState<std::string>({});
     auto usageRefreshing = huxerui::UseState(false);
@@ -352,6 +371,12 @@ void ShowDshDeleteConfirm(huxerui::DialogHandle dialog,
         badges.push_back(DshBadge("使用中", theme.colors.primary,
                                   theme.colors.on_primary,
                                   islands.nested_radius));
+    }
+    if (aggregate) {
+        badges.push_back(DshBadge(
+            std::format("聚合 {} 个供应商", provider.upstreams.size()),
+            theme.colors.secondary_container,
+            theme.colors.on_secondary_container, islands.nested_radius));
     }
     if (!present) {
         badges.push_back(DshBadge("未写入 dsh", islands.raised,
@@ -369,7 +394,7 @@ void ShowDshDeleteConfirm(huxerui::DialogHandle dialog,
     std::string usageText;
     bool usageError = false;
     const bool usageConfigured =
-        provider.usageEnabled && !provider.usageUrl.empty();
+        !aggregate && provider.usageEnabled && !provider.usageUrl.empty();
     if (usageConfigured) {
         const auto& cache = usageCache.Get();
         if (const auto it = cache.find(id); it != cache.end()) {
@@ -411,9 +436,9 @@ void ShowDshDeleteConfirm(huxerui::DialogHandle dialog,
     }
 
     auto bump = [revision] { revision = revision.Get() + 1; };
-    auto showEdit = [formToolIndex, formTarget, id] {
+    auto showEdit = [formToolIndex, formTarget, id, aggregate] {
         formToolIndex = ToolRegistryIndex("dsh");
-        formTarget = id;
+        formTarget = aggregate ? "aggregate:" + id : id;
     };
     auto showUsage = [formToolIndex, formTarget, id] {
         formToolIndex = ToolRegistryIndex("dsh");
@@ -433,22 +458,34 @@ void ShowDshDeleteConfirm(huxerui::DialogHandle dialog,
                               ? theme.colors.error
                               : theme.colors.on_surface_variant),
             std::move(usageView),
-            huxerui::IconButton(app::images::write, "写入 / 更新 dsh")
-                .OnClick([toast, name, id, bump] {
+            huxerui::IconButton(app::images::write,
+                                aggregate ? "使用聚合（写入并设为默认）"
+                                          : "写入 / 更新 dsh")
+                .OnClick([toast, name, id, bump, aggregate] {
                     try {
-                        providerStore().writeDshProvider(id);
-                        toast.Show(std::format("已把 {} 写入 dsh", name));
+                        if (aggregate) {
+                            SwitchProvider("dsh", id);
+                            toast.Show(std::format("已切换到聚合供应商 {}", name));
+                        } else {
+                            providerStore().writeDshProvider(id);
+                            toast.Show(std::format("已把 {} 写入 dsh", name));
+                        }
                     } catch (const std::exception& e) {
                         toast.Show(e.what());
                     }
                     bump();
                 })
-                .With(huxerui::Enabled(!present || !same),
-                      huxerui::Tooltip(present && same
-                                           ? "dsh 里已是最新"
-                                           : "只把这一条写进 settings.yaml")),
+                .With(huxerui::Enabled(aggregate ? (!present || !same || !isDefault)
+                                                 : (!present || !same)),
+                      huxerui::Tooltip(
+                          aggregate
+                              ? (isDefault && same
+                                     ? "已是当前聚合供应商"
+                                     : "写入本地路由条目并设为 dsh 默认路由")
+                              : (present && same ? "dsh 里已是最新"
+                                                 : "只把这一条写进 settings.yaml"))),
             huxerui::IconButton(app::images::activity, "联通检测")
-                .OnClick([tasks, checking, latency, http, url = accessUrl] {
+                .OnClick([tasks, checking, latency, http, url = testUrl] {
                     checking = true;
                     latency = std::string{};
                     tasks.Launch([checking, latency, http,
@@ -463,14 +500,20 @@ void ShowDshDeleteConfirm(huxerui::DialogHandle dialog,
                         }
                     });
                 })
-                .With(huxerui::Enabled(!checking.Get() && !accessUrl.empty()),
-                      huxerui::Tooltip("检测实际访问 URL 的连通性与延迟")),
+                .With(huxerui::Enabled(!checking.Get() && !testUrl.empty()),
+                      huxerui::Tooltip(
+                          aggregate
+                              ? "聚合项没有单一探测 URL；请求经本地路由转发"
+                              : "检测实际访问 URL 的连通性与延迟")),
             huxerui::IconButton(app::images::edit, "编辑")
                 .OnClick([showEdit] { showEdit(); })
                 .With(huxerui::Tooltip("编辑")),
             huxerui::IconButton(app::images::gauge, "用量查询配置")
                 .OnClick([showUsage] { showUsage(); })
-                .With(huxerui::Tooltip("用量查询配置")),
+                .With(huxerui::Enabled(!aggregate),
+                      huxerui::Tooltip(
+                          aggregate ? "聚合供应商没有单一用量端点"
+                                    : "用量查询配置")),
             huxerui::IconButton(app::images::copy, "复制")
                 .OnClick([toast, id, bump] {
                     try {
@@ -524,10 +567,12 @@ void ShowDshDeleteConfirm(huxerui::DialogHandle dialog,
         match.present = true;
         for (const auto& p : group.providers) {
             if (p.id != entry.providerId) continue;
-            match.same = entry.baseUrl == models::effectiveBaseUrl(p) &&
-                         entry.apiFormat ==
-                             models::normalizeApiFormat(p.apiFormat) &&
-                         entry.model == p.model && entry.apiKey == p.apiKey;
+            match.same =
+                entry.baseUrl == providerStore().targetBaseUrl("dsh", p) &&
+                entry.apiFormat ==
+                    models::normalizeApiFormat(p.apiFormat) &&
+                entry.model == p.model &&
+                entry.apiKey == providerStore().targetApiKey(p);
         }
         matches[entry.providerId] = match;
     }

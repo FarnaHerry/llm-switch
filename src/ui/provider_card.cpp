@@ -171,7 +171,8 @@ huxerui::View StatusText(const StatusPreview& preview, const std::string& full,
     // 用量展示：启用开关打开且 usageUrl 非空才显示；缓存未命中显示占位。
     std::string usageText;
     bool usageError = false;
-    const bool usageConfigured = provider.usageEnabled && !provider.usageUrl.empty();
+    const bool usageConfigured =
+        !aggregate && provider.usageEnabled && !provider.usageUrl.empty();
     if (usageConfigured) {
         const auto& cache = usageCache.Get();
         if (const auto it = cache.find(id); it != cache.end()) {

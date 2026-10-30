@@ -125,7 +125,8 @@ public:
 
     // ---- CRUD（均立即落盘）----
     // id/createdAt 为空/0 时自动生成；返回实际使用的 id（zcode 保存流程
-    // 需要它定位生成的条目）。
+    // 需要它定位生成的条目）。聚合项是虚拟条目，新增时不会预写任何 live
+    // 文件；第一次 switchTo 才由各工具的写回器落成本地路由条目。
     std::string addProvider(std::string_view tool, models::Provider provider);
     // 按 provider.id 整体替换；不存在抛异常。
     void updateProvider(std::string_view tool, const models::Provider& provider);
@@ -149,6 +150,15 @@ public:
     // 复制一份（新 id、名称加「（副本）」），插在原项之后并返回副本。
     models::Provider duplicateProvider(std::string_view tool, const std::string& id);
 
+    // 写入 live 时应指向的实际地址：普通供应商 = effectiveBaseUrl；聚合供应商
+    // = 本地路由 http://127.0.0.1:<routerPort>/<tool>。供应商页对照 live 实况
+    // 时也用它，避免把聚合项误判成「未写入」。
+    [[nodiscard]] std::string targetBaseUrl(
+        std::string_view tool, const models::Provider& provider) const;
+    // 写入 live 时应使用的密钥：聚合项没有自己的密钥，空时用占位值。
+    [[nodiscard]] std::string targetApiKey(
+        const models::Provider& provider) const;
+
     // ---- dsh 增量多供应商（settings.yaml 的 llm-pi-ai.providers）----
     // dsh 的 live 配置是「多条手写路由并存」的累加列表：本应用把组内供应商
     // 逐条写成 llmswitch-<id> 条目，切换只改 agent-default-model 指向。
@@ -165,7 +175,8 @@ public:
     // 路由时，由它表达「当前用哪条」）。
     [[nodiscard]] std::vector<DshLiveProvider> dshLiveProviders() const;
     // 显式整体重建（「全部写入 dsh」按钮）：把组内全部供应商逐条原位重建
-    // （含模型能力声明与 .credentials.yaml 密钥）——本应用的条目写 llmswitch-<id>，
+    // （未选中的聚合项跳过，只有 current 聚合项才写成本地路由条目；含模型
+    // 能力声明与 .credentials.yaml 密钥）——本应用的条目写 llmswitch-<id>，
     // 收编进来的条目保持它原来的键与 apiKeyEnv（收编不改名）；清掉不再属于组内
     // 的孤儿 llmswitch-* 条目，其它手写条目（含 dsh 内置路由）一律原样保留。
     // defaultProviderId 非空 = agent-default-model 指向它；clearDefault = 删掉
@@ -225,7 +236,8 @@ public:
     // builtin:* 抛错——官方套餐由 ZCode 自己管；键不存在抛 std::runtime_error。
     void enableZcodeKey(const std::string& key);
     // 显式整组重建（「全部写入 ZCode」）：把组内每条写成 llmswitch:<id>
-    // （原生键的条目原位更新、不另起重复条目），清掉不再属于组内的孤儿
+    // （未选中的聚合项跳过，只有 current 聚合项才写入并保持 enabled；原生键
+    // 的条目原位更新、不另起重复条目），清掉不再属于组内的孤儿
     // llmswitch:* 条目；builtin:* 与 ZCode 原生条目一律不动。
     void syncZcodeProviders();
 
@@ -253,6 +265,8 @@ public:
     //     _meta.json；inferenceModels = 主模型 + 三档映射条目（非白名单模型名
     //     借该档安全 route id，菜单显示名放 labelOverride，supports1m 按勾选写入；
     //     实际请求模型保存在 Provider 的三档 *Model 字段）；Linux 不支持抛错。
+    // 聚合项会先换成本地路由地址与占位密钥；dsh/ZCode/Kimi 的写回器在
+    // overwrite 模式下更新本应用的聚合条目（不是只补一条或只翻 enabled）。
     // 供应商不存在 / 文件写失败抛 std::runtime_error。
     void switchTo(std::string_view tool, const std::string& id);
 

@@ -449,6 +449,11 @@ export struct ProviderUpstream {
     bool operator==(const ProviderUpstream&) const = default;
 };
 
+// 聚合供应商写入各 Agent live 配置时使用的占位密钥。本地路由不校验入站
+// 鉴权，但部分 Agent 要求 key 非空；真实凭据仍留在成员供应商上。
+export inline constexpr std::string_view kAggregateApiKey =
+    "llmswitch-aggregate";
+
 export struct Provider {
     std::string id;         // 生成：毫秒时间戳 + 随机 hex（见 llmswitch.store）
     std::string name;

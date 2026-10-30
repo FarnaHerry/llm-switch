@@ -108,7 +108,8 @@ using provider_detail::WriteUsageCache;
                     const auto providers = providerStore().group(tool).providers;
                     for (const auto& p : providers) {
                         if (!*active) co_return;
-                        if (!p.usageEnabled || p.usageUrl.empty() ||
+                        if (models::isAggregateProvider(p) ||
+                            !p.usageEnabled || p.usageUrl.empty() ||
                             p.usageRefreshMinutes <= 0) continue;
                         const auto now = std::chrono::steady_clock::now();
                         const auto previous = checkedAt.Get()->find(p.id);

@@ -28,6 +28,29 @@ void SwitchProvider(std::string_view tool, const std::string& id) {
         throw std::runtime_error(std::format("供应商不存在：{}", id));
     }
     if (models::isAggregateProvider(*target)) {
+        if (tool == "kimi-code" && target->model.empty()) {
+            // switchTo 会从成员回退默认模型；这里只拦截所有成员都没有模型
+            // 的情况，避免先启动路由再写失败。
+            bool memberModel = false;
+            for (const auto& upstream : target->upstreams) {
+                if (!upstream.providerId.empty()) {
+                    for (const auto& provider : group.providers) {
+                        if (provider.id == upstream.providerId &&
+                            !provider.model.empty()) {
+                            memberModel = true;
+                            break;
+                        }
+                    }
+                } else if (!upstream.model.empty()) {
+                    memberModel = true;
+                }
+                if (memberModel) break;
+            }
+            if (!memberModel) {
+                throw std::runtime_error(
+                    "Kimi Code 聚合需要默认模型：请先给至少一个成员设置模型");
+            }
+        }
         auto& localRouter = routerInstance();
         if (!localRouter.running()) {
             localRouter.start(providerStore().config().routerPort);

@@ -307,24 +307,14 @@ namespace llmswitch::ui {
                 }));
     }
     if (!visibleIndices.empty()) {
-        // dsh / ZCode 有各自的供应商页和写回器，Kimi Code 新增 provider 时
-        // 会立即写 live 多条目；聚合编辑页只接在通用 ProviderCard 路径上，
-        // 这三个工具先不露出入口，避免写出无法编辑或空 URL 的 live 条目。
-        const std::string currentTool =
-            selectedTool.Get() < registry.size()
-                ? std::string(registry[selectedTool.Get()].id)
-                : std::string{};
-        if (currentTool != "dsh" && currentTool != "zcode" &&
-            currentTool != "kimi-code") {
-            pageActions.push_back(
-                huxerui::IconButton(app::images::subrouter, "新增聚合供应商")
-                    .OnClick([formToolIndex, formTarget, selectedTool] {
-                        formToolIndex = selectedTool.Get();
-                        formTarget = "aggregate:new";
-                    })
-                    .With(huxerui::Tooltip(
-                        "新增聚合供应商（选择现有供应商经本地路由分发）")));
-        }
+        pageActions.push_back(
+            huxerui::IconButton(app::images::subrouter, "新增聚合供应商")
+                .OnClick([formToolIndex, formTarget, selectedTool] {
+                    formToolIndex = selectedTool.Get();
+                    formTarget = "aggregate:new";
+                })
+                .With(huxerui::Tooltip(
+                    "新增聚合供应商（选择现有供应商经本地路由分发）")));
         pageActions.push_back(
             huxerui::IconButton(app::images::add, "新增供应商")
                 .OnClick(requestAddProvider)

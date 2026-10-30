@@ -157,7 +157,14 @@ void ProviderStore::writeZcodeEntry(const models::Provider& p, bool overwrite,
     const bool hasEntry = existing != providers.end() && existing->is_object();
     if (hasEntry && !overwrite && !makeEnabled) return;
 
-    nlohmann::json entry = buildZcodeEntry(p, models::effectiveBaseUrl(p));
+    models::Provider target = p;
+    if (models::isAggregateProvider(p)) {
+        target.baseUrl = targetBaseUrl("zcode", p);
+        target.fullUrl = true;
+        target.apiKey = targetApiKey(p);
+    }
+    nlohmann::json entry = buildZcodeEntry(
+        target, models::effectiveBaseUrl(target));
     if (hasEntry) {
         entry = mergeZcodeEntry(*existing, entry);
         if (!makeEnabled) {
@@ -385,14 +392,26 @@ void ProviderStore::syncZcodeProviders() {
     nlohmann::json next = doc["provider"];
     std::set<std::string> kept;
     for (const auto& p : g.providers) {
+        const bool aggregate = models::isAggregateProvider(p);
+        // 未使用的聚合项不预写 live：ZCode 只能保证本应用托管的 enabled
+        // 互斥，把未选中的聚合条目也写进去会多出一堆无意义选项。
+        if (aggregate && p.id != g.current) continue;
         const std::string key = zcodeEntryKeyFor(doc["provider"], p.id);
-        nlohmann::json entry = buildZcodeEntry(p, models::effectiveBaseUrl(p));
+        models::Provider target = p;
+        if (aggregate) {
+            target.baseUrl = targetBaseUrl("zcode", p);
+            target.fullUrl = true;
+            target.apiKey = targetApiKey(p);
+        }
+        nlohmann::json entry = buildZcodeEntry(
+            target, models::effectiveBaseUrl(target));
         const auto existing = doc["provider"].find(key);
         if (existing != doc["provider"].end() && existing->is_object()) {
             entry = mergeZcodeEntry(*existing, entry);
         } else {
             entry["enabled"] = false;
         }
+        if (aggregate) entry["enabled"] = true;
         kept.insert(key);
         next[key] = std::move(entry);
     }

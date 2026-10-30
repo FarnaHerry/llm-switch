@@ -35,8 +35,10 @@
   错误首行显示 HttpFailure::Summary 短原因，下一行保留 URL/响应摘要，
   toast 与 Tooltip 提供完整上下文。检查 800×600 和 1080×720 的真实可点击范围。
 - dsh/ZCode 每行写入用 write.svg；“当前用哪条”在左列，右列是写入/收编/删除。
-  live 同时存在时删除需区分“只删本应用”与“连同工具一起删”，默认沿用后者。
-  两列不可调大 CacheExtent，详见 [性能预算](provider-performance.md)。
+  聚合行复用同一按钮但语义是“使用”：写入本地路由条目并把该工具切到聚合项，
+  会先启动路由；编辑走 aggregate: 表单。live 同时存在时删除需区分“只删本应用”
+  与“连同工具一起删”，默认沿用后者。两列不可调大 CacheExtent，详见
+  [性能预算](provider-performance.md)。
 
 ## 用量查询与页面可见性
 

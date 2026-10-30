@@ -1755,6 +1755,22 @@ HermesConfigInfo parseHermesConfig(std::string_view text) {
     return info;
 }
 
+std::string ProviderStore::targetBaseUrl(
+    std::string_view tool, const models::Provider& provider) const {
+    if (!models::isAggregateProvider(provider)) {
+        return models::effectiveBaseUrl(provider);
+    }
+    return std::format("http://127.0.0.1:{}/{}", config_.routerPort, tool);
+}
+
+std::string ProviderStore::targetApiKey(
+    const models::Provider& provider) const {
+    if (models::isAggregateProvider(provider) && provider.apiKey.empty()) {
+        return std::string(models::kAggregateApiKey);
+    }
+    return provider.apiKey;
+}
+
 void ProviderStore::switchTo(std::string_view tool, const std::string& id) {
     auto& g = groupRef(tool);
     const models::Provider* target = nullptr;
@@ -1768,15 +1784,12 @@ void ProviderStore::switchTo(std::string_view tool, const std::string& id) {
     // 路由由 UI 在切换前启动并把该工具加入 routerTools；这里只负责写 live
     // 配置。副本在栈上存活到函数结束，后续 target-> 字段读取保持简单。
     models::Provider aggregateTarget;
-    if (models::isAggregateProvider(*target)) {
+    const bool aggregate = models::isAggregateProvider(*target);
+    if (aggregate) {
         aggregateTarget = *target;
-        aggregateTarget.baseUrl = std::format(
-            "http://127.0.0.1:{}/{}", config_.routerPort, tool);
+        aggregateTarget.baseUrl = targetBaseUrl(tool, aggregateTarget);
         aggregateTarget.fullUrl = true;
-        if (aggregateTarget.apiKey.empty()) {
-            // 本地路由不校验入站鉴权，但部分 Agent 要求 key 非空。
-            aggregateTarget.apiKey = "llmswitch-aggregate";
-        }
+        aggregateTarget.apiKey = targetApiKey(aggregateTarget);
         if (aggregateTarget.model.empty()) {
             for (const auto& upstream : aggregateTarget.upstreams) {
                 if (!upstream.providerId.empty()) {
@@ -1804,6 +1817,10 @@ void ProviderStore::switchTo(std::string_view tool, const std::string& id) {
                 "wire_api = \"chat\"\n";
         }
         target = &aggregateTarget;
+    }
+    if (tool == "kimi-code" && aggregate && target->model.empty()) {
+        throw std::runtime_error(
+            "Kimi Code 聚合需要默认模型：请先给至少一个成员设置模型");
     }
     const std::string baseUrl = models::effectiveBaseUrl(*target);
 
@@ -1938,17 +1955,21 @@ void ProviderStore::switchTo(std::string_view tool, const std::string& id) {
     } else if (tool == "dsh") {
         // settings.yaml：切换 = 只改 agent-default-model 指向；外加一条保险——
         // 目标条目还没写进 live 时补写一条（否则指针指向不存在的键就是坏配置）。
-        // 已在 live 里的条目内容原样保留（用户在 dsh 侧的手改由页面上的
-        // 「写入 / 更新」显式覆盖），别的条目一个字都不动。密钥只写
+        // 普通供应商已在 live 里的条目内容原样保留（用户在 dsh 侧的手改由
+        // 页面上的「写入 / 更新」显式覆盖）；聚合项是本应用自己的本地路由
+        // 条目，按 overwrite 更新。别的条目一个字都不动。密钥只写
         // .credentials.yaml（apiKeyEnv 引用）。两份文件都被 dsh 热监听 →
         // 切换即时生效，无需重启。
-        writeDshEntry(*target, /*overwrite=*/false, /*makeDefault=*/true);
+        writeDshEntry(*target, /*overwrite=*/aggregate,
+                      /*makeDefault=*/true);
     } else if (tool == "kimi-code") {
-        // config.toml：切换 = 只改 default_model 指向；目标条目已在 live 里
-        // 时内容原样保留，不在时补写 provider + model 别名（避免指空），
-        // 别的 provider / model / 注释一个字都不动。Kimi Code 监听
+        // config.toml：切换 = 只改 default_model 指向；普通目标条目已在
+        // live 里时内容原样保留，不在时补写 provider + model 别名（避免指空）；
+        // 聚合项是本应用自己的本地路由条目，按 overwrite 更新。别的 provider
+        // / model / 注释一个字都不动。Kimi Code 监听
         // config.toml（watch 默认开启）→ 切换即时生效，无需重启。
-        writeKimiEntry(*target, /*overwrite=*/false, /*makeDefault=*/true);
+        writeKimiEntry(*target, /*overwrite=*/aggregate,
+                       /*makeDefault=*/true);
     } else if (tool == "hermes") {
         // config.yaml：custom_providers 列表删旧 llmswitch-* 条目后追加新
         // 条目（api_mode 三档映射），顶层 model 节写 provider（总是）与
@@ -1996,7 +2017,19 @@ void ProviderStore::switchTo(std::string_view tool, const std::string& id) {
         const std::string entryKey = zcodeEntryKeyFor(providers, target->id);
         const auto existing = providers.find(entryKey);
         bool changed = false;
-        if (existing == providers.end() || !existing->is_object()) {
+        if (aggregate) {
+            // 聚合条目是本应用自己创建的本地路由条目：内容（displayName /
+            // model / baseURL）随编辑更新，启停仍保持「本应用托管条目互斥」。
+            nlohmann::json entry = buildZcodeEntry(*target, baseUrl);
+            if (existing != providers.end() && existing->is_object()) {
+                entry = mergeZcodeEntry(*existing, entry);
+            }
+            entry["enabled"] = true;
+            if (existing == providers.end() || *existing != entry) {
+                providers[entryKey] = std::move(entry);
+                changed = true;
+            }
+        } else if (existing == providers.end() || !existing->is_object()) {
             // 目标条目不在 live 里：补写一条并启用（避免「启用」指空）。
             nlohmann::json entry = buildZcodeEntry(*target, baseUrl);
             entry["enabled"] = true;
@@ -2347,7 +2380,7 @@ void ProviderStore::writeDshEntry(const models::Provider& p, bool overwrite,
     std::set<std::string> removeKeys;
     if (rebuild) {
         entries.push_back(
-            dshEntryLines(key, keyEnv, p, models::effectiveBaseUrl(p)));
+            dshEntryLines(key, keyEnv, p, targetBaseUrl("dsh", p)));
         removeKeys.insert(key);
     }
     std::string defaultModel;
@@ -2357,10 +2390,11 @@ void ProviderStore::writeDshEntry(const models::Provider& p, bool overwrite,
                 rewriteDshSettings(text, entries, removeKeys, touchDefault,
                                    defaultKey, defaultModel,
                                    info.defaultReasoningEffort));
-    if (!p.apiKey.empty()) {
+    const std::string targetKey = targetApiKey(p);
+    if (!targetKey.empty()) {
         const auto credFile = cfg::dshCredentialsFile();
         backupLiveFile("dsh", credFile);
-        upsertDshCredential(credFile, keyEnv, p.apiKey);
+        upsertDshCredential(credFile, keyEnv, targetKey);
         restrictPiFile(credFile);
     }
 }
@@ -2390,7 +2424,13 @@ void ProviderStore::writeDshProvider(const std::string& id) {
     const auto& g = group("dsh");
     for (const auto& p : g.providers) {
         if (p.id != id) continue;
-        writeDshEntry(p, /*overwrite=*/true, /*makeDefault=*/false);
+        models::Provider target = p;
+        if (models::isAggregateProvider(p)) {
+            target.baseUrl = targetBaseUrl("dsh", p);
+            target.fullUrl = true;
+            target.apiKey = targetApiKey(p);
+        }
+        writeDshEntry(target, /*overwrite=*/true, /*makeDefault=*/false);
         return;
     }
     throw std::runtime_error(std::format("供应商不存在：{}", id));
@@ -2534,6 +2574,10 @@ void ProviderStore::syncDshProviders(const std::string& defaultProviderId,
     std::vector<std::pair<std::string, std::string>> credentials;  // 引用名 + 密钥
     entries.reserve(g.providers.size());
     for (const auto& p : g.providers) {
+        const bool aggregate = models::isAggregateProvider(p);
+        // 未使用的聚合项不预写 live：它没有独立上游地址，只有当前选中时才
+        // 写成本地路由条目；否则 dsh 的多路由列表里会出现一堆空 URL 条目。
+        if (aggregate && p.id != g.current) continue;
         groupIds.insert(p.id);
         // 收编进来的条目保持它原来的键原位重建（不改名），本应用的条目是
         // llmswitch-<id>；密钥引用名同理。
@@ -2544,9 +2588,17 @@ void ProviderStore::syncDshProviders(const std::string& defaultProviderId,
         }
         const std::string keyEnv = dshEntryKeyEnvFor(existing, key, p.id);
         groupKeys.insert(key);
-        entries.push_back(dshEntryLines(key, keyEnv, p,
-                                        models::effectiveBaseUrl(p)));
-        if (!p.apiKey.empty()) credentials.emplace_back(keyEnv, p.apiKey);
+        models::Provider target = p;
+        if (aggregate) {
+            target.baseUrl = targetBaseUrl("dsh", p);
+            target.fullUrl = true;
+            target.apiKey = targetApiKey(p);
+        }
+        entries.push_back(dshEntryLines(key, keyEnv, target,
+                                        models::effectiveBaseUrl(target)));
+        if (!target.apiKey.empty()) {
+            credentials.emplace_back(keyEnv, target.apiKey);
+        }
     }
     // 要删的键：全部 llmswitch-*（本应用条目一律重建，不在组内的即孤儿）+
     // 组内收编条目的原生键（原位重建）。其它手写条目（dsh 内置路由、别家工具

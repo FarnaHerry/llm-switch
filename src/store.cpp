@@ -472,13 +472,16 @@ std::string ProviderStore::addProvider(std::string_view tool,
     auto& g = groupRef(tool);
     if (provider.id.empty()) provider.id = generateId();
     if (provider.createdAt == 0) provider.createdAt = nowMillis();
-    if (tool == "zcode") upsertZcodeEntry(provider);
+    const bool aggregate = models::isAggregateProvider(provider);
+    // 聚合项在第一次切换前只是一个虚拟条目：不往 live 写空 URL/占位密钥，
+    // 切换（switchTo）时才由本应用写出本地路由条目。
+    if (tool == "zcode" && !aggregate) upsertZcodeEntry(provider);
     std::string id = provider.id;
     g.providers.push_back(std::move(provider));
     // dsh 的 providers 是多路由并存的 map：新增即增量写入 live（只写这一条
     // llmswitch-<id>，别的条目与默认指向不动），而非等切换时重建整个列表。
     // 写失败回滚内存态，不留半套状态。
-    if (tool == "dsh") {
+    if (tool == "dsh" && !aggregate) {
         try {
             writeDshEntry(g.providers.back(), /*overwrite=*/true,
                           /*makeDefault=*/false);
@@ -489,7 +492,7 @@ std::string ProviderStore::addProvider(std::string_view tool,
     }
     // Kimi Code 的 providers / models 同样是多条并存：新增只写自己这条
     // llmswitch-<id> + model 别名，不动 default_model 与别人的条目。
-    if (tool == "kimi-code") {
+    if (tool == "kimi-code" && !aggregate) {
         try {
             writeKimiEntry(g.providers.back(), /*overwrite=*/true,
                            /*makeDefault=*/false);
@@ -509,7 +512,10 @@ void ProviderStore::updateProvider(std::string_view tool,
         if (cur.id == provider.id) {
             const models::Provider previous = cur;
             cur = provider;
-            if (tool == "dsh") {
+            const bool aggregate = models::isAggregateProvider(cur);
+            // 聚合项没有独立上游；它的 live 条目由编辑页保存后的
+            // SwitchProvider 重写，普通更新这里不预写空地址/占位条目。
+            if (tool == "dsh" && !aggregate) {
                 try {
                     writeDshEntry(cur, /*overwrite=*/true,
                                   /*makeDefault=*/false);
@@ -518,7 +524,7 @@ void ProviderStore::updateProvider(std::string_view tool,
                     throw;
                 }
             }
-            if (tool == "zcode") {
+            if (tool == "zcode" && !aggregate) {
                 // 单条增量：只重建这一条，别的条目与 ZCode 侧的手改不动。
                 try {
                     writeZcodeEntry(cur, /*overwrite=*/true,
@@ -528,7 +534,7 @@ void ProviderStore::updateProvider(std::string_view tool,
                     throw;
                 }
             }
-            if (tool == "kimi-code") {
+            if (tool == "kimi-code" && !aggregate) {
                 // 只更新这一条 provider + 对应 model 别名；若它正是当前卡，
                 // default_model 跟着指向新别名（改了模型名也不会断线）。
                 try {
@@ -549,6 +555,21 @@ void ProviderStore::updateProvider(std::string_view tool,
 void ProviderStore::removeProvider(std::string_view tool, const std::string& id,
                                    bool eraseLive) {
     auto& g = groupRef(tool);
+    // 聚合成员删除会留下指向不存在 Provider 的引用：先要求用户编辑聚合。
+    // 收编/维护型删除只动 live，不经这里；本应用的删除入口都会走到。
+    for (const auto& candidate : g.providers) {
+        if (candidate.id == id ||
+            !models::isAggregateProvider(candidate)) {
+            continue;
+        }
+        for (const auto& upstream : candidate.upstreams) {
+            if (upstream.providerId == id) {
+                throw std::runtime_error(std::format(
+                    "供应商正被聚合「{}」引用，请先在聚合编辑页移除它",
+                    candidate.name));
+            }
+        }
+    }
     std::optional<models::ProviderGroup> snapshot;
     if ((tool == "dsh" || tool == "zcode" || tool == "kimi-code") &&
         eraseLive) {
@@ -616,8 +637,9 @@ models::Provider ProviderStore::duplicateProvider(std::string_view tool,
         copy.id = generateId();
         copy.name += "（副本）";
         copy.createdAt = nowMillis();
+        const bool aggregate = models::isAggregateProvider(copy);
         g.providers.insert(g.providers.begin() + static_cast<std::ptrdiff_t>(i + 1), copy);
-        if (tool == "dsh") {
+        if (tool == "dsh" && !aggregate) {
             try {
                 writeDshEntry(copy, /*overwrite=*/true, /*makeDefault=*/false);
             } catch (...) {
@@ -626,7 +648,7 @@ models::Provider ProviderStore::duplicateProvider(std::string_view tool,
                 throw;
             }
         }
-        if (tool == "zcode") {
+        if (tool == "zcode" && !aggregate) {
             try {
                 writeZcodeEntry(copy, /*overwrite=*/true,
                                 /*makeEnabled=*/false);
@@ -636,7 +658,7 @@ models::Provider ProviderStore::duplicateProvider(std::string_view tool,
                 throw;
             }
         }
-        if (tool == "kimi-code") {
+        if (tool == "kimi-code" && !aggregate) {
             try {
                 writeKimiEntry(copy, /*overwrite=*/true, /*makeDefault=*/false);
             } catch (...) {

@@ -313,13 +313,20 @@ std::vector<std::string> AvailableModels(
                                            ? std::string{}
                                            : modelChoices.front();
                     }
+                    if (tool == "kimi-code" && defaultModel.empty()) {
+                        toast.Show(
+                            "Kimi Code 聚合需要默认模型：请先给至少一个成员"
+                            "设置模型");
+                        return;
+                    }
                     models::Provider provider = initial;
                     provider.name = formName;
                     provider.notes = notes.Get().text;
                     provider.model = std::move(defaultModel);
                     provider.baseUrl.clear();
                     provider.modelFetchUrl.clear();
-                    provider.apiKey = "llmswitch-aggregate";
+                    provider.apiKey =
+                        std::string(models::kAggregateApiKey);
                     provider.fullUrl = true;
                     provider.upstreamFormat = DefaultUpstreamFormat(tool);
                     provider.apiFormat.clear();

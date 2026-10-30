@@ -3525,6 +3525,125 @@ int main() {
         CHECK(imd.sonnetModel.empty());
     }
 
+    // 15b. 聚合供应商对所有 Agent 都走同一套本地路由：dsh / ZCode / Kimi
+    //      Code 的专用写回器也必须按本地地址写条目；未选中时不要预写空 URL。
+    {
+        auto aggStore = store::ProviderStore::load();
+        const std::string port =
+            std::to_string(aggStore.config().routerPort);
+        const auto nonAggregateMembers =
+            [](const models::ProviderGroup& group) {
+                std::vector<models::Provider> members;
+                for (const auto& provider : group.providers) {
+                    if (!models::isAggregateProvider(provider) &&
+                        !provider.baseUrl.empty()) {
+                        members.push_back(provider);
+                    }
+                }
+                return members;
+            };
+        const auto checkAggregate = [&](std::string_view tool,
+                                        const fs::path& liveFile) {
+            std::vector<std::string> seeded;
+            if (nonAggregateMembers(
+                    aggStore.group(std::string(tool))).empty()) {
+                // 前面的清理可能已让 dsh 组为空；补一条普通种子供应商，
+                // 验证聚合选中前后的写回路径。
+                seeded.push_back(aggStore.addProvider(
+                    tool, models::Provider{.name = "聚合测试种子",
+                                           .baseUrl =
+                                               "https://aggregate-seed.example.com/v1",
+                                           .apiKey = "sk-seed",
+                                           .model = "seed-model"}));
+            }
+            const auto members =
+                nonAggregateMembers(aggStore.group(std::string(tool)));
+            CHECK(!members.empty());
+            if (members.empty()) return;
+            models::Provider aggregate{
+                .name = std::format("聚合 {}", tool),
+                .model = members.front().model,
+                .upstreams = {models::ProviderUpstream{
+                    .name = members.front().name,
+                    .providerId = members.front().id,
+                    .model = members.front().model,
+                }}};
+            if (members.size() > 1) {
+                aggregate.upstreams.push_back(models::ProviderUpstream{
+                    .name = members[1].name,
+                    .providerId = members[1].id,
+                    .model = members[1].model,
+                });
+            }
+            const std::string previous =
+                aggStore.group(std::string(tool)).current;
+            const std::string aggregateId =
+                aggStore.addProvider(tool, std::move(aggregate));
+            // 成员被聚合引用时，删除必须被拦截，不能留下悬空引用。
+            {
+                bool removeBlocked = false;
+                try {
+                    aggStore.removeProvider(tool, members.front().id,
+                                            /*eraseLive=*/false);
+                } catch (const std::exception& e) {
+                    removeBlocked =
+                        std::string_view(e.what()).contains("聚合");
+                }
+                CHECK(removeBlocked);
+            }
+            // 选中前只是本地虚拟条目：专用写回器不能先写一条空 URL。
+            CHECK(!readText(liveFile).contains(
+                std::format("llmswitch-{}", aggregateId)));
+            aggStore.switchTo(tool, aggregateId);
+            const std::string expected =
+                std::format("http://127.0.0.1:{}/{}", port, tool);
+            CHECK(aggStore.detectCurrent(std::string(tool)) == aggregateId);
+            if (tool == "dsh") {
+                CHECK(settingsEntryBlock(
+                          readText(liveFile), "llmswitch-" + aggregateId)
+                          .contains("baseURL: \"" + expected + "\""));
+                // 「全部写入 dsh」也要保留当前聚合项，不能把它清成孤儿。
+                aggStore.syncDshProviders();
+                CHECK(settingsEntryBlock(
+                          readText(liveFile), "llmswitch-" + aggregateId)
+                          .contains("baseURL: \"" + expected + "\""));
+            } else if (tool == "zcode") {
+                const auto doc = readJson(liveFile);
+                const auto& entry =
+                    doc["provider"]["llmswitch:" + aggregateId];
+                CHECK(entry["options"]["baseURL"] == expected);
+                CHECK(entry["enabled"] == true);
+                // 「全部写入 ZCode」保持当前聚合项写入且启用。
+                aggStore.syncZcodeProviders();
+                const auto synced = readJson(liveFile);
+                CHECK(synced["provider"]["llmswitch:" + aggregateId]
+                            ["options"]["baseURL"] == expected);
+                CHECK(synced["provider"]["llmswitch:" + aggregateId]
+                            ["enabled"] == true);
+            } else {
+                const std::string text = readText(liveFile);
+                CHECK(text.contains("[providers.\"llmswitch-" +
+                                    aggregateId + "\"]"));
+                CHECK(text.contains("base_url = \"" + expected + "\""));
+            }
+            // 还原当前项并清理本地聚合，避免影响后续用例。
+            if (!previous.empty()) {
+                aggStore.switchTo(tool, previous);
+            } else {
+                aggStore.restoreOfficial(tool);
+            }
+            aggStore.removeProvider(tool, aggregateId);
+            for (const auto& seed : seeded) {
+                if (!aggStore.group(std::string(tool)).providers.empty()) {
+                    aggStore.removeProvider(tool, seed);
+                }
+            }
+        };
+        checkAggregate("dsh", dshSettings);
+        checkAggregate("zcode", zcodeConfig);
+        checkAggregate("kimi-code", kimiConfig);
+    }
+
     // 16. 旧格式 config.json（顶层 claude/codex）→ load 自动迁移成 groups 键
     // 迁移前先清掉所有 live 文件，避免首次导入收编干扰断言。
     fs::remove_all(home / ".claude");

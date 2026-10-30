@@ -40,6 +40,9 @@
   429/5xx/连接失败继续下一条，不受组级 routerFailover 关闭影响。Codex
   没有 config.toml 模板时由 store 生成最小 `model_providers.llmswitch` 段
   （wire_api=chat）。成员协议必须与目标 Agent 一致。
+  所有 Agent 的 `switchTo` 都支持聚合；dsh/ZCode 的聚合条目在选中（写入）
+  时才落 live，未选中的不预写；Kimi Code 必须有默认模型才能写
+  `config.toml`。
 - **文件安全约定**（store*.cpp 中的文件助手）：`atomicWrite`（`.tmp` →
   rename，失败回落 remove+rename）；`readJsonOrNull`（解析失败把坏文件挪到
   `<file>.corrupt-<毫秒>` 再按无内容继续，绝不崩溃）；`backupLiveFile`（改写

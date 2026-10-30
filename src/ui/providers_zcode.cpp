@@ -199,6 +199,15 @@ void ShowZcodeDeleteConfirm(huxerui::DialogHandle dialog,
 
     const std::string name =
         live.displayName.empty() ? live.key : live.displayName;
+    bool aggregateLive = false;
+    if (!live.providerId.empty()) {
+        for (const auto& provider : providerStore().group("zcode").providers) {
+            if (provider.id == live.providerId) {
+                aggregateLive = models::isAggregateProvider(provider);
+                break;
+            }
+        }
+    }
     std::vector<huxerui::View> badges;
     if (live.enabled) {
         badges.push_back(ZcodeBadge("启用中", theme.colors.primary,
@@ -229,10 +238,15 @@ void ShowZcodeDeleteConfirm(huxerui::DialogHandle dialog,
     // 原生条目也能被启用，不必先收编成本应用供应商；反过来，只翻 enabled 就是
     // 一次完整切换，条目内容一字不动。builtin:* 的启停由 ZCode 自己管。
     const bool canEnable = !live.builtin && !live.enabled;
-    auto enable = [toast, live, name, bump] {
+    auto enable = [toast, live, name, bump, aggregateLive] {
         try {
-            providerStore().enableZcodeKey(live.key);
-            toast.Show(std::format("已在 ZCode 中启用 {}", name));
+            if (aggregateLive) {
+                SwitchProvider("zcode", live.providerId);
+                toast.Show(std::format("已启用聚合供应商 {}", name));
+            } else {
+                providerStore().enableZcodeKey(live.key);
+                toast.Show(std::format("已在 ZCode 中启用 {}", name));
+            }
         } catch (const std::exception& e) {
             toast.Show(e.what());
         }
@@ -332,7 +346,10 @@ void ShowZcodeDeleteConfirm(huxerui::DialogHandle dialog,
 
     const std::string id = provider.id;
     const std::string name = provider.name;
-    const std::string accessUrl = models::effectiveBaseUrl(provider);
+    const bool aggregate = models::isAggregateProvider(provider);
+    const std::string accessUrl =
+        providerStore().targetBaseUrl("zcode", provider);
+    const std::string testUrl = aggregate ? std::string{} : accessUrl;
     auto checking = huxerui::UseState(false);
     auto latency = huxerui::UseState<std::string>({});
     auto usageRefreshing = huxerui::UseState(false);
@@ -342,6 +359,12 @@ void ShowZcodeDeleteConfirm(huxerui::DialogHandle dialog,
         badges.push_back(ZcodeBadge("启用中", theme.colors.primary,
                                     theme.colors.on_primary,
                                     islands.nested_radius));
+    }
+    if (aggregate) {
+        badges.push_back(ZcodeBadge(
+            std::format("聚合 {} 个供应商", provider.upstreams.size()),
+            theme.colors.secondary_container,
+            theme.colors.on_secondary_container, islands.nested_radius));
     }
     if (!present) {
         badges.push_back(ZcodeBadge("未写入 ZCode", islands.raised,
@@ -360,7 +383,7 @@ void ShowZcodeDeleteConfirm(huxerui::DialogHandle dialog,
     std::string usageText;
     bool usageError = false;
     const bool usageConfigured =
-        provider.usageEnabled && !provider.usageUrl.empty();
+        !aggregate && provider.usageEnabled && !provider.usageUrl.empty();
     if (usageConfigured) {
         const auto& cache = usageCache.Get();
         if (const auto it = cache.find(id); it != cache.end()) {
@@ -402,9 +425,9 @@ void ShowZcodeDeleteConfirm(huxerui::DialogHandle dialog,
     }
 
     auto bump = [revision] { revision = revision.Get() + 1; };
-    auto showEdit = [formToolIndex, formTarget, id] {
+    auto showEdit = [formToolIndex, formTarget, id, aggregate] {
         formToolIndex = ToolRegistryIndex("zcode");
-        formTarget = id;
+        formTarget = aggregate ? "aggregate:" + id : id;
     };
     auto showUsage = [formToolIndex, formTarget, id] {
         formToolIndex = ToolRegistryIndex("zcode");
@@ -431,22 +454,35 @@ void ShowZcodeDeleteConfirm(huxerui::DialogHandle dialog,
                                 ? theme.colors.error
                                 : theme.colors.on_surface_variant),
             std::move(usageView),
-            huxerui::IconButton(app::images::write, "写入 / 更新 ZCode")
-                .OnClick([toast, name, id, bump] {
+            huxerui::IconButton(app::images::write,
+                                aggregate ? "启用聚合（写入 ZCode）"
+                                          : "写入 / 更新 ZCode")
+                .OnClick([toast, name, id, bump, aggregate] {
                     try {
-                        providerStore().writeZcodeProvider(id);
-                        toast.Show(std::format("已把 {} 写入 ZCode", name));
+                        if (aggregate) {
+                            SwitchProvider("zcode", id);
+                            toast.Show(std::format("已启用聚合供应商 {}", name));
+                        } else {
+                            providerStore().writeZcodeProvider(id);
+                            toast.Show(std::format("已把 {} 写入 ZCode", name));
+                        }
                     } catch (const std::exception& e) {
                         toast.Show(e.what());
                     }
                     bump();
                 })
-                .With(huxerui::Enabled(!present || !same),
-                      huxerui::Tooltip(present && same
-                                           ? "ZCode 里已是最新"
-                                           : "只把这一条写进 config.json")),
+                .With(huxerui::Enabled(aggregate ? (!present || !same || !enabled)
+                                                 : (!present || !same)),
+                      huxerui::Tooltip(
+                          aggregate
+                              ? (enabled && same
+                                     ? "已是当前聚合供应商"
+                                     : "写入本地路由条目并在 ZCode 中启用")
+                              : (present && same
+                                     ? "ZCode 里已是最新"
+                                     : "只把这一条写进 config.json"))),
             huxerui::IconButton(app::images::activity, "联通检测")
-                .OnClick([tasks, checking, latency, http, url = accessUrl] {
+                .OnClick([tasks, checking, latency, http, url = testUrl] {
                     checking = true;
                     latency = std::string{};
                     tasks.Launch([checking, latency, http,
@@ -461,14 +497,20 @@ void ShowZcodeDeleteConfirm(huxerui::DialogHandle dialog,
                         }
                     });
                 })
-                .With(huxerui::Enabled(!checking.Get() && !accessUrl.empty()),
-                      huxerui::Tooltip("检测实际访问 URL 的连通性与延迟")),
+                .With(huxerui::Enabled(!checking.Get() && !testUrl.empty()),
+                      huxerui::Tooltip(
+                          aggregate
+                              ? "聚合项没有单一探测 URL；请求经本地路由转发"
+                              : "检测实际访问 URL 的连通性与延迟")),
             huxerui::IconButton(app::images::edit, "编辑")
                 .OnClick([showEdit] { showEdit(); })
                 .With(huxerui::Tooltip("编辑")),
             huxerui::IconButton(app::images::gauge, "用量查询配置")
                 .OnClick([showUsage] { showUsage(); })
-                .With(huxerui::Tooltip("用量查询配置")),
+                .With(huxerui::Enabled(!aggregate),
+                      huxerui::Tooltip(
+                          aggregate ? "聚合供应商没有单一用量端点"
+                                    : "用量查询配置")),
             huxerui::IconButton(app::images::copy, "复制")
                 .OnClick([toast, id, bump] {
                     try {
@@ -529,10 +571,13 @@ void ShowZcodeDeleteConfirm(huxerui::DialogHandle dialog,
             // 写侧的形状：清单为空时只写主模型一条。
             std::vector<std::string> expected = p.models;
             if (expected.empty() && !p.model.empty()) expected = {p.model};
-            match.same = entry.baseUrl == models::effectiveBaseUrl(p) &&
-                         entry.apiFormat ==
-                             models::normalizeApiFormat(p.apiFormat) &&
-                         entry.apiKey == p.apiKey && entry.models == expected;
+            match.same =
+                entry.baseUrl ==
+                    providerStore().targetBaseUrl("zcode", p) &&
+                entry.apiFormat ==
+                    models::normalizeApiFormat(p.apiFormat) &&
+                entry.apiKey == providerStore().targetApiKey(p) &&
+                entry.models == expected;
         }
         matches[entry.providerId] = match;
     }
