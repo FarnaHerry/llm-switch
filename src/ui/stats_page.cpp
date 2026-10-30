@@ -124,25 +124,51 @@ huxerui::Task<huxerui::sqlite::Result<usage::UsageSnapshot>> QueryUsageSnapshot(
     using huxerui::sqlite::RowView;
 
     const std::int64_t todayStart = usage::TodayStartMillis();
-    auto totals = co_await database.QueryAsync<std::int64_t>(
+    // QueryAsync 的 decoder 每个 SQL 行只返回一个 T；汇总列必须一次读全，
+    // 不能把 vec<T> 当成一行多列来下标（Debug 会越界断言）。
+    struct TotalRow {
+        std::int64_t records = 0;
+        std::int64_t input = 0;
+        std::int64_t output = 0;
+        std::int64_t cacheRead = 0;
+        std::int64_t cacheWrite = 0;
+        std::int64_t todayRequests = 0;
+        std::int64_t todayTokens = 0;
+    };
+    auto totals = co_await database.QueryAsync<TotalRow>(
         std::string(kSnapshotTotal),
-        [](const RowView& row) -> Result<std::int64_t> {
-            return row.Get<std::int64_t>(0);
+        [](const RowView& row) -> Result<TotalRow> {
+            TotalRow out;
+            const auto read = [&row](std::size_t index,
+                                     std::int64_t& target) -> Result<void> {
+                auto value = row.Get<std::int64_t>(index);
+                if (!value) return value.Error();
+                target = *value;
+                return {};
+            };
+            if (auto ok = read(0, out.records); !ok) return ok.Error();
+            if (auto ok = read(1, out.input); !ok) return ok.Error();
+            if (auto ok = read(2, out.output); !ok) return ok.Error();
+            if (auto ok = read(3, out.cacheRead); !ok) return ok.Error();
+            if (auto ok = read(4, out.cacheWrite); !ok) return ok.Error();
+            if (auto ok = read(5, out.todayRequests); !ok) return ok.Error();
+            if (auto ok = read(6, out.todayTokens); !ok) return ok.Error();
+            return out;
         },
         todayStart, todayStart);
     if (!totals) co_return totals.Error();
 
     usage::UsageSnapshot snapshot;
     if (!totals->empty()) {
-        const auto& row = *totals;
-        snapshot.records = row[0];
-        snapshot.total.requests = row[0];
-        snapshot.total.inputTokens = row[1];
-        snapshot.total.outputTokens = row[2];
-        snapshot.total.cacheReadTokens = row[3];
-        snapshot.total.cacheWriteTokens = row[4];
-        snapshot.todayRequests = row[5];
-        snapshot.todayTokens = row[6];
+        const auto& row = totals->front();
+        snapshot.records = row.records;
+        snapshot.total.requests = row.records;
+        snapshot.total.inputTokens = row.input;
+        snapshot.total.outputTokens = row.output;
+        snapshot.total.cacheReadTokens = row.cacheRead;
+        snapshot.total.cacheWriteTokens = row.cacheWrite;
+        snapshot.todayRequests = row.todayRequests;
+        snapshot.todayTokens = row.todayTokens;
     }
 
     struct AgentRow {
