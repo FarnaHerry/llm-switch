@@ -116,6 +116,83 @@ huxerui::View AppThemed(bool dark, huxerui::View content) {
     };
     definition.Set(menus);
 
+    // 输入框统一 M3 outlined：透明底、1px outline 描边、4px 圆角、聚焦
+    // primary 2px、标签浮动在描边缺口上。主题层设默认 variant，任何未显式
+    // 指定 variant 的 TextField 也保持同一形态。
+    huxerui::TextFieldStyle textFields = huxerui::TextFieldStyle::Default();
+    textFields.variant = huxerui::TextFieldVariant::Outlined;
+    textFields.show_label = true;
+    textFields.outlined.background = huxerui::Color::Transparent();
+    textFields.outlined.disabled_background = huxerui::Color::Transparent();
+    textFields.outlined.border =
+        withAlpha(spec.colors.on_surface_variant, 0.55F);
+    textFields.outlined.hovered_border = spec.colors.on_surface_variant;
+    textFields.outlined.focused_border = spec.colors.primary;
+    textFields.outlined.disabled_border =
+        withAlpha(spec.colors.on_surface, 0.12F);
+    textFields.outlined.corner_radii =
+        huxerui::CornerRadii{spec.shapes.extra_small};
+    textFields.outlined.minimum_height = 56.0F;
+    textFields.text_style = huxerui::TextStyle{
+        huxerui::Font::System(font_size::kBody), spec.colors.on_surface};
+    textFields.label_style = huxerui::TextStyle{
+        huxerui::Font::System(font_size::kBody),
+        spec.colors.on_surface_variant};
+    textFields.floating_label_style = huxerui::TextStyle{
+        huxerui::Font::System(font_size::kChip),
+        spec.colors.on_surface_variant};
+    textFields.placeholder_style = huxerui::TextStyle{
+        huxerui::Font::System(font_size::kBody),
+        spec.colors.on_surface_variant};
+    textFields.disabled_text = withAlpha(spec.colors.on_surface, 0.38F);
+    textFields.disabled_label = withAlpha(spec.colors.on_surface, 0.38F);
+    textFields.disabled_placeholder = withAlpha(spec.colors.on_surface, 0.38F);
+    textFields.disabled_supporting_text =
+        withAlpha(spec.colors.on_surface, 0.38F);
+    textFields.focused_label = spec.colors.primary;
+    textFields.error_label = spec.colors.error;
+    textFields.validation_error = spec.colors.error;
+    textFields.validation_text_style = huxerui::TextStyle{
+        huxerui::Font::System(font_size::kChip), spec.colors.error};
+    textFields.leading_icon = spec.colors.on_surface_variant;
+    textFields.focused_leading_icon = spec.colors.primary;
+    textFields.disabled_leading_icon = withAlpha(spec.colors.on_surface, 0.38F);
+    textFields.error_leading_icon = spec.colors.error;
+    textFields.trailing_icon = spec.colors.on_surface_variant;
+    textFields.focused_trailing_icon = spec.colors.primary;
+    textFields.disabled_trailing_icon =
+        withAlpha(spec.colors.on_surface, 0.38F);
+    textFields.error_trailing_icon = spec.colors.error;
+    textFields.selection = withAlpha(spec.colors.primary, 0.24F);
+    textFields.caret = spec.colors.primary;
+    textFields.composition = spec.colors.primary;
+    textFields.border_width = 1.0F;
+    textFields.focused_border_width = 2.0F;
+    textFields.padding = huxerui::EdgeInsets::Symmetric(14.0F, 10.0F);
+    definition.Set(textFields);
+
+    // Select（上游格式/模型包/默认模型）也按 outlined 输入处理，避免同一页
+    // 面上出现「文本框描边、下拉框实心」两套语言。
+    huxerui::SelectStyle selects = huxerui::SelectStyle::Default();
+    selects.background = huxerui::Color::Transparent();
+    selects.foreground = spec.colors.on_surface;
+    selects.border = huxerui::Border{
+        withAlpha(spec.colors.on_surface_variant, 0.55F), 1.0F};
+    selects.indicator = spec.colors.on_surface_variant;
+    selects.popup_background = spec.colors.surface_container_high;
+    selects.active_item_background = withAlpha(spec.colors.primary, 0.08F);
+    selects.selected_item_background = withAlpha(spec.colors.primary, 0.12F);
+    selects.validation_error = spec.colors.error;
+    selects.validation_text_style = huxerui::TextStyle{
+        huxerui::Font::System(font_size::kChip), spec.colors.error};
+    selects.trigger_padding = huxerui::EdgeInsets::Symmetric(14.0F, 10.0F);
+    selects.item_padding = huxerui::EdgeInsets::Symmetric(12.0F, 8.0F);
+    selects.corner_radii = huxerui::CornerRadii{spec.shapes.extra_small};
+    selects.popup_corner_radii = huxerui::CornerRadii{spec.shapes.small};
+    selects.minimum_height = 56.0F;
+    selects.minimum_item_height = 40.0F;
+    definition.Set(selects);
+
     return huxerui::Theme(std::move(definition), content);
 }
 

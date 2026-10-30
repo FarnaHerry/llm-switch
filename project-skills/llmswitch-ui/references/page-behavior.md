@@ -7,6 +7,10 @@
 - 控制中心顶级 8 区块使用标题栏正中莲花锚点和屏幕中央径向导航盘，点击写
   navPage，经 IndexedPages 切换；主内容区不再为左侧栏留宽度。
   信息卡复用管理功能，迁移规则见既有桌宠专题文档，不删除控制中心入口。
+- 所有输入控件统一 M3 outlined：`AppThemed` 主题层设
+  `TextFieldStyle.variant=Outlined` 与透明底、1px outline、4px 圆角、聚焦
+  primary 2px，Select 也按同一描边语言；调用点仍显式写
+  `.Variant(TextFieldVariant::Outlined)`，主题只作兜底。
 - AgentPage 是持有 selectedTool、工具栏/Pager 和表单导航的薄宿主。
   新增/编辑与 UsageFormPage 是同一宿主内的第二个 IndexedPages 页面，覆盖
   工具栏与 Pager；表单打开时横向拖动不能切 Agent，返回后保留原列表位置、

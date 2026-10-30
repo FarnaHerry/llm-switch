@@ -432,6 +432,77 @@ int main() {
         router1.clearStats();
     }
 
+    // 3c. 聚合成员引用同组现有 Provider：凭据/baseUrl 从被引用条目解析，
+    //     model 匹配与兜底不变；引用聚合项或已删除项会被跳过。
+    {
+        groups["codex"].providers.push_back(models::Provider{
+            .id = "ref-a",
+            .name = "引用甲",
+            .baseUrl = up1.baseUrl(),
+            .apiKey = "sk-ref-a",
+            .model = "model-ref-a",
+            .fullUrl = true,
+        });
+        groups["codex"].providers.push_back(models::Provider{
+            .id = "ref-b",
+            .name = "引用乙",
+            .baseUrl = up2.baseUrl(),
+            .apiKey = "sk-ref-b",
+            .model = "model-ref-b",
+            .fullUrl = true,
+        });
+        groups["codex"].providers.push_back(models::Provider{
+            .id = "agg-ref",
+            .name = "引用聚合",
+            .upstreams = {
+                models::ProviderUpstream{.providerId = "ref-a",
+                                         .model = "model-ref-a"},
+                models::ProviderUpstream{.providerId = "ref-b",
+                                         .model = "model-ref-b"},
+            }});
+        groups["codex"].current = "agg-ref";
+        up1.status = 200;
+        up2.status = 200;
+        up1.hits = 0;
+        up2.hits = 0;
+        router1.clearStats();
+        auto res = cli.Post("/codex/chat/completions",
+                            R"({"model":"model-ref-b"})", "application/json");
+        CHECK(res && res->status == 200);
+        {
+            std::lock_guard lk(up1.mu);
+            CHECK(up1.hits == 0);
+        }
+        {
+            std::lock_guard lk(up2.mu);
+            CHECK(up2.hits == 1);
+            CHECK(up2.lastAuth == "Bearer sk-ref-b");
+        }
+        // 未匹配 model 时按引用顺序，且首个 500 会兜底到第二个。
+        up1.status = 500;
+        up1.hits = 0;
+        up2.hits = 0;
+        router1.clearStats();
+        res = cli.Post("/codex/chat/completions",
+                       R"({"model":"unknown-ref"})", "application/json");
+        CHECK(res && res->status == 200);
+        {
+            std::lock_guard lk(up1.mu);
+            CHECK(up1.hits == 1);
+        }
+        {
+            std::lock_guard lk(up2.mu);
+            CHECK(up2.hits == 1);
+        }
+        const auto snap = router1.snapshot();
+        CHECK(snap.totalRequests == 2);
+        CHECK(perProviderCount(snap, "引用聚合 · 引用乙") == 1);
+        groups["codex"].current = "c1";
+        up1.status = 200;
+        up2.status = 200;
+        router1.clearStats();
+    }
+
     // 4. 未知工具 → 404；组无 current → 502（均为中文 JSON 错误体）。
     {
         auto res = cli.Get("/nope/x");

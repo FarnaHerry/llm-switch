@@ -437,6 +437,28 @@ int main() {
     }
     s.switchTo("claude-code", idA);
 
+    // 3ab. 引用型聚合成员：没有 provider.model 时用第一个可解析成员的模型。
+    {
+        models::Provider refAggregate{
+            .name = "引用聚合",
+            .upstreams = {
+                models::ProviderUpstream{.name = "引用甲",
+                                         .providerId = idA,
+                                         .model = "model-a"},
+                models::ProviderUpstream{.name = "引用乙",
+                                         .providerId = idB,
+                                         .model = {}},
+            }};
+        s.addProvider("claude-code", refAggregate);
+        const std::string refId = s.group("claude-code").providers.back().id;
+        s.switchTo("claude-code", refId);
+        CHECK(readJson(claudeSettings)["env"]["ANTHROPIC_MODEL"] == "model-a");
+        CHECK(readJson(claudeSettings)["env"]["ANTHROPIC_AUTH_TOKEN"] ==
+              "llmswitch-aggregate");
+        s.switchTo("claude-code", idA);
+        s.removeProvider("claude-code", refId);
+    }
+
     // 3a. Claude Code 跳过初次安装检查：写入 DISABLE_INSTALLATION_CHECKS=1，
     // 关闭时只移除该键。
     CHECK(!s.claudeCodeSkipInstallationChecks());
@@ -2892,6 +2914,19 @@ int main() {
         CHECK(aggregateDecoded.upstreams[1].apiKey == "sk-b");
         CHECK(aggregateDecoded.upstreams[1].model == "model-b");
         CHECK(!models::isAggregateProvider(encoded));
+        models::Provider referenced{
+            .name = "引用聚合",
+            .upstreams = {
+                models::ProviderUpstream{.name = "引用甲",
+                                         .providerId = "provider-a",
+                                         .model = "model-a"},
+            }};
+        const auto referencedDecoded =
+            models::providerFromJson(models::toJson(referenced));
+        CHECK(models::isAggregateProvider(referencedDecoded));
+        CHECK(referencedDecoded.upstreams.size() == 1);
+        CHECK(referencedDecoded.upstreams[0].providerId == "provider-a");
+        CHECK(referencedDecoded.upstreams[0].baseUrl.empty());
         const auto legacy = models::providerFromJson(
             nlohmann::json{{"baseUrl", "https://legacy.example.com/v1"}});
         CHECK(legacy.fullUrl);

@@ -1,20 +1,21 @@
 // provider_form_aggregate.cpp — 聚合供应商编辑页。
 //
-// 一个聚合供应商 = 名称 + 默认模型 + 多条完整 API（URL / Key / 模型）。
-// 选中后 Agent 的 live 配置指向本地路由，由 router 按请求 model 优先匹配
-// 成员并在 429/5xx 时继续尝试下一条。成员必须与目标 Agent 使用同一协议；
-// 这里只收完整 URL，不再猜测 /v1 或 /anthropic 后缀。
+// 聚合供应商不再手填 URL/Key：直接从当前 Agent 的现有供应商里勾选成员，
+// 凭据只保留在原供应商条目里。选中后 Agent 的 live 配置指向本地路由，由
+// router 按请求 model 优先匹配成员，并在 429/5xx 时按列表顺序继续尝试。
+// 成员必须与目标 Agent 使用同一协议；聚合项不能嵌套另一个聚合项。
 #include <huxerui/huxerui.h>
 
-#include <cstdint>
+#include <algorithm>
 #include <exception>
 #include <format>
+#include <iterator>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
 #include "providers_internal.h"
-#include "app_resources.h"
 
 import llmswitch.models;
 import llmswitch.store;
@@ -22,29 +23,78 @@ import llmswitch.store;
 namespace llmswitch::ui {
 namespace {
 
-struct UpstreamDraft {
-    std::uint64_t key = 0;
+struct MemberInfo {
+    std::string id;
     std::string name;
-    std::string baseUrl;
-    std::string apiKey;
     std::string model;
-    bool operator==(const UpstreamDraft&) const = default;
+    std::string url;
 };
 
-std::vector<UpstreamDraft> DraftsFromProvider(const models::Provider& provider) {
-    std::vector<UpstreamDraft> drafts;
-    drafts.reserve(provider.upstreams.size());
-    for (std::size_t i = 0; i < provider.upstreams.size(); ++i) {
-        const auto& upstream = provider.upstreams[i];
-        drafts.push_back(UpstreamDraft{
-            .key = i,
-            .name = upstream.name,
-            .baseUrl = upstream.baseUrl,
-            .apiKey = upstream.apiKey,
-            .model = upstream.model,
-        });
+std::vector<MemberInfo> CandidateMembers(std::string_view tool,
+                                         std::string_view selfId) {
+    std::vector<MemberInfo> members;
+    try {
+        const auto& group = providerStore().group(std::string(tool));
+        for (const auto& provider : group.providers) {
+            if (provider.id == selfId ||
+                models::isAggregateProvider(provider)) {
+                continue;
+            }
+            members.push_back(MemberInfo{
+                .id = provider.id,
+                .name = provider.name,
+                .model = provider.model,
+                .url = models::effectiveBaseUrl(provider),
+            });
+        }
+    } catch (...) {
     }
-    return drafts;
+    return members;
+}
+
+std::vector<std::string> InitialSelection(
+    const models::Provider& initial,
+    const std::vector<MemberInfo>& candidates) {
+    std::vector<std::string> selected;
+    for (const auto& member : initial.upstreams) {
+        std::string id = member.providerId;
+        if (id.empty()) {
+            // 旧版直填成员：按访问 URL 尝试迁移到现有供应商；匹配不到就
+            // 不再保留，用户需要重新勾选。
+            for (const auto& candidate : candidates) {
+                if (!member.baseUrl.empty() &&
+                    candidate.url == member.baseUrl) {
+                    id = candidate.id;
+                    break;
+                }
+            }
+        }
+        if (id.empty()) continue;
+        const bool exists = std::ranges::any_of(
+            candidates, [&id](const MemberInfo& candidate) {
+                return candidate.id == id;
+            });
+        if (exists &&
+            std::ranges::find(selected, id) == selected.end()) {
+            selected.push_back(std::move(id));
+        }
+    }
+    return selected;
+}
+
+std::vector<std::string> AvailableModels(
+    const std::vector<MemberInfo>& candidates,
+    const std::vector<std::string>& selected) {
+    std::vector<std::string> models;
+    for (const auto& candidate : candidates) {
+        if (candidate.model.empty() ||
+            std::ranges::find(selected, candidate.id) == selected.end() ||
+            std::ranges::find(models, candidate.model) != models.end()) {
+            continue;
+        }
+        models.push_back(candidate.model);
+    }
+    return models;
 }
 
 } // namespace
@@ -60,91 +110,112 @@ std::vector<UpstreamDraft> DraftsFromProvider(const models::Provider& provider) 
         huxerui::TextEditingValue{initial.name});
     auto notes = huxerui::UseState(
         huxerui::TextEditingValue{initial.notes});
-    auto model = huxerui::UseState(
-        huxerui::TextEditingValue{initial.model});
-    std::vector<UpstreamDraft> initialDrafts = DraftsFromProvider(initial);
-    bool seededEmptyRow = false;
-    if (isNew && initialDrafts.empty()) {
-        initialDrafts.push_back(UpstreamDraft{});
-        seededEmptyRow = true;
-    }
-    auto drafts = huxerui::UseState(std::move(initialDrafts));
-    auto nextKey = huxerui::UseState<std::uint64_t>(
-        static_cast<std::uint64_t>(initial.upstreams.size() +
-                                   (seededEmptyRow ? 1 : 0)));
-    auto showKeys = huxerui::UseState(false);
+    auto chosenModel = huxerui::UseState(initial.model);
+    const std::vector<MemberInfo> candidates =
+        CandidateMembers(tool, initial.id);
+    auto selected = huxerui::UseState(InitialSelection(initial, candidates));
 
-    const std::vector<UpstreamDraft> current = drafts.Get();
-    std::vector<huxerui::View> cards;
-    cards.reserve(current.size());
-    for (std::size_t i = 0; i < current.size(); ++i) {
-        const UpstreamDraft draft = current[i];
-        huxerui::View card = huxerui::Column {
-            huxerui::Row {
-                huxerui::Text(std::format("API {}", i + 1))
-                    .Style(huxerui::TextStyle{
-                        huxerui::Font::System(font_size::kChip)
-                            .WithWeight(huxerui::FontWeight::SemiBold),
-                        theme.colors.on_surface}),
-                huxerui::Spacer(),
-                huxerui::IconButton(app::images::trash, "删除这条 API")
-                    .OnClick([drafts, i] {
-                        auto list = drafts.Get();
-                        if (i < list.size()) list.erase(list.begin() + i);
-                        drafts = std::move(list);
-                    })
-                    .With(huxerui::Tooltip("删除这条 API")),
-            }.With(huxerui::Spacing(8.0F),
-                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
-            huxerui::Row {
-                huxerui::TextField(huxerui::TextEditingValue{draft.name})
-                    .Label("名称（可选）")
-                    .Placeholder("例如 主力 / 备用")
-                    .Variant(huxerui::TextFieldVariant::Outlined)
-                    .OnChanged([drafts, i](const huxerui::TextEditingValue& v) {
-                        auto list = drafts.Get();
-                        if (i < list.size()) list[i].name = v.text;
-                        drafts = std::move(list);
-                    })
-                    .With(huxerui::Grow(1.0F)),
-                huxerui::TextField(huxerui::TextEditingValue{draft.model})
-                    .Label("模型（用于按 model 匹配，可选）")
-                    .Placeholder("例如 gpt-5.6")
-                    .Variant(huxerui::TextFieldVariant::Outlined)
-                    .OnChanged([drafts, i](const huxerui::TextEditingValue& v) {
-                        auto list = drafts.Get();
-                        if (i < list.size()) list[i].model = v.text;
-                        drafts = std::move(list);
-                    })
-                    .With(huxerui::Grow(1.0F)),
-            }.With(huxerui::Spacing(8.0F),
-                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
-            huxerui::TextField(huxerui::TextEditingValue{draft.baseUrl})
-                .Label("Base URL（完整地址，含 /v1 等路径）")
-                .Placeholder("https://api.example.com/v1")
-                .Variant(huxerui::TextFieldVariant::Outlined)
-                .OnChanged([drafts, i](const huxerui::TextEditingValue& v) {
-                    auto list = drafts.Get();
-                    if (i < list.size()) list[i].baseUrl = v.text;
-                    drafts = std::move(list);
-                }),
-            huxerui::TextField(huxerui::TextEditingValue{draft.apiKey})
-                .Label("API Key")
-                .Variant(huxerui::TextFieldVariant::Outlined)
-                .Secure(!showKeys.Get())
-                .OnChanged([drafts, i](const huxerui::TextEditingValue& v) {
-                    auto list = drafts.Get();
-                    if (i < list.size()) list[i].apiKey = v.text;
-                    drafts = std::move(list);
-                }),
-        }.With(huxerui::Spacing(8.0F),
-               huxerui::Background(islands.raised),
-               huxerui::CornerRadius(islands.nested_radius),
-               huxerui::Padding(islands.island_padding),
-               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
-        cards.push_back(std::move(card).Key(
-            "aggregate-api:" + std::to_string(draft.key)));
+    const std::vector<std::string> selectedIds = selected.Get();
+    const std::vector<std::string> models =
+        AvailableModels(candidates, selectedIds);
+    std::string effectiveModel = chosenModel.Get();
+    if (std::ranges::find(models, effectiveModel) == models.end()) {
+        effectiveModel = models.empty() ? std::string{} : models.front();
     }
+    const std::size_t modelIndex =
+        effectiveModel.empty()
+            ? 0
+            : static_cast<std::size_t>(std::distance(
+                  models.begin(), std::ranges::find(models, effectiveModel)));
+
+    const bool hasLegacyEntries = std::ranges::any_of(
+        initial.upstreams, [](const models::ProviderUpstream& member) {
+            return member.providerId.empty();
+        });
+
+    std::vector<huxerui::View> memberRows;
+    memberRows.reserve(candidates.size());
+    for (const auto& candidate : candidates) {
+        const bool checked =
+            std::ranges::find(selectedIds, candidate.id) != selectedIds.end();
+        huxerui::View row = huxerui::Row {
+            huxerui::Checkbox(checked).OnChanged(
+                [selected, id = candidate.id](bool on) {
+                    auto list = selected.Get();
+                    const auto found =
+                        std::ranges::find(list, id);
+                    if (on && found == list.end()) {
+                        list.push_back(id);
+                    } else if (!on && found != list.end()) {
+                        list.erase(found);
+                    }
+                    selected = std::move(list);
+                }),
+            huxerui::Column {
+                huxerui::Text(candidate.name).Style(huxerui::TextStyle{
+                    huxerui::Font::System(font_size::kBody)
+                        .WithWeight(huxerui::FontWeight::SemiBold),
+                    theme.colors.on_surface}),
+                huxerui::Text(
+                    candidate.model.empty()
+                        ? "未设置默认模型"
+                        : std::format("模型 {}", candidate.model))
+                    .Style(huxerui::TextStyle{
+                        huxerui::Font::System(font_size::kChip),
+                        theme.colors.on_surface_variant}),
+            }.With(huxerui::Spacing(2.0F), huxerui::Grow(1.0F)),
+            huxerui::Text(candidate.url.empty() ? "未设置 URL" : candidate.url)
+                .Style(huxerui::TextStyle{
+                    huxerui::Font::Monospace(font_size::kChip),
+                    theme.colors.on_surface_variant}),
+        }.With(huxerui::Spacing(10.0F),
+               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
+               huxerui::Padding(
+                   huxerui::EdgeInsets::Symmetric(12.0F, 8.0F)),
+               huxerui::Background(checked ? theme.colors.primary_container
+                                           : theme.colors.surface_container_high),
+               huxerui::CornerRadius(theme.shapes.extra_small),
+               huxerui::Border{checked ? theme.colors.primary
+                                       : theme.colors.outline,
+                               1.0F});
+        memberRows.push_back(std::move(row).Key("aggregate-member:" +
+                                                candidate.id));
+    }
+
+    huxerui::View memberList =
+        memberRows.empty()
+            ? huxerui::View{
+                  huxerui::Text(
+                      "当前 Agent 还没有可用的普通供应商；请先在供应商页新增，"
+                      "再回来做聚合。")
+                      .Style(huxerui::TextStyle{
+                          huxerui::Font::System(font_size::kCaption),
+                          theme.colors.on_surface_variant})}
+            : huxerui::View{huxerui::Column(std::move(memberRows))
+                                .With(huxerui::Spacing(8.0F),
+                                      huxerui::CrossAlign(
+                                          huxerui::CrossAxisAlignment::Stretch))};
+
+    huxerui::View modelPicker =
+        models.empty()
+            ? huxerui::View{
+                  huxerui::Text(
+                      "选中的供应商都未设置模型；切换后 Agent 会沿用现有模型。")
+                      .Style(huxerui::TextStyle{
+                          huxerui::Font::System(font_size::kCaption),
+                          theme.colors.on_surface_variant})}
+            : huxerui::View{
+                  huxerui::Select(
+                      models, modelIndex,
+                      [](const std::string& option) {
+                          return huxerui::Text(option).Key(option);
+                      })
+                      .Label("默认模型")
+                      .OnChanged([chosenModel, models](std::size_t index) {
+                          if (index < models.size()) {
+                              chosenModel = models[index];
+                          }
+                      })};
 
     const huxerui::View protocolHint =
         tool == "codex"
@@ -161,10 +232,10 @@ std::vector<UpstreamDraft> DraftsFromProvider(const models::Provider& provider) 
         huxerui::ScrollView(
             huxerui::Column {
                 huxerui::Text(
-                    "聚合供应商把多条 API 组织成一个可选条目。切换后 Agent "
-                    "的请求先发到本地路由，再按请求里的 model 优先匹配成员；"
-                    "成员返回 429/5xx 或连接失败时继续尝试下一条。成员 URL "
-                    "必须是完整地址，且协议与目标 Agent 一致。")
+                    "聚合供应商把当前 Agent 的多个现有供应商组织成一个可选"
+                    "条目。切换后请求先发到本地路由，按请求里的 model 优先"
+                    "匹配成员；成员返回 429/5xx 或连接失败时，按下方列表顺序"
+                    "继续尝试下一条。成员协议必须与目标 Agent 一致。")
                     .Style(huxerui::TextStyle{
                         huxerui::Font::System(font_size::kCaption),
                         theme.colors.on_surface_variant}),
@@ -174,13 +245,6 @@ std::vector<UpstreamDraft> DraftsFromProvider(const models::Provider& provider) 
                     .OnChanged([name](const huxerui::TextEditingValue& v) {
                         name = v;
                     }),
-                huxerui::TextField(model.Get())
-                    .Label("默认模型（可选；成员都留空时必填）")
-                    .Placeholder("填给 Agent 的默认 model")
-                    .Variant(huxerui::TextFieldVariant::Outlined)
-                    .OnChanged([model](const huxerui::TextEditingValue& v) {
-                        model = v;
-                    }),
                 huxerui::TextField(notes.Get())
                     .Label("备注（可选）")
                     .Variant(huxerui::TextFieldVariant::Outlined)
@@ -188,23 +252,27 @@ std::vector<UpstreamDraft> DraftsFromProvider(const models::Provider& provider) 
                         notes = v;
                     }),
                 protocolHint,
-                huxerui::Switch("显示 API Key", showKeys.Get())
-                    .OnChanged([showKeys](bool on) { showKeys = on; }),
-                huxerui::Column(std::move(cards))
-                    .With(huxerui::Spacing(10.0F),
-                          huxerui::CrossAlign(
-                              huxerui::CrossAxisAlignment::Stretch)),
-                huxerui::Row {
-                    huxerui::Button("添加 API").OnClick(
-                        [drafts, nextKey] {
-                            auto list = drafts.Get();
-                            list.push_back(UpstreamDraft{
-                                .key = nextKey.Get(), .name = {}, .baseUrl = {},
-                                .apiKey = {}, .model = {}});
-                            nextKey = nextKey.Get() + 1;
-                            drafts = std::move(list);
-                        }),
-                },
+                huxerui::Text("选择现有供应商")
+                    .Style(huxerui::TextStyle{
+                        huxerui::Font::System(font_size::kBody)
+                            .WithWeight(huxerui::FontWeight::SemiBold),
+                        theme.colors.on_surface}),
+                huxerui::Text(
+                    "按列表顺序作为兜底顺序；凭据仍只保存在原供应商条目里。")
+                    .Style(huxerui::TextStyle{
+                        huxerui::Font::System(font_size::kCaption),
+                        theme.colors.on_surface_variant}),
+                hasLegacyEntries
+                    ? huxerui::View{
+                          huxerui::Text(
+                              "这个聚合项含旧版直填 API；保存后会改为下方"
+                              "勾选的现有供应商。")
+                              .Style(huxerui::TextStyle{
+                                  huxerui::Font::System(font_size::kChip),
+                                  theme.colors.error})}
+                    : huxerui::View{huxerui::Row{}},
+                std::move(memberList),
+                std::move(modelPicker),
             }.With(huxerui::Spacing(10.0F),
                    huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)))
                 .With(huxerui::Grow(1.0F)),
@@ -217,37 +285,38 @@ std::vector<UpstreamDraft> DraftsFromProvider(const models::Provider& provider) 
                         toast.Show("名称不能为空");
                         return;
                     }
+                    const std::vector<std::string> currentSelection =
+                        selected.Get();
                     std::vector<models::ProviderUpstream> upstreams;
-                    for (const auto& draft : drafts.Get()) {
-                        if (draft.baseUrl.empty()) continue;
+                    for (const auto& candidate : candidates) {
+                        if (std::ranges::find(currentSelection,
+                                              candidate.id) ==
+                            currentSelection.end()) {
+                            continue;
+                        }
                         upstreams.push_back(models::ProviderUpstream{
-                            .name = draft.name,
-                            .baseUrl = draft.baseUrl,
-                            .apiKey = draft.apiKey,
-                            .model = draft.model,
+                            .name = candidate.name,
+                            .providerId = candidate.id,
+                            .model = candidate.model,
                         });
                     }
                     if (upstreams.empty()) {
-                        toast.Show("至少填写一条 API Base URL");
+                        toast.Show("至少选择一个现有供应商");
                         return;
                     }
-                    std::string defaultModel = model.Get().text;
-                    if (defaultModel.empty()) {
-                        for (const auto& upstream : upstreams) {
-                            if (!upstream.model.empty()) {
-                                defaultModel = upstream.model;
-                                break;
-                            }
-                        }
-                    }
-                    if (defaultModel.empty()) {
-                        toast.Show("请填写默认模型，或给至少一条 API 填写模型");
-                        return;
+                    const std::vector<std::string> modelChoices =
+                        AvailableModels(candidates, currentSelection);
+                    std::string defaultModel = chosenModel.Get();
+                    if (std::ranges::find(modelChoices, defaultModel) ==
+                        modelChoices.end()) {
+                        defaultModel = modelChoices.empty()
+                                           ? std::string{}
+                                           : modelChoices.front();
                     }
                     models::Provider provider = initial;
                     provider.name = formName;
                     provider.notes = notes.Get().text;
-                    provider.model = defaultModel;
+                    provider.model = std::move(defaultModel);
                     provider.baseUrl.clear();
                     provider.modelFetchUrl.clear();
                     provider.apiKey = "llmswitch-aggregate";
@@ -265,7 +334,7 @@ std::vector<UpstreamDraft> DraftsFromProvider(const models::Provider& provider) 
                         } else {
                             providerStore().updateProvider(tool, provider);
                         }
-                        // 当前聚合项改了默认模型/成员时，live 配置里的 model
+                        // 当前聚合项改了成员/默认模型时，live 配置里的 model
                         // 也要跟着走；路由本身读 store，不用重启。
                         if (wasCurrent) SwitchProvider(tool, provider.id);
                     } catch (const std::exception& e) {

@@ -1779,10 +1779,18 @@ void ProviderStore::switchTo(std::string_view tool, const std::string& id) {
         }
         if (aggregateTarget.model.empty()) {
             for (const auto& upstream : aggregateTarget.upstreams) {
-                if (!upstream.model.empty()) {
+                if (!upstream.providerId.empty()) {
+                    for (const auto& member : g.providers) {
+                        if (member.id != upstream.providerId) continue;
+                        aggregateTarget.model = member.model.empty()
+                                                    ? upstream.model
+                                                    : member.model;
+                        break;
+                    }
+                } else if (!upstream.model.empty()) {
                     aggregateTarget.model = upstream.model;
-                    break;
                 }
+                if (!aggregateTarget.model.empty()) break;
             }
         }
         if (tool == "codex" && aggregateTarget.codexConfigToml.empty()) {

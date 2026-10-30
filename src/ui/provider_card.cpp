@@ -232,7 +232,7 @@ huxerui::View StatusText(const StatusPreview& preview, const std::string& full,
         aggregate
             ? huxerui::View{
                   huxerui::Text(
-                      std::format("聚合 {} 个 API", provider.upstreams.size()))
+                      std::format("聚合 {} 个供应商", provider.upstreams.size()))
                       .Style(huxerui::TextStyle{
                           huxerui::Font::System(font_size::kCaption),
                           theme.colors.on_surface_variant})}

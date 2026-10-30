@@ -323,7 +323,7 @@ namespace llmswitch::ui {
                         formTarget = "aggregate:new";
                     })
                     .With(huxerui::Tooltip(
-                        "新增聚合供应商（多条 API 经本地路由分发）")));
+                        "新增聚合供应商（选择现有供应商经本地路由分发）")));
         }
         pageActions.push_back(
             huxerui::IconButton(app::images::add, "新增供应商")

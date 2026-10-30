@@ -381,38 +381,65 @@ struct LocalRouter::Impl {
         };
         std::vector<Attempt> attempts;
         const std::string requestedModel = RequestedModel(req);
-        const auto appendProvider = [&attempts, &requestedModel](
+        const auto appendProvider = [&attempts, &requestedModel, &group](
                                         const models::Provider& configured) {
             if (!models::isAggregateProvider(configured)) {
                 attempts.push_back(Attempt{configured, configured.name});
                 return;
             }
-            std::vector<const models::ProviderUpstream*> members;
+            // 成员可以是同组 Provider.id 引用（推荐），也可以是旧版直填的
+            // 完整 URL。引用优先；指向聚合项或已删除项的引用跳过，避免递归。
+            struct Member {
+                models::Provider provider;
+                std::string label;
+            };
+            std::vector<Member> members;
             members.reserve(configured.upstreams.size());
-            for (const auto& member : configured.upstreams) {
-                if (!member.model.empty() && member.model == requestedModel) {
-                    members.push_back(&member);
-                }
-            }
-            for (const auto& member : configured.upstreams) {
-                if (!member.model.empty() && member.model == requestedModel) {
+            for (const auto& entry : configured.upstreams) {
+                models::Provider provider;
+                if (!entry.providerId.empty()) {
+                    for (const auto& candidate : group->providers) {
+                        if (candidate.id == entry.providerId &&
+                            !models::isAggregateProvider(candidate)) {
+                            provider = candidate;
+                            break;
+                        }
+                    }
+                    if (provider.baseUrl.empty()) continue;
+                } else if (!entry.baseUrl.empty()) {
+                    provider.name = entry.name;
+                    provider.baseUrl = entry.baseUrl;
+                    provider.apiKey = entry.apiKey;
+                    provider.model = entry.model;
+                    provider.fullUrl = true;
+                } else {
                     continue;
                 }
-                members.push_back(&member);
+                std::string label = provider.name;
+                if (label.empty()) label = entry.name;
+                if (label.empty()) label = provider.model;
+                if (label.empty()) label = "成员";
+                members.push_back(Member{std::move(provider),
+                                         std::move(label)});
             }
-            for (const auto* member : members) {
-                models::Provider provider = configured;
-                provider.baseUrl = member->baseUrl;
-                provider.apiKey = member->apiKey;
-                provider.model = member->model;
-                provider.fullUrl = true;
-                const std::string label =
-                    member->name.empty()
-                        ? (member->model.empty() ? configured.name
-                                                 : member->model)
-                        : member->name;
+            std::vector<std::size_t> order;
+            order.reserve(members.size());
+            for (std::size_t i = 0; i < members.size(); ++i) {
+                if (!members[i].provider.model.empty() &&
+                    members[i].provider.model == requestedModel) {
+                    order.push_back(i);
+                }
+            }
+            for (std::size_t i = 0; i < members.size(); ++i) {
+                if (members[i].provider.model.empty() ||
+                    members[i].provider.model != requestedModel) {
+                    order.push_back(i);
+                }
+            }
+            for (const std::size_t index : order) {
                 attempts.push_back(Attempt{
-                    std::move(provider), configured.name + " · " + label});
+                    members[index].provider,
+                    configured.name + " · " + members[index].label});
             }
         };
         appendProvider(group->providers[curIdx]);
@@ -420,6 +447,11 @@ struct LocalRouter::Impl {
             for (std::size_t i = 0; i < group->providers.size(); ++i) {
                 if (i != curIdx) appendProvider(group->providers[i]);
             }
+        }
+        if (attempts.empty()) {
+            jsonError(res, 502,
+                      std::format("聚合供应商 {} 没有可用成员", tool));
+            return;
         }
         // 在途计数守卫：从这里起请求正式尝试上游，循环的中止/失败/异常
         // 出口都由析构统一 -1（故障转移的一串尝试算一次在途）。

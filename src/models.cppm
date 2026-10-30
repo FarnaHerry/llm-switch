@@ -436,11 +436,13 @@ export std::string formatTokenCount(std::int64_t value) {
 
 // ---- 数据模型 -----------------------------------------------------------------
 
-// 聚合供应商中的一条上游 API。baseUrl 存调用方填写的完整地址（含 /v1、
-// /anthropic 等路径），router 直接拼接剩余请求路径，不再追加格式后缀。
-// model 用于按请求体的 model 选择优先上游；空 = 不参与精确匹配。
+// 聚合供应商的一条成员。providerId 非空时引用同组现有 Provider（推荐，
+// 凭据只存一份，成员改动自动跟随）；baseUrl/apiKey/model 是旧版直填成员
+// 的兼容字段，providerId 为空时才使用。model 用于按请求体的 model 选择
+// 优先成员；空 = 不参与精确匹配。
 export struct ProviderUpstream {
     std::string name;
+    std::string providerId;
     std::string baseUrl;
     std::string apiKey;
     std::string model;
@@ -507,8 +509,8 @@ export struct Provider {
     std::string upstreamFormat = "openai";  // "anthropic" / "openai"
     bool fullUrl = true;
     // 非空 = 聚合供应商：该条目本身不直连，选中后由本地路由把请求分发到
-    // 这些完整 API 地址；空 = 普通单上游供应商。apiFormat / upstreamFormat
-    // 仍描述对 Agent 暴露的协议，成员必须与之一致。
+    // 这些成员（通常引用同组现有 Provider）；空 = 普通单上游供应商。
+    // apiFormat / upstreamFormat 仍描述对 Agent 暴露的协议，成员必须一致。
     std::vector<ProviderUpstream> upstreams;
 
     bool operator==(const Provider&) const = default;
@@ -633,6 +635,7 @@ export nlohmann::json toJson(const Provider& p) {
         for (const auto& upstream : p.upstreams) {
             j["upstreams"].push_back({
                 {"name", upstream.name},
+                {"providerId", upstream.providerId},
                 {"baseUrl", upstream.baseUrl},
                 {"apiKey", upstream.apiKey},
                 {"model", upstream.model},
@@ -703,11 +706,13 @@ export Provider providerFromJson(const nlohmann::json& j) {
             if (!item.is_object()) continue;
             ProviderUpstream upstream{
                 .name = item.value("name", ""),
+                .providerId = item.value("providerId", ""),
                 .baseUrl = item.value("baseUrl", ""),
                 .apiKey = item.value("apiKey", ""),
                 .model = item.value("model", ""),
             };
-            if (!upstream.baseUrl.empty()) {
+            // 引用成员没有 baseUrl；直填成员没有 providerId 时才要求 URL。
+            if (!upstream.providerId.empty() || !upstream.baseUrl.empty()) {
                 p.upstreams.push_back(std::move(upstream));
             }
         }
