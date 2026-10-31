@@ -548,10 +548,10 @@ export bool isAggregateProvider(const Provider& provider) {
     return !provider.upstreams.empty();
 }
 
-// 供应商已知的全部模型：主模型优先，再按 models 清单原顺序补其余模型。
-// 模型清单可能来自「获取模型」、ZCode/dsh 收编或历史配置；去重后供聚合
-// 编辑页一次性带入所有模型，也用于生成对外模型清单。没有主模型也没有
-// 清单时返回空。
+// 供应商已知的全部模型：主模型、直连模式已配置的三档映射实际模型，再按
+// models 清单原顺序补其余模型。模型清单可能来自「获取模型」、ZCode/dsh
+// 收编或历史配置；去重后供聚合编辑页一次性带入所有模型，也用于生成对外
+// 模型清单。没有主模型、映射和清单时返回空。
 export std::vector<std::string> knownModels(const Provider& provider) {
     std::vector<std::string> models;
     const auto add = [&models](const std::string& model) {
@@ -561,6 +561,11 @@ export std::vector<std::string> knownModels(const Provider& provider) {
         }
     };
     add(provider.model);
+    // 直连模式里 haiku/sonnet/opus 三档映射保存的是实际上游模型 ID；
+    // 聚合默认直接引用这些配置，不必为了列全而重新请求 /models。
+    add(provider.haikuModel);
+    add(provider.sonnetModel);
+    add(provider.opusModel);
     for (const auto& model : provider.models) add(model);
     return models;
 }

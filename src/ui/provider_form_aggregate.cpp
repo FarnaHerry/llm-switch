@@ -260,6 +260,8 @@ void MoveEntry(huxerui::State<std::vector<ModelEntry>> entries,
     auto chosenModel = huxerui::UseState(
         InitialDefaultModel(initial, ordered.Get()));
     auto dropTargetKey = huxerui::UseState<std::string>({});
+    auto manualProvider = huxerui::UseState<std::size_t>(0);
+    auto manualModel = huxerui::UseState(huxerui::TextEditingValue{});
 
     const std::vector<ModelEntry> entries = ordered.Get();
     const std::vector<std::string> models = ModelChoices(entries);
@@ -272,6 +274,16 @@ void MoveEntry(huxerui::State<std::vector<ModelEntry>> entries,
             ? 0
             : static_cast<std::size_t>(std::distance(
                   models.begin(), std::ranges::find(models, effectiveModel)));
+
+    std::vector<std::string> manualProviderNames;
+    manualProviderNames.reserve(candidates.size());
+    for (const auto& candidate : candidates) {
+        manualProviderNames.push_back(candidate.name);
+    }
+    const std::size_t manualIndex =
+        candidates.empty()
+            ? 0
+            : std::min(manualProvider.Get(), candidates.size() - 1);
 
     const bool hasLegacyEntries = std::ranges::any_of(
         initial.upstreams, [](const models::ProviderUpstream& member) {
@@ -383,6 +395,16 @@ void MoveEntry(huxerui::State<std::vector<ModelEntry>> entries,
                         huxerui::Font::System(font_size::kChip),
                         theme.colors.on_surface_variant}),
             }.With(huxerui::Spacing(2.0F), huxerui::Grow(1.0F)),
+            huxerui::Button("移除")
+                .OnClick([ordered, index] {
+                    auto list = ordered.Get();
+                    if (index < list.size()) {
+                        list.erase(list.begin() +
+                                   static_cast<std::ptrdiff_t>(index));
+                        ordered = std::move(list);
+                    }
+                })
+                .With(huxerui::Tooltip("从聚合中移除这个模型")),
             huxerui::Button("上移")
                 .OnClick([ordered, index] { MoveEntry(ordered, index, -1); })
                 .With(huxerui::Enabled(index > 0),
@@ -522,9 +544,8 @@ void MoveEntry(huxerui::State<std::vector<ModelEntry>> entries,
                             huxerui::Font::System(font_size::kBody)
                                 .WithWeight(huxerui::FontWeight::SemiBold),
                             theme.colors.on_surface}),
-                    huxerui::Spacer(),
                     huxerui::Button(fetching.Get() ? "获取中…"
-                                                   : "获取全部模型")
+                                                   : "获取全量模型")
                         .OnClick([=] {
                             if (fetching.Get() || candidates.empty()) return;
                             fetching = true;
@@ -604,14 +625,16 @@ void MoveEntry(huxerui::State<std::vector<ModelEntry>> entries,
                                                !candidates.empty()),
                               huxerui::Tooltip(
                                   "按各供应商的地址与密钥拉取完整模型列表")),
-                }.With(huxerui::Spacing(8.0F),
+                }.With(huxerui::Spacing(12.0F),
+                       huxerui::MainAlign(
+                           huxerui::MainAxisAlignment::Start),
                        huxerui::CrossAlign(
                            huxerui::CrossAxisAlignment::Center)),
                 huxerui::Text(
-                    "勾选会默认带入该供应商的全部已知模型（主模型优先，再按"
-                    "模型清单顺序；清单来自供应商页「获取模型列表」并保存的"
-                    "结果）；点「获取全部模型」可直接刷新各供应商的清单。"
-                    "凭据仍只保存在原供应商条目里。")
+                    "默认直接带入直连模式已配置的模型（主模型、三档映射和"
+                    "已保存的模型清单）；需要完整菜单时点「获取全量模型」"
+                    "重新请求。勾选供应商会把这些模型加入尝试顺序，也可以在"
+                    "下方手动增删模型。凭据仍只保存在原供应商条目里。")
                     .Style(huxerui::TextStyle{
                         huxerui::Font::System(font_size::kCaption),
                         theme.colors.on_surface_variant}),
@@ -638,6 +661,77 @@ void MoveEntry(huxerui::State<std::vector<ModelEntry>> entries,
                         huxerui::Font::System(font_size::kCaption),
                         theme.colors.on_surface_variant}),
                 std::move(orderList),
+                huxerui::Text("手动添加模型")
+                    .Style(huxerui::TextStyle{
+                        huxerui::Font::System(font_size::kBody)
+                            .WithWeight(huxerui::FontWeight::SemiBold),
+                        theme.colors.on_surface}),
+                candidates.empty()
+                    ? huxerui::View{
+                          huxerui::Text("先勾选或新增一个现有供应商，才能手动添加模型。")
+                              .Style(huxerui::TextStyle{
+                                  huxerui::Font::System(font_size::kCaption),
+                                  theme.colors.on_surface_variant})}
+                    : huxerui::View{
+                          huxerui::Row {
+                              huxerui::Select(
+                                  manualProviderNames, manualIndex,
+                                  [](const std::string& option) {
+                                      return huxerui::Text(option).Key(option);
+                                  })
+                                  .Label("供应商")
+                                  .OnChanged([manualProvider](std::size_t index) {
+                                      manualProvider = index;
+                                  })
+                                  .With(huxerui::Frame{.width = 180.0F}),
+                              huxerui::TextField(manualModel.Get())
+                                  .Label("模型 ID")
+                                  .Variant(huxerui::TextFieldVariant::Outlined)
+                                  .OnChanged([manualModel](
+                                                 const huxerui::TextEditingValue& v) {
+                                      manualModel = v;
+                                  })
+                                  .With(huxerui::Grow(1.0F)),
+                              huxerui::Button("添加")
+                                  .OnClick([candidates, ordered, manualProvider,
+                                            manualModel, toast] {
+                                      if (candidates.empty()) return;
+                                      const std::size_t index = std::min(
+                                          manualProvider.Get(),
+                                          candidates.size() - 1);
+                                      const std::string model =
+                                          manualModel.Get().text;
+                                      if (model.empty()) {
+                                          toast.Show("模型 ID 不能为空");
+                                          return;
+                                      }
+                                      auto list = ordered.Get();
+                                      const MemberInfo& member = candidates[index];
+                                      if (HasEntry(list, member.id, model)) {
+                                          toast.Show("该模型已在尝试顺序中");
+                                          return;
+                                      }
+                                      list.push_back(ModelEntry{
+                                          .providerId = member.id,
+                                          .providerName = member.name,
+                                          .model = model,
+                                      });
+                                      ordered = std::move(list);
+                                      manualModel =
+                                          huxerui::TextEditingValue{};
+                                  }),
+                          }.With(huxerui::Spacing(8.0F),
+                                 huxerui::CrossAlign(
+                                     huxerui::CrossAxisAlignment::Center))},
+                candidates.empty()
+                    ? huxerui::View{huxerui::Row{}}
+                    : huxerui::View{
+                          huxerui::Text(
+                              "手动添加的模型填成员原始 ID，不要带「供应商名/」"
+                              "前缀；它只影响本聚合项。")
+                              .Style(huxerui::TextStyle{
+                                  huxerui::Font::System(font_size::kChip),
+                                  theme.colors.on_surface_variant})},
                 std::move(modelPicker),
             }.With(huxerui::Spacing(10.0F),
                    huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)))

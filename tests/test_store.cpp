@@ -540,6 +540,14 @@ int main() {
         };
         CHECK(models::knownModels(source) ==
               std::vector<std::string>({"model-b", "model-a", "model-c"}));
+        models::Provider mapped{
+            .model = "main",
+            .haikuModel = "small",
+            .sonnetModel = "mid",
+            .opusModel = "big",
+        };
+        CHECK(models::knownModels(mapped) ==
+              std::vector<std::string>({"main", "small", "mid", "big"}));
         models::Provider onlyModel{.model = "only"};
         CHECK(models::knownModels(onlyModel) ==
               std::vector<std::string>({"only"}));
