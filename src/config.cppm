@@ -9,6 +9,11 @@
 //   LLMSWITCH_OPENCODE_CONFIG     → ~/.config/opencode/opencode.json（opencode）
 //   LLMSWITCH_PI_DIR              → ~/.pi/agent/                   （pi；官方
 //                                   PI_CODING_AGENT_DIR 亦受尊重，优先级低于前者）
+//   LLMSWITCH_OMP_DIR             → ~/.omp/agent/                  （oh-my-pi；
+//                                   官方 PI_CODING_AGENT_DIR / OMP_PROFILE /
+//                                   PI_CONFIG_DIR 亦受尊重，优先级低于前者）
+//   LLMSWITCH_OMP_MODELS          → <omp agent>/models.yml          （oh-my-pi）
+//   LLMSWITCH_OMP_CONFIG          → <omp agent>/config.yml          （oh-my-pi）
 //   LLMSWITCH_CLAUDE_DESKTOP_DIR  → macOS ~/Library/Application Support/Claude /
 //                                   Windows %LOCALAPPDATA%/Claude  （claude desktop，
 //                                   Linux 不支持；3p 目录取其兄弟 <dir>-3p）
@@ -237,6 +242,67 @@ export std::filesystem::path piModelsFile() {
 // pi 的全局设置（深合并 defaultProvider / defaultModel）。
 export std::filesystem::path piSettingsFile() {
     return piAgentDir() / "settings.json";
+}
+
+// oh-my-pi（OMP，CLI 命令 omp）的配置根：默认 ~/.omp；官方 PI_CONFIG_DIR
+// 可改根目录名，OMP_PROFILE / PI_PROFILE 选择命名 profile（profiles/<name>/
+// agent），PI_CODING_AGENT_DIR 只覆盖默认 profile 的 agent 目录。
+namespace {
+std::filesystem::path ompConfigRoot() {
+    if (const char* e = std::getenv("PI_CONFIG_DIR"); e && *e) {
+        const std::filesystem::path root(e);
+        return root.is_absolute() ? root : homeDir() / root;
+    }
+    return homeDir() / ".omp";
+}
+} // namespace
+
+export std::filesystem::path ompAgentDir() {
+    if (const char* e = std::getenv("LLMSWITCH_OMP_DIR"); e && *e) {
+        return std::filesystem::path(e);
+    }
+    const char* profile = std::getenv("OMP_PROFILE");
+    if (profile == nullptr || *profile == '\0') {
+        profile = std::getenv("PI_PROFILE");
+    }
+    if (profile != nullptr && *profile != '\0' &&
+        std::string_view(profile) != "default") {
+        return ompConfigRoot() / "profiles" / profile / "agent";
+    }
+    if (const char* e = std::getenv("PI_CODING_AGENT_DIR"); e && *e) {
+        return std::filesystem::path(e);
+    }
+    return ompConfigRoot() / "agent";
+}
+
+// OMP 的模型/供应商注册表：官方优先 models.yml，已有 models.yaml 时沿用
+// （两个都在时 models.yml 生效）。LLMSWITCH_OMP_MODELS 覆盖完整文件路径。
+export std::filesystem::path ompModelsFile() {
+    if (const char* e = std::getenv("LLMSWITCH_OMP_MODELS"); e && *e) {
+        return std::filesystem::path(e);
+    }
+    const auto dir = ompAgentDir();
+    std::error_code ec;
+    if (!std::filesystem::exists(dir / "models.yml", ec) &&
+        std::filesystem::exists(dir / "models.yaml", ec)) {
+        return dir / "models.yaml";
+    }
+    return dir / "models.yml";
+}
+
+// OMP 的主设置：modelRoles.default 等；官方优先 config.yml，已有 config.yaml
+// 时沿用。LLMSWITCH_OMP_CONFIG 覆盖完整文件路径。
+export std::filesystem::path ompConfigFile() {
+    if (const char* e = std::getenv("LLMSWITCH_OMP_CONFIG"); e && *e) {
+        return std::filesystem::path(e);
+    }
+    const auto dir = ompAgentDir();
+    std::error_code ec;
+    if (!std::filesystem::exists(dir / "config.yml", ec) &&
+        std::filesystem::exists(dir / "config.yaml", ec)) {
+        return dir / "config.yaml";
+    }
+    return dir / "config.yml";
 }
 
 // ZCode 的 provider 注册表（provider map upsert + enabled 切换；样本字段

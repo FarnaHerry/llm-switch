@@ -1,7 +1,7 @@
 // store_live.cpp — llmswitch.store 实现单元：live 配置文件同步。
 //
 // switchTo / detectCurrent / restoreOfficial / importLive / importFrom
-// 与各工具的格式细节（env 行级读写、opencode / pi 的 provider 映射、
+// 与各工具的格式细节（env 行级读写、opencode / pi / oh-my-pi 的 provider 映射、
 // codex 的 auth.json + config.toml、claude desktop 的 3p profile、
 // zcode 的 config.json 条目、dsh 的 settings.yaml/.credentials.yaml 与
 // hermes 的 config.yaml 行级改写）都在这里。跨单元共用的文件工具与 ZCode
@@ -1765,6 +1765,509 @@ HermesConfigInfo parseHermesConfig(std::string_view text) {
     return info;
 }
 
+// ---- oh-my-pi（OMP）models.yml / config.yml 行级读写 ----------------------
+// OMP 没有 YAML 库可用，沿用 dsh 的缩进模型：只认 providers map 与
+// modelRoles.default 这一小块结构，其余键、注释和条目原样保留。OMP 的
+// providers 是 flow 风格时无法安全插入块条目，明确报错而不是写坏文件。
+
+namespace {
+
+bool ompIsBlockComment(std::string_view value) {
+    const auto trimmed = trimBoth(value);
+    return trimmed.empty() || trimmed.front() == '#';
+}
+
+bool ompIsEmptyFlowMap(std::string_view value) {
+    return trimBoth(value) == "{}";
+}
+
+// 找出顶层 <key>: 的块范围。返回块头行下标；未找到返回 npos。blockEnd 是
+// 下一个顶层键（或文件尾），只用于插入位置。
+std::size_t ompFindTopLevelBlock(const std::vector<std::string>& lines,
+                                 std::string_view key,
+                                 std::size_t& blockEnd) {
+    for (std::size_t i = 0; i < lines.size(); ++i) {
+        const YamlLine dl = yamlLineOf(lines[i]);
+        if (dl.blank || dl.comment || dl.indent != 0 || dl.key != key) {
+            continue;
+        }
+        blockEnd = lines.size();
+        for (std::size_t j = i + 1; j < lines.size(); ++j) {
+            const YamlLine next = yamlLineOf(lines[j]);
+            if (next.blank || next.comment) continue;
+            if (next.indent <= 0) {
+                blockEnd = j;
+                break;
+            }
+        }
+        return i;
+    }
+    return std::string::npos;
+}
+
+// providers 块里与 key 同缩进的条目范围 [start, end)；缩进取文件实际值。
+bool ompFindProviderEntry(const std::vector<std::string>& lines,
+                          std::size_t providersIndex, std::size_t blockEnd,
+                          std::string_view key, std::size_t& start,
+                          std::size_t& end) {
+    // 条目缩进按文件实际值取（官方示例用 3 空格，本应用写 2 空格）；
+    // 写死 2 会把 3 空格缩进的同名条目当成不存在，再插一条重复键。
+    int entryIndent = -1;
+    for (std::size_t i = providersIndex + 1; i < blockEnd; ++i) {
+        const YamlLine dl = yamlLineOf(lines[i]);
+        if (dl.blank || dl.comment) continue;
+        if (dl.indent <= 0) break;
+        if (entryIndent == -1) entryIndent = dl.indent;
+        if (dl.listItem || dl.indent != entryIndent || dl.key != key) {
+            continue;
+        }
+        start = i;
+        end = blockEnd;
+        for (std::size_t j = i + 1; j < blockEnd; ++j) {
+            const YamlLine next = yamlLineOf(lines[j]);
+            if (next.blank) continue;
+            // 缩进不超过条目缩进的注释属于块/下一条目，不能跟着条目一起删；
+            // 条目内部的更深注释仍视为条目内容。
+            if (next.comment && next.indent <= entryIndent) {
+                end = j;
+                break;
+            }
+            if (next.indent <= entryIndent) {
+                end = j;
+                break;
+            }
+        }
+        return true;
+    }
+    return false;
+}
+
+std::vector<std::string> ompSplitLines(std::string_view text) {
+    std::vector<std::string> lines;
+    std::istringstream in{std::string(text)};
+    for (std::string line; std::getline(in, line);) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        lines.push_back(std::move(line));
+    }
+    return lines;
+}
+
+std::string ompJoinLines(const std::vector<std::string>& lines) {
+    std::string out;
+    for (const auto& line : lines) {
+        out += line;
+        out += '\n';
+    }
+    return out;
+}
+
+// providers 块内条目使用的缩进：官方示例是 3，旧版本应用写 2。新条目
+// 跟随现有条目，避免同文件混两种缩进导致行级解析只认第一种。
+std::size_t ompProviderIndent(std::string_view text) {
+    const std::vector<std::string> lines = ompSplitLines(text);
+    std::size_t blockEnd = lines.size();
+    const std::size_t providers =
+        ompFindTopLevelBlock(lines, "providers", blockEnd);
+    if (providers == std::string::npos) return 2;
+    for (std::size_t i = providers + 1; i < blockEnd; ++i) {
+        const YamlLine dl = yamlLineOf(lines[i]);
+        if (dl.blank || dl.comment || dl.indent <= 0) continue;
+        return static_cast<std::size_t>(dl.indent);
+    }
+    return 2;
+}
+
+// 把 key 条目整条替换/追加到 providers 块。entry 的行自带缩进。
+std::string rewriteOmpModels(std::string_view text, std::string_view key,
+                             const std::vector<std::string>& entry) {
+    std::vector<std::string> lines = ompSplitLines(text);
+    std::size_t blockEnd = lines.size();
+    const std::size_t providers =
+        ompFindTopLevelBlock(lines, "providers", blockEnd);
+    if (providers == std::string::npos) {
+        if (!lines.empty() && !trimBoth(lines.back()).empty()) lines.emplace_back();
+        lines.emplace_back("providers:");
+        lines.insert(lines.end(), entry.begin(), entry.end());
+        return ompJoinLines(lines);
+    }
+    const YamlLine header = yamlLineOf(lines[providers]);
+    if (!ompIsBlockComment(header.value) && !ompIsEmptyFlowMap(header.value)) {
+        throw std::runtime_error(
+            "Oh My Pi 的 models.yml providers 是 flow 风格，暂不支持自动改写；"
+            "请改成块风格后重试（本次未改动文件）");
+    }
+    if (ompIsEmptyFlowMap(header.value)) {
+        lines[providers] = "providers:";
+    }
+    std::size_t entryStart = 0;
+    std::size_t entryEnd = 0;
+    if (ompFindProviderEntry(lines, providers, blockEnd, key, entryStart,
+                             entryEnd)) {
+        lines.erase(lines.begin() + static_cast<std::ptrdiff_t>(entryStart),
+                    lines.begin() + static_cast<std::ptrdiff_t>(entryEnd));
+        // 删除后插入点不变；blockEnd 可能因删除前移，这里直接复用 start。
+        lines.insert(lines.begin() + static_cast<std::ptrdiff_t>(entryStart),
+                     entry.begin(), entry.end());
+        return ompJoinLines(lines);
+    }
+    // 没有同名条目：插到 providers 块最后一个非空行之后，保持块尾注释与
+    // 下一个顶层键不动。
+    std::size_t insertAt = providers + 1;
+    for (std::size_t i = providers + 1; i < blockEnd; ++i) {
+        const YamlLine dl = yamlLineOf(lines[i]);
+        if (!dl.blank && !dl.comment) insertAt = i + 1;
+    }
+    lines.insert(lines.begin() + static_cast<std::ptrdiff_t>(insertAt),
+                 entry.begin(), entry.end());
+    return ompJoinLines(lines);
+}
+
+// 设置/更新 modelRoles.default。只处理块风格；flow 的 modelRoles 明确报错。
+std::string rewriteOmpDefault(std::string_view text,
+                              std::string_view selector) {
+    std::vector<std::string> lines = ompSplitLines(text);
+    std::size_t blockEnd = lines.size();
+    const std::size_t roles =
+        ompFindTopLevelBlock(lines, "modelRoles", blockEnd);
+    if (roles == std::string::npos) {
+        if (!lines.empty() && !trimBoth(lines.back()).empty()) lines.emplace_back();
+        lines.emplace_back("modelRoles:");
+        lines.emplace_back("  default: " + yamlQuote(selector));
+        return ompJoinLines(lines);
+    }
+    const YamlLine header = yamlLineOf(lines[roles]);
+    if (!ompIsBlockComment(header.value) && !ompIsEmptyFlowMap(header.value)) {
+        throw std::runtime_error(
+            "Oh My Pi 的 config.yml modelRoles 是 flow 风格，暂不支持自动改写；"
+            "请改成块风格后重试（本次未改动文件）");
+    }
+    if (ompIsEmptyFlowMap(header.value)) {
+        lines[roles] = "modelRoles:";
+    }
+    std::size_t insertAt = roles + 1;
+    for (std::size_t i = roles + 1; i < blockEnd; ++i) {
+        const YamlLine dl = yamlLineOf(lines[i]);
+        if (dl.blank || dl.comment) continue;
+        if (dl.key == "default") {
+            const auto trimmed = trimLeft(lines[i]);
+            const auto indent = lines[i].size() - trimmed.size();
+            lines[i] = std::string(indent, ' ') + "default: " +
+                       yamlQuote(selector);
+            return ompJoinLines(lines);
+        }
+        insertAt = i + 1;
+    }
+    lines.insert(lines.begin() + static_cast<std::ptrdiff_t>(insertAt),
+                 "  default: " + yamlQuote(selector));
+    return ompJoinLines(lines);
+}
+
+std::vector<std::string> ompEntryLines(const std::string& key,
+                                       const models::Provider& p,
+                                       const std::string& baseUrl,
+                                       const std::vector<std::string>& models,
+                                       std::size_t indent) {
+    const std::string base(indent, ' ');
+    const std::string field(indent + 2, ' ');
+    const std::string item(indent + 4, ' ');
+    std::vector<std::string> entry;
+    entry.push_back(base + key + ":");
+    entry.push_back(field + "baseUrl: " + yamlQuote(baseUrl));
+    // 空密钥是本地无鉴权端点：OMP 的 auth: none 明确免掉 apiKey 要求；
+    // 继续写 apiKey: "" 会被当成“声明了鉴权但没给密钥”。
+    if (!p.apiKey.empty()) {
+        entry.push_back(field + "apiKey: " + yamlQuote(p.apiKey));
+    }
+    entry.push_back(field + "api: " + yamlQuote(piApiValue(p.apiFormat)));
+    // Anthropic Messages 自定义 provider 不写 auth 时 OMP 会按 OAuth 形态
+    // 塑形请求；这里显式声明普通 API Key，第三方中转才不会收到 OAuth 头。
+    entry.push_back(p.apiKey.empty() ? field + "auth: none"
+                                     : field + "auth: apiKey");
+    if (!models.empty()) {
+        entry.push_back(field + "models:");
+        for (const auto& model : models) {
+            entry.push_back(item + "- id: " + yamlQuote(model));
+        }
+    }
+    return entry;
+}
+
+std::vector<std::string> ompModelIds(const models::Provider& p) {
+    std::vector<std::string> ids;
+    for (const auto& model : p.models) {
+        if (!model.empty() && std::ranges::find(ids, model) == ids.end()) {
+            ids.push_back(model);
+        }
+    }
+    if (!p.model.empty() && std::ranges::find(ids, p.model) == ids.end()) {
+        ids.insert(ids.begin(), p.model);
+    }
+    return ids;
+}
+
+// 写入/更新本应用条目，并把 modelRoles.default 指过去。已有同名条目里的
+// 其它模型清单保留（与 Pi 相同：用户在该条目下加的模型不因切换丢失）。
+void writeOmpEntry(const models::Provider& p) {
+    const auto modelsFile = cfg::ompModelsFile();
+    const auto configFile = cfg::ompConfigFile();
+    // 旧版只有 models.json / settings.json；OMP 仅在两份 YAML 都不存在时
+    // 才迁移。若我们先创建 YAML，旧数据就被跳过，看起来像“切一次全丢了”。
+    // 让用户先启动一次 OMP 完成官方迁移，比本应用猜旧 JSON 形状安全。
+    std::error_code ec;
+    const auto modelsLegacy = modelsFile.parent_path() / "models.json";
+    if (!std::filesystem::exists(modelsFile, ec) &&
+        !std::filesystem::exists(modelsFile.parent_path() / "models.yaml",
+                                  ec) &&
+        std::filesystem::exists(modelsLegacy, ec)) {
+        throw std::runtime_error(
+            "检测到 Oh My Pi 旧版 models.json 尚未迁移：请先启动一次 omp，"
+            "让它生成 models.yml 后再切换（本次未改动文件）");
+    }
+    const auto configLegacy = configFile.parent_path() / "settings.json";
+    if (!std::filesystem::exists(configFile, ec) &&
+        !std::filesystem::exists(configFile.parent_path() / "config.yaml",
+                                  ec) &&
+        std::filesystem::exists(configLegacy, ec)) {
+        throw std::runtime_error(
+            "检测到 Oh My Pi 旧版 settings.json 尚未迁移：请先启动一次 omp，"
+            "让它生成 config.yml 后再切换（本次未改动文件）");
+    }
+    std::string modelsText;
+    {
+        std::error_code ec;
+        if (std::filesystem::exists(modelsFile, ec)) {
+            modelsText = readTextFile(modelsFile);
+        }
+    }
+    const std::vector<std::string> ids = ompModelIds(p);
+    const std::string key = "llmswitch-" + p.id;
+    std::vector<std::string> merged = ids;
+    for (const auto& existing : parseOmpProviders(modelsText)) {
+        if (existing.key != key) continue;
+        for (const auto& model : existing.models) {
+            if (std::ranges::find(merged, model) == merged.end()) {
+                merged.push_back(model);
+            }
+        }
+        break;
+    }
+    const std::string newModels =
+        rewriteOmpModels(modelsText, key,
+                         ompEntryLines(key, p, models::effectiveBaseUrl(p),
+                                       merged, ompProviderIndent(modelsText)));
+    // 先把两份文本都算出来：config.yml 是 flow 风格时会在写入前报错，
+    // 不能出现 models.yml 已改、config.yml 失败的一半状态。
+    std::string newConfig;
+    if (!p.model.empty()) {
+        std::string configText;
+        std::error_code ec;
+        if (std::filesystem::exists(configFile, ec)) {
+            configText = readTextFile(configFile);
+        }
+        newConfig = rewriteOmpDefault(configText, key + "/" + p.model);
+    }
+
+    restrictPiDir(modelsFile.parent_path());
+    backupLiveFile("oh-my-pi", modelsFile);
+    atomicWrite(modelsFile, newModels);
+    restrictPiFile(modelsFile);
+
+    if (p.model.empty()) return;
+    restrictPiDir(configFile.parent_path());
+    backupLiveFile("oh-my-pi", configFile);
+    atomicWrite(configFile, newConfig);
+    restrictPiFile(configFile);
+}
+
+} // namespace
+
+std::vector<OmpProviderEntry> parseOmpProviders(std::string_view text) {
+    std::vector<OmpProviderEntry> out;
+    bool inProviders = false;
+    bool inModels = false;
+    int providersIndent = -1;
+    int modelsIndent = -1;
+    int entryIndent = -1;
+    OmpProviderEntry* current = nullptr;
+    std::istringstream in{std::string(text)};
+    for (std::string line; std::getline(in, line);) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        const YamlLine dl = yamlLineOf(line);
+        if (dl.blank || dl.comment) continue;
+        if (!inProviders) {
+            if (dl.indent == 0 && dl.key == "providers") {
+                if (!ompIsBlockComment(dl.value) &&
+                    !ompIsEmptyFlowMap(dl.value)) {
+                    return {};  // flow 风格：交给写侧报错，读侧不猜
+                }
+                inProviders = true;
+                providersIndent = dl.indent;
+            }
+            continue;
+        }
+        if (dl.indent <= providersIndent) break;
+        if (current != nullptr && dl.indent <= entryIndent) {
+            current = nullptr;
+            inModels = false;
+        }
+        if (current != nullptr) {
+            if (inModels) {
+                if (dl.listItem && dl.indent > modelsIndent) {
+                    const std::string id =
+                        dl.key == "id" || dl.key.empty()
+                            ? yamlScalar(dl.value)
+                            : "";
+                    if (!id.empty()) current->models.push_back(id);
+                    continue;
+                }
+                if (dl.indent <= modelsIndent) inModels = false;
+            }
+            if (dl.key == "baseUrl" || dl.key == "baseURL") {
+                current->baseUrl = yamlScalar(dl.value);
+            } else if (dl.key == "apiKey") {
+                current->apiKey = yamlScalar(dl.value);
+            } else if (dl.key == "api") {
+                current->api = yamlScalar(dl.value);
+            } else if (dl.key == "models") {
+                const std::string value = std::string(trimBoth(dl.value));
+                if (!ompIsBlockComment(value)) {
+                    for (auto& model : flowScalarList(value)) {
+                        if (!model.empty()) current->models.push_back(model);
+                    }
+                } else {
+                    inModels = true;
+                    modelsIndent = dl.indent;
+                }
+            }
+            continue;
+        }
+        if (dl.listItem || dl.key.empty()) continue;
+        if (entryIndent == -1) entryIndent = dl.indent;
+        if (dl.indent != entryIndent) continue;
+        out.push_back(OmpProviderEntry{.key = std::string(dl.key)});
+        current = &out.back();
+        inModels = false;
+    }
+    return out;
+}
+
+std::string parseOmpDefaultSelector(std::string_view text) {
+    bool inModelRoles = false;
+    std::istringstream in{std::string(text)};
+    for (std::string line; std::getline(in, line);) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        const YamlLine dl = yamlLineOf(line);
+        if (dl.blank || dl.comment) continue;
+        if (!inModelRoles) {
+            if (dl.indent == 0 && dl.key == "modelRoles") {
+                if (!ompIsBlockComment(dl.value) &&
+                    !ompIsEmptyFlowMap(dl.value)) {
+                    return {};  // flow 风格：写侧报错，读侧不猜
+                }
+                inModelRoles = true;
+            }
+            continue;
+        }
+        if (dl.indent <= 0) break;
+        if (dl.key == "default") return yamlScalar(dl.value);
+    }
+    return {};
+}
+
+OmpSelector parseOmpSelector(std::string_view selector) {
+    OmpSelector result;
+    const auto comma = selector.find(',');
+    std::string first(selector.substr(0, comma));
+    const auto slash = first.find('/');
+    if (slash == std::string::npos) {
+        result.provider = std::move(first);
+        return result;
+    }
+    result.provider = first.substr(0, slash);
+    result.model = first.substr(slash + 1);
+    // 角色值允许带思考档后缀（:high 等）；当前模型仍按去掉后缀的 id 匹配。
+    const auto colon = result.model.rfind(':');
+    if (colon != std::string::npos) {
+        const std::string_view suffix =
+            std::string_view(result.model).substr(colon + 1);
+        constexpr std::string_view kLevels[]{
+            "off", "minimal", "low", "medium", "high", "xhigh", "max", "auto",
+            "inherit"};
+        if (std::ranges::find(kLevels, suffix) != std::end(kLevels)) {
+            result.model.resize(colon);
+        }
+    }
+    return result;
+}
+
+bool eraseOmpProvider(const std::string& key) {
+    const auto modelsFile = cfg::ompModelsFile();
+    std::error_code ec;
+    if (!std::filesystem::exists(modelsFile, ec)) return false;
+    std::string text = readTextFile(modelsFile);
+    std::vector<std::string> lines = ompSplitLines(text);
+    std::size_t blockEnd = lines.size();
+    const std::size_t providers =
+        ompFindTopLevelBlock(lines, "providers", blockEnd);
+    std::size_t start = 0;
+    std::size_t end = 0;
+    if (providers == std::string::npos ||
+        !ompFindProviderEntry(lines, providers, blockEnd, key, start, end)) {
+        return false;
+    }
+    lines.erase(lines.begin() + static_cast<std::ptrdiff_t>(start),
+                lines.begin() + static_cast<std::ptrdiff_t>(end));
+    // 删掉最后一条 provider 后 `providers:` 会变成 null；写成空 map，
+    // 保持 OMP 读到的类型稳定。
+    bool hasProvider = false;
+    for (std::size_t i = providers + 1; i < lines.size(); ++i) {
+        const YamlLine dl = yamlLineOf(lines[i]);
+        if (dl.blank || dl.comment) continue;
+        if (dl.indent <= 0) break;
+        hasProvider = true;
+        break;
+    }
+    if (!hasProvider) lines[providers] = "providers: {}";
+    backupLiveFile("oh-my-pi", modelsFile);
+    atomicWrite(modelsFile, ompJoinLines(lines));
+    restrictPiFile(modelsFile);
+
+    const auto configFile = cfg::ompConfigFile();
+    if (!std::filesystem::exists(configFile, ec)) return true;
+    std::string configText = readTextFile(configFile);
+    const std::string selector = parseOmpDefaultSelector(configText);
+    if (!selector.starts_with(key + "/")) return true;
+    std::vector<std::string> configLines = ompSplitLines(configText);
+    std::size_t configEnd = configLines.size();
+    const std::size_t roles =
+        ompFindTopLevelBlock(configLines, "modelRoles", configEnd);
+    if (roles != std::string::npos) {
+        for (std::size_t i = roles + 1; i < configEnd; ++i) {
+            const YamlLine dl = yamlLineOf(configLines[i]);
+            if (dl.blank || dl.comment) continue;
+            if (dl.indent <= 0) break;
+            if (dl.key == "default") {
+                configLines.erase(
+                    configLines.begin() + static_cast<std::ptrdiff_t>(i));
+                bool hasRole = false;
+                for (std::size_t j = roles + 1; j < configLines.size(); ++j) {
+                    const YamlLine child = yamlLineOf(configLines[j]);
+                    if (child.blank || child.comment) continue;
+                    if (child.indent <= 0) break;
+                    hasRole = true;
+                    break;
+                }
+                if (!hasRole) configLines[roles] = "modelRoles: {}";
+                break;
+            }
+        }
+    }
+    backupLiveFile("oh-my-pi", configFile);
+    atomicWrite(configFile, ompJoinLines(configLines));
+    restrictPiFile(configFile);
+    return true;
+}
+
 std::string ProviderStore::targetBaseUrl(
     std::string_view tool, const models::Provider& provider) const {
     if (!models::isAggregateProvider(provider)) {
@@ -1984,6 +2487,15 @@ void ProviderStore::switchTo(std::string_view tool, const std::string& id) {
         deepMerge(settings, patch);
         atomicWrite(settingsFile, settings.dump(2) + "\n");
         restrictPiFile(settingsFile);
+    } else if (tool == "oh-my-pi") {
+        // models.yml：providers llmswitch-<id> 条目；config.yml：
+        // modelRoles.default="llmswitch-<id>/<model>"。模型选择器没有模型时
+        // 无法构成有效默认，直接拒绝而不是写坏 OMP 配置。
+        if (target->model.empty()) {
+            throw std::runtime_error(
+                "Oh My Pi 需要默认模型：请先给供应商设置模型");
+        }
+        writeOmpEntry(*target);
     } else if (tool == "dsh") {
         // settings.yaml：切换 = 只改 agent-default-model 指向；外加一条保险——
         // 目标条目还没写进 live 时补写一条（否则指针指向不存在的键就是坏配置）。

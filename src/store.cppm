@@ -3,6 +3,7 @@
 // 职责：config.json 的读写与 CRUD、把选中供应商写进各工具的 live 配置文件
 // （claude-code 的 settings.json / codex 的 auth.json + config.toml /
 // opencode 的 opencode.json / pi 的 models.json + settings.json /
+// oh-my-pi 的 models.yml + config.yml /
 // dsh 的 settings.yaml + .credentials.yaml / hermes 的 config.yaml /
 // claude desktop 的 3p profile 组）、live 文件备份与收编、配置导出导入。
 // 实现单元：store.cpp（核心）/ store_live.cpp（切换与还原）/
@@ -254,6 +255,9 @@ public:
     //     只认严格 JSON——解析失败抛错且不碰原文件；
     //   pi：models.json 顶层 providers map upsert + settings.json 深合并
     //     defaultProvider/defaultModel，目录 0700 文件 0600；
+    //   oh-my-pi：models.yml 顶层 providers map upsert llmswitch-<id>
+    //     条目 + config.yml 的 modelRoles.default 指向，目录 0700 文件 0600；
+    //     api 拼写与 Pi 三档相同；models.yml 不热监听，切换后需重启 omp；
     //   dsh：settings.yaml 行级 upsert llm-pi-ai.providers 的 llmswitch-<id>
     //     条目 + 文件头 agent-default-model 指向；密钥只写
     //     .credentials.yaml（apiKeyEnv 引用，两份文件均被热监听 → 即时生效）；
@@ -285,7 +289,8 @@ public:
     //     键，_meta.json 移除本应用 profile 条目并清 appliedId；Linux 抛错；
     //   dsh：settings.yaml 删 agent-default-model 块与 llmswitch-* 路由条目，
     //     回到内置 deepseek-official 路由（.credentials.yaml 的密钥不代清）。
-    // opencode / pi / hermes 没有官方默认状态，抛 std::runtime_error。
+    // opencode / pi / oh-my-pi / hermes 没有官方默认状态，抛
+    // std::runtime_error。
     void restoreOfficial(std::string_view tool);
 
     // 把 live 文件当前内容收编成名为「当前配置」的新 provider（已有匹配项则
@@ -405,6 +410,30 @@ std::string readDshCredential(const std::filesystem::path& file,
 // pi/dsh 的 api 字段反映射（三档，经 models::normalizeApiFormat 归一的反向；
 // 未知拼写返回空串）。定义在 store_live.cpp，import 侧与 dsh 增量同步共用。
 std::string piApiFormatValue(std::string_view api);
+
+// oh-my-pi（OMP）models.yml 的 providers map 读取结果与助手（定义在
+// store_live.cpp）。OMP 的模型协议拼写与 Pi 相同，apiFormat 归一复用
+// piApiFormatValue；config.yml 的 modelRoles.default 由
+// parseOmpDefaultSelector 单独读取。
+struct OmpProviderEntry {
+    std::string key;
+    std::string baseUrl;
+    std::string apiKey;
+    std::string api;
+    std::vector<std::string> models;
+};
+std::vector<OmpProviderEntry> parseOmpProviders(std::string_view text);
+std::string parseOmpDefaultSelector(std::string_view text);
+struct OmpSelector {
+    std::string provider;
+    std::string model;
+};
+// 解析 "<provider>/<model>"（含思考档后缀与逗号回退链的第一个选择器）。
+OmpSelector parseOmpSelector(std::string_view selector);
+// 删掉 providers map 里本应用写入的条目，并在 modelRoles.default 正指向
+// 它时一并移除 default（OMP 没有官方默认态，删掉后由它自己的回退决定）。
+// 键不存在返回 false，且不碰任何文件；成功时备份并原子落盘。
+bool eraseOmpProvider(const std::string& key);
 
 // hermes（Hermes Agent）config.yaml 行级读取结果与助手（定义在
 // store_live.cpp；写侧的行级改写是该文件私有）。

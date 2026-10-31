@@ -21,8 +21,8 @@ export struct ToolSpec {
     std::string_view id;            // config.json groups 的键，稳定不本地化
     std::string_view displayName;   // UI 展示名
     std::string_view iconName;      // Agent 图标名，ToolIcon() → agent_*.png
-    bool needsModel;    // 是否有「默认模型」字段（opencode / pi）
-    bool hasApiFormat;  // 是否有 apiFormat 字段（opencode / pi）
+    bool needsModel;    // 是否有「默认模型」字段（opencode / pi / oh-my-pi）
+    bool hasApiFormat;  // 是否有 apiFormat 字段（opencode / pi / oh-my-pi）
     // 是否有三档模型映射字段 haiku/sonnet/opus（claude-code 写
     // ANTHROPIC_DEFAULT_*_MODEL env；claude desktop 写 inferenceModels 映射条目）
     bool hasModelMappings;
@@ -51,17 +51,17 @@ export struct ToolSpec {
 // 注册表顺序即 UI 侧栏/托盘菜单顺序。
 //
 // installCommand 的核实来源（2026-09-20 逐条对 registry 查过，不照抄文档；
-// 2026-10-30 补 Kimi Code）：
+// 2026-10-31 补 Oh My Pi）：
 //   npm ：@anthropic-ai/claude-code / @openai/codex / @deepseek-ai/dsh /
 //         @earendil-works/pi-coding-agent / opencode-ai /
-//         @moonshot-ai/kimi-code
+//         @moonshot-ai/kimi-code / @oh-my-pi/pi-coding-agent
 //         —— 均在 registry.npmjs.org/<包名> 上有 latest 标签。
 //   PyPI：hermes-agent（pypi.org/pypi/hermes-agent）。
 //   zcode 没有统一命令：实测由发行版系统包提供（/opt/ZCode/zcode，rpm zcode-*），
 //   装法随平台而异，故留空。
 // 参考：上游 cc-switch 的「手动安装命令」只列了 claude/codex/gemini/opencode/
-// openclaw/hermes；本项目另有 pi/dsh/zcode，不能照抄。
-export constexpr std::array<ToolSpec, 9> kToolRegistry{{
+// openclaw/hermes；本项目另有 pi/dsh/zcode/oh-my-pi，不能照抄。
+export constexpr std::array<ToolSpec, 10> kToolRegistry{{
     ToolSpec{.id = "claude-code",
              .displayName = "Claude Code",
              .iconName = "claudecode",
@@ -107,6 +107,21 @@ export constexpr std::array<ToolSpec, 9> kToolRegistry{{
              .needsRestart = true,
              .binary = "pi",
              .installCommand = "npm i -g @earendil-works/pi-coding-agent@latest"},
+    // Oh My Pi（Pi 的增强分支，CLI 命令 omp）：~/.omp/agent/models.yml 的
+    // providers map 写自定义供应商，~/.omp/agent/config.yml 的
+    // modelRoles.default 指向 "<provider>/<model>"。本应用条目键为
+    // llmswitch-<id>，模型协议沿用 Pi 的三档拼写；models.yml 不随设置热
+    // 监听，切换后需重启 omp。官方安装脚本/Homebrew 也可用，这里给跨平台
+    // 的 npm 包名。
+    ToolSpec{.id = "oh-my-pi",
+             .displayName = "Oh My Pi",
+             .iconName = "omp",
+             .needsModel = true,
+             .hasApiFormat = true,
+             .hasModelMappings = false,
+             .needsRestart = true,
+             .binary = "omp",
+             .installCommand = "npm i -g @oh-my-pi/pi-coding-agent@latest"},
     // Harness（DeepSeek 出品，CLI 命令 dsh）：~/.dsh/settings.yaml 的
     // llm-pi-ai.providers 是**多路由并存**的手写 YAML map——本应用把组内全部
     // 供应商逐条增量 upsert 成 llmswitch-<id> 条目（绝不删别家条目），
@@ -501,8 +516,9 @@ export struct Provider {
     std::string website;
     std::string notes;
     std::string codexConfigToml;  // 仅 codex 组用：config.toml 整段原文（空 = 切换时不改 config.toml）
-    std::string apiFormat;        // opencode / pi / kimi-code 组用："" / "openai-chat"
-                                  // （默认）/ "openai-responses" / "anthropic"；
+    std::string apiFormat;        // opencode / pi / oh-my-pi / kimi-code 组用：
+                                  // "" / "openai-chat"（默认）/
+                                  // "openai-responses" / "anthropic"；
                                   // kimi-code 另有 "kimi"（Kimi For Coding 原生协议）
     // 用量查询（可选；usageEnabled 关闭或 usageUrl 为空 = 不查）：
     bool usageEnabled = false;
@@ -638,8 +654,8 @@ export struct AppConfig {
     bool routerFailover = true;    // 上游 429/5xx 时故障转移到组内下一个供应商
     // 允许通过本地路由代理的工具 id；旧配置缺字段时默认全部启用，保持兼容。
     std::vector<std::string> routerTools{
-        "claude-code", "claude", "codex", "opencode", "pi", "dsh", "hermes",
-        "zcode", "kimi-code"};
+        "claude-code", "claude", "codex", "opencode", "pi", "oh-my-pi", "dsh",
+        "hermes", "zcode", "kimi-code"};
     // 应用启动入口：pet / control-center。未保存过选择的新旧配置默认桌宠优先。
     std::string startupMode = "pet";
     // 新安装首次设置向导是否完成。旧版已有配置视作已完成，避免升级时打扰。
@@ -1686,8 +1702,8 @@ wire_api = "responses"
         };
         return groups;
     }
-    if (tool == "opencode" || tool == "pi") {
-        // OpenAI 兼容端点（opencode 走 @ai-sdk/openai-compatible；pi 走
+    if (tool == "opencode" || tool == "pi" || tool == "oh-my-pi") {
+        // OpenAI 兼容端点（opencode 走 @ai-sdk/openai-compatible；pi / OMP 走
         // openai-completions），model 填各家的主力模型。订阅站无已核实端点，
         // 暂不预设。
         groups.metered = {

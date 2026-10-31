@@ -3,7 +3,7 @@
 // importLive（live 文件 → 供应商卡，条目键即身份）/
 // detectCurrent（探测 live 当前命中的供应商）/ importFrom（配置库导入
 // 合并，带回滚快照），以及它们专属的辅助（端点+密钥匹配、收编 id、
-// pi 的 api 字段映射、codex config.toml 顶层 model 解析、组合并）。
+// pi/oh-my-pi 的 api 字段映射、codex config.toml 顶层 model 解析、组合并）。
 // 与 store_live.cpp 共享的格式工具以模块链接声明在 store.cppm。
 module llmswitch.store;
 
@@ -169,6 +169,43 @@ std::string ProviderStore::detectCurrent(std::string_view tool) const {
             const std::string apiKey = jsonStr(it.value(), "apiKey");
             if (baseUrl.empty() && apiKey.empty()) continue;
             const auto* p = matchByUrlKey(g, baseUrl, apiKey);
+            if (p != nullptr) return p->id;
+        }
+        return "";
+    }
+    if (tool == "oh-my-pi") {
+        // OMP：config.yml 的 modelRoles.default 是当前选择器。先按
+        // llmswitch-<id> 直接命中；否则只查它指向的那条 provider 的
+        // baseUrl+apiKey，不扫其它条目（切换只 upsert，历史条目会留在
+        // models.yml 里，扫全部会误判）。default 缺失/悬空时才退回全表。
+        std::error_code ec;
+        const auto modelsFile = cfg::ompModelsFile();
+        if (!std::filesystem::exists(modelsFile, ec)) return "";
+        const auto providers = parseOmpProviders(readTextFile(modelsFile));
+        std::string selector;
+        const auto configFile = cfg::ompConfigFile();
+        if (std::filesystem::exists(configFile, ec)) {
+            selector = parseOmpDefaultSelector(readTextFile(configFile));
+        }
+        const OmpSelector selected = parseOmpSelector(selector);
+        if (!selected.provider.empty()) {
+            if (selected.provider.starts_with("llmswitch-")) {
+                const std::string id = selected.provider.substr(10);
+                for (const auto& p : g.providers) {
+                    if (p.id == id) return p.id;
+                }
+            }
+            for (const auto& entry : providers) {
+                if (entry.key != selected.provider) continue;
+                if (entry.baseUrl.empty() && entry.apiKey.empty()) return "";
+                const auto* p = matchByUrlKey(g, entry.baseUrl, entry.apiKey);
+                return p != nullptr ? p->id : "";
+            }
+            return "";
+        }
+        for (const auto& entry : providers) {
+            if (entry.baseUrl.empty() && entry.apiKey.empty()) continue;
+            const auto* p = matchByUrlKey(g, entry.baseUrl, entry.apiKey);
             if (p != nullptr) return p->id;
         }
         return "";
@@ -404,6 +441,38 @@ models::Provider ProviderStore::importLive(std::string_view tool) {
             if (list != entry.end() && list->is_array() && !list->empty()) {
                 p.model = modelEntryId((*list)[0]);
             }
+        }
+        return adopt(std::move(p));
+    }
+    if (tool == "oh-my-pi") {
+        // 经 config.yml 的 modelRoles.default 找 models.yml 里的条目；主模型
+        // 取选择器后半段，缺失时回退到该条目 models 清单第一项。
+        const auto modelsFile = cfg::ompModelsFile();
+        if (!std::filesystem::exists(modelsFile, ec)) return {};
+        const auto configFile = cfg::ompConfigFile();
+        if (!std::filesystem::exists(configFile, ec)) return {};
+        const OmpSelector selected = parseOmpSelector(
+            parseOmpDefaultSelector(readTextFile(configFile)));
+        if (selected.provider.empty()) return {};
+        const auto providers = parseOmpProviders(readTextFile(modelsFile));
+        const OmpProviderEntry* entry = nullptr;
+        for (const auto& candidate : providers) {
+            if (candidate.key == selected.provider) entry = &candidate;
+        }
+        if (entry == nullptr) return {};
+        models::Provider p;
+        p.id = importId(g, entry->key.starts_with("llmswitch-")
+                               ? std::string(entry->key.substr(10))
+                               : entry->key);
+        p.baseUrl = entry->baseUrl;
+        // live 里的 baseUrl 已经带着 OMP 实际请求的完整前缀（本应用写入时
+        // 用过 effectiveBaseUrl）；收编后按完整 URL 处理，不能再追加 /v1。
+        p.fullUrl = true;
+        p.apiKey = entry->apiKey;
+        p.apiFormat = piApiFormatValue(entry->api);
+        p.model = selected.model;
+        if (p.model.empty() && !entry->models.empty()) {
+            p.model = entry->models.front();
         }
         return adopt(std::move(p));
     }

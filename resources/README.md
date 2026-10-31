@@ -86,6 +86,7 @@ CMake 配置阶段会检查全部 24×24 SVG：包含硬编码颜色（非 `#FFF
 | `agent_codex.png`（含 `@2x`/`@3x`） | OpenAI 官方 blossom，沿用 simple-icons `openai`（release tag 15.1.0）的官方轮廓；OpenAI 品牌青绿 `#10A37F` 圆角底 + 白色标志 | 图形 CC0 1.0；底色与排布同本仓库 |
 | `agent_opencode.png`（含 `@2x`/`@3x`） | opencode 官方 mark（simple-icons develop 分支，保留镂空规则）；官方站点交互蓝 `#007AFF` 圆角底 + 白色标志 | 图形 CC0 1.0；底色与排布同本仓库 |
 | `agent_pi.png`（含 `@2x`/`@3x`） | pi-mono 官方 logo（[pi.dev](https://pi.dev) `logo-auto.svg`）；官方站点暖黄 `#F1BE58` 圆角底 + 深色标志 | 图形 MIT（[pi-mono 仓库](https://github.com/badlogic/pi-mono)）；底色与排布同本仓库 |
+| `agent_omp.png`（含 `@2x`/`@3x`） | Oh My Pi 官方 favicon（[omp.sh](https://omp.sh) `favicon.svg`）：深色 `#0F0A14` 圆角底 + 粉紫青渐变 π 标志，直接缩放为 64/128/192px，不重绘 | 图形 MIT（[oh-my-pi 仓库](https://github.com/can1357/oh-my-pi)）；官方 favicon 原样使用 |
 | `agent_dsh.png`（含 `@2x`/`@3x`） | DeepSeek 官方鲸鱼标志（simple-icons `deepseek`）；DeepSeek 蓝 `#4D6BFE` 圆角底 + 白色标志，用于 DeepSeek Harness（dsh） | 图形 CC0 1.0；底色与排布同本仓库 |
 | `agent_hermes.png`（含 `@2x`/`@3x`） | Hermes Agent / Nous Research「Nous Girl」官方头像（`assets/nous-girl-black.svg` 的 24px 重绘稿，见 `hermes.svg` 行）；Nous 电光蓝 `#3847FF` 圆角底 + 白色标志 | 上游仓库许可（Nous Research 商标，仅用于标识对应 Agent）；底色与排布同本仓库 |
 | `agent_zcode.png`（含 `@2x`/`@3x`） | ZCode 的 Z 标记沿用本仓库既有 `zcode.svg` 轮廓（ZCode 无公开独立商标图）；Z.ai 品牌蓝 `#126EF4` 圆角底 + 白色标志 | 同本仓库 |

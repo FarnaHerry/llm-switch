@@ -139,6 +139,9 @@ int main() {
     const fs::path piDir = root / "pi-agent";
     const fs::path piModels = piDir / "models.json";
     const fs::path piSettings = piDir / "settings.json";
+    const fs::path ompDir = root / "omp-agent";
+    const fs::path ompModels = ompDir / "models.yml";
+    const fs::path ompConfig = ompDir / "config.yml";
     const fs::path zcodeConfig = root / "zcode" / "config.json";
     const fs::path dshDir = root / "dsh";
     const fs::path dshSettings = dshDir / "settings.yaml";
@@ -150,12 +153,18 @@ int main() {
     testenv::setenv("LLMSWITCH_CODEX_CONFIG", codexConfig);
     testenv::setenv("LLMSWITCH_OPENCODE_CONFIG", opencodeConfig);
     testenv::setenv("LLMSWITCH_PI_DIR", piDir);
+    testenv::setenv("LLMSWITCH_OMP_DIR", ompDir);
     testenv::setenv("LLMSWITCH_ZCODE_CONFIG", zcodeConfig);
     testenv::setenv("LLMSWITCH_DSH_SETTINGS", dshSettings);
     testenv::setenv("LLMSWITCH_DSH_CREDENTIALS", dshCredentials);
     testenv::setenv("LLMSWITCH_HERMES_CONFIG", hermesConfig);
     testenv::setenv("LLMSWITCH_KIMI_CONFIG", kimiConfig);
     testenv::unsetenv("PI_CODING_AGENT_DIR");
+    testenv::unsetenv("OMP_PROFILE");
+    testenv::unsetenv("PI_PROFILE");
+    testenv::unsetenv("PI_CONFIG_DIR");
+    testenv::unsetenv("LLMSWITCH_OMP_MODELS");
+    testenv::unsetenv("LLMSWITCH_OMP_CONFIG");
     testenv::unsetenv("DSH_HOME");
     testenv::unsetenv("HERMES_HOME");
     testenv::unsetenv("KIMI_CODE_HOME");
@@ -176,11 +185,18 @@ int main() {
               s.config().routerTools.end());
         CHECK(s.detectCurrent("claude-code").empty());
         CHECK(s.detectCurrent("claude").empty());  // Linux 无桌面目录 → 空
-        // 注册表自检：9 个工具、id 可互查
-        CHECK(models::toolRegistry().size() == 9);
+        // 注册表自检：10 个工具、id 可互查
+        CHECK(models::toolRegistry().size() == 10);
         CHECK(models::findTool("claude-code") != nullptr);
         CHECK(models::findTool("opencode")->needsModel);
         CHECK(models::findTool("pi")->hasApiFormat);
+        CHECK(models::findTool("oh-my-pi") != nullptr);
+        CHECK(models::findTool("oh-my-pi")->needsModel);
+        CHECK(models::findTool("oh-my-pi")->hasApiFormat);
+        CHECK(!models::findTool("oh-my-pi")->hasModelMappings);
+        CHECK(!models::findTool("oh-my-pi")->additiveProviders);
+        CHECK(models::findTool("oh-my-pi")->needsRestart);
+        CHECK(models::findTool("oh-my-pi")->binary == "omp");
         CHECK(models::findTool("dsh")->needsModel);
         CHECK(models::findTool("dsh")->hasApiFormat);
         CHECK(!models::findTool("dsh")->hasModelMappings);
@@ -209,8 +225,8 @@ int main() {
         CHECK(!models::findTool("codex")->hasModelMappings);
         // needsRestart：claude-code 运行中重读配置、dsh 两份 YAML 均被热
         // 监听、Kimi Code 监听 config.toml，切换无需重启；其余工具
-        // （codex / zcode / hermes 等）live 配置在进程启动时读取，切换后
-        // 需重启
+        // （codex / zcode / hermes / oh-my-pi 等）live 配置在进程启动时读取，
+        // 切换后需重启
         CHECK(!models::findTool("claude-code")->needsRestart);
         CHECK(!models::findTool("dsh")->needsRestart);
         CHECK(std::ranges::all_of(
@@ -347,6 +363,30 @@ int main() {
     CHECK(officialCodex.importLive("codex").id.empty());
     CHECK(readJson(cfg::configFile())["groups"]["codex"]["providers"].empty());
     fs::remove(codexAuth);
+
+    // 1b. oh-my-pi 路径解析：PI_CONFIG_DIR 改根、命名 profile、默认 profile
+    // 的 PI_CODING_AGENT_DIR；显式 LLMSWITCH_OMP_DIR 最优先。
+    {
+        testenv::unsetenv("LLMSWITCH_OMP_DIR");
+        testenv::setenv("PI_CONFIG_DIR", ".config/omp");
+        testenv::setenv("OMP_PROFILE", "work");
+        testenv::setenv("PI_CODING_AGENT_DIR", (root / "ignored").string());
+        CHECK(cfg::ompAgentDir() ==
+              home / ".config" / "omp" / "profiles" / "work" / "agent");
+        testenv::unsetenv("OMP_PROFILE");
+        testenv::setenv("PI_PROFILE", "nightly");
+        CHECK(cfg::ompAgentDir() ==
+              home / ".config" / "omp" / "profiles" / "nightly" / "agent");
+        testenv::unsetenv("PI_PROFILE");
+        CHECK(cfg::ompAgentDir() == root / "ignored");
+        testenv::unsetenv("PI_CODING_AGENT_DIR");
+        testenv::setenv("OMP_PROFILE", "default");
+        CHECK(cfg::ompAgentDir() == home / ".config" / "omp" / "agent");
+        testenv::unsetenv("OMP_PROFILE");
+        testenv::unsetenv("PI_CONFIG_DIR");
+        testenv::setenv("LLMSWITCH_OMP_DIR", ompDir);
+        CHECK(cfg::ompAgentDir() == ompDir);
+    }
 
     // 2. 写入假 settings.json（含非 env 字段）→ 首次 load 自动收编成「当前配置」
     writeFile(claudeSettings, R"json({
@@ -715,6 +755,166 @@ int main() {
         CHECK(s.detectCurrent("pi") == idP);
         CHECK(countBackups(cfg::backupsDir() / "pi", "models.json") == 1);
         CHECK(countBackups(cfg::backupsDir() / "pi", "settings.json") == 1);
+    }
+    // 8b. oh-my-pi：models.yml providers upsert + config.yml modelRoles.default
+    // 预置无关 provider 与 theme/slow 字段，验证只动本应用条目与 default。
+    writeFile(ompModels, R"(providers:
+  existing:
+    baseUrl: "https://existing.example.com/v1"
+    apiKey: "sk-existing"
+    api: openai-completions
+    models:
+      - id: "existing-model"
+)");
+    writeFile(ompConfig, R"(theme:
+  dark: titanium
+modelRoles:
+  slow: anthropic/claude-sonnet-4-5
+)");
+    models::Provider pOmp{.name = "OMP 中转",
+                          .baseUrl = "https://omp.example.com",
+                          .apiKey = "sk-omp",
+                          .model = "omp-model",
+                          .apiFormat = "anthropic"};
+    s.addProvider("oh-my-pi", pOmp);
+    const std::string idOmp = s.group("oh-my-pi").providers.back().id;
+    s.switchTo("oh-my-pi", idOmp);
+    {
+        const std::string modelsText = readText(ompModels);
+        const std::string key = "llmswitch-" + idOmp;
+        CHECK(modelsText.contains("  existing:"));  // 无关 provider 保留
+        CHECK(modelsText.contains("  " + key + ":"));
+        CHECK(modelsText.contains("    baseUrl: \"https://omp.example.com\""));
+        CHECK(modelsText.contains("    apiKey: \"sk-omp\""));
+        CHECK(modelsText.contains("    api: \"anthropic-messages\""));
+        CHECK(modelsText.contains("    auth: apiKey"));
+        CHECK(modelsText.contains("      - id: \"omp-model\""));
+        const std::string configText = readText(ompConfig);
+        CHECK(configText.contains("theme:\n  dark: titanium"));  // 无关键保留
+        CHECK(configText.contains("  slow: anthropic/claude-sonnet-4-5"));
+        CHECK(configText.contains("  default: \"" + key + "/omp-model\""));
+        CHECK(s.detectCurrent("oh-my-pi") == idOmp);
+        const auto imported = s.importLive("oh-my-pi");
+        CHECK(imported.baseUrl == "https://omp.example.com");
+        CHECK(imported.fullUrl);
+        CHECK(imported.apiKey == "sk-omp");
+        CHECK(imported.apiFormat == "anthropic");
+        CHECK(imported.model == "omp-model");
+#if !defined(_WIN32)
+        CHECK((fs::status(ompDir).permissions() & fs::perms::all) ==
+              fs::perms::owner_all);
+        CHECK((fs::status(ompModels).permissions() & fs::perms::all) ==
+              (fs::perms::owner_read | fs::perms::owner_write));
+        CHECK((fs::status(ompConfig).permissions() & fs::perms::all) ==
+              (fs::perms::owner_read | fs::perms::owner_write));
+#endif
+        CHECK(countBackups(cfg::backupsDir() / "oh-my-pi", "models.yml") == 1);
+        CHECK(countBackups(cfg::backupsDir() / "oh-my-pi", "config.yml") == 1);
+
+        // 用户在该条目下手加的模型不因再次切换丢失。
+        writeFile(ompModels, modelsText + "      - id: \"omp-extra\"\n");
+        models::Provider pOmp2{.name = "OMP 二号",
+                               .baseUrl = "https://omp2.example.com",
+                               .apiKey = "sk-omp2",
+                               .model = "omp2-model",
+                               .apiFormat = "openai-responses"};
+        s.addProvider("oh-my-pi", pOmp2);
+        const std::string idOmp2 = s.group("oh-my-pi").providers.back().id;
+        s.switchTo("oh-my-pi", idOmp2);
+        CHECK(readText(ompModels).contains("  existing:"));
+        CHECK(readText(ompConfig).contains(
+            "  default: \"llmswitch-" + idOmp2 + "/omp2-model\""));
+        s.switchTo("oh-my-pi", idOmp);
+        const std::string merged = readText(ompModels);
+        CHECK(merged.contains("      - id: \"omp-extra\""));
+        CHECK(merged.contains("      - id: \"omp-model\""));
+        CHECK(merged.contains("    api: \"anthropic-messages\""));
+
+        // 删除当前条目：只摘本应用这条 + default，别的 provider 与 slow 保留。
+        s.removeProvider("oh-my-pi", idOmp, /*eraseLive=*/true);
+        const std::string afterDelete = readText(ompModels);
+        CHECK(!afterDelete.contains("  llmswitch-" + idOmp + ":"));
+        CHECK(afterDelete.contains("  existing:"));
+        const std::string configAfter = readText(ompConfig);
+        CHECK(!configAfter.contains("default: \"llmswitch-" + idOmp + "/"));
+        CHECK(configAfter.contains("  slow: anthropic/claude-sonnet-4-5"));
+        // default 已被摘掉，但 pOmp2 条目仍在 → 退回全表匹配到 pOmp2。
+        CHECK(s.detectCurrent("oh-my-pi") == idOmp2);
+    }
+    {
+        bool threw = false;
+        try {
+            s.restoreOfficial("oh-my-pi");
+        } catch (const std::exception&) {
+            threw = true;
+        }
+        CHECK(threw);  // OMP 没有官方默认态
+    }
+
+    {
+        // oh-my-pi 错误路径：无模型不允许切换；config.yml 是 flow 风格时
+        // 两份文件都不得被写一半（models.yml 保持不变）。
+        models::Provider pNoModel{.name = "OMP 无模型",
+                                  .baseUrl = "https://omp3.example.com",
+                                  .apiKey = "sk-omp3",
+                                  .apiFormat = "openai-chat"};
+        s.addProvider("oh-my-pi", pNoModel);
+        const std::string idNoModel =
+            s.group("oh-my-pi").providers.back().id;
+        const std::string modelsBefore = readText(ompModels);
+        const std::string configBefore = readText(ompConfig);
+        bool threw = false;
+        try {
+            s.switchTo("oh-my-pi", idNoModel);
+        } catch (const std::exception& e) {
+            threw = true;
+            CHECK(std::string_view(e.what()).contains("模型"));
+        }
+        CHECK(threw);
+        CHECK(readText(ompModels) == modelsBefore);
+        CHECK(readText(ompConfig) == configBefore);
+
+        std::string idOmp2ForFlow;
+        for (const auto& p : s.group("oh-my-pi").providers) {
+            if (p.name == "OMP 二号") idOmp2ForFlow = p.id;
+        }
+        CHECK(!idOmp2ForFlow.empty());
+        writeFile(ompConfig, "modelRoles: { default: x/y }\n");
+        const std::string modelsBeforeFlow = readText(ompModels);
+        threw = false;
+        try {
+            s.switchTo("oh-my-pi", idOmp2ForFlow);
+        } catch (const std::exception& e) {
+            threw = true;
+            CHECK(std::string_view(e.what()).contains("flow"));
+        }
+        CHECK(threw);
+        CHECK(readText(ompModels) == modelsBeforeFlow);
+
+        // 官方示例用 3 空格缩进：已有同名条目必须被识别并替换，不能留下
+        // 两条同键条目（YAML 后者覆盖前者，切换会看起来随机失效）。
+        writeFile(ompConfig, "modelRoles:\n  slow: anthropic/claude\n");
+        writeFile(ompModels,
+                  "providers:\n   llmswitch-" + idOmp2ForFlow +
+                      ":\n      baseUrl: \"https://omp2.example.com\"\n"
+                      "      apiKey: \"sk-omp2\"\n"
+                      "      api: \"openai-responses\"\n"
+                      "      auth: apiKey\n"
+                      "      models:\n"
+                      "         - id: \"omp2-model\"\n");
+        s.switchTo("oh-my-pi", idOmp2ForFlow);
+        const std::string rewritten = readText(ompModels);
+        const std::string key3 = "llmswitch-" + idOmp2ForFlow;
+        std::size_t occurrences = 0;
+        for (std::size_t pos = 0;
+             (pos = rewritten.find(key3, pos)) != std::string::npos;
+             pos += key3.size()) {
+            ++occurrences;
+        }
+        CHECK(occurrences == 1);
+        CHECK(rewritten.contains("\n   " + key3 + ":"));
+        CHECK(!rewritten.contains("\n  " + key3 + ":"));
+        CHECK(rewritten.contains("       - id: \"omp2-model\""));
     }
     {
         // 8c. zcode：provider upsert + enabled 互斥 + kind 映射 + detect/
@@ -3665,7 +3865,8 @@ int main() {
     }
 
     // 15b. 聚合供应商对所有 Agent 都走同一套本地路由：dsh / ZCode / Kimi
-    //      Code 的专用写回器也必须按本地地址写条目；未选中时不要预写空 URL。
+    //      Code / Oh My Pi 的专用写回器也必须按本地地址写条目；未选中时
+    //      不要预写空 URL。
     {
         auto aggStore = store::ProviderStore::load();
         const std::string port =
@@ -3759,6 +3960,11 @@ int main() {
                             ["options"]["baseURL"] == expected);
                 CHECK(synced["provider"]["llmswitch:" + aggregateId]
                             ["enabled"] == true);
+            } else if (tool == "oh-my-pi") {
+                const std::string text = readText(liveFile);
+                CHECK(text.contains("  llmswitch-" + aggregateId + ":"));
+                CHECK(text.contains("    baseUrl: \"" + expected + "\""));
+                CHECK(text.contains("    apiKey: \"llmswitch-aggregate\""));
             } else {
                 const std::string text = readText(liveFile);
                 CHECK(text.contains("[providers.\"llmswitch-" +
@@ -3781,6 +3987,7 @@ int main() {
         checkAggregate("dsh", dshSettings);
         checkAggregate("zcode", zcodeConfig);
         checkAggregate("kimi-code", kimiConfig);
+        checkAggregate("oh-my-pi", ompModels);
     }
 
     // 16. 旧格式 config.json（顶层 claude/codex）→ load 自动迁移成 groups 键

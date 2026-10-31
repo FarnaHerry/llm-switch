@@ -37,6 +37,9 @@ huxerui::ImageResource ToolIcon(std::string_view iconName) {
     if (iconName == "pi") {
         return app::images::agent_pi;
     }
+    if (iconName == "omp") {
+        return app::images::agent_omp;
+    }
     if (iconName == "deepseek") {
         return app::images::agent_dsh;
     }

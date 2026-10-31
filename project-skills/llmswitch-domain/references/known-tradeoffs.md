@@ -19,7 +19,7 @@
   之前会把这整段摊平成块风格——只改排版、键值与顺序原样保留，但 flow 区域内部
   的行尾注释不保留（dsh 自己生成的文件没有注释）。不摊平的话，往 flow 块后插
   块条目会写出非法 YAML，dsh 的 watcher 会保留上一份好文档、切换静默失效。
-- **MCP 不支持 claude desktop / pi / dsh / hermes / kimi-code**：setEnabled/importFromTool 对这些
+- **MCP 不支持 claude desktop / pi / oh-my-pi / dsh / hermes / kimi-code**：setEnabled/importFromTool 对这些
   工具抛「该工具暂不支持 MCP 管理」。
 - **路由地址和关于页链接仍是纯文本**：框架已提供应用层 Clipboard 服务，
   但这些页面尚未接入复制或浏览器跳转。后续若新增交互，先核对当前版本公开 API，

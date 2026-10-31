@@ -73,7 +73,7 @@ Agent 的活动并快速回到日常工作；桌宠旁的信息卡直接承载�
 - `LocalRouter`：保留现有可靠的 streaming、完成、错误和 token 来源。
 - 原生 Agent 来源：优先接入各工具官方 hooks / plugin / extension 生命周期事件，
   从 Claude Code 与 Codex 开始；只有官方事件覆盖不足且隐私边界通过验证后，才评估
-  本地日志的元数据回退。接入评估、九个工具的公开接口和安装边界见
+  本地日志的元数据回退。接入评估、十个工具的公开接口和安装边界见
   [原生 Agent 活动接入调研](agents/activity-integration-research.md)。hook 输入只
   提取状态所需字段，不把 prompt、回复、命令、工具参数/结果或 transcript 路径写入
   桌宠事件流。

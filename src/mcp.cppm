@@ -6,7 +6,7 @@
 //                 按当前启用清单重新生成，其余内容原样保留）
 //   opencode    → ~/.config/opencode/opencode.json 顶层 mcp（官方文件允许 JSON5 注释，
 //                 解析失败抛中文错，不覆盖原文件）
-// claude / pi：MVP 不支持，setEnabled / importFromTool 抛「该工具暂不支持 MCP 管理」。
+// claude / pi / oh-my-pi：MVP 不支持，setEnabled / importFromTool 抛「该工具暂不支持 MCP 管理」。
 //
 // 所有 live 写入前先快照到 dataDir()/backups/mcp/（每文件保留最近 10 份），
 // 写入走 .tmp + rename 原子写。移除条目只动 name 匹配的键，绝不动用户其他条目。

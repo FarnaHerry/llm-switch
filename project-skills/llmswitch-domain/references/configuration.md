@@ -86,7 +86,7 @@
   managed:kimi-code 的官方模型。
   改前照常备份，组 current 清空。
 - **内置预设**：只收第三方兼容端点（官方厂商由常驻卡承担，不进预设）；
-  opencode / pi / hermes 无官方厂商故只有第三方。
+  opencode / pi / oh-my-pi / hermes 无官方厂商故只有第三方。
 - **测试友好**：live 路径全部支持环境变量覆盖——
   `LLMSWITCH_CLAUDE_SETTINGS` / `LLMSWITCH_CODEX_AUTH` / `LLMSWITCH_CODEX_CONFIG`
   / `LLMSWITCH_OPENCODE_CONFIG` / `LLMSWITCH_PI_DIR` /

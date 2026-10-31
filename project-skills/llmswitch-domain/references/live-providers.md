@@ -1,4 +1,4 @@
-# Claude、Codex、OpenCode、Pi、Hermes 与 Kimi Code live 契约
+# Claude、Codex、OpenCode、Pi、Oh My Pi、Hermes 与 Kimi Code live 契约
 
 live 文件是被切换工具实际读取的配置文件。文件安全、探测与恢复另见
 [共享配置契约](configuration.md)。代码路径相对仓库根目录。
@@ -39,6 +39,25 @@ settings.json 深合并 defaultProvider/defaultModel（目录 0700、文件 0600
 
 importLive 若 settings.defaultModel 缺失，回退到默认条目的第一个模型；
 不因缺少顶层模型把已有列表收编丢失。
+
+## Oh My Pi
+
+OMP（CLI 命令 `omp`）是 Pi 的增强分支，但配置格式不同：供应商在
+`~/.omp/agent/models.yml`（已有 `models.yaml` 时沿用）的顶层 `providers` map，
+模型选择在 `~/.omp/agent/config.yml`（已有 `config.yaml` 时沿用）的
+`modelRoles.default`，值为 `<provider-id>/<model>`。本应用只写自己的
+`llmswitch-<id>` 条目：`baseUrl` / `apiKey` 直写、`api` 按 Pi 三档映射
+（anthropic→`anthropic-messages`、openai-responses→`openai-responses`、
+其余→`openai-completions`），有密钥时写 `auth: apiKey`（Anthropic 档不写会被
+OMP 按 OAuth 形态塑形请求），空密钥写 `auth: none`；`models` 清单保留该条目
+已有的其它模型，只补主模型。
+切换只把 `modelRoles.default` 指过去，不重建其它 provider。目录 0700、文件
+0600；官方 `PI_CODING_AGENT_DIR`、`OMP_PROFILE`/`PI_PROFILE` 与
+`PI_CONFIG_DIR` 均识别。`models.yml` 不是热监听文件，切换后需重启 `omp`。
+旧版 `models.json` / `settings.json` 未迁移时拒绝写入，要求先启动一次 `omp`
+让官方完成迁移；原生条目收编时本地 id 保持原键，切换会写本应用
+`llmswitch-<id>` 条目而不改原生条目；OMP 没有官方默认态，`restoreOfficial`
+抛错。
 
 ## Hermes
 

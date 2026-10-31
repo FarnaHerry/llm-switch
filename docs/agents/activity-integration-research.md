@@ -18,7 +18,10 @@
 | [nudoo/codex-pets](https://github.com/nudoo/codex-pets)（fork 自 `rullerzhou-afk/clawd-on-desk`） | Claude Code 使用 command hooks，并为权限事件提供 HTTP hook；Codex 使用官方 hooks，另有 `~/.codex/sessions/` JSONL 状态/元数据回退；其他工具各有独立 hook/plugin/extension adapter。 | hooks-first、按工具独立 adapter、只对缺失事件加日志回退，适合逐步扩展到多 Agent。其文档也明确区分“观察状态”和“接管权限”。 | 本项目不需要权限浮层；JSONL 回退不是默认方案，且不得为了显示状态读取正文。 |
 | [Ponpon55837/agent-pets](https://github.com/Ponpon55837/agent-pets) | 用户逐个安装 adapter；界面显示已安装/部分配置/不可用、能力、诊断和测试状态；hook 向 `127.0.0.1` 本地 receiver 报事件，按安装令牌认证。 | adapter registry、显式安装、健康检查和可解释错误值得采用。测试事件只能证明 receiver 到 UI 的链路，不能证明 Agent 自己确实触发 hook。 | 本项目已采用独立于 `LocalRouter` 的令牌保护 loopback receiver；不开放 LAN，也不把 Agent 状态统计混入路由请求统计。 |
 
-## 八个已注册工具的公开接口盘点
+## 已注册工具的公开接口盘点（阶段快照）
+
+> 本表记录 2026-10-25 的调研结果；其后新增的 Kimi Code 与 Oh My Pi 不在本轮
+> 活动接口调研范围内，供应商接入不代表已确认其 hook / extension 事件契约。
 
 | 注册 id | 可用的官方/公开观察入口 | 状态覆盖与注意事项 | 建议 |
 |---|---|---|---|

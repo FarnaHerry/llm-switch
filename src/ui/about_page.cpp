@@ -62,8 +62,9 @@ const std::string kVersionLine = std::format("llm-switch v{}", LLMSWITCH_VERSION
                             huxerui::Font::System(font_size::kTitle)
                                 .WithWeight(huxerui::FontWeight::Bold),
                             theme.colors.on_surface}),
-                        BodyLine("AI 编程工具（Claude Code / Codex / opencode / pi 等）"
-                                 "的供应商切换器：一个配置库，多工具一键切换，"
+                        BodyLine("AI 编程工具（Claude Code / Codex / opencode / "
+                                 "pi / Oh My Pi 等）的供应商切换器：一个配置库，"
+                                 "多工具一键切换，"
                                  "附本地路由、用量查询与请求统计。"),
                     }.With(huxerui::Spacing(8.0F),
                            huxerui::Grow(1.0F),
@@ -101,6 +102,7 @@ const std::string kVersionLine = std::format("llm-switch v{}", LLMSWITCH_VERSION
                     BodyLine("cpp-httplib — MIT License"),
                     BodyLine("simple-icons（Claude / Codex / opencode 图标）— CC0 1.0"),
                     BodyLine("pi.dev logo（pi-mono）— MIT License"),
+                    BodyLine("Oh My Pi logo（omp.sh）— MIT License"),
                 }.With(huxerui::Spacing(6.0F),
                        huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))),
             }.With(huxerui::Spacing(12.0F),

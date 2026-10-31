@@ -52,6 +52,10 @@ bool liveFileExists(std::string_view tool) {
         return std::filesystem::exists(cfg::piModelsFile(), ec) ||
                std::filesystem::exists(cfg::piSettingsFile(), ec);
     }
+    if (tool == "oh-my-pi") {
+        return std::filesystem::exists(cfg::ompModelsFile(), ec) ||
+               std::filesystem::exists(cfg::ompConfigFile(), ec);
+    }
     if (tool == "zcode") {
         return std::filesystem::exists(cfg::zcodeConfigFile(), ec);
     }
@@ -611,7 +615,8 @@ void ProviderStore::removeProvider(std::string_view tool, const std::string& id,
         }
     }
     std::optional<models::ProviderGroup> snapshot;
-    if ((tool == "dsh" || tool == "zcode" || tool == "kimi-code") &&
+    if ((tool == "dsh" || tool == "zcode" || tool == "kimi-code" ||
+         tool == "oh-my-pi") &&
         eraseLive) {
         snapshot = g;  // live 写失败 ⇒ 回滚删除
     }
@@ -649,6 +654,17 @@ void ProviderStore::removeProvider(std::string_view tool, const std::string& id,
                 const std::string key = zcodeEntryKeyFor(doc["provider"], id);
                 if (doc["provider"].contains(key)) eraseZcodeEntry(key);
             }
+        } catch (...) {
+            if (snapshot) g = std::move(*snapshot);
+            throw;
+        }
+    }
+    if (tool == "oh-my-pi" && eraseLive) {
+        // 只删本应用写进 models.yml 的 llmswitch-<id> 条目；它正是
+        // modelRoles.default 时一并摘掉默认指向，让 OMP 回到自己的回退逻辑。
+        // 收编进来的原生条目保持原键，不会误删。
+        try {
+            eraseOmpProvider("llmswitch-" + id);
         } catch (...) {
             if (snapshot) g = std::move(*snapshot);
             throw;
