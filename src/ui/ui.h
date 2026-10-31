@@ -58,8 +58,8 @@ std::string_view ToolName(std::string_view tool);
 // Agent 图标）；未注册（不应发生）回退 0。
 std::size_t ToolRegistryIndex(std::string_view tool);
 
-// ToolSpec.iconName → 单套无色 alpha-mask 图标；深浅主题由组件运行时 tint
-// 自适应，选中态由承载容器表达。未知名显示错误图标，避免掩盖漏配。
+// ToolSpec.iconName → 品牌色 Agent 身份图标（agent_*.png 栅格，自带底色，
+// 不参与主题 tint）；选中态仍由承载容器表达。未知名显示错误图标，避免漏配。
 huxerui::ImageResource ToolIcon(std::string_view iconName);
 // builtinPresets() vendor name → bundled monochrome brand/monogram icon.
 huxerui::ImageResource PresetIcon(std::string_view providerName);

@@ -22,32 +22,32 @@ store::ProviderStore& providerStore() {
 }
 
 huxerui::ImageResource ToolIcon(std::string_view iconName) {
-    if (iconName == "claudecode") {
-        return app::images::claudecode;
-    }
-    if (iconName == "claude") {
-        return app::images::claude;
+    // Agent 身份图标使用品牌色栅格标记（64px + @2x/@3x），不走 SVG tint：
+    // 深浅主题都能直接看到厂商色；Claude Code 与 Claude Desktop 共享 Claude
+    // 品牌标记，靠标题文字区分。未知 iconName 仍回退错误图标。
+    if (iconName == "claudecode" || iconName == "claude") {
+        return app::images::agent_claude;
     }
     if (iconName == "codex") {
-        return app::images::codex;
+        return app::images::agent_codex;
     }
     if (iconName == "opencode") {
-        return app::images::opencode;
+        return app::images::agent_opencode;
     }
     if (iconName == "pi") {
-        return app::images::pi;
+        return app::images::agent_pi;
     }
     if (iconName == "deepseek") {
-        return app::images::deepseek;
+        return app::images::agent_dsh;
     }
     if (iconName == "hermes") {
-        return app::images::hermes;
+        return app::images::agent_hermes;
     }
     if (iconName == "zcode") {
-        return app::images::zcode;
+        return app::images::agent_zcode;
     }
     if (iconName == "kimi") {
-        return app::images::kimi;
+        return app::images::agent_kimi;
     }
     return app::images::error;
 }

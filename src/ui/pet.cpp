@@ -263,13 +263,12 @@ huxerui::View TodayBadge(std::int64_t today) {
               huxerui::Padding(huxerui::EdgeInsets{.bottom = 6.0F}));
 }
 
-// 活跃 Agent 浮标：顶缘居中的一枚玻璃药丸，内嵌最多 2 个 Agent 图标
-//（ToolIcon 的白色 alpha-mask 经 Tint 映冷白）。白龙「双会话」同款语义。
+// 活跃 Agent 浮标：顶缘居中的一枚玻璃药丸，内嵌最多 2 个品牌色 Agent
+// 图标（深色玻璃底上保持原色）。白龙「双会话」同款语义。
 huxerui::View ActiveAgentBadge(const std::vector<std::string>& tools) {
     std::vector<huxerui::View> icons;
     for (const std::string& tool : tools) {
         icons.push_back(huxerui::Image(ToolIcon(tool))
-                            .Tint(Color::Rgb(224, 242, 254))
                             .With(huxerui::Frame{.width = 14.0F, .height = 14.0F}));
     }
     std::string label;
@@ -1082,9 +1081,6 @@ huxerui::View CardAgentRow(const PetAgentRow& row, const std::string& providerNa
     }
     return huxerui::Row {
         huxerui::Image(ToolIcon(row.tool))
-            .Tint(hasActivity || row.activityLabel.find("工作中") != std::string::npos ||
-                      row.activityLabel.find("等待处理") != std::string::npos
-                      ? onSurface : onSurfaceVariant)
             .With(huxerui::Frame{.width = 16.0F, .height = 16.0F}),
         huxerui::Column {
             huxerui::Text(ToolName(row.tool))
@@ -1138,7 +1134,6 @@ huxerui::View CardRecentResultRow(const PetRecentResult& result, Color onSurface
     const std::size_t toolIndex = ToolRegistryIndex(result.tool);
     return huxerui::Row {
         huxerui::Image(ToolIcon(result.tool))
-            .Tint(result.outcome == PetRecentOutcome::failed ? error : onSurfaceVariant)
             .With(huxerui::Frame{.width = 16.0F, .height = 16.0F}),
         huxerui::Column {
             huxerui::Text(std::format("{} · {}", ToolName(result.tool), outcome))

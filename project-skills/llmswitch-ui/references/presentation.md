@@ -49,17 +49,22 @@
 
 ## UI 资源约束
 
-- 24×24 功能图标遵守 [资源规范](../../../resources/README.md) 的单套无色图标规范；深浅模式
-  由运行时 tint 自适应，禁止维护 `_selected/_dark/_light` 重复资源。CMake 会
-  在配置期检查 `#FFFFFF` alpha-mask 与 `_selected` 重复资源。
+- 除 Agent 品牌身份图标外，24×24 功能图标遵守
+  [资源规范](../../../resources/README.md) 的单套无色图标规范；深浅模式由运行时
+  tint 自适应，禁止维护 `_selected/_dark/_light` 重复资源。CMake 会在配置期检查
+  `#FFFFFF` alpha-mask 与 `_selected` 重复资源。
+- Agent 身份图标（`agent_*.png`）是品牌色圆角方块 + 官方标志的 64px 栅格
+  （含 `@2x`/`@3x`），直接呈现颜色，不参与 SVG tint；深浅模式共用一套，关闭态
+  用整体透明度表达。
 - 新增 `models::kToolRegistry` Agent 时，必须为 `ToolSpec::iconName` 添加对应的
-  `resources/images/*.svg`，更新 `ToolIcon()` 映射、图标来源与许可表，并补充
-  注册表/图标对应关系测试；UI 不得静默回退到通用 Agent 图标。
+  `resources/images/agent_*.png`（品牌色底 + 官方轮廓，64px 与 `@2x`/`@3x`），
+  更新 `ToolIcon()` 映射、图标来源与许可表，并补充注册表/图标对应关系测试；
+  UI 不得静默回退到通用 Agent 图标。
 - 新增 `builtinPresets()` 默认供应商模板时，必须给每个厂商指定可复用的厂商
   图标（优先官方标志；没有合适素材时可自绘缩写），在
   `models::builtinPresetIconName()` 与 UI `PresetIcon()` 登记映射，并让订阅与按量
   模板入口都显示该图标；同一厂商跨 Agent/计费组复用一枚图标。新增资源时同步
   更新来源与许可表，并在测试中检查模板图标映射完整。
 - 太极主题选择器、轻岛屿表面和卡片规范见本文“UI 视觉硬约束”。
-- 图标表现必须通过项目的 `IconButton`/主题 tint 管线完成，不为深浅模式复制资源，
-  不依赖 SVG 自带的固定前景色。
+- 除 Agent 品牌身份图标外，图标表现必须通过项目的 `IconButton`/主题 tint 管线
+  完成，不为深浅模式复制资源，不依赖 SVG 自带的固定前景色。

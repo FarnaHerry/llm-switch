@@ -145,7 +145,6 @@ std::size_t CloseBehaviorIndex(std::string_view behavior) {
     const std::string command(spec.installCommand);
     return huxerui::Row {
         huxerui::Image(ToolIcon(spec.iconName))
-            .Tint(theme.colors.on_surface_variant)
             .With(huxerui::Frame{.width = 18.0F, .height = 18.0F}),
         huxerui::Column {
             huxerui::Text(std::string(spec.displayName))
@@ -357,7 +356,7 @@ std::size_t CloseBehaviorIndex(std::string_view behavior) {
     }
 
     // Agent 管理开关：关闭项存 AppConfig.disabledTools，其他页面按它过滤。
-    // 图标本身即复选框：正常着色 = 启用，灰色 = 关闭；点击直接切换。
+    // 图标本身即复选框：正常彩色 = 启用，半透明 = 关闭；点击直接切换。
     auto disabledTools =
         huxerui::UseState(providerStore().config().disabledTools);
     huxerui::IconButtonStyle agentIconOn = huxerui::IconButtonStyle::Default();
@@ -408,11 +407,12 @@ std::size_t CloseBehaviorIndex(std::string_view behavior) {
                             toast.Show(e.what());
                         }
                     })
-                    .With(huxerui::Tooltip(tip)))
+                    .With(huxerui::Tooltip(tip),
+                          huxerui::Opacity(enabled ? 1.0F : 0.38F)))
                 .Key("managed-agent:" + id));
     }
     huxerui::View managedAgents = huxerui::Column {
-        huxerui::Text("点击图标切换是否管理该 Agent；灰色表示已关闭。")
+        huxerui::Text("点击图标切换是否管理该 Agent；半透明表示已关闭。")
             .Style(huxerui::TextStyle{
                 huxerui::Font::System(font_size::kCaption),
                 theme.colors.on_surface_variant}),

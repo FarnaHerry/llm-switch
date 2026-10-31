@@ -20,7 +20,7 @@ namespace models {
 export struct ToolSpec {
     std::string_view id;            // config.json groups 的键，稳定不本地化
     std::string_view displayName;   // UI 展示名
-    std::string_view iconName;      // resources 图标名（app::images::<iconName>）
+    std::string_view iconName;      // Agent 图标名，ToolIcon() → agent_*.png
     bool needsModel;    // 是否有「默认模型」字段（opencode / pi）
     bool hasApiFormat;  // 是否有 apiFormat 字段（opencode / pi）
     // 是否有三档模型映射字段 haiku/sonnet/opus（claude-code 写

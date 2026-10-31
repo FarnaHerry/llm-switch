@@ -79,7 +79,6 @@ bool InvolvesTool(const skills::SkillInfo& skill, std::string_view toolId) {
         const std::string label(ToolName(toolId));
         icons.push_back(
             huxerui::Image(ToolIcon(spec->iconName))
-                .Tint(theme.colors.on_surface_variant)
                 .With(huxerui::Frame{.width = 24.0F, .height = 24.0F},
                       huxerui::Semantics{.role = huxerui::SemanticRole::Image,
                                          .label = label},
