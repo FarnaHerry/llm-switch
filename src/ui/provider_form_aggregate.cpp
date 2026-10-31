@@ -6,7 +6,7 @@
 // 调整尝试顺序；对 Agent 暴露的模型 ID 按供应商内部去重后整组合并，并拼成
 // 「供应商名/模型」。选中后 Agent 的 live 配置指向本地路由，由 router 按请求
 // model 精确匹配成员并剥掉前缀，429/5xx 时按列表顺序继续尝试。成员与目标
-// Agent 协议不同时由 router 转换（Anthropic Messages 与 OpenAI Chat 双向）；
+// Agent 协议不同时由 router 转换（Anthropic / Chat / Responses 三档互通）；
 // 聚合项不能嵌套另一个聚合项。
 #include <huxerui/huxerui.h>
 
@@ -72,13 +72,6 @@ std::string ProtocolFromIndex(int index) {
 
 std::string NormalizedProtocol(std::string_view format) {
     return std::string(models::normalizeApiFormat(format));
-}
-
-bool ConversionSupported(std::string_view target, std::string_view source) {
-    // 当前支持 Anthropic Messages 与 OpenAI Chat 双向转换；Responses 仍直通。
-    return target == source ||
-           (target == "anthropic" && source == "openai-chat") ||
-           (target == "openai-chat" && source == "anthropic");
 }
 
 struct ModelDrag {
@@ -378,23 +371,22 @@ void MoveEntry(huxerui::State<std::vector<ModelEntry>> entries,
         const std::string protocol =
             protocolIt != protocols.end() ? protocolIt->second
                                           : candidate.apiFormat;
-        const bool converted = protocol != targetFormat &&
-                               ConversionSupported(targetFormat, protocol);
-        const bool unsupported = protocol != targetFormat && !converted;
-        // 协议和地址前缀是两件事：Chat 成员仍带 /anthropic、或 Anthropic
-        // 成员仍带 /v1 时，转换后的端点会重复路径，先明确提示用户改 URL。
+        const bool converted = protocol != targetFormat;
+        // 协议和地址前缀是两件事：Chat/Responses 成员仍带 /anthropic、
+        // 或 Anthropic 成员仍带 /v1 时，转换后的端点会重复路径。
         const bool addressMismatch =
             converted &&
-            ((targetFormat == "anthropic" &&
-              protocol == "openai-chat" &&
+            (((protocol == "openai-chat" ||
+               protocol == "openai-responses") &&
               candidate.url.contains("/anthropic")) ||
-             (targetFormat == "openai-chat" &&
-              protocol == "anthropic" &&
+             (protocol == "anthropic" &&
               candidate.url.contains("/v1")));
         const std::string addressHint =
-            targetFormat == "anthropic"
+            protocol == "openai-chat"
                 ? "地址仍带 /anthropic，请先用 Chat 兼容地址"
-                : "地址仍带 /v1，请用 /anthropic 或根地址";
+                : (protocol == "openai-responses"
+                       ? "地址仍带 /anthropic，请用 Responses 兼容地址"
+                       : "地址仍带 /v1，请用 /anthropic 或根地址");
         huxerui::View row = huxerui::Row {
             huxerui::Checkbox(checked).OnChanged(
                 [ordered, memberProtocols, member = candidate](bool on) {
@@ -450,13 +442,11 @@ void MoveEntry(huxerui::State<std::vector<ModelEntry>> entries,
                     huxerui::Text(
                         addressMismatch
                             ? addressHint
-                            : (converted
-                                   ? "自动转换为目标协议"
-                                   : (unsupported ? "暂不支持转换"
-                                                  : "与目标一致，直通")))
+                            : (converted ? "自动转换为目标协议"
+                                         : "与目标一致，直通"))
                         .Style(huxerui::TextStyle{
                             huxerui::Font::System(font_size::kChip),
-                            (unsupported || addressMismatch)
+                            addressMismatch
                                 ? theme.colors.error
                                 : (converted
                                        ? theme.colors.primary
@@ -658,18 +648,19 @@ void MoveEntry(huxerui::State<std::vector<ModelEntry>> entries,
     std::string conversionHint;
     if (targetFormat == "anthropic") {
         conversionHint =
-            "OpenAI Chat 成员会由本地路由转换成 Anthropic 请求/响应；"
-            "OpenAI Responses 成员暂未支持转换。";
+            "OpenAI Chat / Responses 成员会由本地路由转换成 Anthropic "
+            "请求/响应。";
     } else if (targetFormat == "openai-chat") {
         conversionHint =
-            "Anthropic Messages 成员会由本地路由转换成 Chat 请求/响应；"
-            "OpenAI Responses 成员暂未支持转换。";
+            "Anthropic Messages / OpenAI Responses 成员会由本地路由转换"
+            "成 Chat 请求/响应。";
         if (tool == "codex") {
             conversionHint += " Codex 聚合固定用 chat wire_api。";
         }
     } else if (targetFormat == "openai-responses") {
         conversionHint =
-            "当前仅支持同协议直通；Anthropic / Chat 成员转换暂未支持。";
+            "Anthropic Messages / OpenAI Chat 成员会由本地路由转换成 "
+            "Responses 请求/响应。";
     } else {
         conversionHint =
             "成员协议按供应商配置自动推断；与目标不一致时由本地路由尝试"
@@ -698,8 +689,8 @@ void MoveEntry(huxerui::State<std::vector<ModelEntry>> entries,
                     "成员；对 Agent 暴露的模型 ID 会拼成「供应商名/模型」，"
                     "并先按供应商内部去重后整组合并。请求先发到本地路由，按"
                     "模型精确匹配，成员返回 429/5xx 或连接失败时按下方模型"
-                    "顺序继续尝试。每个供应商会显示成员协议；Anthropic 与"
-                    " OpenAI Chat 成员可双向自动转换。")
+                    "顺序继续尝试。每个供应商会显示成员协议；Anthropic、"
+                    "OpenAI Chat 与 OpenAI Responses 可按成员协议自动转换。")
                     .Style(huxerui::TextStyle{
                         huxerui::Font::System(font_size::kCaption),
                         theme.colors.on_surface_variant}),

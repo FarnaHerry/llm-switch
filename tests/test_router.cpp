@@ -845,6 +845,70 @@ int main() {
         router1.clearStats();
     }
 
+    // 3h. Chat 目标聚合 Responses 成员：请求走 Chat -> Responses 桥，
+    //     响应按 Responses -> Chat 桥回写；上游端点是 /responses。
+    {
+        groups["codex"].providers.push_back(models::Provider{
+            .id = "responses-member",
+            .name = "Responses成员",
+            .baseUrl = up1.baseUrl() + "/v1",
+            .apiKey = "sk-resp",
+            .upstreamFormat = "openai",
+            .fullUrl = true,
+        });
+        groups["codex"].providers.push_back(models::Provider{
+            .id = "agg-chat-resp",
+            .name = "Chat聚合Responses",
+            .upstreams = {
+                models::ProviderUpstream{.providerId = "responses-member",
+                                         .model = "gpt-x",
+                                         .apiFormat = "openai-responses"},
+            }});
+        groups["codex"].current = "agg-chat-resp";
+        up1.status = 200;
+        up1.contentType = "application/json";
+        up1.body =
+            R"({"id":"resp_1","object":"response","created_at":1,"model":"gpt-x","status":"completed","output":[{"id":"msg_0","type":"message","status":"completed","role":"assistant","content":[{"type":"output_text","text":"hello"}]}],"usage":{"input_tokens":5,"output_tokens":2,"total_tokens":7}})";
+        up1.hits = 0;
+        router1.clearStats();
+        auto res = cli.Post(
+            "/codex/chat/completions",
+            R"({"model":"Responses成员/gpt-x","max_tokens":100,"messages":[{"role":"user","content":"hi"}]})",
+            "application/json");
+        CHECK(res && res->status == 200);
+        {
+            std::lock_guard lk(up1.mu);
+            CHECK(up1.hits == 1);
+            CHECK(up1.lastPath == "/v1/responses");
+            CHECK(up1.lastAuth == "Bearer sk-resp");
+            CHECK(up1.lastApiKey.empty());
+            const auto body = nlohmann::json::parse(up1.lastBody, nullptr,
+                                                    false);
+            CHECK(body.is_object());
+            CHECK(body.value("model", "") == "gpt-x");
+            CHECK(body["input"].is_array());
+        }
+        const auto converted =
+            nlohmann::json::parse(res->body, nullptr, false);
+        CHECK(converted.is_object());
+        CHECK(converted["choices"].size() == 1);
+        CHECK(converted["choices"][0]["message"].value("content", "") ==
+              "hello");
+        CHECK(converted["usage"].value("prompt_tokens", 0) == 5);
+        CHECK(converted["usage"].value("completion_tokens", 0) == 2);
+
+        groups["codex"].current = "c1";
+        auto& codexProviders = groups["codex"].providers;
+        std::erase_if(codexProviders, [](const models::Provider& provider) {
+            return provider.id == "agg-chat-resp" ||
+                   provider.id == "responses-member";
+        });
+        up1.contentType = "application/json";
+        up1.body =
+            R"({"ok":true,"usage":{"prompt_tokens":12,"completion_tokens":34}})";
+        router1.clearStats();
+    }
+
     // 4. 未知工具 → 404；组无 current → 502（均为中文 JSON 错误体）。
     {
         auto res = cli.Get("/nope/x");

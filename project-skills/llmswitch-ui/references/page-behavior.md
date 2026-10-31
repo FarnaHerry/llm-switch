@@ -48,11 +48,12 @@
   地址与密钥请求完整清单并写回 Provider.models。勾选供应商后带入其全部已知
   模型，每个模型一行，可逐条移除、手动添加或拖拽/上下移动调整兜底顺序；
   每个供应商行另有「成员协议」选择（Anthropic / OpenAI Chat / OpenAI
-  Responses），默认按供应商配置推断；行内提示直通、自动转换或暂不支持。
-  成员协议必须与供应商地址前缀匹配：Chat 成员用 `/v1` 等地址，Anthropic
-  成员不要带 `/v1`；前缀冲突时行内显示错误提示。Anthropic 与 OpenAI Chat
-  成员可双向自动转换，Responses 仅直通；Claude 聚合目标为 Anthropic，
-  Codex 聚合目标为 Chat。默认模型和模型行显示
+  Responses），默认按供应商配置推断；行内提示直通或自动转换。
+  成员协议必须与供应商地址前缀匹配：Chat/Responses 成员用 `/v1` 等地址，
+  Anthropic 成员不要带 `/v1`；前缀冲突时行内显示错误提示。Anthropic、Chat 与
+  Responses 三档成员可互相自动转换（Responses 与 Chat 经 Anthropic 中间
+  表示）；Claude 聚合目标为 Anthropic，Codex 聚合目标为 Chat。默认模型和
+  模型行显示
   `供应商名/模型` 这一对外 ID，保存时先按供应商内部去重再整组合并。live
   同时存在时删除需区分“只删本应用”与“连同工具一起删”，默认沿用后者。
   两列不可调大 CacheExtent，详见 [性能预算](provider-performance.md)。

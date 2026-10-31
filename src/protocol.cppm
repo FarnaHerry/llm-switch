@@ -1,8 +1,8 @@
 // protocol.cppm — Agent 协议与上游协议之间的转换（纯函数，无网络/无 UI）。
 //
-// 覆盖第一对方向：
-//   Agent 侧 Anthropic Messages（claude-code / claude desktop）
-//   <-> 成员侧 OpenAI Chat Completions，双向转换。
+// 覆盖 Anthropic Messages、OpenAI Chat Completions 与 OpenAI Responses
+// 三档协议，任意两档之间可转换；Responses 与 Chat 通过 Anthropic 中间
+// 表示复用已有映射。
 // 路由把客户端原始请求按「目标协议 -> 成员协议」转换，再把成员响应按
 // 「成员协议 -> 目标协议」转换；同协议直通，不经过这里。
 //
@@ -46,23 +46,20 @@ export std::string_view apiFormatLabel(ApiFormat format) {
     return "OpenAI Chat";
 }
 
-// 当前实现支持的方向：Anthropic Messages <-> OpenAI Chat Completions。
-// OpenAI Responses 仍是直通档，暂不做协议转换。
+// 当前三档协议两两之间都有转换路径；Responses 与 Chat 通过 Anthropic
+// 中间表示复用已有映射。
 export bool supportsConversion(ApiFormat from, ApiFormat to) {
-    return from == to ||
-           (from == ApiFormat::anthropic && to == ApiFormat::openai_chat) ||
-           (from == ApiFormat::openai_chat && to == ApiFormat::anthropic);
+    (void)from;
+    (void)to;
+    return true;
 }
 
 // 转换方向 from -> to 时，上游需要请求的路径（相对 effectiveBaseUrl）。
 export std::string_view convertedRequestPath(ApiFormat from, ApiFormat to) {
     if (from == to) return {};
-    if (from == ApiFormat::anthropic && to == ApiFormat::openai_chat) {
-        return "chat/completions";
-    }
-    if (from == ApiFormat::openai_chat && to == ApiFormat::anthropic) {
-        return "v1/messages";
-    }
+    if (to == ApiFormat::openai_chat) return "chat/completions";
+    if (to == ApiFormat::anthropic) return "v1/messages";
+    if (to == ApiFormat::openai_responses) return "responses";
     return {};
 }
 
@@ -489,6 +486,460 @@ Json chatRequestToAnthropic(const Json& in) {
     return out;
 }
 
+Json responsesImagePartFromAnthropic(const Json& block) {
+    const auto source = block.find("source");
+    if (source == block.end() || !source->is_object()) return Json();
+    const auto type = source->value("type", "");
+    if (type == "base64") {
+        const std::string media = source->value("media_type", "image/png");
+        const std::string data = source->value("data", "");
+        if (data.empty()) return Json();
+        Json part;
+        part["type"] = "input_image";
+        part["image_url"] =
+            "data:" + media + ";base64," + data;
+        return part;
+    }
+    if (type == "url") {
+        const std::string url = source->value("url", "");
+        if (url.empty()) return Json();
+        Json part;
+        part["type"] = "input_image";
+        part["image_url"] = url;
+        return part;
+    }
+    return Json();
+}
+
+Json responsesImageToAnthropic(const Json& part) {
+    const auto image = part.find("image_url");
+    if (image == part.end()) return Json();
+    std::string url;
+    if (image->is_string()) {
+        url = image->get<std::string>();
+    } else if (image->is_object()) {
+        url = image->value("url", "");
+    }
+    if (url.empty()) return Json();
+    Json block;
+    block["type"] = "image";
+    if (url.starts_with("data:")) {
+        const auto marker = url.find(";base64,");
+        if (marker != std::string::npos) {
+            const std::string media = url.substr(5, marker - 5);
+            const std::string data = url.substr(marker + 8);
+            if (!data.empty()) {
+                block["source"]["type"] = "base64";
+                block["source"]["media_type"] = media;
+                block["source"]["data"] = data;
+                return block;
+            }
+        }
+    }
+    block["source"]["type"] = "url";
+    block["source"]["url"] = url;
+    return block;
+}
+
+Json responsesContentToAnthropicBlocks(const Json& content) {
+    Json blocks = Json::array();
+    const auto addText = [&blocks](const std::string& text) {
+        if (text.empty()) return;
+        Json block;
+        block["type"] = "text";
+        block["text"] = text;
+        blocks.push_back(std::move(block));
+    };
+    if (content.is_string()) {
+        addText(content.get<std::string>());
+        return blocks;
+    }
+    if (!content.is_array()) return blocks;
+    for (const auto& part : content) {
+        if (part.is_string()) {
+            addText(part.get<std::string>());
+            continue;
+        }
+        if (!part.is_object()) continue;
+        const auto type = part.value("type", "");
+        if (type == "input_text" || type == "output_text" ||
+            type == "text" || type == "refusal") {
+            addText(part.value("text", part.value("refusal", "")));
+        } else if (type == "input_image") {
+            Json image = responsesImageToAnthropic(part);
+            if (!image.is_null()) blocks.push_back(std::move(image));
+        }
+    }
+    return blocks;
+}
+
+Json anthropicRequestToResponses(const Json& in) {
+    Json out = Json::object();
+    if (in.contains("model")) out["model"] = in["model"];
+    std::string instructions = textOf(
+        in.find("system") != in.end() ? in["system"] : Json());
+    Json input = Json::array();
+
+    const auto sourceMessages = in.find("messages");
+    if (sourceMessages != in.end() && sourceMessages->is_array()) {
+        for (const auto& message : *sourceMessages) {
+            if (!message.is_object()) continue;
+            const std::string role = message.value("role", "");
+            const auto content = message.find("content");
+            if (content == message.end()) continue;
+            if (role == "system" || role == "developer") {
+                const std::string extra = textOf(*content);
+                if (!extra.empty()) {
+                    if (!instructions.empty()) instructions += "\n\n";
+                    instructions += extra;
+                }
+                continue;
+            }
+            if (role == "user") {
+                Json parts = Json::array();
+                const auto flushUser = [&] {
+                    if (parts.empty()) return;
+                    Json item;
+                    item["type"] = "message";
+                    item["role"] = "user";
+                    item["content"] = std::move(parts);
+                    input.push_back(std::move(item));
+                    parts = Json::array();
+                };
+                if (content->is_string()) {
+                    Json part;
+                    part["type"] = "input_text";
+                    part["text"] = content->get<std::string>();
+                    parts.push_back(std::move(part));
+                    flushUser();
+                    continue;
+                }
+                if (!content->is_array()) continue;
+                for (const auto& block : *content) {
+                    if (!block.is_object()) continue;
+                    const auto type = block.value("type", "");
+                    if (type == "text") {
+                        Json part;
+                        part["type"] = "input_text";
+                        part["text"] = block.value("text", "");
+                        parts.push_back(std::move(part));
+                    } else if (type == "image") {
+                        Json part = responsesImagePartFromAnthropic(block);
+                        if (!part.is_null()) parts.push_back(std::move(part));
+                    } else if (type == "tool_result") {
+                        flushUser();
+                        Json item;
+                        item["type"] = "function_call_output";
+                        item["call_id"] = block.value("tool_use_id", "");
+                        item["output"] =
+                            block.find("content") != block.end()
+                                ? textOf(block["content"])
+                                : std::string{};
+                        input.push_back(std::move(item));
+                    }
+                }
+                flushUser();
+                continue;
+            }
+            if (role != "assistant") continue;
+            Json parts = Json::array();
+            const auto flushAssistant = [&] {
+                if (parts.empty()) return;
+                Json item;
+                item["type"] = "message";
+                item["role"] = "assistant";
+                item["content"] = std::move(parts);
+                input.push_back(std::move(item));
+                parts = Json::array();
+            };
+            if (content->is_string()) {
+                Json part;
+                part["type"] = "output_text";
+                part["text"] = content->get<std::string>();
+                parts.push_back(std::move(part));
+                flushAssistant();
+                continue;
+            }
+            if (!content->is_array()) continue;
+            for (const auto& block : *content) {
+                if (!block.is_object()) continue;
+                const auto type = block.value("type", "");
+                if (type == "text") {
+                    Json part;
+                    part["type"] = "output_text";
+                    part["text"] = block.value("text", "");
+                    parts.push_back(std::move(part));
+                } else if (type == "tool_use") {
+                    flushAssistant();
+                    Json item;
+                    item["type"] = "function_call";
+                    item["call_id"] = block.value("id", "");
+                    item["name"] = block.value("name", "");
+                    const auto inputIt = block.find("input");
+                    item["arguments"] =
+                        inputIt != block.end() && inputIt->is_object()
+                            ? inputIt->dump()
+                            : "{}";
+                    input.push_back(std::move(item));
+                }
+            }
+            flushAssistant();
+        }
+    }
+    if (!instructions.empty()) out["instructions"] = std::move(instructions);
+    if (!input.empty()) out["input"] = std::move(input);
+
+    bool allowTools = true;
+    std::string choiceType;
+    std::string choiceName;
+    bool disableParallel = false;
+    if (const auto choice = in.find("tool_choice");
+        choice != in.end() && choice->is_object()) {
+        choiceType = choice->value("type", "");
+        choiceName = choice->value("name", "");
+        disableParallel = choice->value("disable_parallel_tool_use", false);
+    }
+    if (choiceType == "none") allowTools = false;
+    if (allowTools) {
+        if (const auto toolsIt = in.find("tools");
+            toolsIt != in.end() && toolsIt->is_array() && !toolsIt->empty()) {
+            Json tools = Json::array();
+            for (const auto& tool : *toolsIt) {
+                if (!tool.is_object()) continue;
+                Json entry;
+                entry["type"] = "function";
+                entry["name"] = tool.value("name", "");
+                if (tool.contains("description")) {
+                    entry["description"] = tool["description"];
+                }
+                entry["parameters"] =
+                    tool.contains("input_schema") &&
+                            tool["input_schema"].is_object()
+                        ? tool["input_schema"]
+                        : Json{{"type", "object"},
+                               {"properties", Json::object()}};
+                tools.push_back(std::move(entry));
+            }
+            if (!tools.empty()) out["tools"] = std::move(tools);
+        }
+    }
+    if (allowTools && out.contains("tools")) {
+        if (choiceType == "auto") {
+            out["tool_choice"] = "auto";
+        } else if (choiceType == "any") {
+            out["tool_choice"] = "required";
+        } else if (choiceType == "tool") {
+            out["tool_choice"]["type"] = "function";
+            out["tool_choice"]["name"] = std::move(choiceName);
+        }
+        if (disableParallel) out["parallel_tool_calls"] = false;
+    }
+
+    if (const auto max = in.find("max_tokens");
+        max != in.end() && max->is_number()) {
+        out["max_output_tokens"] = *max;
+    }
+    const auto copyNumber = [&](std::string_view key) {
+        if (const auto it = in.find(std::string(key));
+            it != in.end() && it->is_number()) {
+            out[key] = *it;
+        }
+    };
+    copyNumber("temperature");
+    copyNumber("top_p");
+    if (const auto meta = in.find("metadata");
+        meta != in.end() && meta->is_object()) {
+        if (const auto id = meta->find("user_id");
+            id != meta->end() && id->is_string()) {
+            out["metadata"]["user_id"] = *id;
+        }
+    }
+    if (in.value("stream", false)) out["stream"] = true;
+    return out;
+}
+
+Json responsesRequestToAnthropic(const Json& in) {
+    Json out = Json::object();
+    if (in.contains("model")) out["model"] = in["model"];
+    std::string system = textOf(
+        in.find("instructions") != in.end() ? in["instructions"] : Json());
+    std::vector<Json> messages;
+
+    const auto appendMessageBlocks = [&](std::string_view role,
+                                         Json blocks) {
+        appendAnthropicBlocks(messages, role, std::move(blocks));
+    };
+    const auto input = in.find("input");
+    if (input != in.end()) {
+        if (input->is_string()) {
+            Json blocks = Json::array();
+            Json block;
+            block["type"] = "text";
+            block["text"] = input->get<std::string>();
+            blocks.push_back(std::move(block));
+            appendMessageBlocks("user", std::move(blocks));
+        } else if (input->is_array()) {
+            for (const auto& item : *input) {
+                if (item.is_string()) {
+                    Json blocks = Json::array();
+                    Json block;
+                    block["type"] = "text";
+                    block["text"] = item.get<std::string>();
+                    blocks.push_back(std::move(block));
+                    appendMessageBlocks("user", std::move(blocks));
+                    continue;
+                }
+                if (!item.is_object()) continue;
+                const auto type = item.value("type", "");
+                if (type == "function_call") {
+                    Json block;
+                    block["type"] = "tool_use";
+                    std::string id = item.value("call_id", "");
+                    if (id.empty()) id = item.value("id", "");
+                    if (id.empty()) id = "toolu_" + std::to_string(
+                                                    messages.size());
+                    block["id"] = std::move(id);
+                    block["name"] = item.value("name", "");
+                    const auto args = item.find("arguments");
+                    Json inputValue = Json::object();
+                    if (args != item.end()) {
+                        if (args->is_object()) {
+                            inputValue = *args;
+                        } else if (args->is_string()) {
+                            const auto parsed = Json::parse(
+                                args->get<std::string>(), nullptr, false);
+                            if (parsed.is_object()) inputValue = parsed;
+                        }
+                    }
+                    block["input"] = std::move(inputValue);
+                    Json blocks = Json::array();
+                    blocks.push_back(std::move(block));
+                    appendMessageBlocks("assistant", std::move(blocks));
+                    continue;
+                }
+                if (type == "function_call_output") {
+                    Json block;
+                    block["type"] = "tool_result";
+                    block["tool_use_id"] = item.value("call_id", "");
+                    block["content"] =
+                        item.find("output") != item.end()
+                            ? textOf(item["output"])
+                            : std::string{};
+                    Json blocks = Json::array();
+                    blocks.push_back(std::move(block));
+                    appendMessageBlocks("user", std::move(blocks));
+                    continue;
+                }
+                if (type != "message" && !item.contains("role")) continue;
+                const std::string role = item.value("role", "user");
+                if (role == "system" || role == "developer") {
+                    const std::string extra = textOf(
+                        item.find("content") != item.end()
+                            ? item["content"]
+                            : Json());
+                    if (!extra.empty()) {
+                        if (!system.empty()) system += "\n\n";
+                        system += extra;
+                    }
+                    continue;
+                }
+                Json blocks = responsesContentToAnthropicBlocks(
+                    item.find("content") != item.end()
+                        ? item["content"]
+                        : Json());
+                appendMessageBlocks(role == "assistant" ? "assistant"
+                                                        : "user",
+                                    std::move(blocks));
+            }
+        }
+    }
+    if (!system.empty()) out["system"] = std::move(system);
+    Json messageArray = Json::array();
+    for (auto& message : messages) messageArray.push_back(std::move(message));
+    if (!messageArray.empty()) out["messages"] = std::move(messageArray);
+
+    bool allowTools = true;
+    std::string choiceType;
+    std::string choiceName;
+    if (const auto choice = in.find("tool_choice");
+        choice != in.end()) {
+        if (choice->is_string()) {
+            choiceType = choice->get<std::string>();
+        } else if (choice->is_object()) {
+            choiceType = choice->value("type", "");
+            choiceName = choice->value("name", "");
+        }
+    }
+    if (choiceType == "none") allowTools = false;
+    if (allowTools) {
+        if (const auto toolsIt = in.find("tools");
+            toolsIt != in.end() && toolsIt->is_array() && !toolsIt->empty()) {
+            Json tools = Json::array();
+            for (const auto& tool : *toolsIt) {
+                if (!tool.is_object() ||
+                    tool.value("type", "") != "function") {
+                    continue;
+                }
+                Json entry;
+                entry["name"] = tool.value("name", "");
+                if (tool.contains("description")) {
+                    entry["description"] = tool["description"];
+                }
+                entry["input_schema"] =
+                    tool.contains("parameters") &&
+                            tool["parameters"].is_object()
+                        ? tool["parameters"]
+                        : Json{{"type", "object"},
+                               {"properties", Json::object()}};
+                tools.push_back(std::move(entry));
+            }
+            if (!tools.empty()) out["tools"] = std::move(tools);
+        }
+    }
+    if (allowTools && out.contains("tools")) {
+        Json choice;
+        if (choiceType == "auto") {
+            choice["type"] = "auto";
+        } else if (choiceType == "required") {
+            choice["type"] = "any";
+        } else if (choiceType == "tool" || choiceType == "function") {
+            choice["type"] = "tool";
+            choice["name"] = std::move(choiceName);
+        }
+        if (!choice.is_null()) {
+            if (in.contains("parallel_tool_calls") &&
+                !in.value("parallel_tool_calls", true)) {
+                choice["disable_parallel_tool_use"] = true;
+            }
+            out["tool_choice"] = std::move(choice);
+        }
+    }
+
+    std::int64_t maxTokens = 0;
+    if (const auto max = in.find("max_output_tokens");
+        max != in.end() && max->is_number()) {
+        maxTokens = max->get<std::int64_t>();
+    }
+    out["max_tokens"] = maxTokens > 0 ? maxTokens : 4096;
+    const auto copyNumber = [&](std::string_view key) {
+        if (const auto it = in.find(std::string(key));
+            it != in.end() && it->is_number()) {
+            out[key] = *it;
+        }
+    };
+    copyNumber("temperature");
+    copyNumber("top_p");
+    if (const auto meta = in.find("metadata");
+        meta != in.end() && meta->is_object()) {
+        if (const auto id = meta->find("user_id");
+            id != meta->end() && id->is_string()) {
+            out["metadata"]["user_id"] = *id;
+        }
+    }
+    if (in.value("stream", false)) out["stream"] = true;
+    return out;
+}
+
 Json chatRequestFromAnthropic(const Json& in) {
     Json out = Json::object();
     if (in.contains("model")) out["model"] = in["model"];
@@ -860,6 +1311,213 @@ Json anthropicResponseToChat(const Json& in) {
     out["choices"] = Json::array();
     out["choices"].push_back(std::move(choice));
     out["usage"] = anthropicUsageToChat(
+        in.find("usage") != in.end() ? in["usage"] : Json());
+    return out;
+}
+
+std::string responsesId(std::string_view id) {
+    std::string suffix(id);
+    if (suffix.starts_with("msg_")) suffix.erase(0, 4);
+    if (suffix.starts_with("resp_")) suffix.erase(0, 5);
+    if (suffix.empty()) suffix = "llmswitch";
+    return "resp_" + suffix;
+}
+
+std::string anthropicIdFromResponses(std::string_view id) {
+    std::string suffix(id);
+    if (suffix.starts_with("resp_")) suffix.erase(0, 5);
+    if (suffix.starts_with("msg_")) suffix.erase(0, 4);
+    if (suffix.empty()) suffix = "llmswitch";
+    return "msg_" + suffix;
+}
+
+Json anthropicUsageToResponses(const Json& usage) {
+    Json out = Json::object();
+    std::int64_t input = 0;
+    std::int64_t output = 0;
+    if (usage.is_object()) {
+        input = usage.value("input_tokens", 0);
+        output = usage.value("output_tokens", 0);
+        if (const auto cache = usage.find("cache_read_input_tokens");
+            cache != usage.end() && cache->is_number() &&
+            cache->get<std::int64_t>() > 0) {
+            out["input_tokens_details"]["cached_tokens"] =
+                cache->get<std::int64_t>();
+        }
+    }
+    out["input_tokens"] = input;
+    out["output_tokens"] = output;
+    out["total_tokens"] = input + output;
+    return out;
+}
+
+Json responsesUsageToAnthropic(const Json& usage) {
+    Json out = Json::object();
+    std::int64_t input = 0;
+    std::int64_t output = 0;
+    if (usage.is_object()) {
+        input = usage.value("input_tokens", 0);
+        output = usage.value("output_tokens", 0);
+        if (const auto details = usage.find("input_tokens_details");
+            details != usage.end() && details->is_object()) {
+            const auto cached = details->value("cached_tokens", 0);
+            if (cached > 0) out["cache_read_input_tokens"] = cached;
+        }
+    }
+    out["input_tokens"] = input;
+    out["output_tokens"] = output;
+    return out;
+}
+
+Json anthropicResponseToResponses(const Json& in) {
+    Json output = Json::array();
+    Json messageContent = Json::array();
+    const auto flushMessage = [&] {
+        if (messageContent.empty()) return;
+        Json message;
+        message["id"] = "msg_" + std::to_string(output.size());
+        message["type"] = "message";
+        message["status"] = "completed";
+        message["role"] = "assistant";
+        message["content"] = std::move(messageContent);
+        output.push_back(std::move(message));
+        messageContent = Json::array();
+    };
+    const auto content = in.find("content");
+    if (content != in.end() && content->is_array()) {
+        for (const auto& block : *content) {
+            if (!block.is_object()) continue;
+            const auto type = block.value("type", "");
+            if (type == "text") {
+                Json part;
+                part["type"] = "output_text";
+                part["text"] = block.value("text", "");
+                part["annotations"] = Json::array();
+                messageContent.push_back(std::move(part));
+            } else if (type == "tool_use") {
+                flushMessage();
+                Json call;
+                call["id"] = "fc_" + std::to_string(output.size());
+                call["type"] = "function_call";
+                call["status"] = "completed";
+                call["call_id"] = block.value("id", "");
+                call["name"] = block.value("name", "");
+                const auto input = block.find("input");
+                call["arguments"] =
+                    input != block.end() && input->is_object()
+                        ? input->dump()
+                        : "{}";
+                output.push_back(std::move(call));
+            }
+        }
+    }
+    flushMessage();
+    if (output.empty()) {
+        Json message;
+        message["id"] = "msg_0";
+        message["type"] = "message";
+        message["status"] = "completed";
+        message["role"] = "assistant";
+        Json part;
+        part["type"] = "output_text";
+        part["text"] = "";
+        part["annotations"] = Json::array();
+        message["content"] = Json::array({std::move(part)});
+        output.push_back(std::move(message));
+    }
+
+    const auto stopReason = in.value("stop_reason", "");
+    const bool incomplete = stopReason == "max_tokens";
+    Json out;
+    out["id"] = responsesId(in.value("id", ""));
+    out["object"] = "response";
+    out["created_at"] = nowSeconds();
+    out["model"] = in.value("model", "");
+    out["status"] = incomplete ? "incomplete" : "completed";
+    out["output"] = std::move(output);
+    if (incomplete) {
+        out["incomplete_details"]["reason"] = "max_output_tokens";
+    }
+    out["usage"] = anthropicUsageToResponses(
+        in.find("usage") != in.end() ? in["usage"] : Json());
+    return out;
+}
+
+Json responsesResponseToAnthropic(const Json& in) {
+    Json content = Json::array();
+    bool hasToolUse = false;
+    const auto output = in.find("output");
+    if (output != in.end() && output->is_array()) {
+        for (const auto& item : *output) {
+            if (!item.is_object()) continue;
+            const auto type = item.value("type", "");
+            if (type == "message") {
+                const auto parts = item.find("content");
+                if (parts == item.end() || !parts->is_array()) continue;
+                for (const auto& part : *parts) {
+                    if (!part.is_object()) continue;
+                    const auto partType = part.value("type", "");
+                    if (partType == "output_text" || partType == "input_text" ||
+                        partType == "refusal") {
+                        Json block;
+                        block["type"] = "text";
+                        block["text"] =
+                            part.value("text", part.value("refusal", ""));
+                        content.push_back(std::move(block));
+                    }
+                }
+            } else if (type == "function_call") {
+                hasToolUse = true;
+                Json block;
+                block["type"] = "tool_use";
+                std::string id = item.value("call_id", "");
+                if (id.empty()) id = item.value("id", "");
+                if (id.empty()) {
+                    id = "toolu_" + std::to_string(content.size());
+                }
+                block["id"] = std::move(id);
+                block["name"] = item.value("name", "");
+                const auto args = item.find("arguments");
+                Json input = Json::object();
+                if (args != item.end()) {
+                    if (args->is_object()) {
+                        input = *args;
+                    } else if (args->is_string()) {
+                        const auto parsed = Json::parse(
+                            args->get<std::string>(), nullptr, false);
+                        if (parsed.is_object()) input = parsed;
+                    }
+                }
+                block["input"] = std::move(input);
+                content.push_back(std::move(block));
+            }
+        }
+    }
+    if (content.empty()) {
+        Json block;
+        block["type"] = "text";
+        block["text"] = "";
+        content.push_back(std::move(block));
+    }
+    std::string stopReason = "end_turn";
+    if (hasToolUse) {
+        stopReason = "tool_use";
+    } else if (in.value("status", "") == "incomplete") {
+        const auto details = in.find("incomplete_details");
+        if (details != in.end() && details->is_object() &&
+            details->value("reason", "") == "max_output_tokens") {
+            stopReason = "max_tokens";
+        }
+    }
+    Json out;
+    out["id"] = anthropicIdFromResponses(in.value("id", ""));
+    out["type"] = "message";
+    out["role"] = "assistant";
+    out["model"] = in.value("model", "");
+    out["content"] = std::move(content);
+    out["stop_reason"] = std::move(stopReason);
+    out["stop_sequence"] = nullptr;
+    out["usage"] = responsesUsageToAnthropic(
         in.find("usage") != in.end() ? in["usage"] : Json());
     return out;
 }
@@ -1382,28 +2040,461 @@ private:
     }
 };
 
+struct ParsedAnthropicResponse {
+    Json body;
+    bool ok = true;
+    std::string error;
+};
+
+ParsedAnthropicResponse parseAnthropicSse(std::string_view body) {
+    ParsedAnthropicResponse parsed;
+    parsed.body["type"] = "message";
+    parsed.body["role"] = "assistant";
+    parsed.body["id"] = "msg_llmswitch";
+    parsed.body["content"] = Json::array();
+    parsed.body["usage"] = Json::object();
+    std::map<int, Json> blocks;
+    std::map<int, std::string> arguments;
+    for (const auto& event : parseSse(body)) {
+        if (event.data.empty()) continue;
+        if (event.data == "[DONE]") break;
+        const auto data = parseOrDiscard(event.data);
+        if (data.is_discarded() || !data.is_object()) continue;
+        const auto type = data.value("type", "");
+        if (type == "message_start") {
+            const auto message = data.find("message");
+            if (message != data.end() && message->is_object()) {
+                if (const auto id = message->find("id");
+                    id != message->end() && id->is_string()) {
+                    parsed.body["id"] = *id;
+                }
+                if (const auto model = message->find("model");
+                    model != message->end() && model->is_string()) {
+                    parsed.body["model"] = *model;
+                }
+                if (const auto usage = message->find("usage");
+                    usage != message->end() && usage->is_object()) {
+                    parsed.body["usage"]["input_tokens"] =
+                        usage->value("input_tokens", 0);
+                }
+            }
+            continue;
+        }
+        if (type == "content_block_start") {
+            const int index = data.value("index", 0);
+            const auto block = data.find("content_block");
+            if (block != data.end() && block->is_object()) {
+                blocks[index] = *block;
+                if (block->value("type", "") == "tool_use") {
+                    arguments[index] = "";
+                }
+            }
+            continue;
+        }
+        if (type == "content_block_delta") {
+            const int index = data.value("index", 0);
+            const auto delta = data.find("delta");
+            if (delta == data.end() || !delta->is_object()) continue;
+            const auto deltaType = delta->value("type", "");
+            if (deltaType == "text_delta") {
+                blocks[index]["text"] =
+                    blocks[index].value("text", "") +
+                    delta->value("text", "");
+            } else if (deltaType == "input_json_delta") {
+                arguments[index] += delta->value("partial_json", "");
+            } else if (deltaType == "thinking_delta") {
+                blocks[index]["thinking"] =
+                    blocks[index].value("thinking", "") +
+                    delta->value("thinking", "");
+            }
+            continue;
+        }
+        if (type == "content_block_stop") {
+            const int index = data.value("index", 0);
+            const auto block = blocks.find(index);
+            if (block != blocks.end() &&
+                block->second.value("type", "") == "tool_use") {
+                const auto args = arguments.find(index);
+                Json input = Json::object();
+                if (args != arguments.end() && !args->second.empty()) {
+                    const auto parsedArgs =
+                        Json::parse(args->second, nullptr, false);
+                    if (parsedArgs.is_object()) input = parsedArgs;
+                }
+                block->second["input"] = std::move(input);
+            }
+            continue;
+        }
+        if (type == "message_delta") {
+            if (const auto delta = data.find("delta");
+                delta != data.end() && delta->is_object()) {
+                if (const auto reason = delta->find("stop_reason");
+                    reason != delta->end() && reason->is_string()) {
+                    parsed.body["stop_reason"] = *reason;
+                }
+            }
+            if (const auto usage = data.find("usage");
+                usage != data.end() && usage->is_object()) {
+                parsed.body["usage"]["output_tokens"] =
+                    usage->value("output_tokens", 0);
+            }
+            continue;
+        }
+        if (type == "message_stop") break;
+        if (type == "error" || event.event == "error") {
+            parsed.ok = false;
+            if (const auto error = data.find("error");
+                error != data.end() && error->is_object()) {
+                parsed.error = error->value("message", "上游返回错误");
+            } else {
+                parsed.error = "上游返回错误";
+            }
+        }
+    }
+    Json content = Json::array();
+    for (auto& [index, block] : blocks) {
+        (void)index;
+        if (block.value("type", "") == "thinking") continue;
+        content.push_back(std::move(block));
+    }
+    parsed.body["content"] = std::move(content);
+    if (!parsed.body.contains("stop_reason")) {
+        parsed.body["stop_reason"] = "end_turn";
+    }
+    parsed.body["stop_sequence"] = nullptr;
+    if (!parsed.body["usage"].contains("input_tokens")) {
+        parsed.body["usage"]["input_tokens"] = 0;
+    }
+    if (!parsed.body["usage"].contains("output_tokens")) {
+        parsed.body["usage"]["output_tokens"] = 0;
+    }
+    return parsed;
+}
+
+void emitResponsesSse(std::string& out, std::string_view event, Json data,
+                      int& sequence) {
+    data["type"] = event;
+    data["sequence_number"] = sequence++;
+    out += "event: ";
+    out += event;
+    out += "\ndata: ";
+    out += data.dump();
+    out += "\n\n";
+}
+
+// Anthropic SSE -> OpenAI Responses SSE。
+class AnthropicSseToResponses {
+public:
+    std::string run(std::string_view body) {
+        const auto parsed = parseAnthropicSse(body);
+        int sequence = 0;
+        if (!parsed.ok) {
+            Json data;
+            data["response"]["id"] = "resp_llmswitch";
+            data["response"]["status"] = "failed";
+            data["response"]["error"]["message"] = parsed.error;
+            emitResponsesSse(out_, "response.failed", std::move(data),
+                             sequence);
+            return std::move(out_);
+        }
+        const Json response = anthropicResponseToResponses(parsed.body);
+        Json created = response;
+        created["status"] = "in_progress";
+        created["output"] = Json::array();
+        Json createdData;
+        createdData["response"] = created;
+        emitResponsesSse(out_, "response.created", std::move(createdData),
+                         sequence);
+        Json progress;
+        progress["response"] = std::move(created);
+        emitResponsesSse(out_, "response.in_progress", std::move(progress),
+                         sequence);
+
+        const auto output = response.find("output");
+        int outputIndex = 0;
+        if (output != response.end() && output->is_array()) {
+            for (const auto& item : *output) {
+                if (!item.is_object()) continue;
+                const auto itemType = item.value("type", "");
+                const std::string itemId = item.value("id", "");
+                if (itemType == "message") {
+                    Json skeleton = item;
+                    skeleton["status"] = "in_progress";
+                    skeleton["content"] = Json::array();
+                    Json added;
+                    added["output_index"] = outputIndex;
+                    added["item"] = skeleton;
+                    emitResponsesSse(out_, "response.output_item.added",
+                                     std::move(added), sequence);
+                    const auto parts = item.find("content");
+                    int contentIndex = 0;
+                    if (parts != item.end() && parts->is_array()) {
+                        for (const auto& part : *parts) {
+                            if (!part.is_object()) continue;
+                            Json addedPart;
+                            addedPart["item_id"] = itemId;
+                            addedPart["output_index"] = outputIndex;
+                            addedPart["content_index"] = contentIndex;
+                            addedPart["part"]["type"] = "output_text";
+                            addedPart["part"]["text"] = "";
+                            addedPart["part"]["annotations"] = Json::array();
+                            emitResponsesSse(
+                                out_, "response.content_part.added",
+                                std::move(addedPart), sequence);
+                            const std::string text = part.value("text", "");
+                            Json delta;
+                            delta["item_id"] = itemId;
+                            delta["output_index"] = outputIndex;
+                            delta["content_index"] = contentIndex;
+                            delta["delta"] = text;
+                            emitResponsesSse(out_, "response.output_text.delta",
+                                             std::move(delta), sequence);
+                            Json done;
+                            done["item_id"] = itemId;
+                            done["output_index"] = outputIndex;
+                            done["content_index"] = contentIndex;
+                            done["text"] = text;
+                            emitResponsesSse(out_, "response.output_text.done",
+                                             std::move(done), sequence);
+                            Json partDone;
+                            partDone["item_id"] = itemId;
+                            partDone["output_index"] = outputIndex;
+                            partDone["content_index"] = contentIndex;
+                            partDone["part"] = part;
+                            emitResponsesSse(out_, "response.content_part.done",
+                                             std::move(partDone), sequence);
+                            ++contentIndex;
+                        }
+                    }
+                    Json itemDone;
+                    itemDone["output_index"] = outputIndex;
+                    itemDone["item"] = item;
+                    emitResponsesSse(out_, "response.output_item.done",
+                                     std::move(itemDone), sequence);
+                } else if (itemType == "function_call") {
+                    Json skeleton = item;
+                    skeleton["status"] = "in_progress";
+                    skeleton["arguments"] = "";
+                    Json added;
+                    added["output_index"] = outputIndex;
+                    added["item"] = std::move(skeleton);
+                    emitResponsesSse(out_, "response.output_item.added",
+                                     std::move(added), sequence);
+                    const std::string args = item.value("arguments", "");
+                    if (!args.empty()) {
+                        Json delta;
+                        delta["item_id"] = itemId;
+                        delta["output_index"] = outputIndex;
+                        delta["delta"] = args;
+                        emitResponsesSse(
+                            out_, "response.function_call_arguments.delta",
+                            std::move(delta), sequence);
+                    }
+                    Json done;
+                    done["item_id"] = itemId;
+                    done["output_index"] = outputIndex;
+                    done["arguments"] = args;
+                    emitResponsesSse(
+                        out_, "response.function_call_arguments.done",
+                        std::move(done), sequence);
+                    Json itemDone;
+                    itemDone["output_index"] = outputIndex;
+                    itemDone["item"] = item;
+                    emitResponsesSse(out_, "response.output_item.done",
+                                     std::move(itemDone), sequence);
+                } else {
+                    Json added;
+                    added["output_index"] = outputIndex;
+                    added["item"] = item;
+                    emitResponsesSse(out_, "response.output_item.added",
+                                     std::move(added), sequence);
+                }
+                ++outputIndex;
+            }
+        }
+
+        Json finalData;
+        finalData["response"] = response;
+        emitResponsesSse(
+            out_,
+            response.value("status", "") == "incomplete"
+                ? "response.incomplete"
+                : "response.completed",
+            std::move(finalData), sequence);
+        return std::move(out_);
+    }
+
+private:
+    std::string out_;
+};
+
+// OpenAI Responses SSE -> Anthropic SSE。completed/incomplete 事件带完整
+// response，直接用它映射；无需逐 token 重建。
+class ResponsesSseToAnthropic {
+public:
+    std::string run(std::string_view body) {
+        Json response;
+        std::string error;
+        bool found = false;
+        for (const auto& event : parseSse(body)) {
+            if (event.data.empty()) continue;
+            const auto data = parseOrDiscard(event.data);
+            if (data.is_discarded() || !data.is_object()) continue;
+            const auto type = data.value("type", "");
+            if (type == "response.completed" ||
+                type == "response.incomplete") {
+                if (const auto value = data.find("response");
+                    value != data.end() && value->is_object()) {
+                    response = *value;
+                    found = true;
+                }
+            } else if (type == "response.failed" || type == "error") {
+                if (const auto value = data.find("response");
+                    value != data.end() && value->is_object()) {
+                    if (const auto err = value->find("error");
+                        err != value->end() && err->is_object()) {
+                        error = err->value("message", "上游返回错误");
+                    }
+                }
+                if (error.empty()) {
+                    if (const auto err = data.find("error");
+                        err != data.end() && err->is_object()) {
+                        error = err->value("message", "上游返回错误");
+                    } else {
+                        error = "上游返回错误";
+                    }
+                }
+            }
+        }
+        if (!found) {
+            Json payload;
+            payload["type"] = "error";
+            payload["error"]["type"] = "api_error";
+            payload["error"]["message"] =
+                error.empty() ? "Responses 流没有完成事件" : error;
+            emitSse(out_, "error", payload);
+            return std::move(out_);
+        }
+        const Json anthropic = responsesResponseToAnthropic(response);
+        Json messageStart;
+        messageStart["type"] = "message_start";
+        messageStart["message"]["id"] = anthropic.value("id", "msg_llmswitch");
+        messageStart["message"]["type"] = "message";
+        messageStart["message"]["role"] = "assistant";
+        messageStart["message"]["model"] = anthropic.value("model", "");
+        messageStart["message"]["content"] = Json::array();
+        messageStart["message"]["stop_reason"] = nullptr;
+        messageStart["message"]["stop_sequence"] = nullptr;
+        messageStart["message"]["usage"]["input_tokens"] =
+            anthropic["usage"].value("input_tokens", 0);
+        messageStart["message"]["usage"]["output_tokens"] = 0;
+        emitSse(out_, "message_start", messageStart);
+
+        int index = 0;
+        const auto content = anthropic.find("content");
+        if (content != anthropic.end() && content->is_array()) {
+            for (const auto& block : *content) {
+                if (!block.is_object()) continue;
+                const auto type = block.value("type", "");
+                if (type == "text") {
+                    Json start;
+                    start["type"] = "content_block_start";
+                    start["index"] = index;
+                    start["content_block"]["type"] = "text";
+                    start["content_block"]["text"] = "";
+                    emitSse(out_, "content_block_start", start);
+                    Json delta;
+                    delta["type"] = "content_block_delta";
+                    delta["index"] = index;
+                    delta["delta"]["type"] = "text_delta";
+                    delta["delta"]["text"] = block.value("text", "");
+                    emitSse(out_, "content_block_delta", delta);
+                    Json stop;
+                    stop["type"] = "content_block_stop";
+                    stop["index"] = index;
+                    emitSse(out_, "content_block_stop", stop);
+                } else if (type == "tool_use") {
+                    Json start;
+                    start["type"] = "content_block_start";
+                    start["index"] = index;
+                    start["content_block"]["type"] = "tool_use";
+                    start["content_block"]["id"] = block.value("id", "");
+                    start["content_block"]["name"] = block.value("name", "");
+                    start["content_block"]["input"] = Json::object();
+                    emitSse(out_, "content_block_start", start);
+                    const auto input = block.find("input");
+                    if (input != block.end() && input->is_object() &&
+                        !input->empty()) {
+                        Json delta;
+                        delta["type"] = "content_block_delta";
+                        delta["index"] = index;
+                        delta["delta"]["type"] = "input_json_delta";
+                        delta["delta"]["partial_json"] = input->dump();
+                        emitSse(out_, "content_block_delta", delta);
+                    }
+                    Json stop;
+                    stop["type"] = "content_block_stop";
+                    stop["index"] = index;
+                    emitSse(out_, "content_block_stop", stop);
+                }
+                ++index;
+            }
+        }
+
+        Json messageDelta;
+        messageDelta["type"] = "message_delta";
+        messageDelta["delta"]["stop_reason"] =
+            anthropic.value("stop_reason", "end_turn");
+        messageDelta["delta"]["stop_sequence"] = nullptr;
+        messageDelta["usage"]["output_tokens"] =
+            anthropic["usage"].value("output_tokens", 0);
+        emitSse(out_, "message_delta", messageDelta);
+        Json stop;
+        stop["type"] = "message_stop";
+        emitSse(out_, "message_stop", stop);
+        return std::move(out_);
+    }
+
+private:
+    std::string out_;
+};
+
 } // namespace
 
 export std::optional<std::string> convertRequest(
     ApiFormat from, ApiFormat to, std::string_view body, std::string& error) {
     error.clear();
     if (from == to) return std::string(body);
-    const bool chatFromAnthropic =
-        from == ApiFormat::anthropic && to == ApiFormat::openai_chat;
-    const bool anthropicFromChat =
-        from == ApiFormat::openai_chat && to == ApiFormat::anthropic;
-    if (!chatFromAnthropic && !anthropicFromChat) {
-        error = "暂不支持 " + std::string(apiFormatName(from)) + " -> " +
-                std::string(apiFormatName(to)) + " 的请求转换";
-        return std::nullopt;
-    }
     const Json in = parseOrDiscard(body);
     if (in.is_discarded() || !in.is_object()) {
         error = "请求体不是 JSON 对象，无法转换协议";
         return std::nullopt;
     }
-    return chatFromAnthropic ? chatRequestFromAnthropic(in).dump()
-                             : chatRequestToAnthropic(in).dump();
+    Json out;
+    if (from == ApiFormat::anthropic &&
+        to == ApiFormat::openai_chat) {
+        out = chatRequestFromAnthropic(in);
+    } else if (from == ApiFormat::openai_chat &&
+               to == ApiFormat::anthropic) {
+        out = chatRequestToAnthropic(in);
+    } else if (from == ApiFormat::anthropic &&
+               to == ApiFormat::openai_responses) {
+        out = anthropicRequestToResponses(in);
+    } else if (from == ApiFormat::openai_responses &&
+               to == ApiFormat::anthropic) {
+        out = responsesRequestToAnthropic(in);
+    } else if (from == ApiFormat::openai_chat &&
+               to == ApiFormat::openai_responses) {
+        out = anthropicRequestToResponses(chatRequestToAnthropic(in));
+    } else if (from == ApiFormat::openai_responses &&
+               to == ApiFormat::openai_chat) {
+        out = chatRequestFromAnthropic(responsesRequestToAnthropic(in));
+    } else {
+        error = "暂不支持 " + std::string(apiFormatName(from)) + " -> " +
+                std::string(apiFormatName(to)) + " 的请求转换";
+        return std::nullopt;
+    }
+    return out.dump();
 }
 
 export std::optional<std::string> convertResponse(
@@ -1411,30 +2502,76 @@ export std::optional<std::string> convertResponse(
     std::string& error) {
     error.clear();
     if (from == to) return std::string(body);
-    const bool chatFromAnthropic =
-        from == ApiFormat::openai_chat && to == ApiFormat::anthropic;
-    const bool anthropicFromChat =
-        from == ApiFormat::anthropic && to == ApiFormat::openai_chat;
-    if (!chatFromAnthropic && !anthropicFromChat) {
-        error = "暂不支持 " + std::string(apiFormatName(from)) + " -> " +
-                std::string(apiFormatName(to)) + " 的响应转换";
-        return std::nullopt;
-    }
-    if (stream || body.find("data:") != std::string_view::npos) {
-        if (chatFromAnthropic) {
+    const bool asStream =
+        stream || body.find("data:") != std::string_view::npos;
+    if (asStream) {
+        if (from == ApiFormat::openai_chat &&
+            to == ApiFormat::anthropic) {
             ChatSseToAnthropic converter;
             return converter.run(body);
         }
-        AnthropicSseToChat converter;
-        return converter.run(body);
+        if (from == ApiFormat::anthropic &&
+            to == ApiFormat::openai_chat) {
+            AnthropicSseToChat converter;
+            return converter.run(body);
+        }
+        if (from == ApiFormat::anthropic &&
+            to == ApiFormat::openai_responses) {
+            AnthropicSseToResponses converter;
+            return converter.run(body);
+        }
+        if (from == ApiFormat::openai_responses &&
+            to == ApiFormat::anthropic) {
+            ResponsesSseToAnthropic converter;
+            return converter.run(body);
+        }
+        if (from == ApiFormat::openai_chat &&
+            to == ApiFormat::openai_responses) {
+            ChatSseToAnthropic toAnthropic;
+            AnthropicSseToResponses toResponses;
+            return toResponses.run(toAnthropic.run(body));
+        }
+        if (from == ApiFormat::openai_responses &&
+            to == ApiFormat::openai_chat) {
+            ResponsesSseToAnthropic toAnthropic;
+            AnthropicSseToChat toChat;
+            return toChat.run(toAnthropic.run(body));
+        }
+        error = "暂不支持 " + std::string(apiFormatName(from)) + " -> " +
+                std::string(apiFormatName(to)) + " 的流式响应转换";
+        return std::nullopt;
     }
     const Json in = parseOrDiscard(body);
     if (in.is_discarded() || !in.is_object()) {
         error = "成员响应不是 JSON 对象，无法转换协议";
         return std::nullopt;
     }
-    const Json out = chatFromAnthropic ? chatResponseToAnthropic(in)
-                                       : anthropicResponseToChat(in);
+    Json out;
+    if (from == ApiFormat::openai_chat &&
+        to == ApiFormat::anthropic) {
+        out = chatResponseToAnthropic(in);
+    } else if (from == ApiFormat::anthropic &&
+               to == ApiFormat::openai_chat) {
+        out = anthropicResponseToChat(in);
+    } else if (from == ApiFormat::anthropic &&
+               to == ApiFormat::openai_responses) {
+        out = anthropicResponseToResponses(in);
+    } else if (from == ApiFormat::openai_responses &&
+               to == ApiFormat::anthropic) {
+        out = responsesResponseToAnthropic(in);
+    } else if (from == ApiFormat::openai_chat &&
+               to == ApiFormat::openai_responses) {
+        out = anthropicResponseToResponses(
+            chatResponseToAnthropic(in));
+    } else if (from == ApiFormat::openai_responses &&
+               to == ApiFormat::openai_chat) {
+        out = anthropicResponseToChat(
+            responsesResponseToAnthropic(in));
+    } else {
+        error = "暂不支持 " + std::string(apiFormatName(from)) + " -> " +
+                std::string(apiFormatName(to)) + " 的响应转换";
+        return std::nullopt;
+    }
     if (out.is_null()) {
         error = "成员响应缺少必要字段，无法转换协议";
         return std::nullopt;

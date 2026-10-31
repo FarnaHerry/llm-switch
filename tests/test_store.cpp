@@ -586,6 +586,24 @@ int main() {
               "anthropic");
         CHECK(models::targetApiFormat("codex", claudeChat) ==
               "openai-chat");
+        models::Provider codexResponses{
+            .baseUrl = "https://api.openai.com/v1",
+            .codexConfigToml =
+                "[model_providers.openai]\nwire_api = \"responses\"\n",
+            .fullUrl = true,
+        };
+        CHECK(models::memberApiFormat("codex", codexResponses) ==
+              "openai-responses");
+        CHECK(models::targetApiFormat("codex", codexResponses) ==
+              "openai-responses");
+        models::Provider codexAggregate{
+            .codexConfigToml =
+                "[model_providers.llmswitch]\nwire_api = \"responses\"\n",
+            .upstreams = {models::ProviderUpstream{
+                .providerId = "p", .model = "m"}},
+        };
+        CHECK(models::targetApiFormat("codex", codexAggregate) ==
+              "openai-chat");
         models::Provider explicitAnthropic{
             .baseUrl = "https://gateway.example.com/v1",
             .apiFormat = "anthropic",

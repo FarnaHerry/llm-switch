@@ -9,11 +9,12 @@
 - 故障转移在 429/5xx/连接失败时按组顺序尝试后续供应商；出站使用 UpstreamSession，
   UI 层 PlatformUpstreamSession 经 Post/Launch 调平台 SendAsync，工作线程通过
   条件变量和截止时间等待；停止支持 AbortInFlight。测试注入假上游会话。
-- 每个尝试带 sourceApiFormat / targetApiFormat。当前支持 Anthropic Messages
-  与 OpenAI Chat 双向转换：Anthropic 客户端 -> Chat 成员走
-  `/chat/completions`，Chat 客户端 -> Anthropic 成员走 `v1/messages`；
-  请求体、响应体与整段 SSE 都在 `llmswitch.protocol` 中映射，转换器不处理
-  鉴权/统计。未支持的方向记录失败并继续聚合兜底。目标协议由
+- 每个尝试带 sourceApiFormat / targetApiFormat。Anthropic Messages、OpenAI
+  Chat 与 OpenAI Responses 三档两两转换：Anthropic 客户端 -> Chat 成员走
+  `/chat/completions`，Chat 客户端 -> Anthropic 成员走 `v1/messages`，
+  Responses 成员走 `responses`；Responses 与 Chat 通过 Anthropic 中间表示
+  复用映射。请求体、响应体与整段 SSE 都在 `llmswitch.protocol` 中转换，
+  转换器不处理鉴权/统计；转换失败会继续聚合兜底。目标协议由
   `targetApiFormat()` 决定，成员协议来自 `ProviderUpstream.apiFormat`
   （空值按 `memberApiFormat()` 推断）。
 - 总开关与 routerTools 分别持久化；缺 routerTools 默认全开，显式空数组全关。

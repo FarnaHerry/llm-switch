@@ -14,7 +14,7 @@ dsh / hermes / zcode / kimi-code。
 | store | src/store.cppm、store*.cpp | 配置读写、CRUD、live 写入、探测、收编与恢复 |
 | net | src/net.cppm、net.cpp | 模型 URL 推导、模型列表及用量响应纯解析 |
 | router | src/router.cppm、router.cpp | 本地反代、鉴权替换、故障转移、统计与请求日志 |
-| protocol | src/protocol.cppm | Anthropic / OpenAI Chat 请求、响应与 SSE 协议转换纯函数 |
+| protocol | src/protocol.cppm | Anthropic / Chat / Responses 请求、响应与 SSE 协议转换纯函数 |
 | mcp | src/mcp.cppm、mcp.cpp | MCP 统一清单与支持工具的 live 同步 |
 | skills | src/skills.cppm、skills.cpp | 中央库管理、工具侧软链接同步与合并视图 |
 | sessions | src/sessions.cppm、sessions.cpp | 会话枚举、摘要、反向分页、导出与安全删除 |

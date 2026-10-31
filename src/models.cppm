@@ -553,14 +553,29 @@ export bool isAggregateProvider(const Provider& provider) {
     return !provider.upstreams.empty();
 }
 
+bool codexUsesResponses(std::string_view toml) {
+    const auto pos = toml.find("wire_api");
+    if (pos == std::string_view::npos) return false;
+    auto end = toml.find('\n', pos);
+    if (end == std::string_view::npos) end = toml.size();
+    return toml.substr(pos, end - pos).find("responses") !=
+           std::string_view::npos;
+}
+
 // Agent 接收请求/返回响应的目标协议。claude-code / claude desktop 固定
-// Anthropic Messages；codex 的聚合模板固定 wire_api=chat；其余工具按
-// Provider.apiFormat（opencode / pi / oh-my-pi / dsh / hermes / zcode /
-// kimi-code）决定。
+// Anthropic Messages；codex 聚合模板固定 wire_api=chat，普通路由条目则尊重
+// config.toml 的 wire_api=responses；其余工具按 Provider.apiFormat
+// （opencode / pi / oh-my-pi / dsh / hermes / zcode / kimi-code）决定。
 export std::string_view targetApiFormat(std::string_view tool,
                                         const Provider& provider) {
     if (tool == "claude-code" || tool == "claude") return "anthropic";
-    if (tool == "codex") return "openai-chat";
+    if (tool == "codex") {
+        if (!isAggregateProvider(provider) &&
+            codexUsesResponses(provider.codexConfigToml)) {
+            return "openai-responses";
+        }
+        return "openai-chat";
+    }
     return normalizeApiFormat(provider.apiFormat);
 }
 
@@ -594,10 +609,17 @@ export std::string_view memberApiFormat(std::string_view tool,
     }
     if (tool == "codex") {
         if (!provider.fullUrl) {
-            return provider.upstreamFormat == "anthropic" ? "anthropic"
-                                                          : "openai-chat";
+            if (provider.upstreamFormat == "anthropic") return "anthropic";
+            return codexUsesResponses(provider.codexConfigToml)
+                       ? "openai-responses"
+                       : "openai-chat";
         }
-        return urlAnthropic ? "anthropic" : "openai-chat";
+        if (urlAnthropic) return "anthropic";
+        if (provider.baseUrl.find("/responses") != std::string::npos ||
+            codexUsesResponses(provider.codexConfigToml)) {
+            return "openai-responses";
+        }
+        return "openai-chat";
     }
     return "openai-chat";
 }
