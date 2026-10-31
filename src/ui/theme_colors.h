@@ -16,13 +16,11 @@ inline constexpr float kBody = 14.0F;     // 正文/按钮/输入框（SDK 默�
 inline constexpr float kTitle = 20.0F;    // 页面/弹窗标题
 } // namespace font_size
 
-// 冷调主题：深色「石墨」= 中性石墨海面（#101214）+ 青蓝强调色；浅色「晴石」=
-// 冷白纸面（#FDFDFD）+ 天蓝强调色。文本用冷灰-石板阶，交互态（按钮/
-// 选中/开关/标题栏 hover）统一由 primary 承担；error 保留语义红（冷调）。
-// 浅色强调色比参考图实测的亮蓝（#4595F7）深一档到 #2870D6：白字对比度
-// ≈4.8:1、作描边 ≈4.6:1，双双过 AA 正文线（#2F7BE6 时白字仅 4.12:1）。
-// 石墨主题（中性冷灰阶）：表面不再发蓝，青蓝强调色成为唯一彩色源，在
-// 石墨底上更跳。对比度全项过 AA 且余量优于旧海军蓝（正文 15.3:1）。
+// 黑白双色主题：深色「墨」= 近黑海面 + 中性石墨卡片；浅色「纸」= 纯白海面 +
+// 中性浅灰卡片。除状态语义色（error/success/warning）外，只有主要操作按钮、
+// 选中态与焦点使用主题蓝；背景、卡片、描边、图标和装饰一律走黑白灰。
+// 主题蓝在深浅两态都取 #2563EB：白字对比度 5.17:1，在浅底上作控件填充
+// 也保持 4.9:1；深色下不作小号正文色，只用于填充、边框和图形。
 inline huxerui::ThemeSpec AppDarkThemeSpec() {
     huxerui::ThemeSpec spec = huxerui::MaterialDarkThemeSpec();
     spec.typography = huxerui::TypographyScheme{
@@ -33,29 +31,30 @@ inline huxerui::ThemeSpec AppDarkThemeSpec() {
         .title_large = font_size::kTitle,
         .headline_small = 24.0F,
     };
-    spec.colors.primary = huxerui::Color::Rgb(56, 189, 248);       // 青蓝强调 #38BDF8
-    spec.colors.on_primary = huxerui::Color::Rgb(6, 34, 49);       // 强调色上翻深墨青
-    spec.colors.primary_container = huxerui::Color::Rgb(27, 58, 80);
-    spec.colors.on_primary_container = huxerui::Color::Rgb(190, 231, 251);
-    spec.colors.secondary = huxerui::Color::Rgb(154, 161, 170);    // 中性石板 #9AA1AA
-    spec.colors.on_secondary = huxerui::Color::Rgb(16, 18, 20);
-    spec.colors.secondary_container = huxerui::Color::Rgb(35, 40, 46);   // hover / 选中底块
-    spec.colors.on_secondary_container = huxerui::Color::Rgb(232, 234, 237);
-    spec.colors.tertiary_container = huxerui::Color::Rgb(33, 38, 45);
-    spec.colors.on_tertiary_container = huxerui::Color::Rgb(190, 199, 208);
-    spec.colors.background = huxerui::Color::Rgb(16, 18, 20);      // 石墨海面 #101214
-    spec.colors.surface = huxerui::Color::Rgb(23, 26, 29);
-    spec.colors.surface_container_low = huxerui::Color::Rgb(20, 23, 26);
-    spec.colors.surface_container = huxerui::Color::Rgb(26, 30, 34);      // 二级岛卡片
-    spec.colors.surface_container_high = huxerui::Color::Rgb(33, 37, 41); // hover 面 / 弹窗
-    spec.colors.surface_container_highest = huxerui::Color::Rgb(39, 44, 49);
-    spec.colors.on_surface = huxerui::Color::Rgb(232, 234, 237);   // 冷白正文 #E8EAED
-    spec.colors.on_surface_variant = huxerui::Color::Rgb(154, 161, 170); // 次要冷灰
-    spec.colors.outline = huxerui::Color::Rgb(45, 51, 58);         // 石墨描边 #2D333A
-    spec.colors.inverse_surface = huxerui::Color::Rgb(232, 234, 237);
-    spec.colors.inverse_on_surface = huxerui::Color::Rgb(16, 18, 20);
-    spec.colors.scrim = huxerui::Color::Rgb(5, 7, 10, 0.55F);
+    spec.colors.primary = huxerui::Color::Rgb(37, 99, 235);        // 主题蓝 #2563EB
+    spec.colors.on_primary = huxerui::Color::Rgb(255, 255, 255);
+    spec.colors.primary_container = huxerui::Color::Rgb(31, 31, 31);
+    spec.colors.on_primary_container = huxerui::Color::Rgb(245, 245, 245);
+    spec.colors.secondary = huxerui::Color::Rgb(163, 163, 163);    // 中性灰 #A3A3A3
+    spec.colors.on_secondary = huxerui::Color::Rgb(10, 10, 10);
+    spec.colors.secondary_container = huxerui::Color::Rgb(38, 38, 38);   // hover / 选中底块
+    spec.colors.on_secondary_container = huxerui::Color::Rgb(245, 245, 245);
+    spec.colors.tertiary_container = huxerui::Color::Rgb(32, 32, 32);
+    spec.colors.on_tertiary_container = huxerui::Color::Rgb(212, 212, 212);
+    spec.colors.background = huxerui::Color::Rgb(10, 10, 10);       // 近黑海面 #0A0A0A
+    spec.colors.surface = huxerui::Color::Rgb(17, 17, 17);
+    spec.colors.surface_container_low = huxerui::Color::Rgb(20, 20, 20);
+    spec.colors.surface_container = huxerui::Color::Rgb(24, 24, 24);      // 二级卡片
+    spec.colors.surface_container_high = huxerui::Color::Rgb(34, 34, 34); // hover / 普通按钮
+    spec.colors.surface_container_highest = huxerui::Color::Rgb(42, 42, 42);
+    spec.colors.on_surface = huxerui::Color::Rgb(245, 245, 245);    // 近白正文
+    spec.colors.on_surface_variant = huxerui::Color::Rgb(163, 163, 163); // 次要灰
+    spec.colors.outline = huxerui::Color::Rgb(51, 51, 51);          // 中性描边 #333333
+    spec.colors.inverse_surface = huxerui::Color::Rgb(245, 245, 245);
+    spec.colors.inverse_on_surface = huxerui::Color::Rgb(10, 10, 10);
+    spec.colors.scrim = huxerui::Color::Rgb(0, 0, 0, 0.62F);
     spec.colors.error = huxerui::Color::Rgb(240, 115, 108);        // 语义红 #F0736C
+    spec.interactions.focus_ring.color = spec.colors.primary;
     return spec;
 }
 
@@ -69,31 +68,30 @@ inline huxerui::ThemeSpec AppLightThemeSpec() {
         .title_large = font_size::kTitle,
         .headline_small = 24.0F,
     };
-    // 冷白石面：海面近纯白，岛屿与其只差一档冷灰；卡片走浅蓝灰玻璃面 +
-    // 冷灰描边，hover 面提亮为淡蓝。
-    spec.colors.primary = huxerui::Color::Rgb(40, 112, 214);       // 天蓝强调 #2870D6
+    spec.colors.primary = huxerui::Color::Rgb(37, 99, 235);        // 主题蓝 #2563EB
     spec.colors.on_primary = huxerui::Color::Rgb(255, 255, 255);
-    spec.colors.primary_container = huxerui::Color::Rgb(220, 234, 253);
-    spec.colors.on_primary_container = huxerui::Color::Rgb(18, 58, 107);
-    spec.colors.secondary = huxerui::Color::Rgb(91, 108, 129);     // 石板灰 #5B6C81
+    spec.colors.primary_container = huxerui::Color::Rgb(229, 229, 229);
+    spec.colors.on_primary_container = huxerui::Color::Rgb(17, 17, 17);
+    spec.colors.secondary = huxerui::Color::Rgb(82, 82, 82);        // 中性灰 #525252
     spec.colors.on_secondary = huxerui::Color::Rgb(255, 255, 255);
-    spec.colors.secondary_container = huxerui::Color::Rgb(233, 240, 248); // hover / 选中底块
-    spec.colors.on_secondary_container = huxerui::Color::Rgb(30, 42, 58);
-    spec.colors.tertiary_container = huxerui::Color::Rgb(228, 236, 245);
-    spec.colors.on_tertiary_container = huxerui::Color::Rgb(43, 59, 78);
-    spec.colors.background = huxerui::Color::Rgb(253, 253, 253);   // 冷白海面 #FDFDFD
-    spec.colors.surface = huxerui::Color::Rgb(246, 249, 252);
-    spec.colors.surface_container_low = huxerui::Color::Rgb(243, 247, 251);
-    spec.colors.surface_container = huxerui::Color::Rgb(241, 245, 250);  // 二级岛卡片
-    spec.colors.surface_container_high = huxerui::Color::Rgb(233, 240, 248); // hover 面 / 弹窗
+    spec.colors.secondary_container = huxerui::Color::Rgb(239, 239, 239); // hover / 选中底块
+    spec.colors.on_secondary_container = huxerui::Color::Rgb(17, 17, 17);
+    spec.colors.tertiary_container = huxerui::Color::Rgb(244, 244, 244);
+    spec.colors.on_tertiary_container = huxerui::Color::Rgb(38, 38, 38);
+    spec.colors.background = huxerui::Color::Rgb(255, 255, 255);    // 纯白海面 #FFFFFF
+    spec.colors.surface = huxerui::Color::Rgb(250, 250, 250);
+    spec.colors.surface_container_low = huxerui::Color::Rgb(247, 247, 247);
+    spec.colors.surface_container = huxerui::Color::Rgb(242, 242, 242);  // 二级卡片
+    spec.colors.surface_container_high = huxerui::Color::Rgb(232, 232, 232); // hover / 普通按钮
     spec.colors.surface_container_highest = huxerui::Color::Rgb(255, 255, 255);
-    spec.colors.on_surface = huxerui::Color::Rgb(30, 42, 58);      // 深石板蓝正文 #1E2A3A
-    spec.colors.on_surface_variant = huxerui::Color::Rgb(85, 103, 125); // 次要冷灰 #55677D
-    spec.colors.outline = huxerui::Color::Rgb(220, 227, 235);      // 冷灰描边 #DCE3EB
-    spec.colors.inverse_surface = huxerui::Color::Rgb(30, 42, 58);
-    spec.colors.inverse_on_surface = huxerui::Color::Rgb(245, 248, 252);
-    spec.colors.scrim = huxerui::Color::Rgb(9, 18, 30, 0.38F);
-    spec.colors.error = huxerui::Color::Rgb(198, 58, 58);          // 语义红 #C63A3A（作文字 ≈4.9:1 过 AA）
+    spec.colors.on_surface = huxerui::Color::Rgb(17, 17, 17);       // 近黑正文
+    spec.colors.on_surface_variant = huxerui::Color::Rgb(107, 107, 107); // 次要灰
+    spec.colors.outline = huxerui::Color::Rgb(212, 212, 212);       // 中性描边 #D4D4D4
+    spec.colors.inverse_surface = huxerui::Color::Rgb(17, 17, 17);
+    spec.colors.inverse_on_surface = huxerui::Color::Rgb(250, 250, 250);
+    spec.colors.scrim = huxerui::Color::Rgb(0, 0, 0, 0.38F);
+    spec.colors.error = huxerui::Color::Rgb(198, 58, 58);           // 语义红 #C63A3A
+    spec.interactions.focus_ring.color = spec.colors.primary;
     return spec;
 }
 

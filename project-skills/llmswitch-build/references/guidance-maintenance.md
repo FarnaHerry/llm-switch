@@ -48,8 +48,9 @@
   src/ui/app.cpp、pet.cpp 对当前点击窗口的 Hide/Close 经 Post 延后，保留窗口安全边界。
 - net.cppm 当前只导出纯解析/URL 函数，provider_network.cpp 使用平台异步 HTTP；
   已删除 fetchModels/fetchUsage 等同步接口，不把旧 RunWorker 网络说明迁为现行规则。
-- src/ui/theme_colors.h 当前是“石墨/晴石”；旧“深海”和水墨配色保留在历史，
-  当前视觉只引用主题唯一入口。原“见 CLAUDE.md 的 UI 硬约束”修正为 UI presentation。
+- src/ui/theme_colors.h 当前是黑白双色（近黑/纯白 + 主题蓝交互色）；旧“石墨/
+  晴石”、“深海”和水墨配色保留在历史，当前视觉只引用主题唯一入口。
+  原“见 CLAUDE.md 的 UI 硬约束”修正为 UI presentation。
 - src/single_instance.*、platform/*/main.cpp、src/ui/launch_at_login.cpp 已有相关实现；
   “无单实例/开机自启”是旧待办，归档保留但不列为当前缺口，验收仍以代码/专题文档为准。
 - src/store*.cpp 已拆分，architecture 更新定位；ZCode 启用只保证托管条目互斥，

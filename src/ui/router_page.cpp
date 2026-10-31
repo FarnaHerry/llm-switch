@@ -449,7 +449,9 @@ huxerui::Color StatusColor(int status, const huxerui::ThemeSpec& theme) {
                                     portField = v;
                                 })
                                 .With(huxerui::Frame{.width = 110.0F}),
-                            huxerui::Button("应用").OnClick([=] { applyPort(); }),
+                            PrimaryAction(
+                                huxerui::Button("应用")
+                                    .OnClick([=] { applyPort(); })),
                         }.With(huxerui::Spacing(8.0F))}),
                     SettingRow("故障转移",
                                "上游 429/5xx/连接失败时按组内顺序试下一个供应商",

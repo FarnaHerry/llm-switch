@@ -181,7 +181,7 @@ std::vector<std::string> ParseCustomReasoning(std::string_view text) {
         huxerui::ScrollView(std::move(fields)).With(huxerui::Grow(1.0F)),
         huxerui::Row {
             huxerui::Button("取消").OnClick([goBack] { goBack(); }),
-            huxerui::Button(isNew ? "添加" : "保存")
+            PrimaryAction(huxerui::Button(isNew ? "添加" : "保存")
                 .OnClick([=] {
                     const std::string name = fs.name.Get().text;
                     const std::string baseUrl = fs.baseUrl.Get().text;
@@ -340,7 +340,7 @@ std::vector<std::string> ParseCustomReasoning(std::string_view text) {
                         toast.Show(editingId.empty() ? "已添加" : "已保存");
                     }
                     goBack();
-                }),
+                })),
         }.With(huxerui::MainAlign(huxerui::MainAxisAlignment::SpaceBetween)),
     }.With(huxerui::Spacing(12.0F),
            huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));

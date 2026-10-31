@@ -208,9 +208,11 @@ std::size_t CloseBehaviorIndex(std::string_view behavior) {
         huxerui::Text(exists ? path : path + "  （未创建）")
             .Style(huxerui::TextStyle{
                 huxerui::Font::Monospace(font_size::kCaption),
-                canOpen ? theme.colors.primary
+                canOpen ? theme.colors.on_surface
                         : (exists ? theme.colors.on_surface_variant
-                                  : theme.colors.outline)}),
+                                  : theme.colors.outline),
+                canOpen ? huxerui::TextDecoration::Underline
+                        : huxerui::TextDecoration::None}),
     }.With(huxerui::Spacing(2.0F),
            huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
     if (!canOpen) return row;

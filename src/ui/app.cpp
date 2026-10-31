@@ -2,9 +2,9 @@
 //   标题栏：应用名与莲花标志在左，五瓣莲花导航锚点精确居中，两侧以圆点、
 //     菱形和细线装饰；悬停时整组高亮，并在屏幕中央展开环形顶级页面图标。
 //     框架在右侧渲染窗口按钮；标题栏
-//     收窄为 24px 高、去背景直接融入窗口底色。主题为冷调石板风：
-//     深色「石墨」= 中性石墨底 + 青蓝强调色；浅色「晴石」= 冷白底 + 天蓝强调色；
-//     环境层是一层程序化环境光，error 为冷调语义红。
+//     收窄为 24px 高、去背景直接融入窗口底色。主题为黑白双色：
+//     深色近黑底 / 浅色纯白底，背景、卡片、描边和装饰只用中性黑白灰；
+//     主题蓝只用于主要操作按钮、选中态和焦点，环境层只做中性明度光晕。
 //   下方：内容区独占整行（Agent 管理页内再分二级工具栏 + 页面自己的
 //   一级岛屿——PageScaffold，外壳不再套岛）。根节点刷整窗海面底色
 //   （rootSpec.colors.background——AppRoot 在主题 provider 之上，UseTheme 只能
@@ -54,9 +54,14 @@ huxerui::View AppThemed(bool dark, huxerui::View content) {
     };
 
     huxerui::ButtonStyle buttons; // Default()：corner_radius=8、padding Symmetric(14,8)
-    buttons.background = spec.colors.primary;
+    // 普通按钮走中性表面；只有 PrimaryAction 包裹的主要操作使用主题蓝。
+    buttons.background = spec.colors.surface_container_high;
     buttons.label_style = huxerui::TextStyle{huxerui::Font::System(font_size::kBody),
-                                             spec.colors.on_primary};
+                                             spec.colors.on_surface};
+    buttons.disabled_background =
+        withAlpha(spec.colors.on_surface, 0.10F);
+    buttons.disabled_label =
+        withAlpha(spec.colors.on_surface, 0.38F);
     definition.Set(buttons);
 
     // 功能图标资源只保存白色 alpha-mask；这里是唯一的主题着色入口。
@@ -149,7 +154,7 @@ huxerui::View AppThemed(bool dark, huxerui::View content) {
     textFields.disabled_placeholder = withAlpha(spec.colors.on_surface, 0.38F);
     textFields.disabled_supporting_text =
         withAlpha(spec.colors.on_surface, 0.38F);
-    textFields.focused_label = spec.colors.primary;
+    textFields.focused_label = spec.colors.on_surface;
     textFields.error_label = spec.colors.error;
     textFields.validation_error = spec.colors.error;
     textFields.validation_text_style = huxerui::TextStyle{
@@ -180,8 +185,8 @@ huxerui::View AppThemed(bool dark, huxerui::View content) {
         withAlpha(spec.colors.on_surface_variant, 0.55F), 1.0F};
     selects.indicator = spec.colors.on_surface_variant;
     selects.popup_background = spec.colors.surface_container_high;
-    selects.active_item_background = withAlpha(spec.colors.primary, 0.08F);
-    selects.selected_item_background = withAlpha(spec.colors.primary, 0.12F);
+    selects.active_item_background = withAlpha(spec.colors.on_surface, 0.06F);
+    selects.selected_item_background = withAlpha(spec.colors.on_surface, 0.10F);
     selects.validation_error = spec.colors.error;
     selects.validation_text_style = huxerui::TextStyle{
         huxerui::Font::System(font_size::kChip), spec.colors.error};
@@ -486,7 +491,7 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(
             : "原生 hook helper 或本地接收桥不可用；可稍后在设置中检查。"),
         huxerui::Row {
             huxerui::Spacer(),
-            huxerui::Button("完成并启动桌宠")
+            PrimaryAction(huxerui::Button("完成并启动桌宠")
                 .OnClick([context, window, application, tray, pet, startupMode,
                           setupCompleted, trayEnabled, appTasks, toast, skin,
                           topmost, launchAtLogin, showTray, routerEnabled,
@@ -603,7 +608,7 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(
                                 "桌宠启动失败，已打开控制中心：{}", e.what()));
                         }
                     });
-                }),
+                })),
         }.With(huxerui::Spacing(8.0F),
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
     }.With(huxerui::Spacing(8.0F),
@@ -728,8 +733,8 @@ huxerui::View TitleBarOrnamentArtwork(huxerui::Color color, bool glow) {
         : huxerui::AnimationSpec{huxerui::TweenSpec{
               .duration = 0.18,
               .easing = huxerui::Easing::EaseOut}};
-    huxerui::Color glowShadow = theme.colors.primary;
-    glowShadow.alpha = open ? 0.50F : 0.0F;
+    huxerui::Color glowShadow = theme.colors.on_surface;
+    glowShadow.alpha = open ? 0.34F : 0.0F;
 
     // SVG 的可见轮廓中心比 24×24 viewBox 几何中心高约 0.6 DIP。圆环必须继续
     // 与标题栏严格同心，因此只下移花瓣图形，不偏移锚点的外框与装饰横线。
@@ -749,7 +754,7 @@ huxerui::View TitleBarOrnamentArtwork(huxerui::Color color, bool glow) {
                   huxerui::Background(open ? theme.colors.secondary_container
                                             : huxerui::Color::Transparent()),
                   huxerui::CornerRadius(kTitleBarContentHeight * 0.5F),
-                  huxerui::Border(open ? theme.colors.primary
+                  huxerui::Border(open ? theme.colors.on_surface
                                         : islands.outline_soft,
                                    open ? 1.15F : 0.75F),
                   huxerui::Shadow{glowShadow, {}, open ? 14.0F : 0.0F, 0.0F},
@@ -772,7 +777,7 @@ huxerui::View TitleBarOrnamentArtwork(huxerui::Color color, bool glow) {
     // 向外长出来的。收起态的 scale 不为 0，避免退化变换。
     constexpr float kCollapsedScale = 0.15F;
     return huxerui::Stack {
-        TitleBarOrnamentArtwork(theme.colors.primary, true)
+        TitleBarOrnamentArtwork(theme.colors.on_surface_variant, true)
             .With(huxerui::Opacity(huxerui::AnimateTo(open ? 1.0F : 0.0F,
                                                       bloomMotion)),
                   huxerui::Scale(huxerui::AnimateTo(
@@ -928,7 +933,7 @@ constexpr double kCollapseSeconds = 0.12;
     // 布局），整组向中心缩放不会带来交互件「连同间距一起塌缩」的问题，读
     // 起来正是线条被收进莲花——与图标各自沿半径飞回同走一条时间线。
     radialChildren.push_back(
-        RadialNavigationArtwork(theme.colors.primary)
+        RadialNavigationArtwork(theme.colors.on_surface_variant)
             .With(huxerui::Opacity(huxerui::AnimateTo(
                       revealed.Get() ? 1.0F : 0.0F, motion)),
                   huxerui::Scale(huxerui::AnimateTo(
@@ -951,8 +956,9 @@ constexpr double kCollapseSeconds = 0.12;
                                  huxerui::VerticalAlignment::Center),
                   huxerui::Background(islands.overlay),
                   huxerui::CornerRadius(41.0F),
-                  huxerui::Border(theme.colors.primary, 1.5F),
-                  huxerui::Shadow{theme.colors.primary, {}, 18.0F, 0.0F},
+                  huxerui::Border(theme.colors.on_surface_variant, 1.5F),
+                  huxerui::Shadow{huxerui::Color::Rgb(0, 0, 0, 0.28F),
+                                  {}, 18.0F, 0.0F},
                   huxerui::Scale(huxerui::AnimateTo(
                       revealed.Get() ? 1.0F : 0.82F, motion)),
                   huxerui::Opacity(huxerui::AnimateTo(
@@ -1126,9 +1132,8 @@ constexpr double kCollapseSeconds = 0.12;
     return TopLevelPageHost(navPage, cachedPages, pageReveal);
 }
 
-// 环境光：冷调主题的窗口底纹。深色是石墨底上一层柔和青蓝辉光（偏向画面
-// 上方，对齐参考图深色半边的柔和光斑），浅色是冷白底顶部一层极淡天蓝洗色；
-// 两侧背景都保持干净——旧的全景水墨画卷与程序化泼墨已随水墨身份退役。
+// 环境光：黑白主题的窗口底纹。深色在近黑海面上叠一层极淡白晕，浅色在纯白
+// 海面顶部叠一层极淡黑晕；只做明度变化，不把任何彩色带进页面背景。
 // Canvas 直接铺满宿主（不要包 Align/Frame：Align 会把画布按父约束撑满，
 // 画布本就是全幅），光斑按画布尺寸取比例，窗口缩放时不失真。只把光斑
 // 实际覆盖的顶部画进 cairo 批次（深 72% / 浅 56% 窗高；渐变中心/半径按
@@ -1139,8 +1144,8 @@ huxerui::View AmbientGlow(bool dark) {
     return huxerui::Canvas(
         [dark](huxerui::PaintContext& paint, huxerui::Size size) {
             huxerui::Color inner =
-                dark ? huxerui::Color::Rgb(56, 189, 248, 0.10F)
-                     : huxerui::Color::Rgb(40, 112, 214, 0.06F);
+                dark ? huxerui::Color::Rgb(255, 255, 255, 0.045F)
+                     : huxerui::Color::Rgb(0, 0, 0, 0.028F);
             huxerui::Color outer = inner;
             outer.alpha = 0.0F;
             // 光斑中心按窗口高度定位（深色 0.30 / 浅色 0.10），换算进裁剪

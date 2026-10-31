@@ -448,10 +448,7 @@ void MoveEntry(huxerui::State<std::vector<ModelEntry>> entries,
                             huxerui::Font::System(font_size::kChip),
                             addressMismatch
                                 ? theme.colors.error
-                                : (converted
-                                       ? theme.colors.primary
-                                       : theme.colors
-                                             .on_surface_variant)}),
+                                : theme.colors.on_surface_variant}),
                 }.With(huxerui::Spacing(8.0F),
                        huxerui::CrossAlign(
                            huxerui::CrossAxisAlignment::Center)),
@@ -464,8 +461,9 @@ void MoveEntry(huxerui::State<std::vector<ModelEntry>> entries,
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
                huxerui::Padding(
                    huxerui::EdgeInsets::Symmetric(12.0F, 8.0F)),
-               huxerui::Background(checked ? theme.colors.primary_container
-                                           : theme.colors.surface_container_high),
+               huxerui::Background(checked
+                                       ? theme.colors.secondary_container
+                                       : theme.colors.surface_container_high),
                huxerui::CornerRadius(theme.shapes.extra_small),
                huxerui::Border{checked ? theme.colors.primary
                                        : theme.colors.outline,
@@ -553,8 +551,9 @@ void MoveEntry(huxerui::State<std::vector<ModelEntry>> entries,
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
                huxerui::Padding(
                    huxerui::EdgeInsets::Symmetric(10.0F, 7.0F)),
-               huxerui::Background(dropActive ? theme.colors.primary_container
-                                              : theme.colors.surface_container_high),
+               huxerui::Background(dropActive
+                                       ? theme.colors.secondary_container
+                                       : theme.colors.surface_container_high),
                huxerui::CornerRadius(theme.shapes.extra_small),
                huxerui::Border{dropActive ? theme.colors.primary
                                           : theme.colors.outline,
@@ -925,7 +924,7 @@ void MoveEntry(huxerui::State<std::vector<ModelEntry>> entries,
                 .With(huxerui::Grow(1.0F)),
         huxerui::Row {
             huxerui::Button("取消").OnClick([formTarget] { formTarget = ""; }),
-            huxerui::Button(isNew ? "添加" : "保存").OnClick(
+            PrimaryAction(huxerui::Button(isNew ? "添加" : "保存").OnClick(
                 [=] {
                     const std::string formName = name.Get().text;
                     if (formName.empty()) {
@@ -998,7 +997,7 @@ void MoveEntry(huxerui::State<std::vector<ModelEntry>> entries,
                     revision = revision.Get() + 1;
                     toast.Show(isNew ? "已添加聚合供应商" : "已保存聚合供应商");
                     formTarget = "";
-                }),
+                })),
         }.With(huxerui::Spacing(8.0F),
                huxerui::MainAlign(huxerui::MainAxisAlignment::End),
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),

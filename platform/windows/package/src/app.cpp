@@ -1,7 +1,7 @@
 // Windows 安装器 UI —— 流程与结构对齐姊妹项目 Clash-Flux 的安装器（同框架同
 // 状态机：检测 → 升级 / 同版本维护 / 新版本拦截 / 全新安装 → 计划与事务应用
 // （可取消回滚）→ 完成/失败；embedded/quiet 无窗执行由框架
-// windows_installer.cpp 承担）。视觉沿用 llm-switch 冷调石板风：深浅两态配色
+// windows_installer.cpp 承担）。视觉沿用 llm-switch 黑白双色主题：深浅两态配色
 // 与字号取自共享的 src/ui/theme_colors.h（与主应用单一入口，不再手工同步两份），
 // 品牌面板为海面渐变 + 莲花标志；llm-switch 特有的卸载前「删数据/留数据」
 // 确认框保留。

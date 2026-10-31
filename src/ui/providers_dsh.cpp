@@ -218,8 +218,8 @@ void ShowDshDeleteConfirm(huxerui::DialogHandle dialog,
     }
     std::vector<huxerui::View> badges;
     if (live.isDefault) {
-        badges.push_back(DshBadge("使用中", theme.colors.primary,
-                                  theme.colors.on_primary,
+        badges.push_back(DshBadge("使用中", theme.colors.inverse_surface,
+                                  theme.colors.inverse_on_surface,
                                   islands.nested_radius));
     }
     if (!live.providerId.empty()) {
@@ -368,8 +368,8 @@ void ShowDshDeleteConfirm(huxerui::DialogHandle dialog,
 
     std::vector<huxerui::View> badges;
     if (isDefault) {
-        badges.push_back(DshBadge("使用中", theme.colors.primary,
-                                  theme.colors.on_primary,
+        badges.push_back(DshBadge("使用中", theme.colors.inverse_surface,
+                                  theme.colors.inverse_on_surface,
                                   islands.nested_radius));
     }
     if (aggregate) {

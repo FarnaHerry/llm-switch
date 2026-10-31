@@ -54,7 +54,10 @@ bool InvolvesTool(const skills::SkillInfo& skill, std::string_view toolId) {
                       huxerui::Background(bg),
                       huxerui::CornerRadius(islands.nested_radius)));
     };
-    if (skill.inStore) badge("中央库", theme.colors.primary, theme.colors.on_primary);
+    if (skill.inStore) {
+        badge("中央库", theme.colors.inverse_surface,
+              theme.colors.inverse_on_surface);
+    }
     for (const auto& t : skill.linkedTools) {
         badge("已同步 " + t, theme.colors.secondary, theme.colors.on_secondary);
     }
@@ -112,7 +115,7 @@ bool InvolvesTool(const skills::SkillInfo& skill, std::string_view toolId) {
             .OnChanged([body](const huxerui::TextEditingValue& v) { body = v; }),
         huxerui::Row {
             huxerui::Button("取消").OnClick([ctx] { ctx.Dismiss(); }),
-            huxerui::Button("保存").OnClick([=] {
+            PrimaryAction(huxerui::Button("保存").OnClick([=] {
                 try {
                     // State::Get() 只给 const 引用；变更操作走 load() 出的
                     // 临时可变副本（磁盘即 SSOT，成功后整页重新 load 刷新）。
@@ -126,7 +129,7 @@ bool InvolvesTool(const skills::SkillInfo& skill, std::string_view toolId) {
                 store = skills::SkillsStore::load();
                 revision = revision.Get() + 1;
                 toast.Show("已保存");
-            }),
+            })),
         }.With(huxerui::MainAlign(huxerui::MainAxisAlignment::SpaceBetween)),
     }.With(huxerui::Spacing(12.0F),
            huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)))
@@ -161,7 +164,7 @@ bool InvolvesTool(const skills::SkillInfo& skill, std::string_view toolId) {
             .OnChanged([body](const huxerui::TextEditingValue& v) { body = v; }),
         huxerui::Row {
             huxerui::Button("取消").OnClick([ctx] { ctx.Dismiss(); }),
-            huxerui::Button("创建").OnClick([=] {
+            PrimaryAction(huxerui::Button("创建").OnClick([=] {
                 if (name.Get().text.empty()) {
                     toast.Show("名称不能为空");
                     return;
@@ -177,7 +180,7 @@ bool InvolvesTool(const skills::SkillInfo& skill, std::string_view toolId) {
                 store = skills::SkillsStore::load();
                 revision = revision.Get() + 1;
                 toast.Show("已创建 " + name.Get().text);
-            }),
+            })),
         }.With(huxerui::MainAlign(huxerui::MainAxisAlignment::SpaceBetween)),
     }.With(huxerui::Spacing(12.0F),
            huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)))
@@ -470,9 +473,10 @@ bool InvolvesTool(const skills::SkillInfo& skill, std::string_view toolId) {
             huxerui::Button("收编工具已有 Skill").OnClick([showImportDialog] {
                 showImportDialog();
             }),
-            huxerui::Button("新建 Skill").OnClick([showCreateDialog] {
-                showCreateDialog();
-            }),
+            PrimaryAction(huxerui::Button("新建 Skill")
+                              .OnClick([showCreateDialog] {
+                                  showCreateDialog();
+                              })),
         }.With(huxerui::Spacing(8.0F)),
         huxerui::Column {
             filterRow,

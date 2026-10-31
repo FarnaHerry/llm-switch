@@ -182,6 +182,10 @@ huxerui::View SpinningRefreshIcon(float size, huxerui::Color tint, bool active);
 // overlay 表面 + 阴影 + 描边 + 16pt 圆角 + 内边距。
 huxerui::View DialogCard(huxerui::View content);
 
+// 主要操作按钮：把按钮子树切到主题蓝的 ButtonStyle。普通按钮全局保持中性
+// 表面；提交/创建/保存/应用等主操作才包这一层。
+huxerui::View PrimaryAction(huxerui::View action);
+
 // ---- 路由/统计页面（router_page.cpp / stats_page.cpp）----
 // 本地路由页：运行状态/启用开关/端口/故障转移控制、各工具接入地址、最近请求日志。
 huxerui::View RouterPage(huxerui::State<std::size_t> navPage);

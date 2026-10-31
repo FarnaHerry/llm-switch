@@ -210,8 +210,8 @@ void ShowZcodeDeleteConfirm(huxerui::DialogHandle dialog,
     }
     std::vector<huxerui::View> badges;
     if (live.enabled) {
-        badges.push_back(ZcodeBadge("启用中", theme.colors.primary,
-                                    theme.colors.on_primary,
+        badges.push_back(ZcodeBadge("启用中", theme.colors.inverse_surface,
+                                    theme.colors.inverse_on_surface,
                                     islands.nested_radius));
     }
     if (live.builtin) {
@@ -356,8 +356,8 @@ void ShowZcodeDeleteConfirm(huxerui::DialogHandle dialog,
 
     std::vector<huxerui::View> badges;
     if (present && enabled) {
-        badges.push_back(ZcodeBadge("启用中", theme.colors.primary,
-                                    theme.colors.on_primary,
+        badges.push_back(ZcodeBadge("启用中", theme.colors.inverse_surface,
+                                    theme.colors.inverse_on_surface,
                                     islands.nested_radius));
     }
     if (aggregate) {

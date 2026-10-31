@@ -71,7 +71,8 @@ const AgentFormPolicy& ZcodeFormPolicy() {
             : ModelSelect(fetchedModels, fs.modelSearch, newModel),
         huxerui::Row {
             huxerui::Button("取消").OnClick([ctx] { ctx.Dismiss(); }),
-            huxerui::Button("添加").OnClick([add] { add(); }),
+            PrimaryAction(
+                huxerui::Button("添加").OnClick([add] { add(); })),
         }.With(huxerui::MainAlign(huxerui::MainAxisAlignment::SpaceBetween)),
     }.With(huxerui::Spacing(12.0F),
            huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))))

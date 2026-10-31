@@ -109,8 +109,8 @@ std::size_t ToolRegistryIndex(std::string_view tool) {
 }
 
 IslandTheme ResolveIslandTheme(const huxerui::ThemeSpec& theme) {
-    // 轻岛屿：页面更接近连续宣纸/玄墨画布，实体卡片仍保留足够承托；
-    // overlay 保持近不透明，确保弹层在全景水墨上可读。
+    // 黑白双色：卡片/浮层使用不透明的中性表面，不再透出环境色；页面背景与
+    // 卡片之间只靠明度差和发丝描边分层。环境光与装饰不能把蓝色带进表面。
     const auto translucent = [](huxerui::Color c, float a) {
         c.alpha = a;
         return c;
@@ -131,16 +131,39 @@ IslandTheme ResolveIslandTheme(const huxerui::ThemeSpec& theme) {
         .island_padding = theme.spacing.medium,
         .island_radius = 10.0F,
         .nested_radius = 6.0F,
-        .raised = translucent(theme.colors.surface_container, 0.78F),
-        .overlay = translucent(theme.colors.surface_container_highest, 0.95F),
-        .outline_soft = translucent(theme.colors.outline, 0.62F),
+        .raised = theme.colors.surface_container,
+        .overlay = theme.colors.surface_container_highest,
+        .outline_soft = translucent(theme.colors.outline, 0.72F),
         .success = dark ? huxerui::Color::Rgb(22, 163, 74)   // #16A34A
                         : huxerui::Color::Rgb(21, 128, 61),  // #15803D
-        .on_success = dark ? huxerui::Color::Rgb(6, 34, 49)  // 白字仅 3.3:1，翻墨青
+        .on_success = dark ? huxerui::Color::Rgb(10, 10, 10) // 深绿上翻黑
                            : huxerui::Color::Rgb(255, 255, 255),
         .warning = dark ? huxerui::Color::Rgb(202, 138, 4)   // #CA8A04
                         : huxerui::Color::Rgb(180, 84, 10),  // #B4540A
     };
+}
+
+[[huxerui::composable]] huxerui::View PrimaryAction(huxerui::View action) {
+    // 普通 Button 全局走中性表面；只有提交/创建/应用类主要操作在这里换成
+    // 主题蓝。只替换完整的 ButtonStyle，避免继承 Material 默认的蓝色底。
+    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    const auto withAlpha = [](huxerui::Color c, float a) {
+        c.alpha = a;
+        return c;
+    };
+    huxerui::ButtonStyle buttons = huxerui::ButtonStyle::Default();
+    buttons.background = theme.colors.primary;
+    buttons.label_style = huxerui::TextStyle{
+        huxerui::Font::System(theme.typography.label_large),
+        theme.colors.on_primary};
+    buttons.disabled_background =
+        withAlpha(theme.colors.on_surface, 0.10F);
+    buttons.disabled_label =
+        withAlpha(theme.colors.on_surface, 0.38F);
+    buttons.corner_radii = huxerui::CornerRadii{8.0F};
+    huxerui::ThemeDefinition definition;
+    definition.Set(buttons);
+    return huxerui::Theme(std::move(definition), std::move(action));
 }
 
 [[huxerui::composable]] huxerui::View PageScaffoldWithHeader(huxerui::View header,

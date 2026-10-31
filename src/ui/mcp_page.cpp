@@ -204,7 +204,7 @@ void FillMcpForm(const McpFormStates& fs, const mcp::McpServer& srv) {
     }
     fields.push_back(huxerui::Row {
         huxerui::Button("取消").OnClick([ctx] { ctx.Dismiss(); }),
-        huxerui::Button(editingName.empty() ? "添加" : "保存")
+        PrimaryAction(huxerui::Button(editingName.empty() ? "添加" : "保存")
             .OnClick([=] {
                 const std::string name = fs.name.Get().text;
                 if (!IsValidSlug(name)) {
@@ -249,7 +249,7 @@ void FillMcpForm(const McpFormStates& fs, const mcp::McpServer& srv) {
                 ctx.Dismiss();
                 revision = revision.Get() + 1;
                 toast.Show(editingName.empty() ? "已添加" : "已保存");
-            }),
+            })),
     }.With(huxerui::MainAlign(huxerui::MainAxisAlignment::SpaceBetween)));
     return DialogCard(huxerui::ScrollView(huxerui::Column(std::move(fields))
         .With(huxerui::Spacing(12.0F),
@@ -341,9 +341,9 @@ void ShowMcpForm(huxerui::DialogHandle dialog, huxerui::ToastHandle toast,
                 theme.colors.on_surface}),
             huxerui::Text(TypeOf(server)).Style(huxerui::TextStyle{
                     huxerui::Font::System(font_size::kCaption),
-                    theme.colors.on_primary})
+                    theme.colors.on_secondary_container})
                 .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(8.0F, 2.0F)),
-                      huxerui::Background(theme.colors.primary),
+                      huxerui::Background(theme.colors.secondary_container),
                       huxerui::CornerRadius(islands.nested_radius)),
             huxerui::Spacer(),
         }.With(huxerui::Spacing(6.0F),
@@ -473,9 +473,10 @@ void ShowMcpForm(huxerui::DialogHandle dialog, huxerui::ToastHandle toast,
             huxerui::Button("从工具收编").OnClick([showImportDialog] {
                 showImportDialog();
             }),
-            huxerui::Button("新增 MCP 服务器").OnClick([showCreateDialog] {
-                showCreateDialog();
-            }),
+            PrimaryAction(huxerui::Button("新增 MCP 服务器")
+                              .OnClick([showCreateDialog] {
+                                  showCreateDialog();
+                              })),
         }.With(huxerui::Spacing(8.0F)),
         serverCount == 0
             ? huxerui::View{

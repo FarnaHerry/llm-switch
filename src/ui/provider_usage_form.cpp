@@ -149,7 +149,7 @@ int UsageIntervalIndex(int minutes) {
                 .With(huxerui::Grow(1.0F)),
             huxerui::Row {
                 huxerui::Button("取消").OnClick([goBack] { goBack(); }),
-                huxerui::Button("保存")
+                PrimaryAction(huxerui::Button("保存")
                     .OnClick([=] {
                         const std::string url = usageUrl.Get().text;
                         const std::string path = usagePath.Get().text;
@@ -174,7 +174,7 @@ int UsageIntervalIndex(int minutes) {
                         revision = revision.Get() + 1;
                         toast.Show("用量查询配置已保存");
                         goBack();
-                    }),
+                    })),
             }.With(huxerui::MainAlign(huxerui::MainAxisAlignment::SpaceBetween)),
         }.With(huxerui::Spacing(12.0F),
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)));

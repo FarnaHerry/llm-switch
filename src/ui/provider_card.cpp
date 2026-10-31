@@ -108,10 +108,11 @@ huxerui::View StatusText(const StatusPreview& preview, const std::string& full,
                     ? huxerui::View{
                           huxerui::Text("使用中").Style(huxerui::TextStyle{
                               huxerui::Font::System(font_size::kCaption),
-                              theme.colors.on_primary})}
+                              theme.colors.inverse_on_surface})}
                           .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(
                                     8.0F, 2.0F)),
-                                huxerui::Background(theme.colors.primary),
+                                huxerui::Background(
+                                    theme.colors.inverse_surface),
                                 huxerui::CornerRadius(islands.nested_radius))
                     : huxerui::View{huxerui::Row{}},
             }.With(huxerui::Spacing(6.0F),
@@ -280,13 +281,13 @@ huxerui::View StatusText(const StatusPreview& preview, const std::string& full,
                           huxerui::Text(statusLabel).Style(huxerui::TextStyle{
                               huxerui::Font::System(font_size::kCaption),
                               statusActive
-                                  ? theme.colors.on_primary
+                                  ? theme.colors.inverse_on_surface
                                   : theme.colors.on_surface_variant})}
                           .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(
                                     8.0F, 2.0F)),
                                 huxerui::Background(
                                     statusActive
-                                        ? theme.colors.primary
+                                        ? theme.colors.inverse_surface
                                         : theme.colors.surface_container_high),
                                 huxerui::CornerRadius(islands.nested_radius)),
                 std::move(kindBadge),

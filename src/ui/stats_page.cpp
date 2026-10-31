@@ -338,7 +338,7 @@ huxerui::Task<huxerui::sqlite::Result<usage::UsageSnapshot>> ClearUsageDatabase(
         },
         huxerui::Row {
             huxerui::Spacer().With(huxerui::Grow(fill),
-                                   huxerui::Background(theme.colors.primary),
+                                   huxerui::Background(theme.colors.on_surface),
                                    huxerui::Frame{.height = 6.0F},
                                    huxerui::CornerRadius(3.0F)),
             huxerui::Spacer().With(huxerui::Grow(100.0F - fill)),

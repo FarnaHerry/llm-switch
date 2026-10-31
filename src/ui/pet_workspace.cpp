@@ -30,7 +30,7 @@ struct WorkspaceModuleInfo {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     return QuietCard(huxerui::Row {
         huxerui::Image(module.icon)
-            .Tint(theme.colors.primary)
+            .Tint(theme.colors.on_surface_variant)
             .With(huxerui::Frame{.width = 24.0F, .height = 24.0F}),
         huxerui::Text(module.title, huxerui::TextRole::Label)
             .Style(huxerui::TextStyle{
