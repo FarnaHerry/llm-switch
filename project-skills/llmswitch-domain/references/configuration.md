@@ -53,10 +53,11 @@
   和上游格式推断。目标协议由 `models::targetApiFormat()` 决定：Claude 系固定
   Anthropic，Codex 聚合固定 Chat，其余工具按聚合项自己的 `apiFormat`。
   LocalRouter 对每个成员按「目标协议 -> 成员协议」转换请求、按反向转换响应；
-  当前第一刀支持 Anthropic 目标接收 OpenAI Chat 成员（含整段 SSE），不支持
-  的方向会记录失败并继续尝试下一个成员。成员协议必须与供应商地址前缀匹配：
-  Chat 成员不能继续使用 `/anthropic` 路径，聚合表单会就地提示。凭据仍只存
-  原 Provider；旧的直填
+  当前支持 Anthropic Messages 与 OpenAI Chat 双向转换（含整段 SSE），
+  OpenAI Responses 不参与转换，不支持的方向会记录失败并继续尝试下一个成员。
+  成员协议必须与供应商地址前缀匹配：Chat 成员不能继续使用 `/anthropic`，
+  Anthropic 成员不要带 `/v1`，聚合表单会就地提示。凭据仍只存原 Provider；
+  旧的直填
   `baseUrl/apiKey/model` 成员继续兼容，`providerId` 为空时才使用。
   选中时 `switchTo` 把 Agent 指向 `127.0.0.1:<routerPort>/<tool>` 并写占位
   key；`SwitchProvider`（UI 入口）先启动本地路由、启用该工具的 routerTools

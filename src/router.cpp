@@ -155,6 +155,9 @@ UpstreamResponse forwardToProvider(
         if (converted && !anthropic && lower.starts_with("anthropic-")) {
             continue;
         }
+        if (converted && anthropic && lower.starts_with("openai-")) {
+            continue;
+        }
         request.headers.emplace_back(name, value);
     }
     if (converted) {

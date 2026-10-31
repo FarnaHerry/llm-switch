@@ -719,6 +719,132 @@ int main() {
         router1.clearStats();
     }
 
+    // 3g. 反向转换：Chat 目标（Codex）聚合 Anthropic 成员。请求按
+    //     Chat -> Anthropic 改写并走 /v1/messages，响应按 Anthropic ->
+    //     Chat 回写；流式 SSE 同样转换。
+    {
+        groups["codex"].providers.push_back(models::Provider{
+            .id = "anthropic-member",
+            .name = "Anthropic成员",
+            .baseUrl = up2.baseUrl() + "/anthropic",
+            .apiKey = "sk-anth",
+            .upstreamFormat = "anthropic",
+            .fullUrl = true,
+        });
+        groups["codex"].providers.push_back(models::Provider{
+            .id = "agg-chat",
+            .name = "Chat聚合",
+            .upstreams = {
+                models::ProviderUpstream{.providerId = "anthropic-member",
+                                         .model = "claude-x",
+                                         .apiFormat = "anthropic"},
+            }});
+        groups["codex"].current = "agg-chat";
+        up2.status = 200;
+        up2.contentType = "application/json";
+        up2.body =
+            R"({"id":"msg_1","type":"message","role":"assistant","model":"claude-x","content":[{"type":"text","text":"hello"},{"type":"tool_use","id":"toolu_1","name":"read","input":{"path":"z"}}],"stop_reason":"tool_use","usage":{"input_tokens":5,"output_tokens":2}})";
+        up2.hits = 0;
+        router1.clearStats();
+        auto res = cli.Post(
+            "/codex/chat/completions",
+            R"({"model":"Anthropic成员/claude-x","max_tokens":100,"messages":[{"role":"user","content":"hi"}]})",
+            "application/json");
+        CHECK(res && res->status == 200);
+        {
+            std::lock_guard lk(up2.mu);
+            CHECK(up2.hits == 1);
+            CHECK(up2.lastPath == "/anthropic/v1/messages");
+            CHECK(up2.lastAuth == "Bearer sk-anth");
+            CHECK(up2.lastApiKey == "sk-anth");
+            const auto body = nlohmann::json::parse(up2.lastBody, nullptr,
+                                                    false);
+            CHECK(body.is_object());
+            CHECK(body.value("model", "") == "claude-x");
+            CHECK(body.value("max_tokens", 0) == 100);
+            CHECK(body["messages"].is_array());
+            CHECK(body["messages"][0].value("role", "") == "user");
+            CHECK(body["messages"][0]["content"][0].value("text", "") ==
+                  "hi");
+        }
+        const auto converted =
+            nlohmann::json::parse(res->body, nullptr, false);
+        CHECK(converted.is_object());
+        CHECK(converted.value("object", "") == "chat.completion");
+        CHECK(converted["choices"].size() == 1);
+        CHECK(converted["choices"][0].value("finish_reason", "") ==
+              "tool_calls");
+        const auto& message = converted["choices"][0]["message"];
+        CHECK(message.value("content", "") == "hello");
+        CHECK(message["tool_calls"].size() == 1);
+        CHECK(message["tool_calls"][0]["function"].value("name", "") ==
+              "read");
+        const auto arguments =
+            nlohmann::json::parse(
+                message["tool_calls"][0]["function"].value("arguments", "{}"),
+                nullptr, false);
+        CHECK(arguments.value("path", "") == "z");
+        const auto snap = router1.snapshot();
+        CHECK(snap.totalRequests == 1);
+        CHECK(snap.totalPromptTokens == 5);
+        CHECK(snap.totalCompletionTokens == 2);
+        CHECK(perProviderCount(snap, "Chat聚合 · Anthropic成员") == 1);
+
+        // 流式：Anthropic SSE -> Chat SSE。
+        up2.contentType = "text/event-stream";
+        up2.body =
+            "event: message_start\n"
+            "data: {\"type\":\"message_start\",\"message\":{\"id\":"
+            "\"msg_stream\",\"model\":\"claude-x\",\"usage\":"
+            "{\"input_tokens\":2}}}\n\n"
+            "event: content_block_start\n"
+            "data: {\"type\":\"content_block_start\",\"index\":0,"
+            "\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n"
+            "event: content_block_delta\n"
+            "data: {\"type\":\"content_block_delta\",\"index\":0,"
+            "\"delta\":{\"type\":\"text_delta\",\"text\":\"Hel\"}}\n\n"
+            "event: content_block_delta\n"
+            "data: {\"type\":\"content_block_delta\",\"index\":0,"
+            "\"delta\":{\"type\":\"text_delta\",\"text\":\"lo\"}}\n\n"
+            "event: message_delta\n"
+            "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":"
+            "\"end_turn\"},\"usage\":{\"output_tokens\":1}}\n\n"
+            "event: message_stop\n"
+            "data: {\"type\":\"message_stop\"}\n\n";
+        up2.hits = 0;
+        router1.clearStats();
+        res = cli.Post(
+            "/codex/chat/completions",
+            R"({"model":"Anthropic成员/claude-x","max_tokens":100,"stream":true,"messages":[{"role":"user","content":"hi"}]})",
+            "application/json");
+        CHECK(res && res->status == 200);
+        CHECK(res->get_header_value("Content-Type") ==
+              "text/event-stream");
+        CHECK(res->body.contains("\"object\":\"chat.completion.chunk\""));
+        CHECK(res->body.contains("\"content\":\"Hel\""));
+        CHECK(res->body.contains("\"content\":\"lo\""));
+        CHECK(res->body.contains("\"finish_reason\":\"stop\""));
+        CHECK(res->body.contains("\"prompt_tokens\":2"));
+        CHECK(res->body.contains("\"completion_tokens\":1"));
+        CHECK(res->body.contains("data: [DONE]"));
+        {
+            std::lock_guard lk(up2.mu);
+            CHECK(up2.hits == 1);
+            CHECK(up2.lastPath == "/anthropic/v1/messages");
+        }
+
+        groups["codex"].current = "c1";
+        auto& codexProviders = groups["codex"].providers;
+        std::erase_if(codexProviders, [](const models::Provider& provider) {
+            return provider.id == "agg-chat" ||
+                   provider.id == "anthropic-member";
+        });
+        up2.contentType = "application/json";
+        up2.body =
+            R"({"ok":true,"usage":{"prompt_tokens":12,"completion_tokens":34}})";
+        router1.clearStats();
+    }
+
     // 4. 未知工具 → 404；组无 current → 502（均为中文 JSON 错误体）。
     {
         auto res = cli.Get("/nope/x");

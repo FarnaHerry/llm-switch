@@ -49,10 +49,10 @@
   模型，每个模型一行，可逐条移除、手动添加或拖拽/上下移动调整兜底顺序；
   每个供应商行另有「成员协议」选择（Anthropic / OpenAI Chat / OpenAI
   Responses），默认按供应商配置推断；行内提示直通、自动转换或暂不支持。
-  成员协议必须与供应商地址前缀匹配：把 Anthropic 供应商切成 Chat 时，地址
-  应换成 `/v1` 等 Chat 兼容地址；仍带 `/anthropic` 时行内显示错误提示。
-  Claude 系聚合会显示目标协议 Anthropic，并把 OpenAI Chat 成员转换为
-  Anthropic 请求/响应；Codex 聚合固定 Chat。默认模型和模型行显示
+  成员协议必须与供应商地址前缀匹配：Chat 成员用 `/v1` 等地址，Anthropic
+  成员不要带 `/v1`；前缀冲突时行内显示错误提示。Anthropic 与 OpenAI Chat
+  成员可双向自动转换，Responses 仅直通；Claude 聚合目标为 Anthropic，
+  Codex 聚合目标为 Chat。默认模型和模型行显示
   `供应商名/模型` 这一对外 ID，保存时先按供应商内部去重再整组合并。live
   同时存在时删除需区分“只删本应用”与“连同工具一起删”，默认沿用后者。
   两列不可调大 CacheExtent，详见 [性能预算](provider-performance.md)。

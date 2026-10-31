@@ -27,9 +27,10 @@ C++23 modules + HuxerUI，无 Electron。
   地址和密钥拉取完整 /models 并写回。模型可手动增删，也可拖拽或用上下按钮
   调整兜底顺序。凭据只保留在原供应商条目里。选中后 Agent 走本地路由，按请求 model 精确匹配成员（转发
   前剥掉供应商前缀），429/5xx 或连接失败时按列表顺序继续尝试；聚合内兜底不受
-  组级故障转移开关影响。每个供应商可显式选择成员协议；Claude 系聚合会把
-  OpenAI Chat 成员自动转换成 Anthropic Messages 请求/响应（其它方向暂未支持），
-  成员地址需与所选协议匹配（Chat 使用 `/v1` 等地址，不能沿用 `/anthropic`）。
+  组级故障转移开关影响。每个供应商可显式选择成员协议；Anthropic Messages 与
+  OpenAI Chat 可双向自动转换（Claude 系接收 Chat 成员，Chat 目标接收 Anthropic
+  成员；Responses 暂未支持），成员地址需与所选协议匹配（Chat 使用 `/v1` 等
+  地址，不能沿用 `/anthropic`；Anthropic 地址不要带 `/v1`）。
   dsh / ZCode 的专用供应商页在「使用 / 写入」时把聚合项落成本地路由条目；
   Kimi Code 要求至少一个成员设置模型。
 - **直连 / 路由 / 聚合三段分类**：支持单供应商切换的 Agent（dsh / ZCode 的
@@ -55,9 +56,8 @@ C++23 modules + HuxerUI，无 Electron。
   Claude Desktop 3p profile（仅 macOS / Windows）。
 - **本地路由**：内置反向代理监听 `http://127.0.0.1:<port>/<tool>/`（默认
   15731），转发到该工具当前供应商并自动替换鉴权头；支持 Anthropic 与
-  OpenAI Chat 之间的请求/响应/SSE 转换（当前为 Anthropic 目标接收 Chat
-  成员）；上游 429/5xx 可选故障转移；支持逐 Agent 选择是否接受代理，运行中
-  切换即时生效，并支持开机自启。
+  OpenAI Chat 之间的双向请求/响应/SSE 转换；上游 429/5xx 可选故障转移；
+  支持逐 Agent 选择是否接受代理，运行中切换即时生效，并支持开机自启。
 - **使用统计**：按请求记录状态码 / 耗时 / token 用量，JSONL 持久化
   （`~/.local/share/llm-switch/router/requests.jsonl`），统计页看汇总与
   按供应商分布。
