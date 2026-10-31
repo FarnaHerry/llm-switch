@@ -59,10 +59,11 @@ blend 为 `override` 或 `add`）。状态键为 `idle/working/waiting/completed
 - 太极和全景背景属于独立插画资源，不套用 24×24 功能图标模板。
 
 **Agent 身份图标是有意的例外**：`agent_*.png` 使用 64×64（含 `@2x`/`@3x`）
-品牌色圆角方块 + 官方标志，直接以栅格颜色呈现，不走 SVG alpha-mask/tint
-管线；深浅主题共用同一套，不为深/浅模式复制资源。设置页的关闭态用整体
-透明度表达，不另做灰色资源。它们不是 24×24 功能图标，不参与下述 CMake
-检查。
+厂商官方 app icon / favicon 原图（允许自带底色或透明底），直接以栅格颜色
+呈现，不再由本仓库补品牌色底板；不同厂商的原图形状可以不统一。图标不走
+SVG alpha-mask/tint 管线，深浅主题共用同一套，不为深/浅模式复制资源。
+设置页的关闭态用整体透明度表达，不另做灰色资源。它们不是 24×24 功能图标，
+不参与下述 CMake 检查。
 
 CMake 配置阶段会检查全部 24×24 SVG：包含硬编码颜色（非 `#FFFFFF`）或
 存在 `_selected` 重复资源时直接报错。新增图标时应同时补充下方来源与许可表。
@@ -71,9 +72,10 @@ CMake 配置阶段会检查全部 24×24 SVG：包含硬编码颜色（非 `#FFF
 
 功能图标于 2026-09-19 整体换版：以用户提供的 **llm-switch Icon Set v1.0** 参考图
 为准逐枚矢量化，转换后的 24×24 SVG 只保留白色 alpha-mask；参考图与转换稿本身
-不属于运行时资源，也不会随应用打包。Agent 身份图标自本版起改为品牌色栅格
-标记；下表中对应的 24×24 品牌 SVG 仍是官方轮廓来源，但不再作为运行时
-`ToolIcon()` 的返回值（`deepseek.svg`/`kimi.svg` 仍用于供应商模板）。
+不属于运行时资源，也不会随应用打包。Agent 身份图标自本版起改为厂商官方
+app icon / favicon 原图（含官方自带底色或透明底，按原图缩放，不重绘）；下表中
+对应的 24×24 品牌 SVG 仍保留给供应商模板，但不再作为运行时 `ToolIcon()` 的
+返回值（`deepseek.svg`/`kimi.svg` 等仍用于供应商模板）。
 
 被换下的旧图标（34 枚，`docs/icon-reference.png` 时期的转换稿）**原样留档在仓库
 根目录 `old/`**，只作对照与回滚，不参与构建、不随应用打包。独立交付的完整图标集
@@ -82,15 +84,15 @@ CMake 配置阶段会检查全部 24×24 SVG：包含硬编码颜色（非 `#FFF
 
 | 文件 | 来源 | 许可 |
 |------|------|------|
-| `agent_claude.png`（含 `@2x`/`@3x`） | Claude 官方 spark，[simple-icons](https://simpleicons.org) `claude`；品牌橙 `#D97757` 圆角底 + 白色标志。Claude Code 与 Claude Desktop 共用同一品牌标记，靠标题文字区分 | 图形 CC0 1.0；底色与排布同本仓库 |
-| `agent_codex.png`（含 `@2x`/`@3x`） | OpenAI 官方 blossom，沿用 simple-icons `openai`（release tag 15.1.0）的官方轮廓；OpenAI 品牌青绿 `#10A37F` 圆角底 + 白色标志 | 图形 CC0 1.0；底色与排布同本仓库 |
-| `agent_opencode.png`（含 `@2x`/`@3x`） | opencode 官方 mark（simple-icons develop 分支，保留镂空规则）；官方站点交互蓝 `#007AFF` 圆角底 + 白色标志 | 图形 CC0 1.0；底色与排布同本仓库 |
-| `agent_pi.png`（含 `@2x`/`@3x`） | pi-mono 官方 logo（[pi.dev](https://pi.dev) `logo-auto.svg`）；官方站点暖黄 `#F1BE58` 圆角底 + 深色标志 | 图形 MIT（[pi-mono 仓库](https://github.com/badlogic/pi-mono)）；底色与排布同本仓库 |
-| `agent_omp.png`（含 `@2x`/`@3x`） | Oh My Pi 官方 favicon（[omp.sh](https://omp.sh) `favicon.svg`）：深色 `#0F0A14` 圆角底 + 粉紫青渐变 π 标志，直接缩放为 64/128/192px，不重绘 | 图形 MIT（[oh-my-pi 仓库](https://github.com/can1357/oh-my-pi)）；官方 favicon 原样使用 |
-| `agent_dsh.png`（含 `@2x`/`@3x`） | DeepSeek 官方鲸鱼标志（simple-icons `deepseek`）；DeepSeek 蓝 `#4D6BFE` 圆角底 + 白色标志，用于 DeepSeek Harness（dsh） | 图形 CC0 1.0；底色与排布同本仓库 |
-| `agent_hermes.png`（含 `@2x`/`@3x`） | Hermes Agent / Nous Research「Nous Girl」官方头像（`assets/nous-girl-black.svg` 的 24px 重绘稿，见 `hermes.svg` 行）；Nous 电光蓝 `#3847FF` 圆角底 + 白色标志 | 上游仓库许可（Nous Research 商标，仅用于标识对应 Agent）；底色与排布同本仓库 |
-| `agent_zcode.png`（含 `@2x`/`@3x`） | ZCode 的 Z 标记沿用本仓库既有 `zcode.svg` 轮廓（ZCode 无公开独立商标图）；Z.ai 品牌蓝 `#126EF4` 圆角底 + 白色标志 | 同本仓库 |
-| `agent_kimi.png`（含 `@2x`/`@3x`） | Kimi 官方 K 标志（simple-icons `kimi` / Moonshot 品牌指南）；Kimi 品牌蓝 `#006BFF` 圆角底 + 白色标志，用于 Kimi Code | 图形 CC0 1.0；底色与排布同本仓库 |
+| `agent_claude.png`（含 `@2x`/`@3x`） | Claude 官方 app 图标（[claude.ai](https://claude.ai) apple-touch-icon / App Store 1024px 图稿）；Claude Code 与 Claude Desktop 共用同一品牌标记，靠标题文字区分 | Anthropic 商标与图标版权，仅用于标识对应 Agent；官方原图缩放 |
+| `agent_codex.png`（含 `@2x`/`@3x`） | OpenAI 官方 blossom，simple-icons `openai`（release tag 15.1.0）官方轮廓反白，置于 OpenAI 官方深色 app 图标黑底 `#000000`；用于 OpenAI Codex | 图形 CC0 1.0；黑色底与排布同官方深色图标 |
+| `agent_opencode.png`（含 `@2x`/`@3x`） | opencode 官方 favicon（[opencode.ai](https://opencode.ai) `favicon.svg`），黑底 + 白色 mark，原图缩放 | 上游仓库 MIT；opencode 商标，仅用于标识对应 Agent |
+| `agent_pi.png`（含 `@2x`/`@3x`） | pi-mono 官方 logo（[pi.dev](https://pi.dev) `logo-auto.svg`），保留官方彩色轮廓，透明底原图缩放 | 图形 MIT（[pi-mono 仓库](https://github.com/badlogic/pi-mono)） |
+| `agent_omp.png`（含 `@2x`/`@3x`） | Oh My Pi 官方 favicon（[omp.sh](https://omp.sh) `favicon.svg`）：深色圆角底 + 粉紫青渐变 π 标志，原图缩放 | 图形 MIT（[oh-my-pi 仓库](https://github.com/can1357/oh-my-pi)）；官方 favicon 原样使用 |
+| `agent_dsh.png`（含 `@2x`/`@3x`） | DeepSeek 官方鲸鱼 favicon（[deepseek.com](https://www.deepseek.com) `favicon.ico`），透明底原图缩放，用于 DeepSeek Harness（dsh） | DeepSeek 商标，仅用于标识对应 Agent；官方站点资源 |
+| `agent_hermes.png`（含 `@2x`/`@3x`） | Hermes Agent 官方 app icon（[NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent) `assets/icon-master.svg`）：白色圆角底 + 黑色「Nous Girl」头像，原图缩放 | 图形 MIT（hermes-agent 仓库）；Nous Research 商标，仅用于标识对应 Agent |
+| `agent_zcode.png`（含 `@2x`/`@3x`） | ZCode 官方 app icon（[zai-org/ZCode](https://github.com/zai-org/ZCode) `public/logo/icons/1024x1024.png`）：黑色圆角底 + 白色 Z，原图缩放 | 仓库 Apache-2.0；Z.ai / ZCode 商标，仅用于标识对应 Agent |
+| `agent_kimi.png`（含 `@2x`/`@3x`） | Kimi 官方 app 图标（[kimi.com](https://www.kimi.com) / App Store 1024px 图稿）：黑色底 + 白色 K + 蓝色点，原图缩放；用于 Kimi Code | Moonshot / Kimi 商标与图标版权，仅用于标识对应 Agent；官方原图缩放 |
 | `claude.svg` | Claude 官方 logo，[simple-icons](https://simpleicons.org) `claude`（官方轮廓不变，增加 alpha 水墨纹理） | CC0 1.0 |
 | `codex.svg` | OpenAI 官方 logo，simple-icons `openai`（取自 release tag 15.1.0；官方轮廓不变，增加 alpha 水墨纹理） | CC0 1.0 |
 | `baidu/deepseek/kimi/qwen/zdotai/minimax/meituan/modelscope/openrouter/xiaomi.svg` | 对应厂商官方标志，来自 [simple-icons](https://github.com/simple-icons/simple-icons/tree/develop/icons)（保留官方轮廓，统一为主题 tint 用的白色 alpha-mask） | CC0 1.0 |
