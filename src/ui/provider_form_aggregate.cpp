@@ -3,8 +3,9 @@
 // 聚合供应商不再手填 URL/Key：直接从当前 Agent 的现有供应商里勾选供应商，
 // 凭据只保留在原供应商条目里。勾选会带入它已知的全部模型（主模型
 // 优先，再按 models 清单顺序），每个模型单独一条成员，可拖拽或用上下按钮
-// 调整尝试顺序。选中后 Agent 的 live 配置指向本地路由，由 router 按请求
-// model 精确匹配成员，并在 429/5xx 时按列表顺序继续尝试。成员必须与目标
+// 调整尝试顺序；对 Agent 暴露的模型 ID 按供应商内部去重后整组合并，并拼成
+// 「供应商名/模型」。选中后 Agent 的 live 配置指向本地路由，由 router 按请求
+// model 精确匹配成员并剥掉前缀，429/5xx 时按列表顺序继续尝试。成员必须与目标
 // Agent 使用同一协议；聚合项不能嵌套另一个聚合项。
 #include <huxerui/huxerui.h>
 
@@ -71,7 +72,7 @@ std::vector<MemberInfo> CandidateMembers(std::string_view tool,
             }
             members.push_back(MemberInfo{
                 .id = provider.id,
-                .name = provider.name,
+                .name = provider.name.empty() ? provider.id : provider.name,
                 .url = models::effectiveBaseUrl(provider),
                 .models = models::knownModels(provider),
             });
@@ -165,12 +166,31 @@ std::vector<ModelEntry> InitialEntries(
     return entries;
 }
 
+std::string ExposedModel(const ModelEntry& entry) {
+    return models::memberModelId(entry.providerName, entry.model);
+}
+
+// Agent 侧看到的模型清单：每个供应商内部先去重，再按供应商首次出现顺序
+// 合并，最后统一拼上「供应商名/模型」前缀。列表顺序与 router 的兜底顺序
+// 相互独立。
 std::vector<std::string> ModelChoices(const std::vector<ModelEntry>& entries) {
-    std::vector<std::string> models;
+    std::vector<std::string> providerOrder;
     for (const auto& entry : entries) {
-        if (!entry.model.empty() &&
-            std::ranges::find(models, entry.model) == models.end()) {
-            models.push_back(entry.model);
+        if (std::ranges::find(providerOrder, entry.providerId) ==
+            providerOrder.end()) {
+            providerOrder.push_back(entry.providerId);
+        }
+    }
+    std::vector<std::string> models;
+    const auto add = [&models](const std::string& model) {
+        if (!model.empty() &&
+            std::ranges::find(models, model) == models.end()) {
+            models.push_back(model);
+        }
+    };
+    for (const auto& providerId : providerOrder) {
+        for (const auto& entry : entries) {
+            if (entry.providerId == providerId) add(ExposedModel(entry));
         }
     }
     return models;
@@ -178,14 +198,16 @@ std::vector<std::string> ModelChoices(const std::vector<ModelEntry>& entries) {
 
 std::string InitialDefaultModel(const models::Provider& initial,
                                 const std::vector<ModelEntry>& entries) {
-    if (!initial.model.empty() &&
-        std::ranges::any_of(entries, [&initial](const ModelEntry& entry) {
-            return entry.model == initial.model;
-        })) {
-        return initial.model;
+    if (!initial.model.empty()) {
+        for (const auto& entry : entries) {
+            const std::string exposed = ExposedModel(entry);
+            if (initial.model == exposed || initial.model == entry.model) {
+                return exposed;
+            }
+        }
     }
     for (const auto& entry : entries) {
-        if (!entry.model.empty()) return entry.model;
+        if (!entry.model.empty()) return ExposedModel(entry);
     }
     return {};
 }
@@ -334,7 +356,8 @@ void MoveEntry(huxerui::State<std::vector<ModelEntry>> entries,
                     huxerui::Font::Monospace(font_size::kChip),
                     theme.colors.on_surface_variant}),
             huxerui::Column {
-                huxerui::Text(entry.model.empty() ? "未设置模型" : entry.model)
+                huxerui::Text(entry.model.empty() ? "未设置模型"
+                                                  : ExposedModel(entry))
                     .Style(huxerui::TextStyle{
                         huxerui::Font::Monospace(font_size::kBody),
                         theme.colors.on_surface}),
@@ -456,9 +479,10 @@ void MoveEntry(huxerui::State<std::vector<ModelEntry>> entries,
                 huxerui::Text(
                     "聚合供应商把当前 Agent 的多个现有供应商组织成一个可选"
                     "条目。勾选供应商会带入它保存的全部模型，每个模型是一条"
-                    "成员；请求先发到本地路由，按请求里的 model 精确匹配，"
-                    "成员返回 429/5xx 或连接失败时按下方模型顺序继续尝试。"
-                    "成员协议必须与目标 Agent 一致。")
+                    "成员；对 Agent 暴露的模型 ID 会拼成「供应商名/模型」，"
+                    "并先按供应商内部去重后整组合并。请求先发到本地路由，按"
+                    "模型精确匹配，成员返回 429/5xx 或连接失败时按下方模型"
+                    "顺序继续尝试。成员协议必须与目标 Agent 一致。")
                     .Style(huxerui::TextStyle{
                         huxerui::Font::System(font_size::kCaption),
                         theme.colors.on_surface_variant}),
@@ -503,8 +527,9 @@ void MoveEntry(huxerui::State<std::vector<ModelEntry>> entries,
                             .WithWeight(huxerui::FontWeight::SemiBold),
                         theme.colors.on_surface}),
                 huxerui::Text(
-                    "拖动手柄，或用「上移 / 下移」调整。请求的 model 精确命中"
-                    "的成员优先；未命中时按这里的顺序逐条兜底。")
+                    "拖动手柄，或用「上移 / 下移」调整。Agent 侧的模型 ID 是"
+                    "「供应商名/模型」；请求精确命中的成员优先，未命中时按"
+                    "这里的顺序逐条兜底。")
                     .Style(huxerui::TextStyle{
                         huxerui::Font::System(font_size::kCaption),
                         theme.colors.on_surface_variant}),
@@ -555,7 +580,7 @@ void MoveEntry(huxerui::State<std::vector<ModelEntry>> entries,
                     provider.name = formName;
                     provider.notes = notes.Get().text;
                     provider.model = std::move(defaultModel);
-                    provider.models.clear();
+                    provider.models = ModelChoices(currentEntries);
                     provider.baseUrl.clear();
                     provider.modelFetchUrl.clear();
                     provider.apiKey =

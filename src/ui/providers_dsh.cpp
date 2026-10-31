@@ -448,9 +448,14 @@ void ShowDshDeleteConfirm(huxerui::DialogHandle dialog,
         ShowDshDeleteConfirm(dialog, toast, name, id, present, revision);
     };
 
+    const std::string modelText =
+        provider.models.size() > 1
+            ? std::format("{} 等 {} 个模型", provider.model,
+                          provider.models.size())
+            : provider.model;
     return QuietCard(huxerui::Column {
         DshRowTitle(name, badges, theme.colors.on_surface),
-        DshMetaLine({accessUrl, provider.model},
+        DshMetaLine({accessUrl, modelText},
                     theme.colors.on_surface_variant),
         huxerui::Row {
             DshStatusText(latencyText,

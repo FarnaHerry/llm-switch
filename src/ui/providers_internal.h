@@ -37,7 +37,7 @@ huxerui::View ProviderFormPage(std::string tool, models::Provider initial,
 
 // 聚合供应商编辑页（provider_form_aggregate.cpp）：名称/默认模型 + 从当前
 // Agent 的现有供应商里勾选供应商，默认带入其全部已知模型；模型行可拖拽或
-// 上下移动排序。只对当前 Agent 生效。
+// 上下移动排序，对外模型 ID 为「供应商名/模型」。只对当前 Agent 生效。
 huxerui::View AggregateFormPage(std::string tool, models::Provider initial,
                                 bool isNew, huxerui::State<int> revision,
                                 huxerui::State<std::string> formTarget);

@@ -45,6 +45,12 @@ nlohmann::json buildZcodeEntry(const models::Provider& target,
         };
         if (!target.models.empty()) {
             for (const auto& id : target.models) put(id);
+            // 聚合的默认模型来自合并后的对外清单；旧聚合没有清单时也把它
+            // 作为一条可选模型补进来，避免默认指向菜单外的 id。
+            if (models::isAggregateProvider(target) && !target.model.empty() &&
+                !modelsMap.contains(target.model)) {
+                put(target.model);
+            }
         } else {
             put(target.model);
         }

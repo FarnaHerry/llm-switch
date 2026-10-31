@@ -449,6 +449,7 @@ int main() {
             .baseUrl = up2.baseUrl(),
             .apiKey = "sk-ref-b",
             .model = "model-ref-b",
+            .models = {"model-ref-b", "model-ref-extra"},
             .fullUrl = true,
         });
         groups["codex"].providers.push_back(models::Provider{
@@ -546,6 +547,62 @@ int main() {
         auto& providers = groups["codex"].providers;
         std::erase_if(providers, [](const models::Provider& provider) {
             return provider.id == "agg-ref-multi" || provider.id == "ref-c";
+        });
+        router1.clearStats();
+    }
+
+    // 3e. 聚合对外模型带「供应商名/模型」前缀：命中成员后，转发给上游
+    //     的请求体必须还原成原始模型 id，不能让上游看到前缀。
+    {
+        groups["codex"].providers.push_back(models::Provider{
+            .id = "agg-ref-exposed",
+            .name = "引用前缀",
+            .models = {"引用乙/model-ref-b", "引用乙/model-ref-extra"},
+            .upstreams = {
+                models::ProviderUpstream{.providerId = "ref-a",
+                                         .model = "model-ref-a"},
+                models::ProviderUpstream{.providerId = "ref-b",
+                                         .model = "model-ref-b"},
+            }});
+        groups["codex"].current = "agg-ref-exposed";
+        up1.status = 200;
+        up2.status = 200;
+        up1.hits = 0;
+        up2.hits = 0;
+        router1.clearStats();
+        auto res = cli.Post("/codex/chat/completions",
+                            R"({"model":"引用乙/model-ref-b"})",
+                            "application/json");
+        CHECK(res && res->status == 200);
+        {
+            std::lock_guard lk(up1.mu);
+            CHECK(up1.hits == 0);
+        }
+        {
+            std::lock_guard lk(up2.mu);
+            CHECK(up2.hits == 1);
+            CHECK(up2.lastAuth == "Bearer sk-ref-b");
+            CHECK(up2.lastBody == R"({"model":"model-ref-b"})");
+        }
+        // 清单里有、upstreams 没展开的模型也要能精确命中并剥前缀。
+        up2.hits = 0;
+        res = cli.Post("/codex/chat/completions",
+                       R"({"model":"引用乙/model-ref-extra"})",
+                       "application/json");
+        CHECK(res && res->status == 200);
+        {
+            std::lock_guard lk(up1.mu);
+            CHECK(up1.hits == 0);
+        }
+        {
+            std::lock_guard lk(up2.mu);
+            CHECK(up2.hits == 1);
+            CHECK(up2.lastBody == R"({"model":"model-ref-extra"})");
+        }
+        groups["codex"].current = "c1";
+        auto& providers = groups["codex"].providers;
+        std::erase_if(providers, [](const models::Provider& provider) {
+            return provider.id == "agg-ref-exposed";
         });
         router1.clearStats();
     }

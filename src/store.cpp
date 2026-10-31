@@ -30,6 +30,12 @@ namespace {
 // 每工具每文件保留的备份份数上限。
 constexpr std::size_t kMaxBackups = 10;
 
+// 聚合的对外模型清单由成员供应商自动合并：调用方（编辑页之外的导入/测试/
+// 旧数据）不必自己拼前缀，也保证 Provider.models 与 router 暴露的 id 一致。
+// 定义在本文件后部，load() 也需要调用。
+void normalizeAggregateModels(models::Provider& provider,
+                              const std::vector<models::Provider>& group);
+
 // 工具的 live 文件是否已存在（load() 首次导入判定用）。
 bool liveFileExists(std::string_view tool) {
     std::error_code ec;
@@ -288,6 +294,14 @@ ProviderStore ProviderStore::load() {
             }
         }
     }
+    // 旧聚合可能只存了每个供应商的一条成员/空清单；启动时按成员供应商
+    // 重新展开对外模型清单，保证不必先编辑一次才拿到全部模型。
+    for (auto& [tool, group] : store.config_.groups) {
+        (void)tool;
+        for (auto& provider : group.providers) {
+            normalizeAggregateModels(provider, group.providers);
+        }
+    }
     return store;
 }
 
@@ -467,12 +481,37 @@ void ProviderStore::setRouterToolEnabled(std::string_view tool, bool enabled) {
     save();
 }
 
+namespace {
+void normalizeAggregateModels(models::Provider& provider,
+                              const std::vector<models::Provider>& group) {
+    if (!models::isAggregateProvider(provider)) return;
+    const auto models = models::aggregateModelList(provider, group);
+    if (models.empty()) return;
+    if (provider.models.empty()) {
+        provider.models = models;
+        if (provider.model.empty()) provider.model = provider.models.front();
+        return;
+    }
+    // 编辑页已经写好的完整清单优先（顺序/手工清单不重排）；自动合并只补
+    // 旧数据里缺的对外 id，避免直接成员（没有可展开的 knownModels）丢掉
+    // 调用方显式声明的模型。
+    for (const auto& model : models) {
+        if (std::ranges::find(provider.models, model) ==
+            provider.models.end()) {
+            provider.models.push_back(model);
+        }
+    }
+    if (provider.model.empty()) provider.model = provider.models.front();
+}
+}  // namespace
+
 std::string ProviderStore::addProvider(std::string_view tool,
                                        models::Provider provider) {
     auto& g = groupRef(tool);
     if (provider.id.empty()) provider.id = generateId();
     if (provider.createdAt == 0) provider.createdAt = nowMillis();
     const bool aggregate = models::isAggregateProvider(provider);
+    normalizeAggregateModels(provider, g.providers);
     // 聚合项在第一次切换前只是一个虚拟条目：不往 live 写空 URL/占位密钥，
     // 切换（switchTo）时才由本应用写出本地路由条目。
     if (tool == "zcode" && !aggregate) upsertZcodeEntry(provider);
@@ -512,6 +551,7 @@ void ProviderStore::updateProvider(std::string_view tool,
         if (cur.id == provider.id) {
             const models::Provider previous = cur;
             cur = provider;
+            normalizeAggregateModels(cur, g.providers);
             const bool aggregate = models::isAggregateProvider(cur);
             // 聚合项没有独立上游；它的 live 条目由编辑页保存后的
             // SwitchProvider 重写，普通更新这里不预写空地址/占位条目。

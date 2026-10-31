@@ -439,8 +439,9 @@ export std::string formatTokenCount(std::int64_t value) {
 // 聚合供应商的一条成员。providerId 非空时引用同组现有 Provider（推荐，
 // 凭据只存一份，成员改动自动跟随）；baseUrl/apiKey/model 是旧版直填成员
 // 的兼容字段，providerId 为空时才使用。model 是这条成员对应的上游模型：
-// 聚合里一个模型一条，同一供应商的全部模型会重复 providerId；router 用
-// 它按请求体的 model 精确匹配，空 = 不参与精确匹配。
+// 聚合里一个模型一条，同一供应商的全部模型会重复 providerId；对外模型
+// ID 是「供应商名/model」（见 memberModelId），router 命中后转发原始 model，
+// 空 = 不参与精确匹配。
 export struct ProviderUpstream {
     std::string name;
     std::string providerId;
@@ -530,7 +531,8 @@ export bool isAggregateProvider(const Provider& provider) {
 
 // 供应商已知的全部模型：主模型优先，再按 models 清单原顺序补其余模型。
 // 模型清单可能来自「获取模型」、ZCode/dsh 收编或历史配置；去重后供聚合
-// 编辑页一次性带入所有模型。没有主模型也没有清单时返回空。
+// 编辑页一次性带入所有模型，也用于生成对外模型清单。没有主模型也没有
+// 清单时返回空。
 export std::vector<std::string> knownModels(const Provider& provider) {
     std::vector<std::string> models;
     const auto add = [&models](const std::string& model) {
@@ -544,6 +546,16 @@ export std::vector<std::string> knownModels(const Provider& provider) {
     return models;
 }
 
+// 聚合模型对外暴露的 id：把成员供应商名拼在原始模型 id 前，避免不同供应商
+// 的同名模型在聚合清单里互相覆盖。供应商名缺失时退化为 provider。
+export std::string memberModelId(std::string_view providerName,
+                                 std::string_view model) {
+    if (model.empty()) return {};
+    const std::string prefix =
+        providerName.empty() ? "provider" : std::string(providerName);
+    return prefix + "/" + std::string(model);
+}
+
 // 一个工具的供应商集合。
 export struct ProviderGroup {
     std::vector<Provider> providers;
@@ -551,6 +563,60 @@ export struct ProviderGroup {
 
     bool operator==(const ProviderGroup&) const = default;
 };
+
+// 聚合供应商对 Agent 暴露的完整模型清单：先按供应商内部去重，再按供应商
+// 首次出现顺序合并，最后拼上「供应商名/模型」前缀。引用成员使用该供应商
+// 的 knownModels()，因此 Provider.models 里保存的整组模型都会进入清单。
+export std::vector<std::string> aggregateModelList(
+    const Provider& aggregate, const std::vector<Provider>& providers) {
+    std::vector<std::string> result;
+    std::vector<std::string> visited;
+    const auto add = [&result](const std::string& id) {
+        if (id.empty()) return;
+        if (std::ranges::find(result, id) == result.end()) {
+            result.push_back(id);
+        }
+    };
+    for (const auto& entry : aggregate.upstreams) {
+        if (!entry.providerId.empty()) {
+            if (std::ranges::find(visited, entry.providerId) != visited.end()) {
+                continue;
+            }
+            const auto member = std::ranges::find_if(
+                providers, [&entry](const Provider& provider) {
+                    return provider.id == entry.providerId;
+                });
+            if (member == providers.end() || isAggregateProvider(*member)) {
+                continue;
+            }
+            visited.push_back(entry.providerId);
+            std::vector<std::string> models;
+            for (const auto& candidate : aggregate.upstreams) {
+                if (candidate.providerId != entry.providerId ||
+                    candidate.model.empty() ||
+                    std::ranges::find(models, candidate.model) != models.end()) {
+                    continue;
+                }
+                models.push_back(candidate.model);
+            }
+            for (const auto& model : knownModels(*member)) {
+                if (std::ranges::find(models, model) == models.end()) {
+                    models.push_back(model);
+                }
+            }
+            const std::string name =
+                member->name.empty() ? member->id : member->name;
+            for (const auto& model : models) {
+                add(memberModelId(name, model));
+            }
+        } else if (!entry.model.empty()) {
+            const std::string name =
+                entry.name.empty() ? "member" : entry.name;
+            add(memberModelId(name, entry.model));
+        }
+    }
+    return result;
+}
 
 export struct AppConfig {
     // 键 = 注册表工具 id（claude-code / ... / kimi-code）；用 map 而非固定

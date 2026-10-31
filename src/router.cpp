@@ -135,7 +135,8 @@ UpstreamResponse forwardToProvider(UpstreamSession& session,
                                    const models::Provider& provider,
                                    bool anthropic,
                                    const httplib::Request& req,
-                                   const std::string& url) {
+                                   const std::string& url,
+                                   std::string_view modelOverride = {}) {
     UpstreamRequest request;
     request.method = req.method;
     request.url = url;
@@ -154,7 +155,22 @@ UpstreamResponse forwardToProvider(UpstreamSession& session,
         }
     }
     if (req.method == "POST" || req.method == "PUT" || req.method == "PATCH") {
-        request.body = req.body;
+        std::string body = req.body;
+        // 聚合模型对外带「供应商名/模型」前缀；命中成员后把请求体里的
+        // model 还原成上游真正认识的模型 id。只在确有前缀命中时改写，
+        // 普通请求体保持字节原样。
+        if (!modelOverride.empty() && !body.empty()) {
+            auto j = nlohmann::json::parse(body, nullptr, false);
+            if (j.is_object()) {
+                const auto it = j.find("model");
+                if (it != j.end() && it->is_string() &&
+                    it->get<std::string>() != modelOverride) {
+                    j["model"] = modelOverride;
+                    body = j.dump();
+                }
+            }
+        }
+        request.body = std::move(body);
     }
     return ShapeUpstreamResponse(session.Send(request));
 }
@@ -379,13 +395,14 @@ struct LocalRouter::Impl {
         struct Attempt {
             models::Provider provider;
             std::string label;
+            std::string upstreamModel;  // 非空 = 转发前把请求体 model 改成它
         };
         std::vector<Attempt> attempts;
         const std::string requestedModel = RequestedModel(req);
         const auto appendProvider = [&attempts, &requestedModel, &group](
                                         const models::Provider& configured) {
             if (!models::isAggregateProvider(configured)) {
-                attempts.push_back(Attempt{configured, configured.name});
+                attempts.push_back(Attempt{configured, configured.name, {}});
                 return;
             }
             // 成员可以是同组 Provider.id 引用（推荐），也可以是旧版直填的
@@ -393,8 +410,10 @@ struct LocalRouter::Impl {
             struct Member {
                 models::Provider provider;
                 std::string label;
+                bool exact = false;
             };
             std::vector<Member> members;
+            std::string prefixedRawModel;
             members.reserve(configured.upstreams.size());
             for (const auto& entry : configured.upstreams) {
                 models::Provider provider;
@@ -423,27 +442,94 @@ struct LocalRouter::Impl {
                 if (label.empty()) label = entry.name;
                 if (label.empty()) label = provider.model;
                 if (label.empty()) label = "成员";
+                const std::string prefixName =
+                    !provider.name.empty()
+                        ? provider.name
+                        : (!provider.id.empty() ? provider.id : label);
+                const std::string exposed =
+                    models::memberModelId(prefixName, provider.model);
+                const bool exact =
+                    !requestedModel.empty() &&
+                    (provider.model == requestedModel ||
+                     exposed == requestedModel);
+                if (!requestedModel.empty() && exposed == requestedModel) {
+                    prefixedRawModel = provider.model;
+                }
                 members.push_back(Member{std::move(provider),
-                                         std::move(label)});
+                                         std::move(label), exact});
+            }
+            // Provider.models 是聚合对 Agent 的完整清单；旧聚合或外部写入
+            // 可能清单比 upstreams 多。给清单里尚未成成员的模型补一条成员，
+            // 保证菜单里每个对外 id 都能精确命中，而不是只显示不路由。
+            const auto memberExposedId = [](const Member& member) {
+                const std::string prefix =
+                    !member.provider.name.empty()
+                        ? member.provider.name
+                        : (!member.provider.id.empty() ? member.provider.id
+                                                       : member.label);
+                return models::memberModelId(prefix, member.provider.model);
+            };
+            std::vector<std::string> exposedModels = configured.models;
+            for (const auto& exposed : models::aggregateModelList(
+                     configured, group->providers)) {
+                if (std::ranges::find(exposedModels, exposed) ==
+                    exposedModels.end()) {
+                    exposedModels.push_back(exposed);
+                }
+            }
+            for (const auto& exposed : exposedModels) {
+                const bool exists = std::ranges::any_of(
+                    members, [&](const Member& member) {
+                        return memberExposedId(member) == exposed;
+                    });
+                if (exists) continue;
+                for (const auto& candidate : group->providers) {
+                    if (models::isAggregateProvider(candidate) ||
+                        candidate.baseUrl.empty()) {
+                        continue;
+                    }
+                    const std::string prefix = candidate.name.empty()
+                                                   ? candidate.id
+                                                   : candidate.name;
+                    bool added = false;
+                    for (const auto& model : models::knownModels(candidate)) {
+                        if (models::memberModelId(prefix, model) != exposed) {
+                            continue;
+                        }
+                        models::Provider provider = candidate;
+                        provider.model = model;
+                        std::string label = provider.name;
+                        if (label.empty()) label = provider.id;
+                        if (label.empty()) label = model;
+                        const bool exact =
+                            !requestedModel.empty() &&
+                            (provider.model == requestedModel ||
+                             exposed == requestedModel);
+                        if (!requestedModel.empty() &&
+                            exposed == requestedModel) {
+                            prefixedRawModel = model;
+                        }
+                        members.push_back(Member{std::move(provider),
+                                                 std::move(label), exact});
+                        added = true;
+                        break;
+                    }
+                    if (added) break;
+                }
             }
             std::vector<std::size_t> order;
             order.reserve(members.size());
             for (std::size_t i = 0; i < members.size(); ++i) {
-                if (!members[i].provider.model.empty() &&
-                    members[i].provider.model == requestedModel) {
-                    order.push_back(i);
-                }
+                if (members[i].exact) order.push_back(i);
             }
             for (std::size_t i = 0; i < members.size(); ++i) {
-                if (members[i].provider.model.empty() ||
-                    members[i].provider.model != requestedModel) {
-                    order.push_back(i);
-                }
+                if (!members[i].exact) order.push_back(i);
             }
             for (const std::size_t index : order) {
                 attempts.push_back(Attempt{
                     members[index].provider,
-                    configured.name + " · " + members[index].label});
+                    configured.name + " · " + members[index].label,
+                    prefixedRawModel});
             }
         };
         appendProvider(group->providers[curIdx]);
@@ -476,7 +562,8 @@ struct LocalRouter::Impl {
             const bool anthropic =
                 tool == "claude-code" || tool == "claude" ||
                 models::normalizeApiFormat(provider.apiFormat) == "anthropic";
-            last = forwardToProvider(*upstream, provider, anthropic, req, url);
+            last = forwardToProvider(*upstream, provider, anthropic, req,
+                                     url, attempts[k].upstreamModel);
             const auto latency =
                 std::chrono::duration_cast<std::chrono::milliseconds>(
                     std::chrono::steady_clock::now() - t0)

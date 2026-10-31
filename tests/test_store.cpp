@@ -451,6 +451,38 @@ int main() {
               std::vector<std::string>({"only"}));
     }
 
+    // 3ab2. 聚合对外清单：每个供应商内部去重后，按首次出现顺序合并，
+    //      再拼上「供应商名/模型」前缀；不同供应商的同名模型不会互相覆盖。
+    {
+        models::Provider first{
+            .id = "agg-model-a",
+            .name = "甲",
+            .model = "a-main",
+            .models = {"a-main", "a-fast"},
+        };
+        models::Provider second{
+            .id = "agg-model-b",
+            .name = "乙",
+            .model = "b-main",
+            .models = {"b-main", "b-fast"},
+        };
+        models::Provider aggregate{
+            .name = "模型前缀聚合",
+            .upstreams = {
+                models::ProviderUpstream{.providerId = "agg-model-b",
+                                         .model = "b-main"},
+                models::ProviderUpstream{.providerId = "agg-model-a",
+                                         .model = "a-fast"},
+                models::ProviderUpstream{.providerId = "agg-model-a",
+                                         .model = "a-main"},
+            }};
+        CHECK(models::aggregateModelList(
+                  aggregate, std::vector<models::Provider>{first, second}) ==
+              std::vector<std::string>({"乙/b-main", "乙/b-fast", "甲/a-fast",
+                                        "甲/a-main"}));
+        CHECK(models::memberModelId("", "x") == "provider/x");
+    }
+
     // 3ac. 引用型聚合成员：没有 provider.model 时用第一个可解析成员的模型。
     {
         models::Provider refAggregate{
@@ -466,7 +498,8 @@ int main() {
         s.addProvider("claude-code", refAggregate);
         const std::string refId = s.group("claude-code").providers.back().id;
         s.switchTo("claude-code", refId);
-        CHECK(readJson(claudeSettings)["env"]["ANTHROPIC_MODEL"] == "model-a");
+        CHECK(readJson(claudeSettings)["env"]["ANTHROPIC_MODEL"] ==
+              "供应商A/model-a");
         CHECK(readJson(claudeSettings)["env"]["ANTHROPIC_AUTH_TOKEN"] ==
               "llmswitch-aggregate");
         s.switchTo("claude-code", idA);
@@ -752,6 +785,33 @@ int main() {
         CHECK(readJson(zcodeConfig)["provider"]["llmswitch:" + idZ2]["models"]
                   .contains("m2"));
         CHECK(s.detectCurrent("zcode") == idZ2);
+        // 聚合条目把合并后的完整「供应商名/模型」清单写进 ZCode。
+        models::Provider zAggregate{
+            .name = "ZCode 聚合",
+            .model = "甲/a-main",
+            .models = {"甲/a-main", "甲/a-fast", "乙/b-main"},
+            .upstreams = {
+                models::ProviderUpstream{.name = "甲",
+                                         .baseUrl = "https://zagg-a.example.com",
+                                         .apiKey = "sk-zagg-a",
+                                         .model = "a-main"},
+                models::ProviderUpstream{.name = "乙",
+                                         .baseUrl = "https://zagg-b.example.com",
+                                         .apiKey = "sk-zagg-b",
+                                         .model = "b-main"},
+            }};
+        s.addProvider("zcode", zAggregate);
+        const std::string idZAgg = s.group("zcode").providers.back().id;
+        s.switchTo("zcode", idZAgg);
+        {
+            const auto entry =
+                readJson(zcodeConfig)["provider"]["llmswitch:" + idZAgg];
+            CHECK(entry["models"].contains("甲/a-main"));
+            CHECK(entry["models"].contains("甲/a-fast"));
+            CHECK(entry["models"].contains("乙/b-main"));
+        }
+        s.switchTo("zcode", idZ2);
+        s.removeProvider("zcode", idZAgg);
         // importLive：收编当前 enabled 条目。
         const auto importedZ = s.importLive("zcode");
         CHECK(importedZ.apiKey == "sk-z2");
@@ -1434,6 +1494,37 @@ int main() {
             CHECK(y.find("theme: dark") != std::string::npos);
             CHECK(s.detectCurrent("dsh").empty());
         }
+        // 8d1b. dsh 聚合条目：入口的 models 清单要写全合并后的
+        // 「供应商名/模型」，而不是只写默认模型。
+        {
+            models::Provider dshAggregate{
+                .name = "dsh 聚合",
+                .model = "甲/a-main",
+                .models = {"甲/a-main", "甲/a-fast", "乙/b-main"},
+                .upstreams = {
+                    models::ProviderUpstream{
+                        .name = "甲",
+                        .baseUrl = "https://dshagg-a.example.com",
+                        .apiKey = "sk-dshagg-a",
+                        .model = "a-main"},
+                    models::ProviderUpstream{
+                        .name = "乙",
+                        .baseUrl = "https://dshagg-b.example.com",
+                        .apiKey = "sk-dshagg-b",
+                        .model = "b-main"},
+                }};
+            s.addProvider("dsh", dshAggregate);
+            const std::string idDshAgg = s.group("dsh").providers.back().id;
+            s.switchTo("dsh", idDshAgg);
+            const std::string block =
+                settingsEntryBlock(readTextFile(dshSettings),
+                                   "llmswitch-" + idDshAgg);
+            CHECK(block.find("- id: \"甲/a-main\"") != std::string::npos);
+            CHECK(block.find("- id: \"甲/a-fast\"") != std::string::npos);
+            CHECK(block.find("- id: \"乙/b-main\"") != std::string::npos);
+            s.restoreOfficial("dsh");
+        }
+
         // 8d2. settings.yaml 的 providers 写成 flow 风格（用户手写/其它工具）：
         // 收编要读得到，写入前要摊平成块风格——直接在 flow 块后插块条目会写出
         // 非法 YAML，原条目与既有键值必须原样保留。
@@ -2683,6 +2774,40 @@ int main() {
             CHECK(reloaded.detectCurrent("kimi-code").empty());
             CHECK(reloaded.group("kimi-code").current.empty());
         }
+        // 聚合条目：把合并后的完整模型清单写成多个 Kimi 模型别名，
+        // default_model 指向默认别名，切换后模型菜单能看到全部模型。
+        {
+            models::Provider kimiAggregate{
+                .name = "Kimi 聚合",
+                .model = "甲/a-main",
+                .models = {"甲/a-main", "甲/a-fast", "乙/b-main"},
+                .contextWindow = 262144,
+                .apiFormat = "kimi",
+                .upstreams = {
+                    models::ProviderUpstream{
+                        .name = "甲",
+                        .baseUrl = "https://kimiagg-a.example.com/v1",
+                        .apiKey = "sk-kimiagg-a",
+                        .model = "a-main"},
+                    models::ProviderUpstream{
+                        .name = "乙",
+                        .baseUrl = "https://kimiagg-b.example.com/v1",
+                        .apiKey = "sk-kimiagg-b",
+                        .model = "b-main"},
+                }};
+            const std::string idKAgg =
+                ks.addProvider("kimi-code", kimiAggregate);
+            ks.switchTo("kimi-code", idKAgg);
+            const std::string t = readTextFile(kimiConfig);
+            CHECK(t.find("model = \"甲/a-main\"") != std::string::npos);
+            CHECK(t.find("model = \"甲/a-fast\"") != std::string::npos);
+            CHECK(t.find("model = \"乙/b-main\"") != std::string::npos);
+            CHECK(t.find("default_model = \"llmswitch-" + idKAgg + "\"") !=
+                  std::string::npos);
+            CHECK(ks.detectCurrent("kimi-code") == idKAgg);
+            ks.removeProvider("kimi-code", idKAgg, /*eraseLive=*/true);
+        }
+
         // 删除边界：收编的原生条目（id 即原生键）可随卡一起删除；官方
         // OAuth 账号永不删除。
         {

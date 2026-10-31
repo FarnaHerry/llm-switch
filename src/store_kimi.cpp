@@ -958,20 +958,77 @@ void writeKimiEntry(const models::Provider& target, bool overwrite,
 
     // 重新解析：上面可能刚插入了 provider 表。
     info = parseKimiConfig(joinLines(lines));
-    const std::string alias =
-        chooseModelAlias(info, key, target.model, info.defaultModel);
-    bool modelExists = false;
-    for (const auto& model : info.models) {
-        if (model.alias == alias) modelExists = true;
+    const bool aggregate = models::isAggregateProvider(target);
+    std::vector<std::string> desiredModels = target.models;
+    if (!target.model.empty() &&
+        std::ranges::find(desiredModels, target.model) ==
+            desiredModels.end()) {
+        desiredModels.insert(desiredModels.begin(), target.model);
     }
-    if (!modelExists || overwrite) {
-        const auto body = modelBody(target, key, ownEntry || !modelExists);
-        upsertSection(lines, "models", alias, body, {},
-                      modelExists && !ownEntry);
-    }
+    if (aggregate && !desiredModels.empty()) {
+        // 聚合条目由本应用独占：把合并后的完整模型清单写成一组模型别名，
+        // 让 Kimi 的模型菜单看到所有模型；默认模型仍指向 target.model。
+        std::vector<std::string> oldAliases;
+        for (const auto& model : info.models) {
+            if (model.provider == key) oldAliases.push_back(model.alias);
+        }
+        const std::string previousDefault = info.defaultModel;
+        std::vector<std::string> desiredAliases;
+        std::string defaultAlias;
+        for (const auto& model : desiredModels) {
+            const std::string alias =
+                chooseModelAlias(info, key, model,
+                                 model == target.model ? info.defaultModel
+                                                       : std::string{});
+            bool modelExists = false;
+            for (const auto& existing : info.models) {
+                if (existing.alias == alias) modelExists = true;
+            }
+            if (!modelExists || overwrite) {
+                models::Provider modelTarget = target;
+                modelTarget.model = model;
+                modelTarget.name = model;
+                const auto body =
+                    modelBody(modelTarget, key, ownEntry || !modelExists);
+                upsertSection(lines, "models", alias, body, {},
+                              modelExists && !ownEntry);
+            }
+            info = parseKimiConfig(joinLines(lines));
+            desiredAliases.push_back(alias);
+            if (model == target.model) defaultAlias = alias;
+        }
+        if (overwrite) {
+            for (const auto& alias : oldAliases) {
+                if (std::ranges::find(desiredAliases, alias) ==
+                    desiredAliases.end()) {
+                    removeSection(lines, "models", alias);
+                }
+            }
+        }
+        const bool defaultRemoved =
+            !previousDefault.empty() &&
+            std::ranges::find(oldAliases, previousDefault) != oldAliases.end() &&
+            std::ranges::find(desiredAliases, previousDefault) ==
+                desiredAliases.end();
+        if ((makeDefault || defaultRemoved) && !defaultAlias.empty()) {
+            setTopLevelString(lines, "default_model", defaultAlias);
+        }
+    } else {
+        const std::string alias =
+            chooseModelAlias(info, key, target.model, info.defaultModel);
+        bool modelExists = false;
+        for (const auto& model : info.models) {
+            if (model.alias == alias) modelExists = true;
+        }
+        if (!modelExists || overwrite) {
+            const auto body = modelBody(target, key, ownEntry || !modelExists);
+            upsertSection(lines, "models", alias, body, {},
+                          modelExists && !ownEntry);
+        }
 
-    if (makeDefault) {
-        setTopLevelString(lines, "default_model", alias);
+        if (makeDefault) {
+            setTopLevelString(lines, "default_model", alias);
+        }
     }
 
     std::string updated = joinLines(lines);

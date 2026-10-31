@@ -1008,34 +1008,44 @@ std::vector<std::string> dshEntryLines(const std::string& key,
     entry.push_back("      api: " + piApiValue(p.apiFormat));
     entry.push_back("      baseURL: " + yamlQuote(baseUrl));
     entry.push_back("      apiKeyEnv: " + apiKeyEnv);
-    if (!p.model.empty()) {
+    std::vector<std::string> modelIds = p.models;
+    if (!p.model.empty() &&
+        std::ranges::find(modelIds, p.model) == modelIds.end()) {
+        modelIds.insert(modelIds.begin(), p.model);
+    }
+    if (!modelIds.empty()) {
         entry.push_back("      models:");
-        entry.push_back("        - id: " + yamlQuote(p.model));
-        if (p.contextWindow > 0) {
-            entry.push_back("          contextWindow: " +
-                            std::to_string(p.contextWindow));
-        }
-        if (p.maxTokens > 0) {
-            entry.push_back("          maxTokens: " +
-                            std::to_string(p.maxTokens));
-        }
-        if (const auto modalities =
-                models::normalizeInputModalities(p.inputModalities);
-            !modalities.empty()) {
-            std::string list;
-            for (const auto& modality : modalities) {
-                if (!list.empty()) list += ", ";
-                list += modality;
+        for (std::size_t i = 0; i < modelIds.size(); ++i) {
+            entry.push_back("        - id: " + yamlQuote(modelIds[i]));
+            // 能力声明是 per-model 的；沿用首个模型块，避免把主模型的
+            // 容量/模态错误地挂到聚合里的其它模型上。
+            if (i != 0) continue;
+            if (p.contextWindow > 0) {
+                entry.push_back("          contextWindow: " +
+                                std::to_string(p.contextWindow));
             }
-            entry.push_back("          input: [" + list + "]");
-        }
-        if (const auto efforts =
-                models::normalizeReasoningEfforts(p.reasoningEfforts);
-            !efforts.empty()) {
-            entry.push_back("          reasoningEfforts:");
-            for (const auto& level : efforts) {
-                entry.push_back("            " + yamlQuote(level) +
-                                (level == "off" ? ":" : ": " + level));
+            if (p.maxTokens > 0) {
+                entry.push_back("          maxTokens: " +
+                                std::to_string(p.maxTokens));
+            }
+            if (const auto modalities =
+                    models::normalizeInputModalities(p.inputModalities);
+                !modalities.empty()) {
+                std::string list;
+                for (const auto& modality : modalities) {
+                    if (!list.empty()) list += ", ";
+                    list += modality;
+                }
+                entry.push_back("          input: [" + list + "]");
+            }
+            if (const auto efforts =
+                    models::normalizeReasoningEfforts(p.reasoningEfforts);
+                !efforts.empty()) {
+                entry.push_back("          reasoningEfforts:");
+                for (const auto& level : efforts) {
+                    entry.push_back("            " + yamlQuote(level) +
+                                    (level == "off" ? ":" : ": " + level));
+                }
             }
         }
     }
@@ -1791,19 +1801,25 @@ void ProviderStore::switchTo(std::string_view tool, const std::string& id) {
         aggregateTarget.fullUrl = true;
         aggregateTarget.apiKey = targetApiKey(aggregateTarget);
         if (aggregateTarget.model.empty()) {
-            for (const auto& upstream : aggregateTarget.upstreams) {
-                if (!upstream.providerId.empty()) {
-                    for (const auto& member : g.providers) {
-                        if (member.id != upstream.providerId) continue;
-                        aggregateTarget.model = member.model.empty()
-                                                    ? upstream.model
-                                                    : member.model;
-                        break;
+            // 新聚合优先用已合并的对外模型清单（供应商名/模型）；旧聚合
+            // 没有清单时再从成员回退。
+            if (!aggregateTarget.models.empty()) {
+                aggregateTarget.model = aggregateTarget.models.front();
+            } else {
+                for (const auto& upstream : aggregateTarget.upstreams) {
+                    if (!upstream.providerId.empty()) {
+                        for (const auto& member : g.providers) {
+                            if (member.id != upstream.providerId) continue;
+                            aggregateTarget.model = member.model.empty()
+                                                        ? upstream.model
+                                                        : member.model;
+                            break;
+                        }
+                    } else if (!upstream.model.empty()) {
+                        aggregateTarget.model = upstream.model;
                     }
-                } else if (!upstream.model.empty()) {
-                    aggregateTarget.model = upstream.model;
+                    if (!aggregateTarget.model.empty()) break;
                 }
-                if (!aggregateTarget.model.empty()) break;
             }
         }
         if (tool == "codex" && aggregateTarget.codexConfigToml.empty()) {
@@ -1877,8 +1893,13 @@ void ProviderStore::switchTo(std::string_view tool, const std::string& id) {
         entry["npm"] = opencodeNpmValue(target->apiFormat);
         entry["options"]["baseURL"] = baseUrl;
         entry["options"]["apiKey"] = target->apiKey;
-        if (!target->model.empty()) {
-            entry["models"][target->model] = nlohmann::json::object();
+        std::vector<std::string> modelIds = target->models;
+        if (!target->model.empty() &&
+            std::ranges::find(modelIds, target->model) == modelIds.end()) {
+            modelIds.insert(modelIds.begin(), target->model);
+        }
+        for (const auto& model : modelIds) {
+            entry["models"][model] = nlohmann::json::object();
         }
         if (!doc.contains("provider") || !doc["provider"].is_object()) {
             doc["provider"] = nlohmann::json::object();
@@ -1910,8 +1931,19 @@ void ProviderStore::switchTo(std::string_view tool, const std::string& id) {
         // 模型清单：该条目里已有的其它模型必须保留——本应用只声明主模型，
         // 把清单裁成一条会让 pi 的模型菜单静默少掉几条（用户在该 provider 下
         // 配的其它模型是 pi 自己的数据）。元素形状原样沿用：裸标量或
-        // {"id": ...} 对象都可能，主模型缺失时按同一形状补一条。
-        if (hadEntry) {
+        // {"id": ...} 对象都可能，主模型缺失时按同一形状补一条。聚合条目
+        // 由本应用独占，直接写成聚合合并后的完整清单。
+        if (models::isAggregateProvider(*target)) {
+            std::vector<std::string> modelIds = target->models;
+            if (!target->model.empty() &&
+                std::ranges::find(modelIds, target->model) == modelIds.end()) {
+                modelIds.insert(modelIds.begin(), target->model);
+            }
+            entry["models"] = nlohmann::json::array();
+            for (const auto& model : modelIds) {
+                entry["models"].push_back(model);
+            }
+        } else if (hadEntry) {
             const auto old = previous->find("models");
             if (old != previous->end() && old->is_array()) {
                 if (target->model.empty()) {
@@ -1990,10 +2022,19 @@ void ProviderStore::switchTo(std::string_view tool, const std::string& id) {
         entry.push_back("    base_url: " + yamlQuote(baseUrl));
         entry.push_back("    api_key: " + yamlQuote(target->apiKey));
         entry.push_back("    api_mode: " + hermesApiMode(target->apiFormat));
+        std::vector<std::string> modelIds = target->models;
+        if (!target->model.empty() &&
+            std::ranges::find(modelIds, target->model) == modelIds.end()) {
+            modelIds.insert(modelIds.begin(), target->model);
+        }
         if (!target->model.empty()) {
             entry.push_back("    model: " + yamlQuote(target->model));
+        }
+        if (!modelIds.empty()) {
             entry.push_back("    models:");
-            entry.push_back("      " + yamlQuote(target->model) + ": {}");
+            for (const auto& model : modelIds) {
+                entry.push_back("      " + yamlQuote(model) + ": {}");
+            }
         }
         atomicWrite(file,
                     rewriteHermesConfig(text, entry, "llmswitch-" + target->id,

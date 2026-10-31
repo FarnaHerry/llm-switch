@@ -32,14 +32,19 @@
   编辑页只从当前 Agent 的现有 Provider 勾选供应商，默认把
   `models::knownModels()`（主模型 + models 清单去重）展开成每个模型一条
   `ProviderUpstream`，同一供应商重复 `providerId`、各自带 `model`；顺序可
-  拖拽或上下移动，顺序即兜底顺序。凭据仍只存原 Provider；旧的直填
+  拖拽或上下移动，顺序即兜底顺序。编辑保存时另把各供应商内部去重后的模型
+  按首次出现顺序合并，拼成 `供应商名/模型` 写入聚合的 `Provider.models`，
+  默认模型也用同一命名；Agent 发送该 ID 时 router 命中成员并把请求体 model
+  还原成原始 ID。凭据仍只存原 Provider；旧的直填
   `baseUrl/apiKey/model` 成员继续兼容，`providerId` 为空时才使用。
   选中时 `switchTo` 把 Agent 指向 `127.0.0.1:<routerPort>/<tool>` 并写占位
   key；`SwitchProvider`（UI 入口）先启动本地路由、启用该工具的 routerTools
   并落盘 routerEnabled，避免下次启动失效。LocalRouter 把每个成员当作独立
   尝试：请求体 `model` 精确匹配的成员优先（引用成员用 `ProviderUpstream.model`，
-  而不是被引用 Provider 的主模型），其余按配置顺序；引用成员从同组 Provider
-  解析 URL/key，指向聚合项或已删除项的引用跳过；成员
+  也接受 `供应商名/ProviderUpstream.model` 形式），其余按配置顺序；聚合的
+  `Provider.models` 是完整对外清单，清单里有、upstreams 未展开的模型由 router
+  补成临时成员，命中后同样剥前缀；引用成员从同组 Provider 解析 URL/key，
+  指向聚合项或已删除项的引用跳过；成员
   429/5xx/连接失败继续下一条，不受组级 routerFailover 关闭影响。Codex
   没有 config.toml 模板时由 store 生成最小 `model_providers.llmswitch` 段
   （wire_api=chat）。成员协议必须与目标 Agent 一致。

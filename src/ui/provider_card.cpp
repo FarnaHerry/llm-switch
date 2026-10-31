@@ -233,7 +233,12 @@ huxerui::View StatusText(const StatusPreview& preview, const std::string& full,
         aggregate
             ? huxerui::View{
                   huxerui::Text(
-                      std::format("聚合 {} 个供应商", provider.upstreams.size()))
+                      provider.models.empty()
+                          ? std::format("聚合 {} 个供应商",
+                                        provider.upstreams.size())
+                          : std::format("聚合 {} 个供应商 · {} 个模型",
+                                        provider.upstreams.size(),
+                                        provider.models.size()))
                       .Style(huxerui::TextStyle{
                           huxerui::Font::System(font_size::kCaption),
                           theme.colors.on_surface_variant})}
