@@ -53,13 +53,14 @@
   [资源规范](../../../resources/README.md) 的单套无色图标规范；深浅模式由运行时
   tint 自适应，禁止维护 `_selected/_dark/_light` 重复资源。CMake 会在配置期检查
   `#FFFFFF` alpha-mask 与 `_selected` 重复资源。
-- Agent 身份图标（`agent_*.png`）使用厂商官方 app icon / favicon 原图的 64px
-  栅格（含 `@2x`/`@3x`），允许自带底色或透明底、形状不统一；直接呈现颜色，
-  不参与 SVG tint；深浅模式共用一套，关闭态用整体透明度表达。
+- Agent 身份图标（`agent_*.png`）使用 LobeHub 品牌 mark（`@lobehub/icons-static-svg`
+  1.101.0，MIT）置于本仓库品牌色圆角底的 64px 栅格（含 `@2x`/`@3x`）；LobeHub
+  未收录的 Agent 保留官方 app icon / favicon 原图。直接呈现颜色，不参与 SVG
+  tint；深浅模式共用一套，关闭态用整体透明度表达。
 - 新增 `models::kToolRegistry` Agent 时，必须为 `ToolSpec::iconName` 添加对应的
-  `resources/images/agent_*.png`（厂商官方图标原图，64px 与 `@2x`/`@3x`），
-  更新 `ToolIcon()` 映射、图标来源与许可表，并补充注册表/图标对应关系测试；
-  UI 不得静默回退到通用 Agent 图标。
+  `resources/images/agent_*.png`（LobeHub mark + 品牌色圆角底；LobeHub 未收录时
+  用官方原图，64px 与 `@2x`/`@3x`），更新 `ToolIcon()` 映射、图标来源与许可表，
+  并补充注册表/图标对应关系测试；UI 不得静默回退到通用 Agent 图标。
 - 新增 `builtinPresets()` 默认供应商模板时，必须给每个厂商指定可复用的厂商
   图标（优先官方标志；没有合适素材时可自绘缩写），在
   `models::builtinPresetIconName()` 与 UI `PresetIcon()` 登记映射，并让订阅与按量
