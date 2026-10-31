@@ -20,6 +20,7 @@ import std;
 import nlohmann.json;
 import llmswitch.config;
 import llmswitch.models;
+import llmswitch.protocol;
 
 namespace router {
 namespace {
@@ -128,22 +129,51 @@ std::string RequestedModel(const httplib::Request& req) {
     return it->get<std::string>();
 }
 
+std::string ErrorBody(std::string_view message) {
+    nlohmann::json error;
+    error["error"] = std::string(message);
+    return error.dump();
+}
+
 // 出站转发：鉴权替换 + 其余头透传。anthropic 协议（apiFormat=="anthropic"
 // 或 claude-code/claude 工具）注入 x-api-key + Authorization 双头，
 // 其余只注入 Authorization: Bearer。
-UpstreamResponse forwardToProvider(UpstreamSession& session,
-                                   const models::Provider& provider,
-                                   bool anthropic,
-                                   const httplib::Request& req,
-                                   const std::string& url,
-                                   std::string_view modelOverride = {}) {
+UpstreamResponse forwardToProvider(
+    UpstreamSession& session, const models::Provider& provider, bool anthropic,
+    const httplib::Request& req, const std::string& url,
+    std::string_view modelOverride = {},
+    std::optional<std::string> bodyOverride = std::nullopt,
+    bool converted = false) {
     UpstreamRequest request;
     request.method = req.method;
     request.url = url;
-    // 透传非剥离头。
+    // 透传非剥离头。协议转换时目标端不是 Anthropic，Claude 侧的
+    // anthropic-version / anthropic-beta 等头不应带给 OpenAI Chat 网关。
     for (const auto& [name, value] : req.headers) {
-        if (kStripRequestHeaders.contains(toLower(name))) continue;
+        const std::string lower = toLower(name);
+        if (kStripRequestHeaders.contains(lower)) continue;
+        if (converted && !anthropic && lower.starts_with("anthropic-")) {
+            continue;
+        }
         request.headers.emplace_back(name, value);
+    }
+    if (converted) {
+        const bool hasContentType = std::ranges::any_of(
+            request.headers, [](const auto& header) {
+                return toLower(header.first) == "content-type";
+            });
+        if (!hasContentType) {
+            request.headers.emplace_back("Content-Type", "application/json");
+        }
+        if (anthropic) {
+            const bool hasVersion = std::ranges::any_of(
+                request.headers, [](const auto& header) {
+                    return toLower(header.first) == "anthropic-version";
+                });
+            if (!hasVersion) {
+                request.headers.emplace_back("anthropic-version", "2023-06-01");
+            }
+        }
     }
     // 按供应商协议注入鉴权。
     if (!provider.apiKey.empty()) {
@@ -155,7 +185,8 @@ UpstreamResponse forwardToProvider(UpstreamSession& session,
         }
     }
     if (req.method == "POST" || req.method == "PUT" || req.method == "PATCH") {
-        std::string body = req.body;
+        std::string body =
+            bodyOverride.has_value() ? std::move(*bodyOverride) : req.body;
         // 聚合模型对外带「供应商名/模型」前缀；命中成员后把请求体里的
         // model 还原成上游真正认识的模型 id。只在确有前缀命中时改写，
         // 普通请求体保持字节原样。
@@ -396,13 +427,39 @@ struct LocalRouter::Impl {
             models::Provider provider;
             std::string label;
             std::string upstreamModel;  // 非空 = 转发前把请求体 model 改成它
+            std::string sourceApiFormat;  // 成员端点协议
+            std::string targetApiFormat;  // Agent 期望的协议
         };
         std::vector<Attempt> attempts;
         const std::string requestedModel = RequestedModel(req);
-        const auto appendProvider = [&attempts, &requestedModel, &group](
-                                        const models::Provider& configured) {
+        const auto appendProvider =
+            [&attempts, &requestedModel, &group, &tool](
+                const models::Provider& configured) {
+            const std::string targetFormat(
+                models::targetApiFormat(tool, configured));
+            // Claude / Codex 没有 apiFormat 表单字段，才从供应商配置推断
+            // 成员协议；其他工具（dsh / ZCode / opencode / pi 等）的旧聚合
+            // 条目没有协议字段时按目标协议直通，避免把原本能用的聚合误判。
+            const bool inferMemberProtocol =
+                tool == "claude-code" || tool == "claude" || tool == "codex";
+            const auto sourceFormatFor =
+                [&](const models::Provider& provider,
+                    const std::string& explicitFormat) {
+                    if (!explicitFormat.empty()) {
+                        return std::string(
+                            models::normalizeApiFormat(explicitFormat));
+                    }
+                    if (inferMemberProtocol) {
+                        return std::string(
+                            models::memberApiFormat(tool, provider));
+                    }
+                    return targetFormat;
+                };
             if (!models::isAggregateProvider(configured)) {
-                attempts.push_back(Attempt{configured, configured.name, {}});
+                attempts.push_back(Attempt{
+                    configured, configured.name, {},
+                    sourceFormatFor(configured, configured.apiFormat),
+                    targetFormat});
                 return;
             }
             // 成员可以是同组 Provider.id 引用（推荐），也可以是旧版直填的
@@ -410,6 +467,7 @@ struct LocalRouter::Impl {
             struct Member {
                 models::Provider provider;
                 std::string label;
+                std::string sourceApiFormat;
                 bool exact = false;
             };
             std::vector<Member> members;
@@ -455,8 +513,11 @@ struct LocalRouter::Impl {
                 if (!requestedModel.empty() && exposed == requestedModel) {
                     prefixedRawModel = provider.model;
                 }
+                const std::string sourceFormat =
+                    sourceFormatFor(provider, entry.apiFormat);
                 members.push_back(Member{std::move(provider),
-                                         std::move(label), exact});
+                                         std::move(label),
+                                         std::move(sourceFormat), exact});
             }
             // Provider.models 是聚合对 Agent 的完整清单；旧聚合或外部写入
             // 可能清单比 upstreams 多。给清单里尚未成成员的模型补一条成员，
@@ -509,8 +570,11 @@ struct LocalRouter::Impl {
                             exposed == requestedModel) {
                             prefixedRawModel = model;
                         }
+                        const std::string sourceFormat =
+                            sourceFormatFor(provider, {});
                         members.push_back(Member{std::move(provider),
-                                                 std::move(label), exact});
+                                                 std::move(label),
+                                                 sourceFormat, exact});
                         added = true;
                         break;
                     }
@@ -529,7 +593,8 @@ struct LocalRouter::Impl {
                 attempts.push_back(Attempt{
                     members[index].provider,
                     configured.name + " · " + members[index].label,
-                    prefixedRawModel});
+                    prefixedRawModel, members[index].sourceApiFormat,
+                    targetFormat});
             }
         };
         appendProvider(group->providers[curIdx]);
@@ -553,17 +618,77 @@ struct LocalRouter::Impl {
         UpstreamResponse last;
         for (std::size_t k = 0; k < attempts.size(); ++k) {
             const auto& provider = attempts[k].provider;
+            const auto sourceFormat =
+                protocol::parseApiFormat(attempts[k].sourceApiFormat);
+            const auto targetFormat =
+                protocol::parseApiFormat(attempts[k].targetApiFormat);
+            const bool converting = sourceFormat != targetFormat;
+            std::string requestBody = req.body;
             std::string url =
                 trimTrailingSlash(models::effectiveBaseUrl(provider)) + "/" +
                 std::string(rest);
             if (!query.empty()) url += "?" + std::string(query);
 
+            std::string conversionError;
+            if (converting) {
+                auto converted = protocol::convertRequest(
+                    targetFormat, sourceFormat, req.body, conversionError);
+                if (!converted) {
+                    last = UpstreamResponse{};
+                    last.error = "协议转换失败：" + conversionError;
+                    RequestLog log{.tsMillis = nowMillis(),
+                                   .tool = tool,
+                                   .providerId = provider.id,
+                                   .providerName = attempts[k].label,
+                                   .method = req.method,
+                                   .path = std::string(target),
+                                   .status = 0,
+                                   .latencyMs = 0};
+                    record(std::move(log));
+                    if (k + 1 >= attempts.size()) break;
+                    continue;
+                }
+                requestBody = std::move(*converted);
+                const auto path = protocol::convertedRequestPath(
+                    targetFormat, sourceFormat);
+                // 转换后走成员协议自己的端点；Claude 侧的 ?beta=true 等
+                // 查询参数不能带给 Chat 网关。
+                url = trimTrailingSlash(models::effectiveBaseUrl(provider)) +
+                      "/" + std::string(path);
+            }
+
             const auto t0 = std::chrono::steady_clock::now();
-            const bool anthropic =
-                tool == "claude-code" || tool == "claude" ||
-                models::normalizeApiFormat(provider.apiFormat) == "anthropic";
-            last = forwardToProvider(*upstream, provider, anthropic, req,
-                                     url, attempts[k].upstreamModel);
+            const bool anthropic = sourceFormat == protocol::ApiFormat::anthropic;
+            last = forwardToProvider(
+                *upstream, provider, anthropic, req, url,
+                attempts[k].upstreamModel,
+                converting ? std::optional<std::string>(
+                                 std::move(requestBody))
+                           : std::nullopt,
+                converting);
+            if (converting && last.status >= 200 && last.status < 300) {
+                const bool stream =
+                    toLower(last.contentType).contains("event-stream") ||
+                    last.body.find("data:") != std::string::npos;
+                auto converted = protocol::convertResponse(
+                    sourceFormat, targetFormat, stream, last.body,
+                    conversionError);
+                if (!converted) {
+                    last = UpstreamResponse{};
+                    last.status = 502;
+                    last.body = ErrorBody("协议转换失败：" + conversionError);
+                    last.contentType = "application/json";
+                } else {
+                    last.body = std::move(*converted);
+                    last.contentType = stream ? "text/event-stream"
+                                              : "application/json";
+                    std::erase_if(last.headers, [](const auto& header) {
+                        const auto name = toLower(header.first);
+                        return name == "content-encoding" ||
+                               name == "content-length";
+                    });
+                }
+            }
             const auto latency =
                 std::chrono::duration_cast<std::chrono::milliseconds>(
                     std::chrono::steady_clock::now() - t0)

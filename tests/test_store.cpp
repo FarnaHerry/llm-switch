@@ -553,6 +553,49 @@ int main() {
               std::vector<std::string>({"only"}));
     }
 
+    // 3ab1. 成员/目标协议推断：Claude 系按地址/上游格式区分 Anthropic 与
+    //       OpenAI Chat；Codex 目标固定 Chat；显式 apiFormat 优先。
+    {
+        models::Provider claudeNative{
+            .id = "native",
+            .baseUrl = "https://api.anthropic.com/anthropic",
+            .upstreamFormat = "anthropic",
+            .fullUrl = true,
+        };
+        CHECK(models::memberApiFormat("claude-code", claudeNative) ==
+              "anthropic");
+        models::Provider claudeChat{
+            .id = "chat",
+            .baseUrl = "https://api.deepseek.com",
+            .upstreamFormat = "openai",
+            .fullUrl = false,
+        };
+        CHECK(models::memberApiFormat("claude-code", claudeChat) ==
+              "openai-chat");
+        // 未开完整 URL 时 upstreamFormat 是权威值：即使基础地址本身以
+        // /v1 结尾，也不要把 Anthropic 供应商误判成 Chat。
+        models::Provider claudeAnthropicWithV1{
+            .baseUrl = "https://api.commandcode.ai/provider/v1",
+            .upstreamFormat = "anthropic",
+            .fullUrl = false,
+        };
+        CHECK(models::memberApiFormat("claude-code",
+                                      claudeAnthropicWithV1) ==
+              "anthropic");
+        CHECK(models::targetApiFormat("claude-code", claudeChat) ==
+              "anthropic");
+        CHECK(models::targetApiFormat("codex", claudeChat) ==
+              "openai-chat");
+        models::Provider explicitAnthropic{
+            .baseUrl = "https://gateway.example.com/v1",
+            .apiFormat = "anthropic",
+        };
+        CHECK(models::memberApiFormat("opencode", explicitAnthropic) ==
+              "anthropic");
+        CHECK(models::targetApiFormat("opencode", explicitAnthropic) ==
+              "anthropic");
+    }
+
     // 3ab2. 聚合对外清单：每个供应商内部去重后，按首次出现顺序合并，
     //      再拼上「供应商名/模型」前缀；不同供应商的同名模型不会互相覆盖。
     {
@@ -3303,7 +3346,8 @@ modelRoles:
                 models::ProviderUpstream{.name = "乙",
                                          .baseUrl = "https://b.example.com/v1",
                                          .apiKey = "sk-b",
-                                         .model = "model-b"},
+                                         .model = "model-b",
+                                         .apiFormat = "openai-chat"},
             }};
         const auto aggregateDecoded =
             models::providerFromJson(models::toJson(aggregate));
@@ -3314,6 +3358,7 @@ modelRoles:
               "https://b.example.com/v1");
         CHECK(aggregateDecoded.upstreams[1].apiKey == "sk-b");
         CHECK(aggregateDecoded.upstreams[1].model == "model-b");
+        CHECK(aggregateDecoded.upstreams[1].apiFormat == "openai-chat");
         CHECK(!models::isAggregateProvider(encoded));
         models::Provider referenced{
             .name = "引用聚合",

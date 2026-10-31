@@ -47,6 +47,7 @@ struct FakeUpstream {
     std::atomic<int> status{200};
     std::string body =
         R"({"ok":true,"usage":{"prompt_tokens":12,"completion_tokens":34}})";
+    std::string contentType = "application/json";
 
     mutable std::mutex mu;
     int hits = 0;
@@ -75,7 +76,7 @@ struct FakeUpstream {
                                      : "";
                 }
                 res.status = status.load();
-                res.set_content(body, "application/json");
+                res.set_content(body, contentType);
             };
         svr.Get(R"(/(.*))", handler);
         svr.Post(R"(/(.*))", handler);
@@ -604,6 +605,117 @@ int main() {
         std::erase_if(providers, [](const models::Provider& provider) {
             return provider.id == "agg-ref-exposed";
         });
+        router1.clearStats();
+    }
+
+    // 3f. 协议转换：Claude 目标聚合一个 OpenAI Chat 成员。请求体按
+    //     Anthropic -> Chat 改写并走 /chat/completions，响应按 Chat ->
+    //     Anthropic 回写；流式 SSE 也整体转换。
+    {
+        groups["claude-code"].providers.push_back(models::Provider{
+            .id = "chat-member",
+            .name = "Chat成员",
+            .baseUrl = up1.baseUrl() + "/v1",
+            .apiKey = "sk-chat",
+            .upstreamFormat = "openai",
+            .fullUrl = true,
+        });
+        groups["claude-code"].providers.push_back(models::Provider{
+            .id = "agg-conv",
+            .name = "转换聚合",
+            .apiFormat = "anthropic",
+            .upstreams = {
+                models::ProviderUpstream{.providerId = "chat-member",
+                                         .model = "chat-model",
+                                         .apiFormat = "openai-chat"},
+            }});
+        groups["claude-code"].current = "agg-conv";
+        up1.status = 200;
+        up1.contentType = "application/json";
+        up1.body =
+            R"({"id":"chatcmpl-conv","model":"chat-model","choices":[{"index":0,"message":{"role":"assistant","content":"hello","tool_calls":[{"id":"call_1","type":"function","function":{"name":"read","arguments":"{\"path\":\"x\"}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":7,"completion_tokens":3}})";
+        up1.hits = 0;
+        router1.clearStats();
+        auto res = cli.Post(
+            "/claude-code/v1/messages?beta=true",
+            R"({"model":"Chat成员/chat-model","max_tokens":100,"system":"sys","messages":[{"role":"user","content":[{"type":"text","text":"hi"}]}]})",
+            "application/json");
+        CHECK(res && res->status == 200);
+        {
+            std::lock_guard lk(up1.mu);
+            CHECK(up1.hits == 1);
+            CHECK(up1.lastPath == "/v1/chat/completions");
+            CHECK(up1.lastTarget == "/v1/chat/completions");
+            CHECK(up1.lastAuth == "Bearer sk-chat");
+            CHECK(up1.lastApiKey.empty());
+            const auto body = nlohmann::json::parse(up1.lastBody, nullptr,
+                                                    false);
+            CHECK(body.is_object());
+            CHECK(body.value("model", "") == "chat-model");
+            CHECK(!body.contains("system"));
+            CHECK(body["messages"].is_array());
+            CHECK(body["messages"][0].value("role", "") == "system");
+            CHECK(body["messages"][0].value("content", "") == "sys");
+            CHECK(body["messages"][1].value("role", "") == "user");
+            CHECK(body["messages"][1].value("content", "") == "hi");
+        }
+        const auto converted =
+            nlohmann::json::parse(res->body, nullptr, false);
+        CHECK(converted.is_object());
+        CHECK(converted.value("type", "") == "message");
+        CHECK(converted.value("stop_reason", "") == "tool_use");
+        CHECK(converted["content"].size() == 2);
+        CHECK(converted["content"][0].value("text", "") == "hello");
+        CHECK(converted["content"][1].value("type", "") == "tool_use");
+        CHECK(converted["content"][1].value("name", "") == "read");
+        const auto snap = router1.snapshot();
+        CHECK(snap.totalRequests == 1);
+        CHECK(snap.totalPromptTokens == 7);
+        CHECK(snap.totalCompletionTokens == 3);
+        CHECK(perProviderCount(snap, "转换聚合 · Chat成员") == 1);
+
+        // 流式：Chat SSE -> Anthropic SSE。
+        up1.contentType = "text/event-stream";
+        up1.body =
+            "data: {\"id\":\"chatcmpl-stream\",\"model\":\"chat-model\","
+            "\"choices\":[{\"delta\":{\"role\":\"assistant\","
+            "\"content\":\"Hel\"}}]}\n\n"
+            "data: {\"choices\":[{\"delta\":{\"content\":\"lo\"},"
+            "\"finish_reason\":\"stop\"}],\"usage\":"
+            "{\"prompt_tokens\":2,\"completion_tokens\":1}}\n\n"
+            "data: [DONE]\n\n";
+        up1.hits = 0;
+        router1.clearStats();
+        res = cli.Post(
+            "/claude-code/v1/messages",
+            R"({"model":"Chat成员/chat-model","max_tokens":100,"stream":true,"messages":[{"role":"user","content":"hi"}]})",
+            "application/json");
+        CHECK(res && res->status == 200);
+        CHECK(res->get_header_value("Content-Type") ==
+              "text/event-stream");
+        CHECK(res->body.contains("event: message_start"));
+        CHECK(res->body.contains("event: content_block_delta"));
+        CHECK(res->body.contains("\"text\":\"Hel\""));
+        CHECK(res->body.contains("\"text\":\"lo\""));
+        CHECK(res->body.contains("\"stop_reason\":\"end_turn\""));
+        CHECK(res->body.contains("event: message_stop"));
+        {
+            std::lock_guard lk(up1.mu);
+            CHECK(up1.hits == 1);
+            const auto body = nlohmann::json::parse(up1.lastBody, nullptr,
+                                                    false);
+            CHECK(body.value("stream", false));
+            CHECK(body["stream_options"].value("include_usage", false));
+        }
+
+        groups["claude-code"].current = "p1";
+        auto& claudeProviders = groups["claude-code"].providers;
+        std::erase_if(claudeProviders, [](const models::Provider& provider) {
+            return provider.id == "agg-conv" || provider.id == "chat-member";
+        });
+        up1.contentType = "application/json";
+        up1.body =
+            R"({"ok":true,"usage":{"prompt_tokens":12,"completion_tokens":34}})";
         router1.clearStats();
     }
 

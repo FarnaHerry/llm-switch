@@ -47,7 +47,16 @@
   顺序可拖拽或上下移动，顺序即兜底顺序。编辑保存时另把各供应商内部去重后的模型
   按首次出现顺序合并，拼成 `供应商名/模型` 写入聚合的 `Provider.models`，
   默认模型也用同一命名；Agent 发送该 ID 时 router 命中成员并把请求体 model
-  还原成原始 ID。凭据仍只存原 Provider；旧的直填
+  还原成原始 ID。每个成员另存 `apiFormat`（anthropic / openai-chat /
+  openai-responses）；新表单保存显式值，旧条目为空时按
+  `models::memberApiFormat()` 从 `Provider.apiFormat`、URL（/anthropic、/v1）
+  和上游格式推断。目标协议由 `models::targetApiFormat()` 决定：Claude 系固定
+  Anthropic，Codex 聚合固定 Chat，其余工具按聚合项自己的 `apiFormat`。
+  LocalRouter 对每个成员按「目标协议 -> 成员协议」转换请求、按反向转换响应；
+  当前第一刀支持 Anthropic 目标接收 OpenAI Chat 成员（含整段 SSE），不支持
+  的方向会记录失败并继续尝试下一个成员。成员协议必须与供应商地址前缀匹配：
+  Chat 成员不能继续使用 `/anthropic` 路径，聚合表单会就地提示。凭据仍只存
+  原 Provider；旧的直填
   `baseUrl/apiKey/model` 成员继续兼容，`providerId` 为空时才使用。
   选中时 `switchTo` 把 Agent 指向 `127.0.0.1:<routerPort>/<tool>` 并写占位
   key；`SwitchProvider`（UI 入口）先启动本地路由、启用该工具的 routerTools
@@ -59,7 +68,7 @@
   指向聚合项或已删除项的引用跳过；成员
   429/5xx/连接失败继续下一条，不受组级 routerFailover 关闭影响。Codex
   没有 config.toml 模板时由 store 生成最小 `model_providers.llmswitch` 段
-  （wire_api=chat）。成员协议必须与目标 Agent 一致。
+  （wire_api=chat）。同协议成员直通；不同协议成员按上面的转换规则处理。
   所有 Agent 的 `switchTo` 都支持聚合；dsh/ZCode 的聚合条目在选中（写入）
   时才落 live，未选中的不预写；Kimi Code 必须有默认模型才能写
   `config.toml`。

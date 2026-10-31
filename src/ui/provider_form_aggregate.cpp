@@ -5,8 +5,9 @@
 // 优先，再按 models 清单顺序），每个模型单独一条成员，可拖拽或用上下按钮
 // 调整尝试顺序；对 Agent 暴露的模型 ID 按供应商内部去重后整组合并，并拼成
 // 「供应商名/模型」。选中后 Agent 的 live 配置指向本地路由，由 router 按请求
-// model 精确匹配成员并剥掉前缀，429/5xx 时按列表顺序继续尝试。成员必须与目标
-// Agent 使用同一协议；聚合项不能嵌套另一个聚合项。
+// model 精确匹配成员并剥掉前缀，429/5xx 时按列表顺序继续尝试。成员与目标
+// Agent 协议不同时由 router 转换（当前支持 Anthropic 目标接收 OpenAI Chat
+// 成员）；聚合项不能嵌套另一个聚合项。
 #include <huxerui/huxerui.h>
 
 #include <algorithm>
@@ -15,6 +16,7 @@
 #include <exception>
 #include <format>
 #include <iterator>
+#include <map>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -34,18 +36,49 @@ struct MemberInfo {
     std::string id;
     std::string name;
     std::string url;
+    std::string apiFormat;
     std::vector<std::string> models;
 };
 
 // 聚合的一条模型成员。同一供应商会按模型拆成多条；顺序就是 router 的
-// 兜底顺序。
+// 兜底顺序。apiFormat 是成员端点协议（"anthropic" / "openai-chat" /
+// "openai-responses"），与目标 Agent 不同时由 router 转换。
 struct ModelEntry {
     std::string providerId;
     std::string providerName;
     std::string model;
+    std::string apiFormat;
 
     bool operator==(const ModelEntry&) const = default;
 };
+
+const std::vector<std::string> kAggregateProtocolLabels = {
+    "Anthropic Messages",
+    "OpenAI Chat",
+    "OpenAI Responses",
+};
+
+int ProtocolIndex(std::string_view format) {
+    if (format == "anthropic") return 0;
+    if (format == "openai-responses") return 2;
+    return 1;
+}
+
+std::string ProtocolFromIndex(int index) {
+    if (index == 0) return "anthropic";
+    if (index == 2) return "openai-responses";
+    return "openai-chat";
+}
+
+std::string NormalizedProtocol(std::string_view format) {
+    return std::string(models::normalizeApiFormat(format));
+}
+
+bool ConversionSupported(std::string_view target, std::string_view source) {
+    // 当前第一刀：Anthropic 目标（Claude 系）接收 OpenAI Chat 成员。
+    return target == source ||
+           (target == "anthropic" && source == "openai-chat");
+}
 
 struct ModelDrag {
     std::string key;
@@ -75,7 +108,12 @@ std::vector<std::string> MergeFetchedModels(
 }
 
 std::vector<MemberInfo> CandidateMembers(std::string_view tool,
-                                         std::string_view selfId) {
+                                         std::string_view selfId,
+                                         std::string_view targetApiFormat) {
+    // Claude / Codex 没有 apiFormat 字段，才从 URL/上游格式推断成员协议；
+    // 其他工具的旧聚合项没有协议字段时默认与目标一致，保持原有直通行为。
+    const bool inferMemberProtocol =
+        tool == "claude-code" || tool == "claude" || tool == "codex";
     std::vector<MemberInfo> members;
     try {
         const auto& group = providerStore().group(std::string(tool));
@@ -88,6 +126,11 @@ std::vector<MemberInfo> CandidateMembers(std::string_view tool,
                 .id = provider.id,
                 .name = provider.name.empty() ? provider.id : provider.name,
                 .url = models::effectiveBaseUrl(provider),
+                .apiFormat =
+                    inferMemberProtocol
+                        ? std::string(
+                              models::memberApiFormat(tool, provider))
+                        : std::string(targetApiFormat),
                 .models = models::knownModels(provider),
             });
         }
@@ -105,12 +148,14 @@ bool HasEntry(const std::vector<ModelEntry>& entries,
 }
 
 void AppendMemberModels(std::vector<ModelEntry>& entries,
-                        const MemberInfo& member) {
+                        const MemberInfo& member,
+                        std::string_view apiFormat) {
     if (member.models.empty()) {
         if (!HasEntry(entries, member.id, {})) {
             entries.push_back(ModelEntry{.providerId = member.id,
                                          .providerName = member.name,
-                                         .model = {}});
+                                         .model = {},
+                                         .apiFormat = std::string(apiFormat)});
         }
         return;
     }
@@ -118,14 +163,30 @@ void AppendMemberModels(std::vector<ModelEntry>& entries,
         if (!HasEntry(entries, member.id, model)) {
             entries.push_back(ModelEntry{.providerId = member.id,
                                          .providerName = member.name,
-                                         .model = model});
+                                         .model = model,
+                                         .apiFormat = std::string(apiFormat)});
         }
     }
 }
 
-std::vector<ModelEntry> InitialEntries(
+std::map<std::string, std::string> InitialProtocols(
     const models::Provider& initial,
     const std::vector<MemberInfo>& candidates) {
+    std::map<std::string, std::string> protocols;
+    for (const auto& candidate : candidates) {
+        protocols[candidate.id] = candidate.apiFormat;
+    }
+    for (const auto& member : initial.upstreams) {
+        if (member.providerId.empty() || member.apiFormat.empty()) continue;
+        protocols[member.providerId] = NormalizedProtocol(member.apiFormat);
+    }
+    return protocols;
+}
+
+std::vector<ModelEntry> InitialEntries(
+    const models::Provider& initial,
+    const std::vector<MemberInfo>& candidates,
+    const std::map<std::string, std::string>& protocols) {
     std::vector<ModelEntry> existing;
     std::vector<std::string> selectedProviders;
     for (const auto& member : initial.upstreams) {
@@ -151,12 +212,17 @@ std::vector<ModelEntry> InitialEntries(
             selectedProviders.end()) {
             selectedProviders.push_back(id);
         }
+        const auto protocolIt = protocols.find(id);
+        const std::string protocol =
+            protocolIt != protocols.end() ? protocolIt->second
+                                          : candidate->apiFormat;
         // model 为空的旧成员不先造占位行；下面按供应商展开时统一补。
         if (!member.model.empty() &&
             !HasEntry(existing, candidate->id, member.model)) {
             existing.push_back(ModelEntry{.providerId = candidate->id,
                                           .providerName = candidate->name,
-                                          .model = member.model});
+                                          .model = member.model,
+                                          .apiFormat = protocol});
         }
     }
     // 按供应商首次出现的顺序输出：保留已有模型顺序，再补该供应商其余
@@ -168,11 +234,15 @@ std::vector<ModelEntry> InitialEntries(
                 return c.id == id;
             });
         if (candidate == candidates.end()) continue;
+        const auto protocolIt = protocols.find(id);
+        const std::string protocol =
+            protocolIt != protocols.end() ? protocolIt->second
+                                          : candidate->apiFormat;
         std::vector<ModelEntry> providerEntries;
         for (const auto& entry : existing) {
             if (entry.providerId == id) providerEntries.push_back(entry);
         }
-        AppendMemberModels(providerEntries, *candidate);
+        AppendMemberModels(providerEntries, *candidate, protocol);
         for (auto& entry : providerEntries) {
             entries.push_back(std::move(entry));
         }
@@ -253,10 +323,14 @@ void MoveEntry(huxerui::State<std::vector<ModelEntry>> entries,
         huxerui::TextEditingValue{initial.name});
     auto notes = huxerui::UseState(
         huxerui::TextEditingValue{initial.notes});
+    const std::string targetFormat =
+        std::string(models::targetApiFormat(tool, initial));
     const std::vector<MemberInfo> candidates =
-        CandidateMembers(tool, initial.id);
+        CandidateMembers(tool, initial.id, targetFormat);
+    const auto initialProtocols = InitialProtocols(initial, candidates);
+    auto memberProtocols = huxerui::UseState(initialProtocols);
     auto ordered = huxerui::UseState(
-        InitialEntries(initial, candidates));
+        InitialEntries(initial, candidates, initialProtocols));
     auto chosenModel = huxerui::UseState(
         InitialDefaultModel(initial, ordered.Get()));
     auto dropTargetKey = huxerui::UseState<std::string>({});
@@ -298,14 +372,34 @@ void MoveEntry(huxerui::State<std::vector<ModelEntry>> entries,
                 return entry.providerId == candidate.id;
             }));
         const bool checked = selectedCount > 0;
+        const auto protocols = memberProtocols.Get();
+        const auto protocolIt = protocols.find(candidate.id);
+        const std::string protocol =
+            protocolIt != protocols.end() ? protocolIt->second
+                                          : candidate.apiFormat;
+        const bool converted = protocol != targetFormat &&
+                               ConversionSupported(targetFormat, protocol);
+        const bool unsupported = protocol != targetFormat && !converted;
+        // 协议和地址前缀是两件事：把 Anthropic 供应商切成 Chat 时，
+        // 仍带 /anthropic 的地址会拼出错误端点，先明确提示用户改 URL。
+        const bool addressMismatch =
+            converted && protocol == "openai-chat" &&
+            candidate.url.contains("/anthropic");
         huxerui::View row = huxerui::Row {
             huxerui::Checkbox(checked).OnChanged(
-                [ordered, member = candidate](bool on) {
+                [ordered, memberProtocols, member = candidate](bool on) {
                     auto list = ordered.Get();
                     std::erase_if(list, [&member](const ModelEntry& entry) {
                         return entry.providerId == member.id;
                     });
-                    if (on) AppendMemberModels(list, member);
+                    if (on) {
+                        const auto protocols = memberProtocols.Get();
+                        const auto it = protocols.find(member.id);
+                        AppendMemberModels(
+                            list, member,
+                            it != protocols.end() ? it->second
+                                                  : member.apiFormat);
+                    }
                     ordered = std::move(list);
                 }),
             huxerui::Column {
@@ -319,7 +413,49 @@ void MoveEntry(huxerui::State<std::vector<ModelEntry>> entries,
                     .Style(huxerui::TextStyle{
                         huxerui::Font::System(font_size::kChip),
                         theme.colors.on_surface_variant}),
-            }.With(huxerui::Spacing(2.0F), huxerui::Grow(1.0F)),
+                huxerui::Row {
+                    huxerui::Select(
+                        kAggregateProtocolLabels,
+                        ProtocolIndex(protocol),
+                        [](const std::string& option) {
+                            return huxerui::Text(option).Key(option);
+                        })
+                        .Label("成员协议")
+                        .OnChanged([ordered, memberProtocols,
+                                    id = candidate.id](std::size_t index) {
+                            const std::string format = ProtocolFromIndex(
+                                static_cast<int>(index));
+                            auto protocols = memberProtocols.Get();
+                            protocols[id] = format;
+                            memberProtocols = protocols;
+                            auto list = ordered.Get();
+                            for (auto& entry : list) {
+                                if (entry.providerId == id) {
+                                    entry.apiFormat = format;
+                                }
+                            }
+                            ordered = std::move(list);
+                        })
+                        .With(huxerui::Frame{.width = 190.0F}),
+                    huxerui::Text(
+                        addressMismatch
+                            ? "地址仍带 /anthropic，请先用 Chat 兼容地址"
+                            : (converted
+                                   ? "自动转换为目标协议"
+                                   : (unsupported ? "暂不支持转换"
+                                                  : "与目标一致，直通")))
+                        .Style(huxerui::TextStyle{
+                            huxerui::Font::System(font_size::kChip),
+                            (unsupported || addressMismatch)
+                                ? theme.colors.error
+                                : (converted
+                                       ? theme.colors.primary
+                                       : theme.colors
+                                             .on_surface_variant)}),
+                }.With(huxerui::Spacing(8.0F),
+                       huxerui::CrossAlign(
+                           huxerui::CrossAxisAlignment::Center)),
+            }.With(huxerui::Spacing(4.0F), huxerui::Grow(1.0F)),
             huxerui::Text(candidate.url.empty() ? "未设置 URL" : candidate.url)
                 .Style(huxerui::TextStyle{
                     huxerui::Font::Monospace(font_size::kChip),
@@ -501,16 +637,36 @@ void MoveEntry(huxerui::State<std::vector<ModelEntry>> entries,
                           }
                       })};
 
+    const std::string targetProtocolLabel =
+        targetFormat == "anthropic"
+            ? "Anthropic Messages"
+            : (targetFormat == "openai-chat"
+                   ? "OpenAI Chat"
+                   : (targetFormat == "openai-responses"
+                          ? "OpenAI Responses"
+                          : targetFormat));
+    const std::string conversionHint =
+        targetFormat == "anthropic"
+            ? "OpenAI Chat 成员会由本地路由转换成 Anthropic 请求/响应；"
+              "OpenAI Responses 成员暂未支持转换。"
+            : (tool == "codex"
+                   ? "Codex 聚合固定用 chat wire_api：Chat 成员直通，"
+                     "Anthropic/Responses 成员暂未支持转换。"
+                   : "成员协议按供应商配置自动推断；与目标不一致时由本地"
+                     "路由尝试转换，暂不支持的方向会明确报错。");
     const huxerui::View protocolHint =
-        tool == "codex"
-            ? huxerui::View{
-                  huxerui::Text(
-                      "Codex 聚合固定用 chat wire_api，成员需支持 "
-                      "/chat/completions（Responses 成员请改用普通供应商）。")
-                      .Style(huxerui::TextStyle{
-                          huxerui::Font::System(font_size::kChip),
-                          theme.colors.on_surface_variant})}
-            : huxerui::View{huxerui::Row{}};
+        huxerui::View{
+            huxerui::Column {
+                huxerui::Text("目标协议：" + targetProtocolLabel)
+                    .Style(huxerui::TextStyle{
+                        huxerui::Font::System(font_size::kChip)
+                            .WithWeight(huxerui::FontWeight::SemiBold),
+                        theme.colors.on_surface}),
+                huxerui::Text(conversionHint)
+                    .Style(huxerui::TextStyle{
+                        huxerui::Font::System(font_size::kChip),
+                        theme.colors.on_surface_variant}),
+            }.With(huxerui::Spacing(3.0F))};
 
     huxerui::View body = huxerui::Column {
         huxerui::ScrollView(
@@ -521,7 +677,8 @@ void MoveEntry(huxerui::State<std::vector<ModelEntry>> entries,
                     "成员；对 Agent 暴露的模型 ID 会拼成「供应商名/模型」，"
                     "并先按供应商内部去重后整组合并。请求先发到本地路由，按"
                     "模型精确匹配，成员返回 429/5xx 或连接失败时按下方模型"
-                    "顺序继续尝试。成员协议必须与目标 Agent 一致。")
+                    "顺序继续尝试。每个供应商会显示成员协议；Claude 系聚合"
+                    "可自动把 OpenAI Chat 成员转换为 Anthropic Messages。")
                     .Style(huxerui::TextStyle{
                         huxerui::Font::System(font_size::kCaption),
                         theme.colors.on_surface_variant}),
@@ -594,6 +751,14 @@ void MoveEntry(huxerui::State<std::vector<ModelEntry>> entries,
                                                        candidate.id;
                                             });
                                         if (selected) {
+                                            const auto protocols =
+                                                memberProtocols.Get();
+                                            const auto protocolIt =
+                                                protocols.find(candidate.id);
+                                            const std::string protocol =
+                                                protocolIt != protocols.end()
+                                                    ? protocolIt->second
+                                                    : candidate.apiFormat;
                                             for (const auto& id : ids) {
                                                 if (!HasEntry(list,
                                                               candidate.id,
@@ -604,6 +769,7 @@ void MoveEntry(huxerui::State<std::vector<ModelEntry>> entries,
                                                         .providerName =
                                                             candidate.name,
                                                         .model = id,
+                                                        .apiFormat = protocol,
                                                     });
                                                 }
                                             }
@@ -694,7 +860,8 @@ void MoveEntry(huxerui::State<std::vector<ModelEntry>> entries,
                                   .With(huxerui::Grow(1.0F)),
                               huxerui::Button("添加")
                                   .OnClick([candidates, ordered, manualProvider,
-                                            manualModel, toast] {
+                                            manualModel, memberProtocols,
+                                            toast] {
                                       if (candidates.empty()) return;
                                       const std::size_t index = std::min(
                                           manualProvider.Get(),
@@ -711,10 +878,18 @@ void MoveEntry(huxerui::State<std::vector<ModelEntry>> entries,
                                           toast.Show("该模型已在尝试顺序中");
                                           return;
                                       }
+                                      const auto protocols =
+                                          memberProtocols.Get();
+                                      const auto protocolIt =
+                                          protocols.find(member.id);
                                       list.push_back(ModelEntry{
                                           .providerId = member.id,
                                           .providerName = member.name,
                                           .model = model,
+                                          .apiFormat =
+                                              protocolIt != protocols.end()
+                                                  ? protocolIt->second
+                                                  : member.apiFormat,
                                       });
                                       ordered = std::move(list);
                                       manualModel =
@@ -757,6 +932,7 @@ void MoveEntry(huxerui::State<std::vector<ModelEntry>> entries,
                             .name = entry.providerName,
                             .providerId = entry.providerId,
                             .model = entry.model,
+                            .apiFormat = entry.apiFormat,
                         });
                     }
                     const std::vector<std::string> modelChoices =
@@ -785,7 +961,9 @@ void MoveEntry(huxerui::State<std::vector<ModelEntry>> entries,
                         std::string(models::kAggregateApiKey);
                     provider.fullUrl = true;
                     provider.upstreamFormat = DefaultUpstreamFormat(tool);
-                    provider.apiFormat.clear();
+                    // 聚合项自身对 Agent 暴露的协议：Claude/Codex 由工具固定，
+                    // opencode/pi 等保留原值，不能因为保存成员列表而重置目标协议。
+                    provider.apiFormat = initial.apiFormat;
                     provider.upstreams = std::move(upstreams);
                     const auto currentGroup = providerStore().group(tool);
                     const bool wasCurrent =

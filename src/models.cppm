@@ -463,6 +463,10 @@ export struct ProviderUpstream {
     std::string baseUrl;
     std::string apiKey;
     std::string model;
+    // 成员端点真正使用的请求/响应协议："openai-chat"（默认）/
+    // "openai-responses" / "anthropic"。空值兼容旧配置：按目标 Agent
+    // 协议直通，不做转换；新表单保存时写显式值。
+    std::string apiFormat;
     bool operator==(const ProviderUpstream&) const = default;
 };
 
@@ -537,7 +541,8 @@ export struct Provider {
     bool fullUrl = true;
     // 非空 = 聚合供应商：该条目本身不直连，选中后由本地路由把请求分发到
     // 这些成员（通常引用同组现有 Provider）；空 = 普通单上游供应商。
-    // apiFormat / upstreamFormat 仍描述对 Agent 暴露的协议，成员必须一致。
+    // apiFormat / upstreamFormat 描述对 Agent 暴露的协议；成员自己的协议
+    // 在 ProviderUpstream.apiFormat，不同时由 router 按尝试转换。
     std::vector<ProviderUpstream> upstreams;
 
     bool operator==(const Provider&) const = default;
@@ -546,6 +551,55 @@ export struct Provider {
 // 聚合供应商没有单一可探测/可直连的 baseUrl，统一用这个谓词判断。
 export bool isAggregateProvider(const Provider& provider) {
     return !provider.upstreams.empty();
+}
+
+// Agent 接收请求/返回响应的目标协议。claude-code / claude desktop 固定
+// Anthropic Messages；codex 的聚合模板固定 wire_api=chat；其余工具按
+// Provider.apiFormat（opencode / pi / oh-my-pi / dsh / hermes / zcode /
+// kimi-code）决定。
+export std::string_view targetApiFormat(std::string_view tool,
+                                        const Provider& provider) {
+    if (tool == "claude-code" || tool == "claude") return "anthropic";
+    if (tool == "codex") return "openai-chat";
+    return normalizeApiFormat(provider.apiFormat);
+}
+
+// 一个普通供应商端点实际说的协议。Provider.apiFormat 非空时优先；对
+// claude-code / claude desktop / codex 这三个没有 apiFormat 表单字段的工具，
+// 先看「上游格式」：未开完整 URL 时它决定实际拼接路径，必须是权威值；
+// 开了完整 URL 时再从地址推断：
+//   * 显式带 /anthropic 的地址 = Anthropic；
+//   * 显式带 /v1 或 /chat/completions 的地址 = OpenAI Chat；
+//   * 其余保持各 Agent 的原生默认（claude 系 Anthropic，codex Chat）。
+// 推断只用于默认值和旧配置；聚合表单保存的 ProviderUpstream.apiFormat 是
+// 显式权威值。
+export std::string_view memberApiFormat(std::string_view tool,
+                                        const Provider& provider) {
+    if (!provider.apiFormat.empty()) {
+        return normalizeApiFormat(provider.apiFormat);
+    }
+    const bool urlAnthropic =
+        provider.baseUrl.find("/anthropic") != std::string::npos;
+    const bool urlOpenAi =
+        provider.baseUrl.find("/v1") != std::string::npos ||
+        provider.baseUrl.find("/chat/completions") != std::string::npos;
+    if (tool == "claude-code" || tool == "claude") {
+        if (!provider.fullUrl) {
+            return provider.upstreamFormat == "openai" ? "openai-chat"
+                                                       : "anthropic";
+        }
+        if (urlAnthropic) return "anthropic";
+        if (urlOpenAi) return "openai-chat";
+        return "anthropic";
+    }
+    if (tool == "codex") {
+        if (!provider.fullUrl) {
+            return provider.upstreamFormat == "anthropic" ? "anthropic"
+                                                          : "openai-chat";
+        }
+        return urlAnthropic ? "anthropic" : "openai-chat";
+    }
+    return "openai-chat";
 }
 
 // 供应商已知的全部模型：主模型、直连模式已配置的三档映射实际模型，再按
@@ -760,6 +814,7 @@ export nlohmann::json toJson(const Provider& p) {
                 {"baseUrl", upstream.baseUrl},
                 {"apiKey", upstream.apiKey},
                 {"model", upstream.model},
+                {"apiFormat", upstream.apiFormat},
             });
         }
     }
@@ -831,6 +886,7 @@ export Provider providerFromJson(const nlohmann::json& j) {
                 .baseUrl = item.value("baseUrl", ""),
                 .apiKey = item.value("apiKey", ""),
                 .model = item.value("model", ""),
+                .apiFormat = item.value("apiFormat", ""),
             };
             // 引用成员没有 baseUrl；直填成员没有 providerId 时才要求 URL。
             if (!upstream.providerId.empty() || !upstream.baseUrl.empty()) {

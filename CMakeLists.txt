@@ -241,6 +241,7 @@ set(HUXERUI_LIBRARY_GRAPH_OUTPUT
 set(LLMSWITCH_MODULE_UNITS
     src/config.cppm
     src/models.cppm
+    src/protocol.cppm
     src/net.cppm
     src/store.cppm
     src/router.cppm
@@ -638,12 +639,22 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
         add_executable(test_router tests/test_router.cpp src/router.cpp)
         target_sources(test_router PRIVATE FILE_SET llmswitch_modules TYPE CXX_MODULES
             BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
-            FILES src/router.cppm src/config.cppm src/models.cppm)
+            FILES src/router.cppm src/config.cppm src/models.cppm src/protocol.cppm)
         set_target_properties(test_router PROPERTIES CXX_MODULE_STD ON CXX_SCAN_FOR_MODULES ON)
         target_compile_features(test_router PRIVATE cxx_std_23)
         target_link_libraries(test_router PRIVATE
             llmswitch_json llmswitch_httplib Threads::Threads)
         add_test(NAME router COMMAND test_router)
+
+        # 协议转换纯函数：Anthropic <-> OpenAI Chat 的请求/响应/SSE 映射。
+        add_executable(test_protocol tests/test_protocol.cpp)
+        target_sources(test_protocol PRIVATE FILE_SET llmswitch_modules TYPE CXX_MODULES
+            BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+            FILES src/protocol.cppm)
+        set_target_properties(test_protocol PROPERTIES CXX_MODULE_STD ON CXX_SCAN_FOR_MODULES ON)
+        target_compile_features(test_protocol PRIVATE cxx_std_23)
+        target_link_libraries(test_protocol PRIVATE llmswitch_json Threads::Threads)
+        add_test(NAME protocol COMMAND test_protocol)
 
         # MCP 管理测试：统一清单读写 + 各工具 live 配置写入。
         add_executable(test_mcp tests/test_mcp.cpp src/mcp.cpp)
