@@ -268,7 +268,7 @@ huxerui::View TodayBadge(std::int64_t today) {
 huxerui::View ActiveAgentBadge(const std::vector<std::string>& tools) {
     std::vector<huxerui::View> icons;
     for (const std::string& tool : tools) {
-        icons.push_back(huxerui::Image(ToolIcon(tool))
+        icons.push_back(huxerui::Image(ToolIcon(tool, true))
                             .With(huxerui::Frame{.width = 14.0F, .height = 14.0F}));
     }
     std::string label;
@@ -1080,7 +1080,7 @@ huxerui::View CardAgentRow(const PetAgentRow& row, const std::string& providerNa
         meta += row.activityLabel;
     }
     return huxerui::Row {
-        huxerui::Image(ToolIcon(row.tool))
+        huxerui::Image(ToolIcon(row.tool, true))
             .With(huxerui::Frame{.width = 16.0F, .height = 16.0F}),
         huxerui::Column {
             huxerui::Text(ToolName(row.tool))
@@ -1133,7 +1133,7 @@ huxerui::View CardRecentResultRow(const PetRecentResult& result, Color onSurface
 
     const std::size_t toolIndex = ToolRegistryIndex(result.tool);
     return huxerui::Row {
-        huxerui::Image(ToolIcon(result.tool))
+        huxerui::Image(ToolIcon(result.tool, true))
             .With(huxerui::Frame{.width = 16.0F, .height = 16.0F}),
         huxerui::Column {
             huxerui::Text(std::format("{} · {}", ToolName(result.tool), outcome))

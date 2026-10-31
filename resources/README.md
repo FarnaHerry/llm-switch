@@ -60,11 +60,11 @@ blend 为 `override` 或 `add`）。状态键为 `idle/working/waiting/completed
 
 **Agent 身份图标是有意的例外**：`agent_*.png` 使用 64×64（含 `@2x`/`@3x`）
 LobeHub 品牌 mark（[`@lobehub/icons-static-svg`](https://github.com/lobehub/lobe-icons)
-1.101.0，MIT）的透明底版本，按品牌色着色以保证深浅主题可读；LobeHub 未收录的
-Oh My Pi 与 Hermes 使用官方素材的透明/去底版本。图标直接以栅格颜色呈现，不走
-SVG alpha-mask/tint 管线；深浅主题共用同一套，不为深/浅模式复制资源。设置页的
-关闭态用整体透明度表达，不另做灰色资源。它们不是 24×24 功能图标，不参与
-下述 CMake 检查。
+1.101.0，MIT）的透明底版本。单色 mark 提供黑色 base 与白色 `_dark` 变体，
+`ToolIcon(..., dark)` 按当前主题选择；彩色 mark（Claude / DeepSeek / Oh My Pi）
+两套主题共用。LobeHub 未收录的 Oh My Pi 与 Hermes 使用官方素材的透明/去底版本。
+图标直接以栅格颜色呈现，不走 SVG alpha-mask/tint 管线；设置页的关闭态用整体
+透明度表达，不另做灰色资源。它们不是 24×24 功能图标，不参与下述 CMake 检查。
 
 CMake 配置阶段会检查全部 24×24 SVG：包含硬编码颜色（非 `#FFFFFF`）或
 存在 `_selected` 重复资源时直接报错。新增图标时应同时补充下方来源与许可表。
@@ -75,8 +75,9 @@ CMake 配置阶段会检查全部 24×24 SVG：包含硬编码颜色（非 `#FFF
 为准逐枚矢量化，转换后的 24×24 SVG 只保留白色 alpha-mask；参考图与转换稿本身
 不属于运行时资源，也不会随应用打包。Agent 身份图标自本版起改为 LobeHub 品牌
 mark 的透明底版本（LobeHub 未收录的 Oh My Pi / Hermes 使用官方素材的透明/
-去底版本）；下表中对应的 24×24 品牌 SVG 仍保留给供应商模板，但不再作为运行时
-`ToolIcon()` 的返回值（`deepseek.svg`/`kimi.svg` 等仍用于供应商模板）。
+去底版本）；单色 mark 另有 `_dark` 白版，供深色主题使用。下表中对应的 24×24
+品牌 SVG 仍保留给供应商模板，但不再作为运行时 `ToolIcon()` 的返回值
+（`deepseek.svg`/`kimi.svg` 等仍用于供应商模板）。
 
 Agent mark 源文件固定为
 `https://cdn.jsdelivr.net/npm/@lobehub/icons-static-svg@1.101.0/icons/<name>.svg`；
@@ -91,14 +92,14 @@ SVG 代码，mark 仍是各厂商商标，仅用于标识对应 Agent。
 | 文件 | 来源 | 许可 |
 |------|------|------|
 | `agent_claude.png`（含 `@2x`/`@3x`） | LobeHub `claude-color`（v1.101.0）橙色 mark，透明底；Claude Code 与 Claude Desktop 共用 | LobeHub MIT；Anthropic 商标，仅用于标识对应 Agent |
-| `agent_codex.png`（含 `@2x`/`@3x`） | LobeHub `openai`（v1.101.0）mark，品牌绿 `#10A37F` 着色，透明底；用于 OpenAI Codex | LobeHub MIT；OpenAI 商标，仅用于标识对应 Agent |
-| `agent_opencode.png`（含 `@2x`/`@3x`） | LobeHub `opencode`（v1.101.0）mark，品牌蓝 `#007AFF` 着色，透明底 | LobeHub MIT；opencode 商标，仅用于标识对应 Agent |
-| `agent_pi.png`（含 `@2x`/`@3x`） | LobeHub `pi`（v1.101.0）mark，`#4D9ABF` 着色，透明底 | LobeHub MIT；pi-mono 商标，仅用于标识对应 Agent |
+| `agent_codex.png`（含 `@2x`/`@3x`）；`agent_codex_dark.png`（含 `@2x`/`@3x`） | LobeHub `openai`（v1.101.0）mono mark，透明底；基础版黑色，`_dark` 白色；用于 OpenAI Codex | LobeHub MIT；OpenAI 商标，仅用于标识对应 Agent |
+| `agent_opencode.png`（含 `@2x`/`@3x`）；`agent_opencode_dark.png`（含 `@2x`/`@3x`） | LobeHub `opencode`（v1.101.0）mono mark，透明底；基础版黑色，`_dark` 白色 | LobeHub MIT；opencode 商标，仅用于标识对应 Agent |
+| `agent_pi.png`（含 `@2x`/`@3x`）；`agent_pi_dark.png`（含 `@2x`/`@3x`） | LobeHub `pi`（v1.101.0）mono mark，透明底；基础版黑色，`_dark` 白色 | LobeHub MIT；pi-mono 商标，仅用于标识对应 Agent |
 | `agent_omp.png`（含 `@2x`/`@3x`） | Oh My Pi 官方 favicon 去掉深色底，保留粉紫青渐变 π，透明底（LobeHub 无此条目） | 图形 MIT（[oh-my-pi 仓库](https://github.com/can1357/oh-my-pi)）；官方 favicon 去底使用 |
 | `agent_dsh.png`（含 `@2x`/`@3x`） | LobeHub `deepseek-color`（v1.101.0）蓝色鲸鱼 mark，透明底；用于 DeepSeek Harness（dsh） | LobeHub MIT；DeepSeek 商标，仅用于标识对应 Agent |
-| `agent_hermes.png`（含 `@2x`/`@3x`） | 官方 Nous Girl 头像（[hermes-agent](https://github.com/NousResearch/hermes-agent) `assets/nous-girl-black.svg`），`#3847FF` 着色，透明底（LobeHub 无此条目） | 图形 MIT（hermes-agent 仓库）；Nous Research 商标，仅用于标识对应 Agent |
-| `agent_zcode.png`（含 `@2x`/`@3x`） | LobeHub `zai`（v1.101.0）mark，品牌蓝 `#126EF4` 着色，透明底；LobeHub 无 ZCode 专用图标，用 Z.ai 品牌 mark 标识 ZCode | LobeHub MIT；Z.ai / ZCode 商标，仅用于标识对应 Agent |
-| `agent_kimi.png`（含 `@2x`/`@3x`） | LobeHub `kimi-color`（v1.101.0）mark，蓝点 `#1783FF` + K 同色，透明底；用于 Kimi Code | LobeHub MIT；Moonshot / Kimi 商标，仅用于标识对应 Agent |
+| `agent_hermes.png`（含 `@2x`/`@3x`）；`agent_hermes_dark.png`（含 `@2x`/`@3x`） | 官方 Nous Girl 头像（[hermes-agent](https://github.com/NousResearch/hermes-agent) `assets/nous-girl-black.svg`），透明底；基础版黑色，`_dark` 白色（LobeHub 无此条目） | 图形 MIT（hermes-agent 仓库）；Nous Research 商标，仅用于标识对应 Agent |
+| `agent_zcode.png`（含 `@2x`/`@3x`）；`agent_zcode_dark.png`（含 `@2x`/`@3x`） | LobeHub `zai`（v1.101.0）mono mark，透明底；基础版黑色，`_dark` 白色；LobeHub 无 ZCode 专用图标，用 Z.ai 品牌 mark 标识 ZCode | LobeHub MIT；Z.ai / ZCode 商标，仅用于标识对应 Agent |
+| `agent_kimi.png`（含 `@2x`/`@3x`）；`agent_kimi_dark.png`（含 `@2x`/`@3x`） | LobeHub `kimi-color`（v1.101.0）mark，透明底；基础版蓝点 + 黑色 K，`_dark` 蓝点 + 白色 K；用于 Kimi Code | LobeHub MIT；Moonshot / Kimi 商标，仅用于标识对应 Agent |
 | `claude.svg` | Claude 官方 logo，[simple-icons](https://simpleicons.org) `claude`（官方轮廓不变，增加 alpha 水墨纹理） | CC0 1.0 |
 | `codex.svg` | OpenAI 官方 logo，simple-icons `openai`（取自 release tag 15.1.0；官方轮廓不变，增加 alpha 水墨纹理） | CC0 1.0 |
 | `baidu/deepseek/kimi/qwen/zdotai/minimax/meituan/modelscope/openrouter/xiaomi.svg` | 对应厂商官方标志，来自 [simple-icons](https://github.com/simple-icons/simple-icons/tree/develop/icons)（保留官方轮廓，统一为主题 tint 用的白色 alpha-mask） | CC0 1.0 |

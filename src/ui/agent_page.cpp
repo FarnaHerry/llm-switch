@@ -109,6 +109,8 @@ namespace llmswitch::ui {
 
     auto usageCache = huxerui::UseState<std::map<std::string, std::string>>({});
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    const bool dark = theme.brightness == huxerui::ThemeBrightness::Dark;
+    visibleKey += dark ? "|d" : "|l";
     const IslandTheme islands = ResolveIslandTheme(theme);
     const bool compact =
         huxerui::UseViewportClass() == huxerui::ViewportClass::Compact;
@@ -243,7 +245,7 @@ namespace llmswitch::ui {
             const auto& spec = registry[index];
             const std::string id(spec.id);
             nextButtons->push_back(
-                AgentToolButton(ToolIcon(spec.iconName),
+                AgentToolButton(ToolIcon(spec.iconName, dark),
                                 std::string(spec.displayName), selectedTool, index)
                     .Key("agent-tool:" + id));
         }
@@ -357,7 +359,7 @@ namespace llmswitch::ui {
         for (const std::size_t index : visibleIndices) {
             const auto& spec = registry[index];
             selectorButtons.push_back(
-                AgentToolButton(ToolIcon(spec.iconName),
+                AgentToolButton(ToolIcon(spec.iconName, dark),
                                 std::string(spec.displayName), formToolIndex,
                                 index)
                     .Key("form-tool:" + std::string(spec.id)));

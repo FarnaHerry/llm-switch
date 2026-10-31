@@ -21,21 +21,23 @@ store::ProviderStore& providerStore() {
     return store;
 }
 
-huxerui::ImageResource ToolIcon(std::string_view iconName) {
-    // Agent 身份图标使用品牌色栅格标记（64px + @2x/@3x），不走 SVG tint：
-    // 深浅主题都能直接看到厂商色；Claude Code 与 Claude Desktop 共享 Claude
-    // 品牌标记，靠标题文字区分。未知 iconName 仍回退错误图标。
+huxerui::ImageResource ToolIcon(std::string_view iconName, bool dark) {
+    // Agent 身份图标使用透明标记（64px + @2x/@3x），不走 SVG tint。单色 mark
+    // 提供白色 _dark 变体：浅色主题用黑色 base，深色主题用白色 _dark；彩色
+    // 图标（Claude/DeepSeek/Oh My Pi）共用同一份。未知 iconName 回退错误图标。
     if (iconName == "claudecode" || iconName == "claude") {
         return app::images::agent_claude;
     }
     if (iconName == "codex") {
-        return app::images::agent_codex;
+        return dark ? app::images::agent_codex_dark
+                    : app::images::agent_codex;
     }
     if (iconName == "opencode") {
-        return app::images::agent_opencode;
+        return dark ? app::images::agent_opencode_dark
+                    : app::images::agent_opencode;
     }
     if (iconName == "pi") {
-        return app::images::agent_pi;
+        return dark ? app::images::agent_pi_dark : app::images::agent_pi;
     }
     if (iconName == "omp") {
         return app::images::agent_omp;
@@ -44,13 +46,15 @@ huxerui::ImageResource ToolIcon(std::string_view iconName) {
         return app::images::agent_dsh;
     }
     if (iconName == "hermes") {
-        return app::images::agent_hermes;
+        return dark ? app::images::agent_hermes_dark
+                    : app::images::agent_hermes;
     }
     if (iconName == "zcode") {
-        return app::images::agent_zcode;
+        return dark ? app::images::agent_zcode_dark
+                    : app::images::agent_zcode;
     }
     if (iconName == "kimi") {
-        return app::images::agent_kimi;
+        return dark ? app::images::agent_kimi_dark : app::images::agent_kimi;
     }
     return app::images::error;
 }

@@ -522,6 +522,7 @@ std::string FormatSize(std::uintmax_t bytes) {
     huxerui::State<std::size_t> workspacePage, bool inWorkspace,
     bool pageActive) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    const bool dark = theme.brightness == huxerui::ThemeBrightness::Dark;
     const IslandTheme islands = ResolveIslandTheme(theme);
     const auto& registry = models::toolRegistry();
     auto selectedAgent = huxerui::UseState<std::size_t>(0);
@@ -538,7 +539,7 @@ std::string FormatSize(std::uintmax_t bytes) {
         const std::string id(spec.id);
         const std::string label(spec.displayName);
         huxerui::View button =
-            huxerui::IconButton(ToolIcon(spec.iconName), label)
+            huxerui::IconButton(ToolIcon(spec.iconName, dark), label)
                 .OnClick([selectedAgent, position] {
                     selectedAgent = position;
                 })

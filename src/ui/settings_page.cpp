@@ -141,10 +141,11 @@ std::size_t CloseBehaviorIndex(std::string_view behavior) {
     const models::ToolSpec& spec, const std::string& detectedPath,
     std::shared_ptr<huxerui::Clipboard> clipboard, huxerui::ToastHandle toast) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    const bool dark = theme.brightness == huxerui::ThemeBrightness::Dark;
     const bool installed = !detectedPath.empty();
     const std::string command(spec.installCommand);
     return huxerui::Row {
-        huxerui::Image(ToolIcon(spec.iconName))
+        huxerui::Image(ToolIcon(spec.iconName, dark))
             .With(huxerui::Frame{.width = 18.0F, .height = 18.0F}),
         huxerui::Column {
             huxerui::Text(std::string(spec.displayName))
@@ -240,6 +241,7 @@ std::size_t CloseBehaviorIndex(std::string_view behavior) {
     auto configRefresh = huxerui::UseState<int>(0);
     (void)configRefresh.Get();
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    const bool dark = theme.brightness == huxerui::ThemeBrightness::Dark;
     auto tasks = huxerui::UseTaskScope();
     auto toast = huxerui::UseToast();
     const auto picker = huxerui::UseService<huxerui::FilePicker>();
@@ -387,7 +389,7 @@ std::size_t CloseBehaviorIndex(std::string_view behavior) {
         managedAgentIcons.push_back(
             huxerui::Theme(
                 enabled ? agentIconOnTheme : agentIconOffTheme,
-                huxerui::IconButton(ToolIcon(spec.iconName), label)
+                huxerui::IconButton(ToolIcon(spec.iconName, dark), label)
                     .OnClick([disabledTools, revision, toast, id] {
                         const bool turnOn =
                             std::ranges::find(disabledTools.Get(), id) !=

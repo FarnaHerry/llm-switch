@@ -70,6 +70,7 @@ bool InvolvesTool(const skills::SkillInfo& skill, std::string_view toolId) {
 // Agent 状态行：只显示已同步或仅安装在该工具的 Agent 图标，不显示文字开关。
 [[huxerui::composable]] huxerui::View SkillAgentIcons(const skills::SkillInfo& skill) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    const bool dark = theme.brightness == huxerui::ThemeBrightness::Dark;
     std::vector<huxerui::View> icons;
     for (const std::string_view toolId : kSkillTools) {
         if (!models::toolEnabled(providerStore().config(), toolId)) continue;
@@ -78,7 +79,7 @@ bool InvolvesTool(const skills::SkillInfo& skill, std::string_view toolId) {
         if (spec == nullptr) continue;
         const std::string label(ToolName(toolId));
         icons.push_back(
-            huxerui::Image(ToolIcon(spec->iconName))
+            huxerui::Image(ToolIcon(spec->iconName, dark))
                 .With(huxerui::Frame{.width = 24.0F, .height = 24.0F},
                       huxerui::Semantics{.role = huxerui::SemanticRole::Image,
                                          .label = label},
@@ -360,6 +361,7 @@ bool InvolvesTool(const skills::SkillInfo& skill, std::string_view toolId) {
 [[huxerui::composable]] huxerui::View SkillsPageContent(
     huxerui::State<int> revision) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    const bool dark = theme.brightness == huxerui::ThemeBrightness::Dark;
     auto tasks = huxerui::UseTaskScope();
     auto toast = huxerui::UseToast();
     auto dialog = huxerui::UseDialog();
@@ -410,11 +412,11 @@ bool InvolvesTool(const skills::SkillInfo& skill, std::string_view toolId) {
     auto agentFilter = huxerui::UseState<std::size_t>(0);
     std::vector<huxerui::SegmentedButtonItem> filterItems;
     filterItems.push_back(
-        huxerui::SegmentedButtonItem::IconOnly(ToolIcon("agents"), "全部"));
+        huxerui::SegmentedButtonItem::IconOnly(ToolIcon("agents", dark), "全部"));
     for (const std::string_view toolId : kSkillTools) {
         const auto* spec = models::findTool(toolId);
         filterItems.push_back(huxerui::SegmentedButtonItem::IconOnly(
-            ToolIcon(spec != nullptr ? spec->iconName : ""),
+            ToolIcon(spec != nullptr ? spec->iconName : "", dark),
             std::string(ToolName(toolId))));
     }
 
