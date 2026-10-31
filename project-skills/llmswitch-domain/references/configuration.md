@@ -41,8 +41,9 @@
 - **聚合供应商**：`Provider.upstreams` 非空即聚合（无单一直连 baseUrl）。
   编辑页只从当前 Agent 的现有 Provider 勾选供应商，默认把
   `models::knownModels()`（主模型 + models 清单去重）展开成每个模型一条
-  `ProviderUpstream`，同一供应商重复 `providerId`、各自带 `model`；顺序可
-  拖拽或上下移动，顺序即兜底顺序。编辑保存时另把各供应商内部去重后的模型
+  `ProviderUpstream`，同一供应商重复 `providerId`、各自带 `model`；聚合
+  编辑页的「获取全部模型」按供应商地址/密钥拉取完整清单并写回
+  `Provider.models`；顺序可拖拽或上下移动，顺序即兜底顺序。编辑保存时另把各供应商内部去重后的模型
   按首次出现顺序合并，拼成 `供应商名/模型` 写入聚合的 `Provider.models`，
   默认模型也用同一命名；Agent 发送该 ID 时 router 命中成员并把请求体 model
   还原成原始 ID。凭据仍只存原 Provider；旧的直填

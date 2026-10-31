@@ -24,6 +24,7 @@
 #include "providers_internal.h"
 
 import llmswitch.models;
+import llmswitch.net;
 import llmswitch.store;
 
 namespace llmswitch::ui {
@@ -58,6 +59,19 @@ std::string ModelSummary(const std::vector<std::string>& models) {
     if (models.empty()) return "未设置模型";
     if (models.size() == 1) return "1 个模型：" + models.front();
     return std::format("{} 个模型 · 首个 {}", models.size(), models.front());
+}
+
+std::vector<std::string> MergeFetchedModels(
+    const models::Provider& provider,
+    const std::vector<std::string>& fetched) {
+    std::vector<std::string> merged = models::knownModels(provider);
+    for (const auto& id : fetched) {
+        if (!id.empty() &&
+            std::ranges::find(merged, id) == merged.end()) {
+            merged.push_back(id);
+        }
+    }
+    return merged;
 }
 
 std::vector<MemberInfo> CandidateMembers(std::string_view tool,
@@ -231,6 +245,9 @@ void MoveEntry(huxerui::State<std::vector<ModelEntry>> entries,
     huxerui::State<int> revision, huxerui::State<std::string> formTarget) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto toast = huxerui::UseToast();
+    auto tasks = huxerui::UseTaskScope();
+    const auto http = huxerui::UseService<huxerui::HttpClient>();
+    auto fetching = huxerui::UseState(false);
 
     auto name = huxerui::UseState(
         huxerui::TextEditingValue{initial.name});
@@ -499,15 +516,102 @@ void MoveEntry(huxerui::State<std::vector<ModelEntry>> entries,
                         notes = v;
                     }),
                 protocolHint,
-                huxerui::Text("选择现有供应商")
-                    .Style(huxerui::TextStyle{
-                        huxerui::Font::System(font_size::kBody)
-                            .WithWeight(huxerui::FontWeight::SemiBold),
-                        theme.colors.on_surface}),
+                huxerui::Row {
+                    huxerui::Text("选择现有供应商")
+                        .Style(huxerui::TextStyle{
+                            huxerui::Font::System(font_size::kBody)
+                                .WithWeight(huxerui::FontWeight::SemiBold),
+                            theme.colors.on_surface}),
+                    huxerui::Spacer(),
+                    huxerui::Button(fetching.Get() ? "获取中…"
+                                                   : "获取全部模型")
+                        .OnClick([=] {
+                            if (fetching.Get() || candidates.empty()) return;
+                            fetching = true;
+                            tasks.Launch([=]() -> huxerui::Task<void> {
+                                int updated = 0;
+                                int failed = 0;
+                                for (const auto& candidate : candidates) {
+                                    try {
+                                        models::Provider provider;
+                                        for (const auto& item :
+                                             providerStore().group(tool).providers) {
+                                            if (item.id == candidate.id) {
+                                                provider = item;
+                                                break;
+                                            }
+                                        }
+                                        if (provider.baseUrl.empty() ||
+                                            provider.apiKey.empty()) {
+                                            ++failed;
+                                            continue;
+                                        }
+                                        const std::string base =
+                                            models::effectiveBaseUrl(provider);
+                                        const auto urls =
+                                            net::modelListUrlCandidates(
+                                                base,
+                                                provider.upstreamFormat);
+                                        const auto ids = co_await
+                                            provider_detail::FetchModelIdsWithFallback(
+                                                http, urls,
+                                                provider.apiKey,
+                                                provider.upstreamFormat);
+                                        if (ids.empty()) {
+                                            ++failed;
+                                            continue;
+                                        }
+                                        provider.models =
+                                            MergeFetchedModels(provider, ids);
+                                        providerStore().updateProvider(
+                                            tool, provider);
+                                        auto list = ordered.Get();
+                                        const bool selected = std::ranges::any_of(
+                                            list, [&candidate](
+                                                      const ModelEntry& entry) {
+                                                return entry.providerId ==
+                                                       candidate.id;
+                                            });
+                                        if (selected) {
+                                            for (const auto& id : ids) {
+                                                if (!HasEntry(list,
+                                                              candidate.id,
+                                                              id)) {
+                                                    list.push_back(ModelEntry{
+                                                        .providerId =
+                                                            candidate.id,
+                                                        .providerName =
+                                                            candidate.name,
+                                                        .model = id,
+                                                    });
+                                                }
+                                            }
+                                            ordered = std::move(list);
+                                        }
+                                        ++updated;
+                                    } catch (...) {
+                                        ++failed;
+                                    }
+                                }
+                                fetching = false;
+                                revision = revision.Get() + 1;
+                                toast.Show(std::format(
+                                    "已更新 {} 个供应商的模型（{} 个失败）",
+                                    updated, failed));
+                            });
+                        })
+                        .With(huxerui::Enabled(!fetching.Get() &&
+                                               !candidates.empty()),
+                              huxerui::Tooltip(
+                                  "按各供应商的地址与密钥拉取完整模型列表")),
+                }.With(huxerui::Spacing(8.0F),
+                       huxerui::CrossAlign(
+                           huxerui::CrossAxisAlignment::Center)),
                 huxerui::Text(
                     "勾选会默认带入该供应商的全部已知模型（主模型优先，再按"
                     "模型清单顺序；清单来自供应商页「获取模型列表」并保存的"
-                    "结果）；凭据仍只保存在原供应商条目里。")
+                    "结果）；点「获取全部模型」可直接刷新各供应商的清单。"
+                    "凭据仍只保存在原供应商条目里。")
                     .Style(huxerui::TextStyle{
                         huxerui::Font::System(font_size::kCaption),
                         theme.colors.on_surface_variant}),
