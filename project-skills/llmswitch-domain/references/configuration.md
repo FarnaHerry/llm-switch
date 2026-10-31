@@ -24,10 +24,20 @@
   启用；存关闭项让新增工具默认可见）。只影响供应商/路由/会话/MCP/Skills 等
   页面展示，不修改 live 配置或 routerTools。
 - **本地路由设置**：AppConfig.routerEnabled（启动自启）/ routerPort（默认
-  15731）/ routerFailover / routerTools（逐 Agent 代理选择，旧配置默认全开），
-  store 有对应 setter；AppRoot 首组合时自启（见 src/ui/app.cpp 的 Lifecycle）。
-  LocalRouter 内部以 mutex 保护启用集合，运行中切换无需重启；禁用路径返回 403，
-  且在 resolver、上游与统计之前短路。
+  15731）/ routerFailover / routerTools（逐 Agent 代理/路由模式选择，旧配置
+  默认全开），store 有对应 setter；AppRoot 首组合时自启（见 src/ui/app.cpp 的
+  Lifecycle）。LocalRouter 内部以 mutex 保护启用集合，运行中切换无需重启；
+  禁用路径返回 403，且在 resolver、上游与统计之前短路。
+- **连接模式**：每个 `ProviderGroup` 存 `mode`（direct / route / aggregate）和
+  `direct`（回到直连要恢复的普通供应商 id）；`current` 始终是当前生效目标
+  （直连供应商 / 路由目标 / 聚合项）。route 与 aggregate 由 UI 的
+  `StartRoute` / `SwitchRouteTarget` / `SwitchProvider` 写 live：
+  地址改成 `127.0.0.1:<routerPort>/<tool>`、密钥写 `llmswitch-route` 或
+  `llmswitch-aggregate`，并把 `direct` 保留为进入模式前的普通供应商；
+  `StopRoute` 用 `direct` 写回真实地址（没有可回退项时交还官方原生状态）。
+  旧配置没有 mode 时按 current 是否聚合迁移；direct 模式下 `direct == current`。
+  dsh/ZCode 不显示三段页签，`SwitchProvider` 只改其 live 条目，不接管手动
+  路由开关。
 - **聚合供应商**：`Provider.upstreams` 非空即聚合（无单一直连 baseUrl）。
   编辑页只从当前 Agent 的现有 Provider 勾选供应商，默认把
   `models::knownModels()`（主模型 + models 清单去重）展开成每个模型一条

@@ -271,8 +271,11 @@ public:
     //     实际请求模型保存在 Provider 的三档 *Model 字段）；Linux 不支持抛错。
     // 聚合项会先换成本地路由地址与占位密钥；dsh/ZCode/Kimi 的写回器在
     // overwrite 模式下更新本应用的聚合条目（不是只补一条或只翻 enabled）。
+    // viaRouter=true 时普通供应商也写成本地路由地址（route 模式），并把
+    // 组 mode 设为 route / aggregate；direct 保留原直连供应商用于退出。
     // 供应商不存在 / 文件写失败抛 std::runtime_error。
-    void switchTo(std::string_view tool, const std::string& id);
+    void switchTo(std::string_view tool, const std::string& id,
+                  bool viaRouter = false);
 
     // 探测 live 文件当前对应组内哪个 provider；无匹配返回空串。只读，不改配置。
     std::string detectCurrent(std::string_view tool) const;

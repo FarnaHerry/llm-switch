@@ -2284,7 +2284,8 @@ std::string ProviderStore::targetApiKey(
     return provider.apiKey;
 }
 
-void ProviderStore::switchTo(std::string_view tool, const std::string& id) {
+void ProviderStore::switchTo(std::string_view tool, const std::string& id,
+                             bool viaRouter) {
     auto& g = groupRef(tool);
     const models::Provider* target = nullptr;
     for (const auto& p : g.providers) {
@@ -2293,10 +2294,13 @@ void ProviderStore::switchTo(std::string_view tool, const std::string& id) {
     if (target == nullptr) {
         throw std::runtime_error(std::format("供应商不存在：{}", id));
     }
+    const std::string previousCurrent = g.current;
     // 聚合供应商没有自己的直连地址：把 Agent 指向本地路由的 /<tool>/。
-    // 路由由 UI 在切换前启动并把该工具加入 routerTools；这里只负责写 live
-    // 配置。副本在栈上存活到函数结束，后续 target-> 字段读取保持简单。
+    // route 模式对普通供应商做同样的事；两者都由 UI 在切换前启动路由并
+    // 把该工具加入 routerTools，这里只负责写 live 配置。副本在栈上存活到
+    // 函数结束，后续 target-> 字段读取保持简单。
     models::Provider aggregateTarget;
+    models::Provider routeTarget;
     const bool aggregate = models::isAggregateProvider(*target);
     if (aggregate) {
         aggregateTarget = *target;
@@ -2336,6 +2340,23 @@ void ProviderStore::switchTo(std::string_view tool, const std::string& id) {
                 "wire_api = \"chat\"\n";
         }
         target = &aggregateTarget;
+    } else if (viaRouter) {
+        routeTarget = *target;
+        routeTarget.baseUrl =
+            std::format("http://127.0.0.1:{}/{}", config_.routerPort, tool);
+        routeTarget.fullUrl = true;
+        routeTarget.apiKey = std::string(models::kRouteApiKey);
+        if (tool == "codex" && routeTarget.codexConfigToml.empty()) {
+            // 和聚合分支一致：只改 auth.json 不会替换 base_url，给路由模式
+            // 补一个最小的 model_providers 段。
+            routeTarget.codexConfigToml =
+                "model_provider = \"llmswitch\"\n\n"
+                "[model_providers.llmswitch]\n"
+                "name = \"llm-switch route\"\n"
+                "base_url = \"\"\n"
+                "wire_api = \"chat\"\n";
+        }
+        target = &routeTarget;
     }
     if (tool == "kimi-code" && aggregate && target->model.empty()) {
         throw std::runtime_error(
@@ -2692,6 +2713,32 @@ void ProviderStore::switchTo(std::string_view tool, const std::string& id) {
         throw std::runtime_error(std::format("未知的工具：{}", tool));
     }
 
+    // 模式落盘：current 始终是当前生效目标（直连供应商 / 路由目标 /
+    // 聚合项）；direct 单独保留回退供应商，route / aggregate 切换目标时
+    // 不会把它覆盖掉。旧记录或已删除的回退项在这里回退到当前可用项。
+    const auto usableDirect = [&g](const std::string& providerId) {
+        if (providerId.empty()) return false;
+        const auto it = std::ranges::find_if(
+            g.providers, [&providerId](const models::Provider& provider) {
+                return provider.id == providerId;
+            });
+        return it != g.providers.end() &&
+               !models::isAggregateProvider(*it);
+    };
+    if (aggregate) {
+        if (!usableDirect(g.direct) && usableDirect(previousCurrent)) {
+            g.direct = previousCurrent;
+        }
+        g.mode = "aggregate";
+    } else if (viaRouter) {
+        if (!usableDirect(g.direct)) {
+            g.direct = usableDirect(previousCurrent) ? previousCurrent : id;
+        }
+        g.mode = "route";
+    } else {
+        g.mode = "direct";
+        g.direct = id;
+    }
     g.current = id;
     save();
 }
@@ -2852,6 +2899,8 @@ void ProviderStore::restoreOfficial(std::string_view tool) {
     }
 
     g.current.clear();
+    g.direct.clear();
+    g.mode = "direct";
     save();
 }
 

@@ -289,16 +289,6 @@ namespace llmswitch::ui {
         cachedPages = std::move(nextPages);
     }
 
-    auto requestAddProvider = [selectedTool, addProviderRequest] {
-        const auto& currentRegistry = models::toolRegistry();
-        const std::size_t index = selectedTool.Get();
-        if (index < currentRegistry.size() &&
-            models::toolEnabled(providerStore().config(),
-                                currentRegistry[index].id)) {
-            addProviderRequest = std::string(currentRegistry[index].id);
-        }
-    };
-
     huxerui::View navigationContainer = AgentToolBar(huxerui::Row(*cachedButtons));
     std::vector<huxerui::View> pageActions;
     if (inWorkspace) {
@@ -307,20 +297,6 @@ namespace llmswitch::ui {
                 .OnClick([workspacePage] {
                     workspacePage = workspace_pages::kHome;
                 }));
-    }
-    if (!visibleIndices.empty()) {
-        pageActions.push_back(
-            huxerui::IconButton(app::images::subrouter, "新增聚合供应商")
-                .OnClick([formToolIndex, formTarget, selectedTool] {
-                    formToolIndex = selectedTool.Get();
-                    formTarget = "aggregate:new";
-                })
-                .With(huxerui::Tooltip(
-                    "新增聚合供应商（选择现有供应商经本地路由分发）")));
-        pageActions.push_back(
-            huxerui::IconButton(app::images::add, "新增供应商")
-                .OnClick(requestAddProvider)
-                .With(huxerui::Tooltip("新增供应商")));
     }
     huxerui::View actionGroup =
         huxerui::Row(std::move(pageActions))

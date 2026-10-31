@@ -200,9 +200,22 @@ huxerui::View WorkspaceStatsPage(
 // 则 try { routerInstance().start(config().routerPort); } catch 后 toast 中文错误。
 router::LocalRouter& routerInstance();
 
-// 切换供应商（普通 / 聚合共用）。聚合供应商会先启动本地路由、启用该工具的
-// 路由代理并持久化，再把 Agent live 配置指向路由；任一步失败抛异常。
+// 切换供应商（直连 / 路由 / 聚合共用）。普通供应商切回直连并撤销该工具的
+// 路由代理；聚合供应商会先启动本地路由、启用该工具的路由代理并持久化，
+// 再把 Agent live 配置指向路由；任一步失败抛异常。
 void SwitchProvider(std::string_view tool, const std::string& id);
+
+// 进入/切换路由模式：把 Agent live 配置写成本地路由地址，current 指向
+// targetId，direct 保留回退供应商。路由服务未启动时自动启动。
+void StartRoute(std::string_view tool, const std::string& targetId);
+void SwitchRouteTarget(std::string_view tool, const std::string& targetId);
+
+// 回到直连：恢复 direct 回退供应商（没有时交还官方原生状态），并撤销该
+// 工具的路由代理。
+void StopRoute(std::string_view tool);
+
+// 切换到厂商原生登录；和普通切换一样撤销该工具的路由代理。
+void SwitchOfficial(std::string_view tool);
 
 // 把生产路由上游会话（HuxerUI 平台 HttpClient 桥接，见 router_transport.cpp）
 // 绑定进 routerInstance()。普通函数 + static 守卫，进程内只生效一次；http 与

@@ -621,6 +621,7 @@ void ProviderStore::removeProvider(std::string_view tool, const std::string& id,
         snapshot = g;  // live 写失败 ⇒ 回滚删除
     }
     std::erase_if(g.providers, [&](const models::Provider& p) { return p.id == id; });
+    if (g.direct == id) g.direct.clear();
     if (g.current == id) g.current.clear();
     if (tool == "dsh" && eraseLive) {
         // 单条增量删除：只把这一条从 live 摘掉（条目不在 live 里时连文件都不

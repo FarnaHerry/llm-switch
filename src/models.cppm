@@ -470,6 +470,9 @@ export struct ProviderUpstream {
 // 鉴权，但部分 Agent 要求 key 非空；真实凭据仍留在成员供应商上。
 export inline constexpr std::string_view kAggregateApiKey =
     "llmswitch-aggregate";
+// 路由模式下写进 Agent live 配置的占位密钥；真实凭据由本地路由在转发时
+// 从当前目标供应商注入。
+export inline constexpr std::string_view kRouteApiKey = "llmswitch-route";
 
 export struct Provider {
     std::string id;         // 生成：毫秒时间戳 + 随机 hex（见 llmswitch.store）
@@ -573,9 +576,17 @@ export std::string memberModelId(std::string_view providerName,
 }
 
 // 一个工具的供应商集合。
+// 连接模式（与 cc-switch 的三段分类对齐）：
+//   direct    = Agent 直接连 current 指向的供应商；
+//   route     = Agent 的 live 配置指向本地路由，路由转发到 current；
+//   aggregate = current 是聚合项，Agent 的 live 配置同样指向本地路由。
+// `direct` 始终保存「回到直连」要恢复的普通供应商；route/aggregate 下
+// 它不随 current 切换而变化，聚合项或路由目标被删也不会丢失回退目标。
 export struct ProviderGroup {
     std::vector<Provider> providers;
-    std::string current;  // 当前激活 provider id，空 = 未设置
+    std::string current;  // 当前生效 provider id，空 = 未设置 / 官方原生
+    std::string mode = "direct";  // direct / route / aggregate
+    std::string direct;   // 直连回退 provider id；direct 模式下等于 current
 
     bool operator==(const ProviderGroup&) const = default;
 };
@@ -874,6 +885,8 @@ export nlohmann::json toJson(const ProviderGroup& g) {
     j["providers"] = nlohmann::json::array();
     for (const auto& p : g.providers) j["providers"].push_back(toJson(p));
     j["current"] = g.current;
+    j["mode"] = g.mode;
+    j["direct"] = g.direct;
     return j;
 }
 
@@ -892,6 +905,26 @@ ProviderGroup groupFromJsonWithUsageFallback(
         }
     }
     g.current = j.value("current", "");
+    g.mode = j.value("mode", "");
+    g.direct = j.value("direct", "");
+    const auto currentIt = std::ranges::find_if(
+        g.providers, [&g](const Provider& provider) {
+            return provider.id == g.current;
+        });
+    const bool currentIsAggregate =
+        currentIt != g.providers.end() && isAggregateProvider(*currentIt);
+    if (g.mode != "route" && g.mode != "aggregate") g.mode = "direct";
+    // 旧版聚合项只有 current，没有 mode；按当前条目形态迁移到聚合页。
+    if (g.mode == "direct" && currentIsAggregate) g.mode = "aggregate";
+    if (g.mode == "aggregate" && !currentIsAggregate && !g.current.empty()) {
+        g.mode = "direct";
+    }
+    if (g.mode == "direct") {
+        g.direct = g.current;
+    } else if (g.direct.empty() && !g.current.empty() && !currentIsAggregate) {
+        // 旧版只有路由代理开关，没有显式 route 模式；保留已选目标作为回退。
+        g.direct = g.current;
+    }
     return g;
 }
 

@@ -1,7 +1,8 @@
 // providers_page.cpp — 供应商列表页：各 agent 工具组共用同一组件（参数化
 // tool，注册表见 models::toolRegistry()）。工具选择由 AgentPage 的
-// Agent 工具栏 + Pager 负责，新增动作也由 AgentPage 顶部 action group 触发；
-// 本页只有列表一种形态——新增/编辑与用量查询配置是 AgentPage 自己的第二个
+// Agent 工具栏 + Pager 负责；每个工具列表顶部有「直连 / 路由 / 聚合」三段
+// 页签，页签只切换视图，不写配置。新增动作在页签行右侧，按当前页签打开普通
+// 表单或 aggregate:new。新增/编辑与用量查询配置是 AgentPage 自己的第二个
 // 页面（整页覆盖工具栏 + Pager，不受分页器左右拖动影响），本页提供的只是
 // 进入入口（formToolIndex + formTarget 两个 State 由 AgentPage 持有）：
 // 卡片的编辑图标写 formTarget = id，用量 gauge 图标写 "usage:" + id，
@@ -21,8 +22,9 @@
 // 「延迟 N ms」，失败显示「不可达：…」（error 色）。有官方厂商的工具
 // （claude-code / claude / codex，models::officialVendorName）列表第一位固定
 // 一张「官方」常驻卡：切换 = store.restoreOfficial 还原厂商原生状态，
-// active = 组 current 与 detectCurrent 均为空。头部只有一个加号 IconButton
-// 进入新增页。
+// active = 组 current 与 detectCurrent 均为空。页签行右侧的加号进入当前
+// 页签对应的新增页；直连/路由页签的主操作分别是切回真实地址/切换路由目标，
+// 聚合页签进入聚合模式。
 // 表单按 ToolSpec 适配：完整 URL switch 与上游格式 Select 控制 URL 后缀，codex
 // 显示 config.toml 原文、needsModel（opencode/pi）模型必填、hasApiFormat 显示
 // API 协议分段选择；hasModelMappings（claude-code /
@@ -38,8 +40,10 @@
 // 驱动本页重读、托盘菜单重建。detectCurrent 在页面首组合跑一次。
 #include <huxerui/huxerui.h>
 
+#include <algorithm>
 #include <array>
 #include <chrono>
+#include <format>
 #include <map>
 #include <memory>
 #include <string>
@@ -144,57 +148,348 @@ using provider_detail::WriteUsageCache;
                                       formTarget);
     }
 
-    // 卡片列表：官方常驻卡（有官方厂商的工具）排第一，其后是供应商卡；
-    // 「使用中」= 组内 current 或 detectCurrent 命中。
+    // 连接模式分类（对齐 cc-switch 的「直连 / 路由 / 聚合」三段）：
+    // 页签只决定正在看哪一类，不改变生效模式；切换模式必须点卡片上的主
+    // 操作或横幅按钮。current 是当前生效目标（直连供应商 / 路由目标 /
+    // 聚合项），direct 是回到直连要恢复的普通供应商。
     const auto& g = providerStore().group(tool);
-    const bool hasOfficial = !models::officialVendorName(tool).empty();
-    const std::size_t providerCount = g.providers.size();
+    const std::string mode =
+        g.mode == "route" || g.mode == "aggregate" ? g.mode : "direct";
     const std::string currentProvider = g.current;
+    const std::string directProvider = g.direct;
     const std::string detectedProvider = detected.Get();
-    huxerui::View providerCards = huxerui::Row{};
-    if (hasOfficial) {
-        providerCards = OfficialCard(
-            tool, currentProvider.empty() && detectedProvider.empty(), toast,
-            revision);
-    }
-    if (providerCount > 0) {
-        const huxerui::View providerList =
-            huxerui::VirtualList(
-                g.providers,
-                [tool, currentProvider, detectedProvider, tasks, toast, revision,
-                 usageCache, formToolIndex,
-                 formTarget](const models::Provider& provider) {
-                    const bool isCurrent = currentProvider == provider.id;
-                    const bool active =
-                        isCurrent || detectedProvider == provider.id;
-                    return ProviderCard(tool, provider, active, isCurrent, tasks,
-                                        toast, revision, usageCache,
-                                        formToolIndex, formTarget);
-                })
-                .EstimatedItemExtent(150.0F)
-                .CacheExtent(480.0F)
-                .With(huxerui::Spacing(10.0F), huxerui::Grow(1.0F));
-        providerCards = hasOfficial
-                            ? huxerui::Column {
-                                  providerCards,
-                                  providerList,
-                              }
-                                  .With(huxerui::Spacing(10.0F),
-                                        huxerui::CrossAlign(
-                                            huxerui::CrossAxisAlignment::Stretch))
-                            : providerList;
-    }
-    const bool hasCards = hasOfficial || providerCount > 0;
+    const bool hasOfficial = !models::officialVendorName(tool).empty();
 
-    // 列表模式只提供 Agent 岛屿内的 page 内容；Agent 工具栏、action group
-    // 与 Pager 的外层岛屿由 AgentPage 统一拥有，避免每个 page 各自形成岛屿。
+    const std::size_t initialView =
+        mode == "aggregate" ? 2 : (mode == "route" ? 1 : 0);
+    auto modeTab = huxerui::UseState<std::size_t>(std::size_t{initialView});
+    huxerui::Lifecycle(
+        [modeTab, mode] {
+            const std::size_t desired =
+                mode == "aggregate" ? 2 : (mode == "route" ? 1 : 0);
+            if (modeTab.Get() != desired) modeTab = desired;
+            return [] {};
+        },
+        mode);
+    const std::size_t view = std::min<std::size_t>(modeTab.Get(), 2);
+
+    auto nameOf = [&g](const std::string& id) {
+        if (id.empty()) return std::string{};
+        for (const auto& provider : g.providers) {
+            if (provider.id != id) continue;
+            return provider.name.empty() ? provider.id : provider.name;
+        }
+        return std::string{};
+    };
+    const std::string effectiveName =
+        currentProvider.empty()
+            ? (hasOfficial ? std::string("官方原生") : std::string("未设置"))
+            : nameOf(currentProvider);
+    const std::string modeName = mode == "route"   ? "路由"
+                                 : mode == "aggregate" ? "聚合"
+                                                       : "直连";
     const IslandTheme islands = ResolveIslandTheme(theme);
-    std::vector<huxerui::View> listItems;
 
-    // Claude Desktop 平台提示条（仅 macOS / Windows 可用；图标照常显示，
-    // 增删改可用但本平台无法切换生效）。
+    std::vector<models::Provider> directProviders;
+    std::vector<models::Provider> aggregateProviders;
+    for (const auto& provider : g.providers) {
+        (models::isAggregateProvider(provider) ? aggregateProviders
+                                                : directProviders)
+            .push_back(provider);
+    }
+
+    auto bumpRevision = [revision] { revision = revision.Get() + 1; };
+    auto backToDirect = [toast, tool, modeTab, bumpRevision] {
+        try {
+            StopRoute(tool);
+            modeTab = 0;
+            bumpRevision();
+            toast.Show("已回到直连");
+        } catch (const std::exception& e) {
+            toast.Show(e.what());
+        }
+    };
+
+    // 模式页签 + 生效状态 + 当前页签的新增入口。页签只切换视图，不写配置。
+    std::vector<huxerui::SegmentedButtonItem> modeItems;
+    modeItems.push_back(
+        huxerui::SegmentedButtonItem(app::images::link, "直连"));
+    modeItems.push_back(
+        huxerui::SegmentedButtonItem(app::images::router, "路由"));
+    modeItems.push_back(
+        huxerui::SegmentedButtonItem(app::images::subrouter, "聚合"));
+    huxerui::View modeTabs =
+        huxerui::SegmentedButton(std::move(modeItems), view)
+            .OnChanged([modeTab](std::size_t index) {
+                modeTab = std::min<std::size_t>(index, 2);
+            });
+    huxerui::View addButton =
+        huxerui::IconButton(app::images::add,
+                            view == 2 ? "新增聚合供应商" : "新增供应商")
+            .OnClick([view, tool, formToolIndex, formTarget] {
+                formToolIndex = ToolRegistryIndex(tool);
+                formTarget = view == 2 ? "aggregate:new" : "new";
+            })
+            .With(huxerui::Tooltip(view == 2 ? "新增聚合供应商"
+                                             : "新增供应商"));
+
+    huxerui::View modeHeader =
+        huxerui::Column {
+            huxerui::Row {
+                std::move(modeTabs),
+                huxerui::Spacer(),
+                std::move(addButton),
+            }.With(huxerui::Spacing(theme.spacing.small),
+                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
+            huxerui::Text(std::format("生效：{} · {}", modeName,
+                                      effectiveName))
+                .Style(huxerui::TextStyle{
+                    huxerui::Font::System(font_size::kChip),
+                    theme.colors.on_surface_variant}),
+        }.With(huxerui::Spacing(6.0F),
+               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
+
+    // 路由横幅：生效时显示目标和故障转移开关；未生效时给出启动目标。
+    huxerui::View routeBanner = huxerui::Row{};
+    if (view == 1) {
+        if (mode == "route") {
+            huxerui::View failoverSwitch =
+                huxerui::Switch(providerStore().config().routerFailover)
+                    .OnChanged([toast, bumpRevision](bool on) {
+                        routerInstance().setFailoverEnabled(on);
+                        providerStore().setRouterFailover(on);
+                        toast.Show(on ? "已开启故障转移" : "已关闭故障转移");
+                        bumpRevision();
+                    });
+            routeBanner =
+                huxerui::Row {
+                    huxerui::Text(std::format("路由生效中 → {}", effectiveName))
+                        .Style(huxerui::TextStyle{
+                            huxerui::Font::System(font_size::kBody),
+                            theme.colors.on_surface}),
+                    huxerui::Spacer(),
+                    huxerui::Text("故障转移")
+                        .Style(huxerui::TextStyle{
+                            huxerui::Font::System(font_size::kCaption),
+                            theme.colors.on_surface_variant}),
+                    std::move(failoverSwitch),
+                    huxerui::Button("回到直连")
+                        .OnClick([backToDirect] { backToDirect(); }),
+                }.With(huxerui::Spacing(8.0F),
+                       huxerui::CrossAlign(
+                           huxerui::CrossAxisAlignment::Center));
+        } else {
+            std::string startTarget = directProvider;
+            if (startTarget.empty() && !directProviders.empty()) {
+                startTarget = directProviders.front().id;
+            }
+            huxerui::View startButton =
+                startTarget.empty()
+                    ? huxerui::View{huxerui::Text(
+                          "还没有可路由的普通供应商，请先在「直连」页签新增。")
+                          .Style(huxerui::TextStyle{
+                              huxerui::Font::System(font_size::kCaption),
+                              theme.colors.on_surface_variant})}
+                    : huxerui::View{
+                          huxerui::Button(
+                              std::format("开始路由到「{}」",
+                                          nameOf(startTarget)))
+                              .OnClick([toast, tool, startTarget, modeTab,
+                                        bumpRevision] {
+                                  try {
+                                      StartRoute(tool, startTarget);
+                                      modeTab = 1;
+                                      bumpRevision();
+                                      toast.Show("已进入路由模式");
+                                  } catch (const std::exception& e) {
+                                      toast.Show(e.what());
+                                  }
+                              })};
+            routeBanner =
+                huxerui::Column {
+                    huxerui::Text("当前未路由。开始后 Agent 的 base URL "
+                                  "会指向本地路由，切换目标无需重启。")
+                        .Style(huxerui::TextStyle{
+                            huxerui::Font::System(font_size::kCaption),
+                            theme.colors.on_surface_variant}),
+                    std::move(startButton),
+                }.With(huxerui::Spacing(8.0F),
+                       huxerui::CrossAlign(
+                           huxerui::CrossAxisAlignment::Stretch));
+        }
+        routeBanner = std::move(routeBanner).With(
+            huxerui::Padding(huxerui::EdgeInsets::Symmetric(12.0F, 8.0F)),
+            huxerui::Background(islands.raised),
+            huxerui::CornerRadius(islands.nested_radius));
+    }
+
+    huxerui::View aggregateBanner = huxerui::Row{};
+    if (view == 2) {
+        aggregateBanner =
+            mode == "aggregate"
+                ? huxerui::Row {
+                      huxerui::Text(
+                          std::format("聚合生效中 · {}", effectiveName))
+                          .Style(huxerui::TextStyle{
+                              huxerui::Font::System(font_size::kBody),
+                              theme.colors.on_surface}),
+                      huxerui::Spacer(),
+                      huxerui::Button("回到直连")
+                          .OnClick([backToDirect] { backToDirect(); }),
+                  }.With(huxerui::Spacing(8.0F),
+                         huxerui::CrossAlign(
+                             huxerui::CrossAxisAlignment::Center))
+                : huxerui::View{
+                      huxerui::Text(
+                          "选择下方的聚合供应商卡片进入聚合模式；请求经本地"
+                          "路由按 model 分发到成员供应商。")
+                          .Style(huxerui::TextStyle{
+                              huxerui::Font::System(font_size::kCaption),
+                              theme.colors.on_surface_variant})};
+        aggregateBanner = std::move(aggregateBanner).With(
+            huxerui::Padding(huxerui::EdgeInsets::Symmetric(12.0F, 8.0F)),
+            huxerui::Background(islands.raised),
+            huxerui::CornerRadius(islands.nested_radius));
+    }
+
+    huxerui::View directNote = huxerui::Row{};
+    if (view == 0 && mode != "direct") {
+        directNote = huxerui::Row {
+            huxerui::Text(std::format(
+                              "当前生效：{}。在直连页签点击卡片会退出{}模式。",
+                              modeName, modeName))
+                .Style(huxerui::TextStyle{
+                    huxerui::Font::System(font_size::kCaption),
+                    theme.colors.on_surface_variant}),
+        }.With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(10.0F, 6.0F)),
+               huxerui::Background(islands.raised),
+               huxerui::CornerRadius(islands.nested_radius));
+    }
+
+    huxerui::View providerCards = huxerui::Row{};
+    if (view == 0) {
+        huxerui::View official =
+            hasOfficial
+                ? OfficialCard(tool,
+                               mode == "direct" &&
+                                   currentProvider.empty() &&
+                                   detectedProvider.empty(),
+                               toast, revision)
+                : huxerui::View{huxerui::Row{}};
+        huxerui::View directList = huxerui::Row{};
+        if (!directProviders.empty()) {
+            directList =
+                huxerui::VirtualList(
+                    directProviders,
+                    [tool, mode, currentProvider, directProvider,
+                     detectedProvider, tasks, toast, revision, usageCache,
+                     formToolIndex,
+                     formTarget](const models::Provider& provider) {
+                        const bool active =
+                            mode == "direct" &&
+                            (currentProvider == provider.id ||
+                             detectedProvider == provider.id);
+                        const bool current = active;
+                        std::string label;
+                        if (active) {
+                            label = "使用中";
+                        } else if (mode != "direct" &&
+                                   directProvider == provider.id) {
+                            label = "直连";
+                        }
+                        return ProviderCard(
+                            tool, provider, active, current, std::move(label),
+                            ProviderCardAction::SwitchDirect, tasks, toast,
+                            revision, usageCache, formToolIndex, formTarget);
+                    })
+                    .EstimatedItemExtent(150.0F)
+                    .CacheExtent(480.0F)
+                    .With(huxerui::Spacing(10.0F), huxerui::Grow(1.0F));
+        }
+        if (hasOfficial && !directProviders.empty()) {
+            providerCards = huxerui::Column {
+                std::move(official),
+                std::move(directList),
+            }.With(huxerui::Spacing(10.0F),
+                   huxerui::CrossAlign(
+                       huxerui::CrossAxisAlignment::Stretch));
+        } else {
+            providerCards =
+                !directProviders.empty() ? std::move(directList)
+                                         : std::move(official);
+        }
+    } else if (view == 1) {
+        if (!directProviders.empty()) {
+            providerCards =
+                huxerui::VirtualList(
+                    directProviders,
+                    [tool, mode, currentProvider, directProvider, tasks, toast,
+                     revision, usageCache, formToolIndex,
+                     formTarget](const models::Provider& provider) {
+                        const bool target =
+                            mode == "route" &&
+                            currentProvider == provider.id;
+                        std::string label;
+                        if (target) {
+                            label = "路由中";
+                        } else if (directProvider == provider.id) {
+                            label = "直连";
+                        }
+                        return ProviderCard(
+                            tool, provider, target, target, std::move(label),
+                            ProviderCardAction::RouteTo, tasks, toast,
+                            revision, usageCache, formToolIndex, formTarget);
+                    })
+                    .EstimatedItemExtent(150.0F)
+                    .CacheExtent(480.0F)
+                    .With(huxerui::Spacing(10.0F), huxerui::Grow(1.0F));
+        }
+    } else {
+        if (!aggregateProviders.empty()) {
+            providerCards =
+                huxerui::VirtualList(
+                    aggregateProviders,
+                    [tool, mode, currentProvider, tasks, toast, revision,
+                     usageCache, formToolIndex,
+                     formTarget](const models::Provider& provider) {
+                        const bool active =
+                            mode == "aggregate" &&
+                            currentProvider == provider.id;
+                        return ProviderCard(
+                            tool, provider, active, active,
+                            active ? std::string("聚合生效中") : std::string{},
+                            ProviderCardAction::Aggregate, tasks, toast,
+                            revision, usageCache, formToolIndex, formTarget);
+                    })
+                    .EstimatedItemExtent(150.0F)
+                    .CacheExtent(480.0F)
+                    .With(huxerui::Spacing(10.0F), huxerui::Grow(1.0F));
+        }
+    }
+
+    const bool hasCards =
+        view == 0 ? (hasOfficial || !directProviders.empty())
+                  : (view == 1 ? !directProviders.empty()
+                               : !aggregateProviders.empty());
+
+    huxerui::View emptyState =
+        huxerui::Column {
+            huxerui::Text(view == 1
+                              ? "还没有可路由的普通供应商。请先在「直连」页签新增。"
+                              : view == 2
+                                    ? "还没有聚合供应商。点击右上角 + 新增。"
+                                    : "还没有供应商。点击右上角 + 新增。")
+                .Style(huxerui::TextStyle{
+                    huxerui::Font::System(font_size::kBody),
+                    theme.colors.on_surface_variant}),
+        }.With(huxerui::Padding(32.0F),
+               huxerui::Grow(1.0F),
+               huxerui::MainAlign(huxerui::MainAxisAlignment::Center),
+               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
+
+    std::vector<huxerui::View> content;
     if (tool == "claude" && cfg::claudeDesktopDir().empty()) {
-        listItems.push_back(
+        content.push_back(
             huxerui::Text("Claude Desktop 仅支持 macOS / "
                           "Windows，当前平台切换不可用")
                 .Style(huxerui::TextStyle{
@@ -204,25 +499,22 @@ using provider_detail::WriteUsageCache;
                       huxerui::Background(islands.raised),
                       huxerui::CornerRadius(islands.nested_radius)));
     }
-    listItems.push_back(
-        !hasCards
-            ? huxerui::View{
-                  huxerui::Column {
-                      huxerui::Text("还没有供应商。点击右上角 + 新增。")
-                          .Style(huxerui::TextStyle{
-                              huxerui::Font::System(font_size::kBody),
-                              theme.colors.on_surface_variant}),
-                  }.With(huxerui::Padding(32.0F),
-                         huxerui::Grow(1.0F),
-                         huxerui::MainAlign(huxerui::MainAxisAlignment::Center),
-                         huxerui::CrossAlign(
-                             huxerui::CrossAxisAlignment::Center))}
-            : providerCards);
+    if (view == 0 && mode != "direct") content.push_back(std::move(directNote));
+    if (view == 1) content.push_back(std::move(routeBanner));
+    if (view == 2) content.push_back(std::move(aggregateBanner));
+    content.push_back(hasCards ? std::move(providerCards)
+                               : std::move(emptyState));
 
-    huxerui::View root = huxerui::Column(std::move(listItems))
-        .With(huxerui::Spacing(theme.spacing.medium),
-              huxerui::Grow(1.0F),
-              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
+    huxerui::View root = huxerui::Column {
+        std::move(modeHeader),
+        huxerui::Column(std::move(content))
+            .With(huxerui::Spacing(theme.spacing.medium),
+                  huxerui::Grow(1.0F),
+                  huxerui::CrossAlign(
+                      huxerui::CrossAxisAlignment::Stretch)),
+    }.With(huxerui::Spacing(theme.spacing.medium),
+           huxerui::Grow(1.0F),
+           huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 
     return root;
 }

@@ -291,8 +291,15 @@ huxerui::View OfficialCard(std::string tool, bool active,
                            huxerui::ToastHandle toast,
                            huxerui::State<int> revision);
 
+// 卡片主操作按浏览的页签分派：直连页切回真实地址，路由页把该工具的路由
+// 目标切到这家，聚合页进入聚合模式。statusLabel 为空 = 不显示状态徽章；
+// statusActive=false 用于「直连」这类非当前生效回退项。
+enum class ProviderCardAction { SwitchDirect, RouteTo, Aggregate };
+
 huxerui::View ProviderCard(std::string tool, const models::Provider& provider,
-                           bool active, bool isCurrent,
+                           bool statusActive, bool isCurrent,
+                           std::string statusLabel,
+                           ProviderCardAction action,
                            huxerui::TaskScope tasks,
                            huxerui::ToastHandle toast,
                            huxerui::State<int> revision,

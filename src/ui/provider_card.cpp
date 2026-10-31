@@ -128,7 +128,7 @@ huxerui::View StatusText(const StatusPreview& preview, const std::string& full,
             huxerui::IconButton(app::images::swap, "切换")
                 .OnClick([toast, tool, revision] {
                     try {
-                        providerStore().restoreOfficial(tool);
+                        SwitchOfficial(tool);
                         toast.Show("已切换到官方原生状态" +
                                    RestartHintSuffix(tool));
                     } catch (const std::exception& e) {
@@ -147,7 +147,8 @@ huxerui::View StatusText(const StatusPreview& preview, const std::string& full,
 }
 
 [[huxerui::composable]] huxerui::View ProviderCard(
-    std::string tool, const models::Provider& provider, bool active, bool isCurrent,
+    std::string tool, const models::Provider& provider, bool statusActive,
+    bool isCurrent, std::string statusLabel, ProviderCardAction action,
     huxerui::TaskScope tasks, huxerui::ToastHandle toast,
     huxerui::State<int> revision, UsageCache usageCache,
     huxerui::State<std::size_t> formToolIndex,
@@ -273,16 +274,21 @@ huxerui::View StatusText(const StatusPreview& preview, const std::string& full,
                     huxerui::Font::System(font_size::kBody)
                         .WithWeight(huxerui::FontWeight::SemiBold),
                     theme.colors.on_surface}),
-                active
-                    ? huxerui::View{
-                          huxerui::Text("使用中").Style(huxerui::TextStyle{
+                statusLabel.empty()
+                    ? huxerui::View{huxerui::Row{}}
+                    : huxerui::View{
+                          huxerui::Text(statusLabel).Style(huxerui::TextStyle{
                               huxerui::Font::System(font_size::kCaption),
-                              theme.colors.on_primary})}
+                              statusActive
+                                  ? theme.colors.on_primary
+                                  : theme.colors.on_surface_variant})}
                           .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(
                                     8.0F, 2.0F)),
-                                huxerui::Background(theme.colors.primary),
-                                huxerui::CornerRadius(islands.nested_radius))
-                    : huxerui::View{huxerui::Row{}},
+                                huxerui::Background(
+                                    statusActive
+                                        ? theme.colors.primary
+                                        : theme.colors.surface_container_high),
+                                huxerui::CornerRadius(islands.nested_radius)),
                 std::move(kindBadge),
             }.With(huxerui::Spacing(6.0F),
                    huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
@@ -349,12 +355,21 @@ huxerui::View StatusText(const StatusPreview& preview, const std::string& full,
         }.With(huxerui::Spacing(8.0F),
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
         huxerui::Row {
-            huxerui::IconButton(app::images::swap, "切换")
-                .OnClick([toast, tool, id, name, bump] {
+            huxerui::IconButton(app::images::swap,
+                                action == ProviderCardAction::RouteTo
+                                    ? "路由到此"
+                                    : "切换")
+                .OnClick([toast, tool, id, name, bump, action] {
                     try {
-                        SwitchProvider(tool, id);
-                        toast.Show(std::format("已切换到 {}", name) +
-                                   RestartHintSuffix(tool));
+                        if (action == ProviderCardAction::RouteTo) {
+                            SwitchRouteTarget(tool, id);
+                            toast.Show(std::format("已路由到 {}", name) +
+                                       RestartHintSuffix(tool));
+                        } else {
+                            SwitchProvider(tool, id);
+                            toast.Show(std::format("已切换到 {}", name) +
+                                       RestartHintSuffix(tool));
+                        }
                     } catch (const std::exception& e) {
                         toast.Show(e.what());
                     }
@@ -363,10 +378,13 @@ huxerui::View StatusText(const StatusPreview& preview, const std::string& full,
                 .With(huxerui::Enabled(!isCurrent),
                       huxerui::Tooltip(
                           isCurrent
-                              ? "当前使用"
-                              : (aggregate
-                                     ? "切换到此聚合供应商（自动启用本地路由）"
-                                     : "切换到此供应商"))),
+                              ? (statusLabel.empty() ? "当前使用"
+                                                     : statusLabel)
+                              : (action == ProviderCardAction::RouteTo
+                                     ? "路由到此（不重启本地路由）"
+                                     : (action == ProviderCardAction::Aggregate
+                                            ? "切换到此聚合供应商（自动启用本地路由）"
+                                            : "切换到此供应商")))),
             // 联通检测：HuxerUI HttpClient 等待响应头，最长 10s，完成后回 UI
             // 线程写卡片 State。URL 空（codex 可留空）时禁用。
             huxerui::IconButton(app::images::activity, "联通检测")

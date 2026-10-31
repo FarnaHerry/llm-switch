@@ -5,8 +5,9 @@
 //     立即 setRouterEnabled 落盘）、端口输入框+「应用」（运行中改端口 =
 //     stop→start 新端口，随后 setRouterPort 落盘；非法端口 toast）、
 //     故障转移开关（setFailoverEnabled + setRouterFailover 落盘）。
-//   Agent 代理卡：遍历 models::toolRegistry() 提供逐工具开关；修改立即同步到
-//     LocalRouter 并通过 ProviderStore 持久化，运行中无需重启。
+//   Agent 代理卡：遍历 models::toolRegistry() 提供逐工具开关；打开 = 进入
+//     route 模式（StartRoute：启动路由、写 live 本机地址、启用 routerTools），
+//     关闭 = 回到直连（StopRoute 写回 direct 供应商），运行中无需重启。
 //   接入地址卡：只展示已启用工具的
 //     http://127.0.0.1:<port>/<toolId>（等宽）。
 //   最近请求卡：recentLogs(50)（新的在前）：时间/工具/供应商/方法+路径
@@ -104,25 +105,20 @@ std::string Truncate(std::string s, std::size_t max) {
     return s;
 }
 
-// 聚合供应商的 live base URL 指向本地路由：停路由或换端口会让它的请求直接
-// 断掉，操作前先要求用户切回普通供应商。
-bool AggregateProviderInUse(std::string_view tool) {
+// route / aggregate 的 live base URL 指向本地路由：停路由或换端口会让它的
+// 请求直接断掉，操作前先要求用户切回普通供应商。
+bool ProxyModeInUse(std::string_view tool) {
     try {
         const auto& group = providerStore().group(std::string(tool));
-        if (group.current.empty()) return false;
-        for (const auto& provider : group.providers) {
-            if (provider.id == group.current) {
-                return models::isAggregateProvider(provider);
-            }
-        }
+        return group.mode == "route" || group.mode == "aggregate";
     } catch (...) {
+        return false;
     }
-    return false;
 }
 
-bool AnyAggregateProviderInUse() {
+bool AnyProxyModeInUse() {
     for (const auto& spec : models::toolRegistry()) {
-        if (AggregateProviderInUse(spec.id)) return true;
+        if (ProxyModeInUse(spec.id)) return true;
     }
     return false;
 }
@@ -252,6 +248,8 @@ huxerui::Color StatusColor(int status, const huxerui::ThemeSpec& theme) {
             if (!isVisible) return std::function<void()>{[] {}};
             ReplaceLogList(logs, routerInstance().recentLogs(50));
             running = routerInstance().running();
+            failover = providerStore().config().routerFailover;
+            enabledTools = providerStore().config().routerTools;
             const auto polling = tasks.Launch([=]() -> huxerui::Task<void> {
                 while (true) {
                     co_await huxerui::Delay(std::chrono::seconds{2});
@@ -265,8 +263,8 @@ huxerui::Color StatusColor(int status, const huxerui::ThemeSpec& theme) {
 
     // 启用开关：start/stop 为快操作，UI 线程直接做；立即落盘 routerEnabled。
     auto setRunning = [=](bool on) {
-        if (!on && AnyAggregateProviderInUse()) {
-            toast.Show("有聚合供应商正在使用本地路由，请先切换到普通供应商");
+        if (!on && AnyProxyModeInUse()) {
+            toast.Show("有 Agent 正在路由或聚合，请先回到直连");
             running = routerInstance().running();
             return;
         }
@@ -295,8 +293,8 @@ huxerui::Color StatusColor(int status, const huxerui::ThemeSpec& theme) {
             toast.Show("端口无效：请输入 1-65535 的整数");
             return;
         }
-        if (routerInstance().running() && AnyAggregateProviderInUse()) {
-            toast.Show("有聚合供应商正在使用本地路由，请先切换到普通供应商再改端口");
+        if (routerInstance().running() && AnyProxyModeInUse()) {
+            toast.Show("有 Agent 正在路由或聚合，请先回到直连再改端口");
             return;
         }
         try {
@@ -319,22 +317,51 @@ huxerui::Color StatusColor(int status, const huxerui::ThemeSpec& theme) {
         failover = on;
     };
 
-    // 单 Agent 开关：先持久化，再更新线程安全的运行时路由表；运行中的服务
-    // 无需重启。失败时保持 UI 与运行时原状态。
+    // 单 Agent 开关 = 进入/退出路由模式。打开时选择一个普通供应商作为
+    // 路由目标并改写 live 配置；关闭时回到 direct 回退供应商。失败时保持
+    // UI 与运行时原状态。
     auto setToolEnabled = [=](std::string tool, bool on) {
-        if (!on && AggregateProviderInUse(tool)) {
-            toast.Show(std::format("{} 当前使用聚合供应商，不能关闭代理",
-                                   ToolName(tool)));
-            return;
-        }
         try {
-            providerStore().setRouterToolEnabled(tool, on);
-            routerInstance().setToolEnabled(tool, on);
+            const auto group = providerStore().group(tool);
+            if (on) {
+                if (group.mode != "route") {
+                    std::string target = group.direct;
+                    if (target.empty()) {
+                        for (const auto& provider : group.providers) {
+                            if (!models::isAggregateProvider(provider)) {
+                                target = provider.id;
+                                break;
+                            }
+                        }
+                    }
+                    if (target.empty()) {
+                        toast.Show(std::format(
+                            "{} 没有可路由的普通供应商，请先在 Agent 页新增",
+                            ToolName(tool)));
+                        enabledTools = providerStore().config().routerTools;
+                        return;
+                    }
+                    StartRoute(tool, target);
+                } else {
+                    providerStore().setRouterToolEnabled(tool, true);
+                    routerInstance().setToolEnabled(tool, true);
+                }
+                toast.Show(std::format("{} 已进入路由模式", ToolName(tool)));
+            } else {
+                if (group.mode == "route" || group.mode == "aggregate") {
+                    StopRoute(tool);
+                    toast.Show(std::format("{} 已回到直连", ToolName(tool)));
+                } else {
+                    providerStore().setRouterToolEnabled(tool, false);
+                    routerInstance().setToolEnabled(tool, false);
+                    toast.Show(std::format("{} 代理已关闭", ToolName(tool)));
+                }
+            }
+            running = routerInstance().running();
             enabledTools = providerStore().config().routerTools;
-            toast.Show(std::format("{} 代理已{}", ToolName(tool),
-                                   on ? "启用" : "关闭"));
         } catch (const std::exception& e) {
             toast.Show(e.what());
+            running = routerInstance().running();
             enabledTools = providerStore().config().routerTools;
         }
     };

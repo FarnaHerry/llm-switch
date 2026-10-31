@@ -589,9 +589,10 @@ void MoveEntry(huxerui::State<std::vector<ModelEntry>> entries,
                     provider.upstreamFormat = DefaultUpstreamFormat(tool);
                     provider.apiFormat.clear();
                     provider.upstreams = std::move(upstreams);
+                    const auto currentGroup = providerStore().group(tool);
                     const bool wasCurrent =
-                        !isNew &&
-                        providerStore().group(tool).current == provider.id;
+                        !isNew && currentGroup.mode == "aggregate" &&
+                        currentGroup.current == provider.id;
                     try {
                         if (isNew) {
                             providerStore().addProvider(tool,

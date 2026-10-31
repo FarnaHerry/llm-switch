@@ -445,6 +445,31 @@ int main() {
         const auto j = readJson(claudeSettings);
         CHECK(j["env"]["ANTHROPIC_MODEL"] == "model-a");
         CHECK(s.group("claude-code").current == idA);
+        CHECK(s.group("claude-code").mode == "direct");
+        CHECK(s.group("claude-code").direct == idA);
+    }
+
+    // 3a. 路由模式：普通供应商的 live 地址也指向本地路由，direct 保留
+    //     切回直连时要恢复的供应商；切回直连后模式与 live 地址一起还原。
+    s.switchTo("claude-code", idB, /*viaRouter=*/true);
+    {
+        const auto j = readJson(claudeSettings);
+        CHECK(j["env"]["ANTHROPIC_BASE_URL"] ==
+              std::format("http://127.0.0.1:{}/claude-code",
+                          s.config().routerPort));
+        CHECK(j["env"]["ANTHROPIC_AUTH_TOKEN"] == "llmswitch-route");
+        CHECK(s.group("claude-code").mode == "route");
+        CHECK(s.group("claude-code").current == idB);
+        CHECK(s.group("claude-code").direct == idA);
+    }
+    s.switchTo("claude-code", idA);
+    {
+        const auto j = readJson(claudeSettings);
+        CHECK(j["env"]["ANTHROPIC_BASE_URL"] == "https://a.example.com");
+        CHECK(j["env"]["ANTHROPIC_AUTH_TOKEN"] == "sk-a");
+        CHECK(s.group("claude-code").mode == "direct");
+        CHECK(s.group("claude-code").current == idA);
+        CHECK(s.group("claude-code").direct == idA);
     }
 
     // 3aa. 聚合供应商：live 配置指向本地路由，写本地占位 key；默认模型
@@ -472,10 +497,39 @@ int main() {
                           s.config().routerPort));
         CHECK(j["env"]["ANTHROPIC_AUTH_TOKEN"] == "llmswitch-aggregate");
         CHECK(j["env"]["ANTHROPIC_MODEL"] == "model-agg");
+        CHECK(s.group("claude-code").mode == "aggregate");
         CHECK(s.group("claude-code").current == idAgg);
+        CHECK(s.group("claude-code").direct == idA);
         CHECK(s.group("claude-code").providers.back().upstreams.size() == 2);
     }
     s.switchTo("claude-code", idA);
+    {
+        CHECK(s.group("claude-code").mode == "direct");
+        CHECK(s.group("claude-code").direct == idA);
+        // 模式与 direct 回退写入 config.json 后能原样读回。
+        const auto parsed = models::fromJson(models::toJson(s.config()));
+        const auto& group = parsed.groups.at("claude-code");
+        CHECK(group.mode == "direct");
+        CHECK(group.direct == idA);
+    }
+
+    // 3a2. 旧配置没有 mode/direct：按 current 条目形态迁移；普通供应商
+    //       默认直连，聚合项进入聚合页签。
+    {
+        auto legacy = models::toJson(s.config());
+        auto& legacyGroup = legacy["groups"]["claude-code"];
+        legacyGroup["current"] = idAgg;
+        legacyGroup.erase("mode");
+        legacyGroup.erase("direct");
+        const auto migrated = models::fromJson(legacy);
+        CHECK(migrated.groups.at("claude-code").mode == "aggregate");
+        CHECK(migrated.groups.at("claude-code").direct.empty());
+
+        legacyGroup["current"] = idA;
+        const auto migratedDirect = models::fromJson(legacy);
+        CHECK(migratedDirect.groups.at("claude-code").mode == "direct");
+        CHECK(migratedDirect.groups.at("claude-code").direct == idA);
+    }
 
     // 3ab. 聚合编辑页的模型来源：主模型优先，再按 models 清单补全并去重。
     {
