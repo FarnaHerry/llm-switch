@@ -250,13 +250,14 @@ private:
     float react_elapsed_ = kReactDuration;  // 未点击过 = 已播完（静止）。
 };
 
-// 角标玻璃药丸：固定深色玻璃（不随应用主题），冷白文字。
-huxerui::View TodayBadge(std::int64_t today) {
+// 角标玻璃药丸：主题玻璃底，颜色从 ThemeSpec 派生，浅色主题翻成白玻璃。
+huxerui::View TodayBadge(std::int64_t today,
+                         const huxerui::ThemeSpec& theme) {
     return huxerui::Text(std::format("{} 次", today))
         .Style(huxerui::TextStyle{huxerui::Font::System(font_size::kCaption),
-                                  Color::Rgb(224, 242, 254)})
+                                  theme.colors.on_surface})
         .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(10.0F, 3.0F)),
-              huxerui::Background(Color::Rgb(16, 18, 20, 0.72F)),
+              huxerui::Background(GlassFill(theme, 0.72F)),
               huxerui::CornerRadius(9.0F))
         .With(huxerui::Align(huxerui::HorizontalAlignment::Center,
                              huxerui::VerticalAlignment::End),
@@ -264,11 +265,13 @@ huxerui::View TodayBadge(std::int64_t today) {
 }
 
 // 活跃 Agent 浮标：顶缘居中的一枚玻璃药丸，内嵌最多 2 个品牌色 Agent
-// 图标（深色玻璃底上保持原色）。白龙「双会话」同款语义。
-huxerui::View ActiveAgentBadge(const std::vector<std::string>& tools) {
+// 图标（品牌图标按深浅主题选黑/白变体）。白龙「双会话」同款语义。
+huxerui::View ActiveAgentBadge(const std::vector<std::string>& tools,
+                               const huxerui::ThemeSpec& theme) {
+    const bool dark = theme.brightness == huxerui::ThemeBrightness::Dark;
     std::vector<huxerui::View> icons;
     for (const std::string& tool : tools) {
-        icons.push_back(huxerui::Image(ToolIcon(tool, true))
+        icons.push_back(huxerui::Image(ToolIcon(tool, dark))
                             .With(huxerui::Frame{.width = 14.0F, .height = 14.0F}));
     }
     std::string label;
@@ -279,7 +282,7 @@ huxerui::View ActiveAgentBadge(const std::vector<std::string>& tools) {
     return huxerui::Row{std::move(icons)}
         .With(huxerui::Spacing(5.0F),
               huxerui::Padding(huxerui::EdgeInsets::Symmetric(7.0F, 3.0F)),
-              huxerui::Background(Color::Rgb(16, 18, 20, 0.72F)),
+              huxerui::Background(GlassFill(theme, 0.72F)),
               huxerui::CornerRadius(9.0F),
               huxerui::Semantics{.label = std::format("活跃 Agent：{}", label)})
         .With(huxerui::Align(huxerui::HorizontalAlignment::Center,
@@ -287,14 +290,14 @@ huxerui::View ActiveAgentBadge(const std::vector<std::string>& tools) {
               huxerui::Padding(huxerui::EdgeInsets{.top = 6.0F}));
 }
 
-huxerui::View UnknownActivityBadge() {
+huxerui::View UnknownActivityBadge(const huxerui::ThemeSpec& theme) {
     return huxerui::Row{huxerui::Text("?")
                             .Style(huxerui::TextStyle{
                                 huxerui::Font::System(font_size::kCaption)
                                     .WithWeight(huxerui::FontWeight::Bold),
-                                Color::Rgb(224, 242, 254)})}
+                                theme.colors.on_secondary_container})}
         .With(huxerui::Frame{.width = 20.0F, .height = 20.0F},
-              huxerui::Background(Color::Rgb(71, 85, 105, 0.92F)),
+              huxerui::Background(theme.colors.secondary_container),
               huxerui::CornerRadius(10.0F),
               huxerui::MainAlign(huxerui::MainAxisAlignment::Center),
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
@@ -309,7 +312,8 @@ huxerui::View UnknownActivityBadge() {
 
 [[huxerui::composable]]
 huxerui::View PetLotusBody(
-    const std::shared_ptr<PetController>& controller) {
+    const std::shared_ptr<PetController>& controller,
+    const huxerui::ThemeSpec& theme) {
     const auto window = huxerui::UseWindow();
     const huxerui::ImageAsset lotus =
         huxerui::UseImage(app::images::lotus_bloom_raster);
@@ -319,8 +323,10 @@ huxerui::View PetLotusBody(
     const bool visible =
         window.LifecycleState() != huxerui::WindowLifecycleState::Background;
     std::vector<huxerui::View> children;
-    if (!activeTools.empty()) children.push_back(ActiveAgentBadge(activeTools));
-    if (today > 0) children.push_back(TodayBadge(today));
+    if (!activeTools.empty()) {
+        children.push_back(ActiveAgentBadge(activeTools, theme));
+    }
+    if (today > 0) children.push_back(TodayBadge(today, theme));
     return huxerui::Stack{children}.With(
         huxerui::Indication{},
         Orb{.active = controller->streaming.Get() ||
@@ -337,15 +343,17 @@ huxerui::View PetLotusBody(
 
 [[huxerui::composable]]
 huxerui::View PetSkinFallback(
-    const std::shared_ptr<PetController>& controller, std::string status) {
+    const std::shared_ptr<PetController>& controller, std::string status,
+    const huxerui::ThemeSpec& theme) {
     return huxerui::Stack {
-        PetLotusBody(controller),
+        PetLotusBody(controller, theme),
         huxerui::Text(status)
             .Style(huxerui::TextStyle{
                 huxerui::Font::System(font_size::kCaption),
-                Color::Rgb(224, 242, 254)})
+                theme.colors.on_surface})
             .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(10.0F, 4.0F)),
-                  huxerui::Background(Color::Rgb(16, 18, 20, 0.86F)),
+                  huxerui::Background(GlassFill(theme)),
+                  huxerui::Border{GlassBorder(theme)},
                   huxerui::CornerRadius(9.0F),
                   huxerui::Align(huxerui::HorizontalAlignment::Center,
                                  huxerui::VerticalAlignment::End),
@@ -896,6 +904,13 @@ huxerui::View PetContent() {
     const bool donePending = controller->donePendingAck.Get();
     const bool activityUnknown = controller->activityUnknown.Get();
     const bool compact = controller->compact.Get();
+    const int themeMode = controller->themeMode.Get();
+    const bool systemDark =
+        huxerui::UseSystemThemeBrightness() == huxerui::ThemeBrightness::Dark;
+    const bool dark = themeMode == 1 || (themeMode == 0 && systemDark);
+    const huxerui::ThemeSpec petSpec =
+        dark ? AppDarkThemeSpec() : AppLightThemeSpec();
+    const IslandTheme islands = ResolveIslandTheme(petSpec);
 
     // 角色皮肤优先于胶囊；所有形态共用拖拽、点击分流与右键语义。
     // TODO(pet-theme): 明暗皮肤素材接入后，在这里结合
@@ -904,20 +919,20 @@ huxerui::View PetContent() {
     huxerui::View body;
     const PetSkin skin = controller->skin.Get();
     if (skin == PetSkin::live2d) {
-        body = PetLive2DBody(controller);
+        body = PetLive2DBody(controller, petSpec);
     } else if (skin == PetSkin::shimeji) {
-        body = PetShimejiBody(controller);
+        body = PetShimejiBody(controller, petSpec);
     } else if (compact) {
-        // 状态点：等待输入暖黄 / 工作青蓝 / failure 误差红 / done 冷白。
-        Color dot = Color::Rgb(154, 161, 170, 0.9F);
+        // 状态点：等待输入暖黄 / 工作主题蓝 / failure 误差红 / done 正文色。
+        Color dot = petSpec.colors.on_surface_variant;
         if (controller->waitingForInput.Get()) {
-            dot = Color::Rgb(251, 191, 36);
+            dot = islands.warning;
         } else if (controller->streaming.Get() || controller->agentWorking.Get()) {
-            dot = Color::Rgb(56, 189, 248);
+            dot = petSpec.colors.primary;
         } else if (controller->failure.Get()) {
-            dot = Color::Rgb(240, 115, 108);
+            dot = petSpec.colors.error;
         } else if (donePending) {
-            dot = Color::Rgb(224, 242, 254, 0.95F);
+            dot = petSpec.colors.on_surface;
         }
         body = huxerui::Row {
             huxerui::Row{}.With(huxerui::Frame{.width = 10.0F, .height = 10.0F},
@@ -926,20 +941,20 @@ huxerui::View PetContent() {
             huxerui::Text(std::format("{} 次", today))
                 .Style(huxerui::TextStyle{
                     huxerui::Font::System(font_size::kCaption),
-                    Color::Rgb(224, 242, 254)}),
+                    petSpec.colors.on_surface}),
         }.With(huxerui::Spacing(7.0F),
                huxerui::Padding(huxerui::EdgeInsets::Symmetric(14.0F, 4.0F)),
-               huxerui::Background(Color::Rgb(16, 18, 20, 0.86F)),
+               huxerui::Background(GlassFill(petSpec)),
                huxerui::CornerRadius(20.0F),
-               huxerui::Border{Color::Rgb(224, 242, 254, 0.14F)},
+               huxerui::Border{GlassBorder(petSpec)},
                huxerui::MainAlign(huxerui::MainAxisAlignment::Center),
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
                huxerui::Grow(1.0F));
     } else {
-        body = PetLotusBody(controller);
+        body = PetLotusBody(controller, petSpec);
     }
     if (activityUnknown) {
-        body = huxerui::Stack{body, UnknownActivityBadge()}
+        body = huxerui::Stack{body, UnknownActivityBadge(petSpec)}
                    .With(huxerui::Grow(1.0F));
     }
 
@@ -978,10 +993,6 @@ huxerui::View PetContent() {
     // 上，函数体顶层 UseMenu() 捕获的是默认环境（右键菜单落回框架默认浅色
     // 样式）——与 app.cpp 的 DialogHandle 同款坑（AGENTS.md UI 视觉硬约束）。
     // Scope 的工厂在组合期执行，Use* 合法（app.cpp windowBehavior 同款）。
-    const int themeMode = controller->themeMode.Get();
-    const bool systemDark =
-        huxerui::UseSystemThemeBrightness() == huxerui::ThemeBrightness::Dark;
-    const bool dark = themeMode == 1 || (themeMode == 0 && systemDark);
     return huxerui::Theme(
         PetThemeDefinition(dark, true),
         huxerui::Scope([controller, activation, application, nav, appTasks,

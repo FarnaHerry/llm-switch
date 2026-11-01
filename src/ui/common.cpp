@@ -109,15 +109,8 @@ std::size_t ToolRegistryIndex(std::string_view tool) {
 }
 
 IslandTheme ResolveIslandTheme(const huxerui::ThemeSpec& theme) {
-    // 黑白双色：卡片/浮层使用不透明的中性表面，不再透出环境色；页面背景与
-    // 卡片之间只靠明度差和发丝描边分层。环境光与装饰不能把蓝色带进表面。
-    const auto translucent = [](huxerui::Color c, float a) {
-        c.alpha = a;
-        return c;
-    };
-    // 状态色深浅分档：ThemeSpec 无 success/warning 槽位，按海面亮度（WCAG
-    // 相对亮度）选一组——浅色用深一档的绿/琥珀保证作文字 ≥4.5:1，深色维持
-    // 在深底上对比度本就充足的亮色。
+    // 黑白双色：海面、页面岛、强调卡片、浮层的颜色全部来自 ThemeSpec，
+    // 页面层不再写死 RGB。卡片的明度差参考 Clash-Flux 的 island 分层。
     const auto luminance = [](huxerui::Color c) {
         const auto channel = [](float v) {
             return v <= 0.04045F ? v / 12.92F
@@ -132,14 +125,15 @@ IslandTheme ResolveIslandTheme(const huxerui::ThemeSpec& theme) {
         .island_radius = 10.0F,
         .nested_radius = 6.0F,
         .raised = theme.colors.surface_container,
+        .base = theme.colors.surface_container_low,
         .overlay = theme.colors.surface_container_highest,
-        .outline_soft = translucent(theme.colors.outline, 0.72F),
-        .success = dark ? huxerui::Color::Rgb(22, 163, 74)   // #16A34A
-                        : huxerui::Color::Rgb(21, 128, 61),  // #15803D
-        .on_success = dark ? huxerui::Color::Rgb(10, 10, 10) // 深绿上翻黑
+        .outline_soft = theme.colors.outline,
+        .success = dark ? huxerui::Color::Rgb(108, 202, 145) // #6CCA91
+                        : huxerui::Color::Rgb(47, 128, 86),  // #2F8056
+        .on_success = dark ? huxerui::Color::Rgb(26, 27, 28) // 深绿上翻黑
                            : huxerui::Color::Rgb(255, 255, 255),
-        .warning = dark ? huxerui::Color::Rgb(202, 138, 4)   // #CA8A04
-                        : huxerui::Color::Rgb(180, 84, 10),  // #B4540A
+        .warning = dark ? huxerui::Color::Rgb(230, 184, 102) // #E6B866
+                        : huxerui::Color::Rgb(144, 96, 8),   // #906008
     };
 }
 
@@ -220,15 +214,15 @@ IslandTheme ResolveIslandTheme(const huxerui::ThemeSpec& theme) {
         huxerui::Padding(islands.island_padding));
 }
 
-// 列表条目卡：与 Card 同为 raised 表面 + 6pt 圆角，但去掉描边——列表里
+// 列表条目卡：用更贴近海面的 base 表面 + 6pt 圆角，去掉描边——列表里
 // 逐项画框会退成「一串格子」，条目间靠表面色差与缝隙分层即可。用于
-// 供应商/技能/MCP/会话等重复条目；独立分区仍用 Card。
+// 供应商/技能/MCP/会话等重复条目；独立强调分区仍用 Card。
 [[huxerui::composable]] huxerui::View QuietCard(huxerui::View content) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     const IslandTheme islands = ResolveIslandTheme(theme);
     huxerui::View card = content;
     return std::move(card).With(
-        huxerui::Background(islands.raised),
+        huxerui::Background(islands.base),
         huxerui::CornerRadius(islands.nested_radius),
         huxerui::Padding(islands.island_padding));
 }

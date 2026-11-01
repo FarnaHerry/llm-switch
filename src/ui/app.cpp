@@ -3,8 +3,9 @@
 //     菱形和细线装饰；悬停时整组高亮，并在屏幕中央展开环形顶级页面图标。
 //     框架在右侧渲染窗口按钮；标题栏
 //     收窄为 24px 高、去背景直接融入窗口底色。主题为黑白双色：
-//     深色近黑底 / 浅色纯白底，背景、卡片、描边和装饰只用中性黑白灰；
-//     主题蓝只用于主要操作按钮、选中态和焦点，环境层只做中性明度光晕。
+//     深色石墨灰底 / 浅色中性白灰底，海面与卡片分层参考 Clash-Flux；
+//     背景、卡片、描边和装饰只用中性黑白灰；主题蓝只用于主要操作按钮、
+//     选中态和焦点，环境层只做中性明度光晕。
 //   下方：内容区独占整行（Agent 管理页内再分二级工具栏 + 页面自己的
 //   一级岛屿——PageScaffold，外壳不再套岛）。根节点刷整窗海面底色
 //   （rootSpec.colors.background——AppRoot 在主题 provider 之上，UseTheme 只能
@@ -55,7 +56,7 @@ huxerui::View AppThemed(bool dark, huxerui::View content) {
 
     huxerui::ButtonStyle buttons; // Default()：corner_radius=8、padding Symmetric(14,8)
     // 普通按钮走中性表面；只有 PrimaryAction 包裹的主要操作使用主题蓝。
-    buttons.background = spec.colors.surface_container_high;
+    buttons.background = spec.colors.secondary_container;
     buttons.label_style = huxerui::TextStyle{huxerui::Font::System(font_size::kBody),
                                              spec.colors.on_surface};
     buttons.disabled_background =
@@ -1014,10 +1015,12 @@ constexpr double kCollapseSeconds = 0.12;
         }.With(huxerui::Grow(1.0F),
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)));
 
+    huxerui::Color radialScrim = theme.colors.scrim;
+    radialScrim.alpha = 0.46F;
     return huxerui::Stack {
         huxerui::Row {}.With(
             huxerui::Grow(1.0F),
-            huxerui::Background(huxerui::Color::Rgb(12, 18, 24, 0.46F)),
+            huxerui::Background(radialScrim),
             huxerui::Opacity(huxerui::AnimateTo(
                 revealed.Get() ? 1.0F : 0.0F, motion))),
         navigation,
@@ -1132,20 +1135,20 @@ constexpr double kCollapseSeconds = 0.12;
     return TopLevelPageHost(navPage, cachedPages, pageReveal);
 }
 
-// 环境光：黑白主题的窗口底纹。深色在近黑海面上叠一层极淡白晕，浅色在纯白
-// 海面顶部叠一层极淡黑晕；只做明度变化，不把任何彩色带进页面背景。
+// 环境光：黑白主题的窗口底纹。颜色取自当前 ThemeSpec 的反色表面（深色主题
+// 是白晕、浅色主题是黑晕），只做明度变化，不把任何彩色带进页面背景。
 // Canvas 直接铺满宿主（不要包 Align/Frame：Align 会把画布按父约束撑满，
 // 画布本就是全幅），光斑按画布尺寸取比例，窗口缩放时不失真。只把光斑
 // 实际覆盖的顶部画进 cairo 批次（深 72% / 浅 56% 窗高；渐变中心/半径按
 // 裁剪矩形归一化，且纵向半径恰好在裁剪线上衰减到 0，无接缝）——GTK
 // 后端动画期间全窗内容逐帧重光栅化，环境光是最大的单件，裁掉恒为零的
 // 尾部直接减少每帧光栅面积。
-huxerui::View AmbientGlow(bool dark) {
+huxerui::View AmbientGlow(const huxerui::ThemeSpec& theme) {
+    const bool dark = theme.brightness == huxerui::ThemeBrightness::Dark;
+    huxerui::Color inner = theme.colors.inverse_surface;
+    inner.alpha = dark ? 0.055F : 0.035F;
     return huxerui::Canvas(
-        [dark](huxerui::PaintContext& paint, huxerui::Size size) {
-            huxerui::Color inner =
-                dark ? huxerui::Color::Rgb(255, 255, 255, 0.045F)
-                     : huxerui::Color::Rgb(0, 0, 0, 0.028F);
+        [dark, inner](huxerui::PaintContext& paint, huxerui::Size size) {
             huxerui::Color outer = inner;
             outer.alpha = 0.0F;
             // 光斑中心按窗口高度定位（深色 0.30 / 浅色 0.10），换算进裁剪
@@ -1534,10 +1537,10 @@ void InstallApplication(huxerui::ApplicationContext& context) {
     const float shellInset =
         compactShell ? rootSpec.spacing.medium : rootSpec.spacing.large;
 
-    // 叠放根：环境层只有一层冷调环境光，内容仍以轻岛屿组织并透出环境；
+    // 叠放根：环境层只有一层中性明度环境光，内容仍以轻岛屿组织并透出环境；
     // 最外层仍刷海面底色，保证极端宽高比下背景稳定。
     huxerui::View content = huxerui::Stack {
-        AmbientGlow(dark),
+        AmbientGlow(rootSpec),
         huxerui::Column {
             // 标题栏只负责应用名、拖拽区和系统按钮预留；莲花锚点在下方根级
             // 覆盖层按整窗宽度居中，避免被右侧最小化/最大化/关闭按钮推偏。

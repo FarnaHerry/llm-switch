@@ -9,9 +9,10 @@ namespace llmswitch::ui {
 
 bool PetLive2DAvailable() { return false; }
 
-huxerui::View PetLive2DBody(const std::shared_ptr<PetController>& controller) {
+huxerui::View PetLive2DBody(const std::shared_ptr<PetController>& controller,
+                            const huxerui::ThemeSpec& theme) {
     return PetSkinFallback(controller,
-                           "此构建未启用 Live2D，已显示莲花球");
+                           "此构建未启用 Live2D，已显示莲花球", theme);
 }
 
 } // namespace llmswitch::ui

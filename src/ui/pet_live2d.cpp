@@ -127,16 +127,16 @@ pet_profile::Live2DModel BundledModel() {
     return model;
 }
 
-huxerui::View LoadingBadge(std::string text, bool error = false) {
+huxerui::View LoadingBadge(std::string text, bool error,
+                           const huxerui::ThemeSpec& theme) {
     return huxerui::Text(std::move(text))
         .Style(huxerui::TextStyle{
             huxerui::Font::System(font_size::kCaption),
-            error ? huxerui::Color::Rgb(240, 115, 108)
-                  : huxerui::Color::Rgb(224, 242, 254)})
+            error ? theme.colors.error : theme.colors.on_surface})
         .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(14.0F, 6.0F)),
-              huxerui::Background(huxerui::Color::Rgb(16, 18, 20, 0.86F)),
+              huxerui::Background(GlassFill(theme)),
               huxerui::CornerRadius(12.0F),
-              huxerui::Border{huxerui::Color::Rgb(224, 242, 254, 0.14F)},
+              huxerui::Border{GlassBorder(theme)},
               huxerui::Align(huxerui::HorizontalAlignment::Center,
                              huxerui::VerticalAlignment::Center),
               huxerui::Grow(1.0F));
@@ -147,7 +147,8 @@ huxerui::View LoadingBadge(std::string text, bool error = false) {
 bool PetLive2DAvailable() { return true; }
 
 [[huxerui::composable]]
-huxerui::View PetLive2DBody(const std::shared_ptr<PetController>& controller) {
+huxerui::View PetLive2DBody(const std::shared_ptr<PetController>& controller,
+                            const huxerui::ThemeSpec& theme) {
     auto model = huxerui::UseState(pet_profile::Live2DModel{});
     auto asset = huxerui::UseState(live2d::ModelAsset{});
     auto controller2d = huxerui::UseState(live2d::ModelController{});
@@ -259,8 +260,8 @@ huxerui::View PetLive2DBody(const std::shared_ptr<PetController>& controller) {
 
     const live2d::ModelAsset current = asset.Get();
     if (!current.HasValue()) {
-        if (!status.Get().empty()) return PetSkinFallback(controller, status.Get());
-        return LoadingBadge("加载 Live2D…");
+        if (!status.Get().empty()) return PetSkinFallback(controller, status.Get(), theme);
+        return LoadingBadge("加载 Live2D…", false, theme);
     }
 
     const live2d::ModelController command = controller2d.Get();
@@ -324,7 +325,7 @@ huxerui::View PetLive2DBody(const std::shared_ptr<PetController>& controller) {
     if (!status.Get().empty()) {
         body = huxerui::Stack {
             std::move(body),
-            LoadingBadge(status.Get(), true)
+            LoadingBadge(status.Get(), true, theme)
                 .With(huxerui::Align(huxerui::HorizontalAlignment::Center,
                                      huxerui::VerticalAlignment::End)),
         }.With(huxerui::Grow(1.0F));

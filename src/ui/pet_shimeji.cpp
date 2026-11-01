@@ -310,14 +310,16 @@ private:
     huxerui::MotionController reaction_{1.0F};
 };
 
-huxerui::View LoadingBadge(std::string text) {
+huxerui::View LoadingBadge(std::string text,
+                           const huxerui::ThemeSpec& theme) {
     return huxerui::Text(std::move(text))
         .Style(huxerui::TextStyle{
             huxerui::Font::System(font_size::kCaption),
-            huxerui::Color::Rgb(224, 242, 254)})
+            theme.colors.on_surface})
         .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(14.0F, 6.0F)),
-              huxerui::Background(huxerui::Color::Rgb(16, 18, 20, 0.86F)),
+              huxerui::Background(GlassFill(theme)),
               huxerui::CornerRadius(12.0F),
+              huxerui::Border{GlassBorder(theme)},
               huxerui::Align(huxerui::HorizontalAlignment::Center,
                              huxerui::VerticalAlignment::Center),
               huxerui::Grow(1.0F));
@@ -326,7 +328,8 @@ huxerui::View LoadingBadge(std::string text) {
 } // namespace
 
 [[huxerui::composable]]
-huxerui::View PetShimejiBody(const std::shared_ptr<PetController>& controller) {
+huxerui::View PetShimejiBody(const std::shared_ptr<PetController>& controller,
+                             const huxerui::ThemeSpec& theme) {
     auto runtime = huxerui::UseState<std::shared_ptr<Runtime>>({});
     auto status = huxerui::UseState<std::string>({});
     auto cacheRevision = huxerui::UseState(0);
@@ -336,7 +339,6 @@ huxerui::View PetShimejiBody(const std::shared_ptr<PetController>& controller) {
     auto dropping = huxerui::UseState(false);
     auto handledDrop = huxerui::UseState<std::uint64_t>(0);
     auto hovered = huxerui::UseState(false);
-    const auto theme = huxerui::UseTheme();
     const auto tasks = huxerui::UseTaskScope();
     const auto appTasks = huxerui::UseApplicationTaskScope();
     const auto application = huxerui::UseApplication();
@@ -387,8 +389,8 @@ huxerui::View PetShimejiBody(const std::shared_ptr<PetController>& controller) {
 
     const auto current = runtime.Get();
     if (!current) {
-        if (!status.Get().empty()) return PetSkinFallback(controller, status.Get());
-        return LoadingBadge("加载 Shimeji…");
+        if (!status.Get().empty()) return PetSkinFallback(controller, status.Get(), theme);
+        return LoadingBadge("加载 Shimeji…", theme);
     }
 
     const shimeji::Activity activity = CurrentActivity(controller);
@@ -465,7 +467,7 @@ huxerui::View PetShimejiBody(const std::shared_ptr<PetController>& controller) {
     if (!status.Get().empty()) {
         return huxerui::Stack {
             std::move(sprite),
-            LoadingBadge(status.Get())
+            LoadingBadge(status.Get(), theme)
                 .With(huxerui::Align(huxerui::HorizontalAlignment::Center,
                                      huxerui::VerticalAlignment::End)),
         }.With(huxerui::Grow(1.0F));

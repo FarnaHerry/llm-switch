@@ -69,12 +69,13 @@ huxerui::ImageResource PresetIcon(std::string_view providerName);
 // 语义层级：颜色由当前 ThemeSpec 派生，深浅主题共用组件，页面不直接依赖
 // Material 的 surface_container_* 命名。
 // 注：顶级页面已不再有自己的一级岛表面（页面与标题栏共用窗口表面），
-// 这里的 raised / overlay 供二级岛（Card/QuietCard）与浮层使用。
+// 这里的 base / raised / overlay 供 QuietCard、强调 Card 与浮层使用。
 struct IslandTheme {
     float island_padding;  // 岛内边距（页面/卡片共用）
     float island_radius;   // 一级岛圆角（浮层卡片仍在用）
     float nested_radius;   // 二级岛/浮动菜单圆角（当前 6pt）
-    huxerui::Color raised;  // 二级岛表面
+    huxerui::Color raised;  // 强调卡片/二级岛表面
+    huxerui::Color base;    // 常规列表条目/页面岛表面
     huxerui::Color overlay; // 浮动面
     huxerui::Color outline_soft;
     // 语义状态色：ThemeSpec 没有 success/warning 槽位，由 ResolveIslandTheme

@@ -257,13 +257,17 @@ struct PetController {
 
 bool PetLive2DAvailable();
 [[huxerui::composable]] huxerui::View PetLive2DBody(
-    const std::shared_ptr<PetController>& controller);
+    const std::shared_ptr<PetController>& controller,
+    const huxerui::ThemeSpec& theme);
 [[huxerui::composable]] huxerui::View PetShimejiBody(
-    const std::shared_ptr<PetController>& controller);
+    const std::shared_ptr<PetController>& controller,
+    const huxerui::ThemeSpec& theme);
 [[huxerui::composable]] huxerui::View PetLotusBody(
-    const std::shared_ptr<PetController>& controller);
+    const std::shared_ptr<PetController>& controller,
+    const huxerui::ThemeSpec& theme);
 [[huxerui::composable]] huxerui::View PetSkinFallback(
-    const std::shared_ptr<PetController>& controller, std::string status);
+    const std::shared_ptr<PetController>& controller, std::string status,
+    const huxerui::ThemeSpec& theme);
 [[huxerui::composable]] huxerui::View PetModelSettings();
 
 inline void UsePetAttachment(const std::shared_ptr<PetController>& controller) {

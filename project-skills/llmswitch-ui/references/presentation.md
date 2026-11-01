@@ -1,14 +1,20 @@
 # 视觉与资源契约
 
 代码路径相对仓库根目录；主题唯一入口为 src/ui/theme_colors.h，主应用与 Windows
-安装器共享。当前是黑白双色：深色近黑、浅色纯白，背景/卡片/描边/图标只用
-中性黑白灰；主题蓝 #2563EB 只用于主要操作与交互状态，不从历史截图抄旧主题常量。
+安装器共享。当前是黑白双色：深色石墨灰、浅色中性白灰，中性色阶对齐
+Clash-Flux 的 FluxDarkColors / FluxLightColors；背景/卡片/描边/图标只用
+中性黑白灰。主题蓝 #2563EB 只用于主要操作与交互状态，不从历史截图抄旧主题常量。
 
 ## UI 视觉硬约束
 
 - 总体风格是黑白双色的“岛屿风”：环境层只有一层中性明度光晕（深色白晕/
   浅色黑晕），内容仍以轻量、分层、可读的岛屿组织，不把环境装饰压到交互内容之上。
   页面背景与卡片必须保持纯中性色，不得重新引入蓝灰、海军蓝或青蓝底。
+- 海面、页面岛、强调卡片、浮层、桌宠玻璃药丸的颜色全部从当前 `ThemeSpec`
+  派生（`background` / `surface_container_low` / `surface_container` /
+  `surface_container_highest`），页面和组件里不得写死背景 RGB。卡片层级参考
+  Clash-Flux：`QuietCard` 用 `surface_container_low`，`Card` 用
+  `surface_container`，浮层用 `surface_container_highest`。
 - **全部带标题栏的窗口一律自定义标题栏**（`WindowChromeMode::Custom` +
   `title_bar_height = 24` + `WindowTitleBar`：莲花图标 + 应用名 + 框架渲染的
   caption 控件，左右边距与正文同 `spacing.large`）：主窗口、桌宠信息卡、
