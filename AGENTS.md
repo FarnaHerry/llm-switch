@@ -48,7 +48,7 @@
 | 配置、供应商、路由、MCP、Skills、会话、用量 | [llmswitch-domain](project-skills/llmswitch-domain/SKILL.md) |
 | C++ 模块、资源管理、构建、依赖、平台、CI、规范维护 | [llmswitch-build](project-skills/llmswitch-build/SKILL.md) |
 
-UI 工作还必须读取实际使用版本的 `huxerui-app-development/SKILL.md`：
+任何 UI 修改开始前，必须先读取实际使用版本的 `huxerui-app-development/SKILL.md`：
 源码模式取当前源码树 `skills/`，SDK 模式取其 `share/huxerui/skills/`。
 公开 API 以该版本为准；项目技能不复制上游手册，不混用源码与 SDK 契约。
 活动来源和 hooks 工作另读 [活动集成契约](src/agents/README.md)；资源改动另读
