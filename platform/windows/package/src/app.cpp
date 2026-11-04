@@ -163,8 +163,6 @@ View InstallerMark(Color foreground, Color detail) {
 }
 
 View BrandPanel(const ThemeSpec& theme) {
-  const Color panel_start = theme.colors.surface_container;
-  const Color panel_end = theme.colors.background;
   const Color secondary_text = WithAlpha(theme.colors.on_surface_variant, 0.92F);
 
   return Column {
@@ -186,11 +184,7 @@ View BrandPanel(const ThemeSpec& theme) {
       // 共享同一条左右边线。
       Padding(24.0F),
       Spacing(26.0F),
-      Background(LinearGradient{
-          .start = {0.0F, 0.0F},
-          .end = {1.0F, 1.0F},
-          .stops = {{0.0F, panel_start}, {1.0F, panel_end}},
-      }),
+      Background(theme.colors.surface),
       Border{WithAlpha(theme.colors.outline, 0.45F)},
       CrossAlign(CrossAxisAlignment::Start)
   );

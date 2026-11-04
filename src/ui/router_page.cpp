@@ -417,7 +417,8 @@ huxerui::Color StatusColor(int status, const huxerui::ThemeSpec& theme) {
                   theme.colors.on_surface_variant})}
                   .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(8.0F, 2.0F)),
                         huxerui::Background(theme.colors.surface_container_highest),
-                        huxerui::CornerRadius(8.0F));
+                        huxerui::CornerRadius(8.0F),
+                        huxerui::Border(theme.colors.outline, 1.0F));
 
     return PageScaffold(
         "本地路由",

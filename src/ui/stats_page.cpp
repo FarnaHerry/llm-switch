@@ -316,6 +316,7 @@ huxerui::Task<huxerui::sqlite::Result<usage::UsageSnapshot>> ClearUsageDatabase(
            huxerui::Padding(huxerui::EdgeInsets::Symmetric(12.0F, 10.0F)),
            huxerui::Background(islands.overlay),
            huxerui::CornerRadius(islands.nested_radius),
+           huxerui::Border(islands.outline_soft, 1.0F),
            huxerui::Grow(1.0F));
 }
 

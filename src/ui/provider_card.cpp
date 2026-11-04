@@ -247,7 +247,8 @@ huxerui::View StatusText(const StatusPreview& preview, const std::string& full,
                   .With(huxerui::Padding(
                             huxerui::EdgeInsets::Symmetric(8.0F, 2.0F)),
                         huxerui::Background(theme.colors.surface_container_high),
-                        huxerui::CornerRadius(islands.nested_radius))
+                        huxerui::CornerRadius(islands.nested_radius),
+                        huxerui::Border(islands.outline_soft, 1.0F))
             : huxerui::View{huxerui::Row{}};
     huxerui::View accessLine =
         aggregate
@@ -289,7 +290,8 @@ huxerui::View StatusText(const StatusPreview& preview, const std::string& full,
                                     statusActive
                                         ? theme.colors.inverse_surface
                                         : theme.colors.surface_container_high),
-                                huxerui::CornerRadius(islands.nested_radius)),
+                                huxerui::CornerRadius(islands.nested_radius),
+                                huxerui::Border(islands.outline_soft, 1.0F)),
                 std::move(kindBadge),
             }.With(huxerui::Spacing(6.0F),
                    huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),

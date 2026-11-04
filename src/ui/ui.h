@@ -78,15 +78,16 @@ struct IslandTheme {
     huxerui::Color base;    // 常规列表条目/页面岛表面
     huxerui::Color overlay; // 浮动面
     huxerui::Color outline_soft;
-    // 语义状态色：ThemeSpec 没有 success/warning 槽位，由 ResolveIslandTheme
-    // 按海面亮度分深浅取值（作正文文字时两套主题都过 AA）。success 兼作状态
-    // 文字与徽章底；on_success 是徽章底上的文字（浅色翻白、深色翻墨青）。
+    // 状态沿用黑白主题，具体含义由文字与图标表达。
     huxerui::Color success;
     huxerui::Color on_success;
     huxerui::Color warning;
 };
 
 IslandTheme ResolveIslandTheme(const huxerui::ThemeSpec& theme);
+
+// SDK 浮层通过无模糊的 1pt 外扩描边与同色页面分离。
+huxerui::Shadow FloatingOutline(const huxerui::ThemeSpec& theme);
 
 // ---- 页面（定义在各自 .cpp，均为 [[huxerui::composable]]）----
 // 桌宠工作台：活动首页，以及已接入的会话、统计和 Agent 页面。
@@ -162,8 +163,8 @@ huxerui::View PageScaffoldWithHeader(huxerui::View header,
 // 强调的独立块与浮层内容。
 huxerui::View Card(huxerui::View content);
 
-// 列表条目卡：同 Card 的表面/圆角/内边距，但无边框——重复条目（供应商/
-// 技能/MCP/会话行）连排时逐项描边会退成格子感，靠表面色差分层即可。
+// 列表条目卡：纯色表面 + 1pt 描边线条区分区域（纯色下表面色差消失，
+// 线条是唯一的分区手段）。用于供应商/技能/MCP/会话等重复条目。
 huxerui::View QuietCard(huxerui::View content);
 
 // 平铺分区：标题 + 内容直接落在一级岛上，不包卡；分区之间用 SectionDivider

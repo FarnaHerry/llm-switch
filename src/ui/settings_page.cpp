@@ -98,7 +98,8 @@ std::size_t CloseBehaviorIndex(std::string_view behavior) {
         if (selected) {
             button = std::move(button).With(
                 huxerui::Background(theme.colors.surface_container_high),
-                huxerui::CornerRadius(18.0F));
+                huxerui::CornerRadius(18.0F),
+                huxerui::Border(theme.colors.outline, 1.0F));
         }
         return huxerui::Theme(selected ? iconOnTheme : iconOffTheme,
                               std::move(button));

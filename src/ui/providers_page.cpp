@@ -320,7 +320,8 @@ using provider_detail::WriteUsageCache;
         routeBanner = std::move(routeBanner).With(
             huxerui::Padding(huxerui::EdgeInsets::Symmetric(12.0F, 8.0F)),
             huxerui::Background(islands.raised),
-            huxerui::CornerRadius(islands.nested_radius));
+            huxerui::CornerRadius(islands.nested_radius),
+            huxerui::Border(islands.outline_soft, 1.0F));
     }
 
     huxerui::View aggregateBanner = huxerui::Row{};
@@ -349,7 +350,8 @@ using provider_detail::WriteUsageCache;
         aggregateBanner = std::move(aggregateBanner).With(
             huxerui::Padding(huxerui::EdgeInsets::Symmetric(12.0F, 8.0F)),
             huxerui::Background(islands.raised),
-            huxerui::CornerRadius(islands.nested_radius));
+            huxerui::CornerRadius(islands.nested_radius),
+            huxerui::Border(islands.outline_soft, 1.0F));
     }
 
     huxerui::View directNote = huxerui::Row{};
@@ -363,7 +365,8 @@ using provider_detail::WriteUsageCache;
                     theme.colors.on_surface_variant}),
         }.With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(10.0F, 6.0F)),
                huxerui::Background(islands.raised),
-               huxerui::CornerRadius(islands.nested_radius));
+               huxerui::CornerRadius(islands.nested_radius),
+               huxerui::Border(islands.outline_soft, 1.0F));
     }
 
     huxerui::View providerCards = huxerui::Row{};
@@ -497,7 +500,8 @@ using provider_detail::WriteUsageCache;
                     theme.colors.on_surface_variant})
                 .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(10.0F, 6.0F)),
                       huxerui::Background(islands.raised),
-                      huxerui::CornerRadius(islands.nested_radius)));
+                      huxerui::CornerRadius(islands.nested_radius),
+                      huxerui::Border(islands.outline_soft, 1.0F)));
     }
     if (view == 0 && mode != "direct") content.push_back(std::move(directNote));
     if (view == 1) content.push_back(std::move(routeBanner));

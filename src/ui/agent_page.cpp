@@ -44,7 +44,8 @@ namespace llmswitch::ui {
     if (selectedIndex.Get() == index) {
         toolButton = std::move(toolButton).With(
             huxerui::Background(islands.overlay),
-            huxerui::CornerRadius(islands.nested_radius));
+            huxerui::CornerRadius(islands.nested_radius),
+            huxerui::Border(islands.outline_soft, 1.0F));
     }
     return toolButton;
 }
@@ -65,6 +66,7 @@ namespace llmswitch::ui {
     }.With(huxerui::Padding(theme.spacing.extra_small),
            huxerui::Background(islands.raised),
            huxerui::CornerRadius(islands.nested_radius),
+           huxerui::Border(islands.outline_soft, 1.0F),
            huxerui::ClipChildren(),
            huxerui::MainAlign(huxerui::MainAxisAlignment::Start),
            huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));

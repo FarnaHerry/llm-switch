@@ -1,9 +1,9 @@
 // pet.cpp — AI 桌宠实现：莲花球视觉（NodeExtension 逐帧重绘）、活动状态轮询、
-// 指针交互与右键菜单。视觉为 llm-switch 冷调石板族的固定深色玻璃球，品牌莲花
-// （lotus_bloom_raster，冷白 alpha-mask）居中呼吸：辉光与缩放随相位起伏，
+// 指针交互与右键菜单。莲花球使用主题纯色底与反色矢量莲花，
+// 深浅主题均为黑白，缩放随相位起伏，
 // 空闲 ~6s 一个呼吸周期。状态由本地路由和用户连接的 Agent hooks 汇总：
 //   路由在途请求或原生 Agent 工作中/等待输入时呼吸更深更快；最近一次请求失败
-//   6s 内叠加误差红脉冲（failure）；一波活动批次（含成功请求）静默 ≥8s 结束
+//   6s 内叠加外环脉冲（failure）；一波活动批次（含成功请求）静默 ≥8s 结束
 //   后右上角挂 ✓ 完成提醒（done，静态绘制，点击/右键/新批次消解，30 秒自动消退）；
 //   底部角标显示今日请求数，顶部浮标显示活跃 Agent（≤2 个）。
 // 动画走 NodeExtension 的保留绘制（30fps 上限，reduced-motion 下静止——✓ 与
@@ -52,17 +52,17 @@ struct Orb {
     // 点击互动（PetController::Play）：epoch 变化触发重播，kind 选动画形态。
     int playEpoch = 0;
     int playKind = 0;
-    // 品牌莲花（组合期经 UseImage 解析；白色 alpha-mask，衬在深色玻璃球上
-    // 无需 tint）。ImageAsset 值语义共享编码存储，比较为内含标识比较。
-    huxerui::ImageAsset lotus{};
+    // 使用矢量标志按主题着色，避免栅格素材自身的冷白色残留。
+    huxerui::VectorAsset lotus{};
+    Color background{};
+    Color foreground{};
     bool operator==(const Orb&) const = default;
 };
 
 // 互动动画时长（秒）：点击后播放一次，结束后静止回呼吸。
 constexpr float kReactDuration = 0.9F;
 
-// 石墨玻璃球 + 青蓝波纹。zero-alpha 像素在 Windows 上原生点击穿透
-// （分层表面按预乘 alpha 命中测试），半透明球体区域保持可交互。
+// 普通纯色球体；球外透明像素在 Windows 上保留原生点击穿透。
 void PaintOrb(huxerui::PaintContext& paint, huxerui::Size size, float phase,
               const Orb& orb, float react_elapsed) {
     const Point center{size.width * 0.5F, size.height * 0.5F};
@@ -73,43 +73,10 @@ void PaintOrb(huxerui::PaintContext& paint, huxerui::Size size, float phase,
     // 互动反应进度（0→1）；epoch 为 0 表示从未点击过。
     const float react = std::clamp(react_elapsed / kReactDuration, 0.0F, 1.0F);
     const bool reacting = orb.playEpoch > 0 && react < 1.0F;
-    // 辉光随呼吸起伏；路由流式请求或原生 hook 工作时基准更亮；互动时短暂提亮。
-    const float intensity =
-        ((orb.active ? 1.0F : 0.6F) + (reacting ? (1.0F - react) * 0.5F : 0.0F)) *
-        (1.0F + 0.12F * std::sin(phase));
-
-    // 球外环境辉光：透明窗口上形成一圈淡青晕。
-    paint.DrawRect({center.x - radius * 1.24F, center.y - radius * 1.24F,
-                    radius * 2.48F, radius * 2.48F},
-                   huxerui::RadialGradient{.stops = {
-                       {0.0F, Color::Rgb(56, 189, 248, 0.14F * intensity)},
-                       {0.70F, Color::Rgb(56, 189, 248, 0.07F * intensity)},
-                       {1.0F, Color::Transparent()},
-                   }});
-    // 球体：石墨玻璃（深色主题表面同族）。
-    paint.FillPath(circle, huxerui::RadialGradient{
-        .center = {0.30F, 0.16F},
-        .radius = {0.95F, 0.95F},
-        .stops = {
-            {0.0F, Color::Rgb(45, 53, 61, 0.98F)},
-            {0.48F, Color::Rgb(26, 30, 34, 0.98F)},
-            {1.0F, Color::Rgb(13, 15, 18, 0.96F)},
-        },
-    }, bounds);
-
+    paint.FillPath(circle, orb.background);
     paint.PushPathClip(circle);
-    // 内部青蓝氤氲。
-    paint.DrawRect(bounds, huxerui::RadialGradient{
-        .center = {0.48F, 0.57F},
-        .radius = {0.65F, 0.43F},
-        .stops = {
-            {0.0F, Color::Rgb(56, 189, 248, 0.30F * intensity)},
-            {0.65F, Color::Rgb(14, 165, 233, 0.10F * intensity)},
-            {1.0F, Color::Transparent()},
-        },
-    });
 
-    // 品牌莲花居中呼吸（白色 alpha-mask 栅格，衬深色玻璃球）：缩放随相位
+    // 品牌莲花居中呼吸（按主题反色绘制矢量资源）：缩放随相位
     // 起伏，活动时呼吸更深更快——OnFrame 的 phase 步长控制呼吸周期。
     // 点击互动叠加一次性位移：弹跳（kind 0）上跳落定，摇摆（kind 1）
     // 阻尼左右晃。
@@ -131,17 +98,12 @@ void PaintOrb(huxerui::PaintContext& paint, huxerui::Size size, float phase,
         const Rect lotus_bounds{center.x - lotus_radius + lotus_dx,
                                 center.y - lotus_radius + lotus_dy,
                                 lotus_radius * 2.0F, lotus_radius * 2.0F};
-        paint.DrawImage(orb.lotus, lotus_bounds);
+        paint.DrawImage(orb.lotus, lotus_bounds, orb.foreground);
     }
 
-    // 顶部冷白高光。
-    paint.DrawRect(bounds, huxerui::RadialGradient{
-        .center = {0.32F, 0.06F}, .radius = {0.68F, 0.48F},
-        .stops = {{0.0F, Color::Rgb(232, 234, 237, 0.16F)}, {1.0F, Color::Transparent()}},
-    });
     paint.PopClip();
 
-    // 闪亮（kind 2）：三粒冷白小点从球顶升起渐隐（球体裁剪之外）。
+    // 闪亮（kind 2）：三粒反色小点从球顶升起并缩小（球体裁剪之外）。
     if (reacting && orb.playKind == 2) {
         for (int i = 0; i < 3; ++i) {
             const float delay = 0.12F * i;
@@ -151,60 +113,51 @@ void PaintOrb(huxerui::PaintContext& paint, huxerui::Size size, float phase,
                 {center.x + (i - 1) * radius * 0.5F,
                  center.y - radius * (0.9F + 0.55F * p)},
                 radius * (0.07F + 0.03F * (1.0F - p)),
-                Color::Rgb(224, 242, 254, (1.0F - p) * 0.9F));
+                orb.foreground);
         }
     }
 
-    // 玻璃边缘描边。
-    paint.StrokePath(circle, huxerui::LinearGradient{
-        .start = {0.15F, 0.0F}, .end = {0.85F, 1.0F},
-        .stops = {
-            {0.0F, Color::Rgb(224, 242, 254, 0.50F)},
-            {0.35F, Color::Rgb(56, 189, 248, 0.22F)},
-            {0.72F, Color::Rgb(45, 51, 58, 0.16F)},
-            {1.0F, Color::Rgb(125, 211, 252, 0.32F)},
-        },
-    }, bounds, huxerui::StrokeStyle{.width = 0.8F});
+    paint.StrokePath(circle, orb.foreground, huxerui::StrokeStyle{.width = 0.8F});
 
-    // failure：误差红外环，随相位脉冲（红脉冲在莲花呼吸恢复后仍停留 6s）。
+    // failure：黑白外环随相位改变宽度，仍停留 6s。
     if (orb.failure) {
-        const float pulse = 0.38F + 0.28F * std::sin(phase * 2.4F);
+        const float width = 2.2F + 0.8F * std::sin(phase * 2.4F);
         paint.DrawArc(center, radius * 1.06F, 0.0F, 6.28318F,
-                      Color::Rgb(240, 115, 108, pulse),
-                      huxerui::StrokeStyle{.width = 2.2F, .cap = huxerui::StrokeCap::Round});
+                      orb.foreground,
+                      huxerui::StrokeStyle{.width = width, .cap = huxerui::StrokeCap::Round});
     }
-    // 活动时装饰弧随呼吸提亮；等待确认用暖色弧标记。
+    // 等待确认使用粗弧，工作中弧线宽度随呼吸变化。
     if (orb.waiting) {
         paint.DrawArc(center, radius * 0.94F, 3.80F, 0.86F,
-                      Color::Rgb(251, 191, 36, 0.74F),
+                      orb.foreground,
                       huxerui::StrokeStyle{.width = 1.8F, .cap = huxerui::StrokeCap::Round});
     } else if (orb.active) {
-        const float breathe = 0.34F + 0.22F * (0.5F + 0.5F * std::sin(phase));
+        const float width = 1.4F + 0.4F * std::sin(phase);
         paint.DrawArc(center, radius * 0.94F, 3.80F, 0.86F,
-                      Color::Rgb(224, 242, 254, breathe),
-                      huxerui::StrokeStyle{.width = 1.4F, .cap = huxerui::StrokeCap::Round});
+                      orb.foreground,
+                      huxerui::StrokeStyle{.width = width, .cap = huxerui::StrokeCap::Round});
     } else {
         paint.DrawArc(center, radius * 0.94F, 3.80F, 0.86F,
-                      Color::Rgb(224, 242, 254, 0.28F),
+                      orb.foreground,
                       huxerui::StrokeStyle{.width = 0.8F, .cap = huxerui::StrokeCap::Round});
     }
 
     // 完成提醒：右上角 ✓ 徽标（静态绘制，不随相位动——reduced-motion 下
-    // 同样显示），点击桌宠或右键消解。冷白底 + 石墨对勾，与球体形成正负形。
+    // 同样显示），点击桌宠或右键消解。反色底 + 主题底色对勾。
     if (orb.done) {
         const Point badgeCenter{center.x + radius * 0.72F, center.y - radius * 0.72F};
         const float badgeRadius = radius * 0.30F;
-        paint.DrawCircle(badgeCenter, badgeRadius, Color::Rgb(224, 242, 254, 0.96F));
+        paint.DrawCircle(badgeCenter, badgeRadius, orb.foreground);
         const huxerui::StrokeStyle check{.width = badgeRadius * 0.28F,
                                 .cap = huxerui::StrokeCap::Round,
                                 .join = huxerui::StrokeJoin::Round};
         const float k = badgeRadius * 0.45F;
         paint.DrawLine({badgeCenter.x - k, badgeCenter.y},
                        {badgeCenter.x - k * 0.25F, badgeCenter.y + k * 0.7F},
-                       Color::Rgb(26, 30, 34), check);
+                       orb.background, check);
         paint.DrawLine({badgeCenter.x - k * 0.25F, badgeCenter.y + k * 0.7F},
                        {badgeCenter.x + k, badgeCenter.y - k * 0.55F},
-                       Color::Rgb(26, 30, 34), check);
+                       orb.background, check);
     }
 }
 
@@ -250,21 +203,21 @@ private:
     float react_elapsed_ = kReactDuration;  // 未点击过 = 已播完（静止）。
 };
 
-// 角标玻璃药丸：主题玻璃底，颜色从 ThemeSpec 派生，浅色主题翻成白玻璃。
+// 角标药丸：不透明主题纯色底与反色文字。
 huxerui::View TodayBadge(std::int64_t today,
                          const huxerui::ThemeSpec& theme) {
     return huxerui::Text(std::format("{} 次", today))
         .Style(huxerui::TextStyle{huxerui::Font::System(font_size::kCaption),
                                   theme.colors.on_surface})
         .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(10.0F, 3.0F)),
-              huxerui::Background(GlassFill(theme, 0.72F)),
+              huxerui::Background(GlassFill(theme)),
               huxerui::CornerRadius(9.0F))
         .With(huxerui::Align(huxerui::HorizontalAlignment::Center,
                              huxerui::VerticalAlignment::End),
               huxerui::Padding(huxerui::EdgeInsets{.bottom = 6.0F}));
 }
 
-// 活跃 Agent 浮标：顶缘居中的一枚玻璃药丸，内嵌最多 2 个品牌色 Agent
+// 活跃 Agent 浮标：顶缘居中的一枚纯色药丸，内嵌最多 2 个品牌 Agent
 // 图标（品牌图标按深浅主题选黑/白变体）。白龙「双会话」同款语义。
 huxerui::View ActiveAgentBadge(const std::vector<std::string>& tools,
                                const huxerui::ThemeSpec& theme) {
@@ -282,7 +235,7 @@ huxerui::View ActiveAgentBadge(const std::vector<std::string>& tools,
     return huxerui::Row{std::move(icons)}
         .With(huxerui::Spacing(5.0F),
               huxerui::Padding(huxerui::EdgeInsets::Symmetric(7.0F, 3.0F)),
-              huxerui::Background(GlassFill(theme, 0.72F)),
+              huxerui::Background(GlassFill(theme)),
               huxerui::CornerRadius(9.0F),
               huxerui::Semantics{.label = std::format("活跃 Agent：{}", label)})
         .With(huxerui::Align(huxerui::HorizontalAlignment::Center,
@@ -299,6 +252,7 @@ huxerui::View UnknownActivityBadge(const huxerui::ThemeSpec& theme) {
         .With(huxerui::Frame{.width = 20.0F, .height = 20.0F},
               huxerui::Background(theme.colors.secondary_container),
               huxerui::CornerRadius(10.0F),
+              huxerui::Border(theme.colors.outline, 1.0F),
               huxerui::MainAlign(huxerui::MainAxisAlignment::Center),
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
               huxerui::Semantics{.label = "活动状态未知：尚未观察到本地路由请求"})
@@ -315,8 +269,8 @@ huxerui::View PetLotusBody(
     const std::shared_ptr<PetController>& controller,
     const huxerui::ThemeSpec& theme) {
     const auto window = huxerui::UseWindow();
-    const huxerui::ImageAsset lotus =
-        huxerui::UseImage(app::images::lotus_bloom_raster);
+    const huxerui::VectorAsset lotus =
+        huxerui::UseVectorImage(app::images::lotus_bloom);
     const std::vector<std::string> activeTools = controller->activeTools.Get();
     const std::int64_t today = controller->todayRequests.Get();
     const PetPlay play = controller->play.Get();
@@ -337,7 +291,9 @@ huxerui::View PetLotusBody(
             .animate = visible && controller->animate.Get(),
             .playEpoch = play.epoch,
             .playKind = play.kind,
-            .lotus = lotus},
+            .lotus = lotus,
+            .background = theme.colors.surface,
+            .foreground = theme.colors.on_surface},
         huxerui::Grow(1.0F));
 }
 
@@ -385,7 +341,7 @@ huxerui::ThemeDefinition PetThemeDefinition(bool dark, bool compact_menu) {
     menus.foreground = spec.colors.on_surface;
     menus.icon_tint = spec.colors.on_surface_variant;
     menus.separator_color = spec.colors.outline;
-    menus.shadow = huxerui::Shadow{Color::Rgb(0, 0, 0, 0.24F), {}, 8.0F, 0.0F};
+    menus.shadow = FloatingOutline(spec);
     menus.corner_radii = huxerui::CornerRadii{spec.shapes.small};
     menus.item_indication = huxerui::Indication{
         .hover = huxerui::IndicationLayer{.fill = withAlpha(spec.colors.on_surface, 0.08F)},
@@ -910,7 +866,6 @@ huxerui::View PetContent() {
     const bool dark = themeMode == 1 || (themeMode == 0 && systemDark);
     const huxerui::ThemeSpec petSpec =
         dark ? AppDarkThemeSpec() : AppLightThemeSpec();
-    const IslandTheme islands = ResolveIslandTheme(petSpec);
 
     // 角色皮肤优先于胶囊；所有形态共用拖拽、点击分流与右键语义。
     // TODO(pet-theme): 明暗皮肤素材接入后，在这里结合
@@ -923,21 +878,22 @@ huxerui::View PetContent() {
     } else if (skin == PetSkin::shimeji) {
         body = PetShimejiBody(controller, petSpec);
     } else if (compact) {
-        // 状态点：等待输入暖黄 / 工作主题蓝 / failure 误差红 / done 正文色。
-        Color dot = petSpec.colors.on_surface_variant;
+        // 黑白主题用短文字区分状态，不再依赖彩色圆点。
+        std::string status = activityUnknown ? "未知" : "空闲";
         if (controller->waitingForInput.Get()) {
-            dot = islands.warning;
+            status = "等待";
         } else if (controller->streaming.Get() || controller->agentWorking.Get()) {
-            dot = petSpec.colors.primary;
+            status = "工作";
         } else if (controller->failure.Get()) {
-            dot = petSpec.colors.error;
+            status = "失败";
         } else if (donePending) {
-            dot = petSpec.colors.on_surface;
+            status = "完成";
         }
         body = huxerui::Row {
-            huxerui::Row{}.With(huxerui::Frame{.width = 10.0F, .height = 10.0F},
-                                huxerui::Background(dot),
-                                huxerui::CornerRadius(5.0F)),
+            huxerui::Text(status)
+                .Style(huxerui::TextStyle{
+                    huxerui::Font::System(font_size::kCaption),
+                    petSpec.colors.on_surface}),
             huxerui::Text(std::format("{} 次", today))
                 .Style(huxerui::TextStyle{
                     huxerui::Font::System(font_size::kCaption),

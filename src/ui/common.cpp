@@ -109,37 +109,30 @@ std::size_t ToolRegistryIndex(std::string_view tool) {
 }
 
 IslandTheme ResolveIslandTheme(const huxerui::ThemeSpec& theme) {
-    // 黑白双色：海面、页面岛、强调卡片、浮层的颜色全部来自 ThemeSpec，
-    // 页面层不再写死 RGB。卡片的明度差参考 Clash-Flux 的 island 分层。
-    const auto luminance = [](huxerui::Color c) {
-        const auto channel = [](float v) {
-            return v <= 0.04045F ? v / 12.92F
-                                 : std::pow((v + 0.055F) / 1.055F, 2.4F);
-        };
-        return 0.2126F * channel(c.red) + 0.7152F * channel(c.green) +
-               0.0722F * channel(c.blue);
-    };
-    const bool dark = luminance(theme.colors.background) < 0.5F;
+    // 纯色面板：海面、页面岛、强调卡片、浮层全部同为纯色表面，区域区分
+    // 靠描边线条（outline_soft），不再靠明度差。
     return IslandTheme{
         .island_padding = theme.spacing.medium,
         .island_radius = 10.0F,
         .nested_radius = 6.0F,
-        .raised = theme.colors.surface_container,
-        .base = theme.colors.surface_container_low,
-        .overlay = theme.colors.surface_container_highest,
+        .raised = theme.colors.surface,
+        .base = theme.colors.surface,
+        .overlay = theme.colors.surface,
         .outline_soft = theme.colors.outline,
-        .success = dark ? huxerui::Color::Rgb(108, 202, 145) // #6CCA91
-                        : huxerui::Color::Rgb(47, 128, 86),  // #2F8056
-        .on_success = dark ? huxerui::Color::Rgb(26, 27, 28) // 深绿上翻黑
-                           : huxerui::Color::Rgb(255, 255, 255),
-        .warning = dark ? huxerui::Color::Rgb(230, 184, 102) // #E6B866
-                        : huxerui::Color::Rgb(144, 96, 8),   // #906008
+        .success = theme.colors.on_surface,
+        .on_success = theme.colors.surface,
+        .warning = theme.colors.on_surface,
     };
+}
+
+// SDK 浮层样式没有边框字段，用无偏移、无模糊的 1pt 外扩表达普通描边。
+huxerui::Shadow FloatingOutline(const huxerui::ThemeSpec& theme) {
+    return huxerui::Shadow{theme.colors.outline, {}, 0.0F, 1.0F};
 }
 
 [[huxerui::composable]] huxerui::View PrimaryAction(huxerui::View action) {
     // 普通 Button 全局走中性表面；只有提交/创建/应用类主要操作在这里换成
-    // 主题蓝。只替换完整的 ButtonStyle，避免继承 Material 默认的蓝色底。
+    // 反色纯色。只替换完整的 ButtonStyle，避免继承 Material 默认的蓝色底。
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     const auto withAlpha = [](huxerui::Color c, float a) {
         c.alpha = a;
@@ -166,8 +159,7 @@ IslandTheme ResolveIslandTheme(const huxerui::ThemeSpec& theme) {
     // 响应式：Compact(<600) 收窄页面内边距。
     const bool compact =
         huxerui::UseViewportClass() == huxerui::ViewportClass::Compact;
-    // 顶级页面不再有自己的卡片：页面与标题栏是同一块窗口表面，靠 AmbientGlow
-    // 的环境光与下面分层的内容（PageSection / Card / QuietCard）组织信息。
+    // 顶级页面与标题栏共用纯色窗口表面，靠分区、间距与描边组织信息。
     // 页面只负责内边距与滚动；左右边距同时是壳层标题栏的左右边距
     // （app.cpp 的 shellInset），应用名与页面标题因此共享同一条左边线。
     // 顶部不留内边距（top = 0）且壳层也不留 Spacing：页面标题紧接标题栏下沿，
@@ -214,9 +206,9 @@ IslandTheme ResolveIslandTheme(const huxerui::ThemeSpec& theme) {
         huxerui::Padding(islands.island_padding));
 }
 
-// 列表条目卡：用更贴近海面的 base 表面 + 6pt 圆角，去掉描边——列表里
-// 逐项画框会退成「一串格子」，条目间靠表面色差与缝隙分层即可。用于
-// 供应商/技能/MCP/会话等重复条目；独立强调分区仍用 Card。
+// 列表条目卡：纯色表面 + 1pt 描边线条区分区域（纯色下表面色差消失，
+// 线条是唯一的分区手段）。用于供应商/技能/MCP/会话等重复条目；独立强调
+// 分区仍用 Card。
 [[huxerui::composable]] huxerui::View QuietCard(huxerui::View content) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     const IslandTheme islands = ResolveIslandTheme(theme);
@@ -224,6 +216,7 @@ IslandTheme ResolveIslandTheme(const huxerui::ThemeSpec& theme) {
     return std::move(card).With(
         huxerui::Background(islands.base),
         huxerui::CornerRadius(islands.nested_radius),
+        huxerui::Border(islands.outline_soft, 1.0F),
         huxerui::Padding(islands.island_padding));
 }
 
@@ -276,7 +269,7 @@ IslandTheme ResolveIslandTheme(const huxerui::ThemeSpec& theme) {
     const IslandTheme islands = ResolveIslandTheme(theme);
     huxerui::View card = content;
     return std::move(card).With(
-        huxerui::Shadow{huxerui::Color::Rgb(0, 0, 0, 0.24F), {}, 24.0F, 0.0F},
+        FloatingOutline(theme),
         huxerui::Background(islands.overlay),
         huxerui::CornerRadius(islands.island_radius),
         huxerui::Border(islands.outline_soft, 1.0F),

@@ -276,7 +276,8 @@ std::string FormatSize(std::uintmax_t bytes) {
                       huxerui::EdgeInsets::Symmetric(10.0F, 8.0F)),
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
                   huxerui::Background(theme.colors.surface_container),
-                  huxerui::CornerRadius(islands.nested_radius))
+                  huxerui::CornerRadius(islands.nested_radius),
+                  huxerui::Border(islands.outline_soft, 1.0F))
             .On<huxerui::ViewEvents::Hover>(onHover)
             .Key(messageKey);
     huxerui::View messageSlot =
@@ -547,7 +548,8 @@ std::string FormatSize(std::uintmax_t bytes) {
         if (selectedAgent.Get() == position) {
             button = std::move(button).With(
                 huxerui::Background(islands.raised),
-                huxerui::CornerRadius(islands.nested_radius));
+                huxerui::CornerRadius(islands.nested_radius),
+                huxerui::Border(islands.outline_soft, 1.0F));
         }
         agentButtons.push_back(button);
         agentPages.push_back(
