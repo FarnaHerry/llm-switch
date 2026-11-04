@@ -18,7 +18,8 @@ snapshots and LocalRouter remains an independent activity source.
 - `adapters/hook_input.*`: bounded JSON input parser shared by command hooks.
 - `adapters/claude_code.*` and `adapters/codex.*`: one adapter module per Agent.
   Add later integrations as their own `<agent>.cppm` / `<agent>.cpp` pair here.
-- `platform/agent_hook/main.cpp`: standalone, fail-open hook process. It reduces
+- `agent_hook/main.cpp`（仓库顶层；不在 `platform/` 下，避免 HuxerUI CLI 把
+  它当平台目录，也不在 `src/` glob 内）: standalone, fail-open hook process. It reduces
   input through the adapter before sending it to the local bridge and never
   writes hook input to stdout or logs. Codex `Stop` / `SubagentStop` receive only
   the fixed `{"continue":true}` success response required by their contract.

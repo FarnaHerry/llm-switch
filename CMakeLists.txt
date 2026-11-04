@@ -421,7 +421,7 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
     # 它把 stdin 中的完整 hook JSON 缩减为白名单状态事件，再交给 app 的
     # authenticated loopback bridge。它不链接 HuxerUI，也不自行运行模型。
     add_executable(llm-switch-agent-hook
-        platform/agent_hook/main.cpp
+        agent_hook/main.cpp
         src/agents/activity.cpp
         src/agents/activity_bridge.cpp
         src/agents/adapters/hook_input.cpp
