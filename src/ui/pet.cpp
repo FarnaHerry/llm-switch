@@ -8,7 +8,7 @@
 //   底部角标显示今日请求数，顶部浮标显示活跃 Agent（≤2 个）。
 // 动画走 NodeExtension 的保留绘制（30fps 上限，reduced-motion 下静止——✓ 与
 // 浮标仍显示），统计轮询走 TaskScope + Delay（每秒一次，窗口退役时随作用域
-// 取消）。右键菜单经 PetThemeDefinition 套主应用同款主题（跟随共享主题状态）。
+// 取消）。右键菜单由独立窗口承载，共用主应用主题与共享主题状态。
 #include <huxerui/huxerui.h>
 
 #include <chrono>
@@ -319,27 +319,9 @@ huxerui::View PetSkinFallback(
 
 // ---- 主题（右键菜单与主应用同款）--------------------------------------------
 
-// 桌宠与信息卡复用主应用的完整控件主题；球窗仅覆盖紧凑菜单尺寸。
-// 深浅由共享 themeMode 与当前窗口的系统外观共同决定。
-// compact_menu：球窗只有 200pt 高，默认行高（36pt + 8pt 行内边距）只能放
-// 5 项；桌宠球窗菜单改用紧凑行高（30pt 行 + 4pt 行内边距，6 项 ≈188pt）。
-// 信息卡窗口复用同一主题定义但传 false，保持默认行高。
-huxerui::ThemeDefinition PetThemeDefinition(bool dark, bool compact_menu) {
-    const huxerui::ThemeSpec spec = dark ? AppDarkThemeSpec() : AppLightThemeSpec();
-    huxerui::ThemeDefinition definition = AppThemeDefinition(spec);
-    if (!compact_menu) return definition;
-    huxerui::MenuStyle menus = huxerui::MenuStyle::Default();
-    menus.minimum_item_height = 30.0F;
-    menus.item_padding = huxerui::EdgeInsets::Symmetric(12.0F, 4.0F);
-    menus.background = spec.colors.surface_container;
-    menus.foreground = spec.colors.on_surface;
-    menus.icon_tint = spec.colors.on_surface_variant;
-    menus.separator_color = spec.colors.outline;
-    menus.shadow = FloatingOutline(spec);
-    menus.corner_radii = huxerui::CornerRadii{spec.shapes.small};
-    menus.item_indication = MonochromeIndication(spec.colors.on_surface);
-    definition.Set(menus);
-    return definition;
+// 桌宠与信息卡复用主应用完整控件主题，右键菜单由独立窗口承载。
+huxerui::ThemeDefinition PetThemeDefinition(bool dark) {
+    return AppThemeDefinition(dark ? AppDarkThemeSpec() : AppLightThemeSpec());
 }
 
 // ---- PetController ----------------------------------------------------------
@@ -659,6 +641,7 @@ void PetController::Close() {
     // 先失配代次并摘下句柄，旧附件的清理不会清掉新开的替代窗口；关闭
     // 回调也能据此区分控制器主动 Close 与用户的关闭请求。
     ++generation;
+    CloseContextMenu();
     CloseCard();
     auto closing_pet = std::exchange(pet, std::nullopt);
     if (closing_pet) closing_pet->Close();
@@ -668,6 +651,7 @@ void PetController::Close() {
 
 void PetController::Hide(bool trayAvailable) {
     if (!trayAvailable) return;
+    CloseContextMenu();
     if (lightweight.Get()) {
         Close();
     } else {
@@ -936,86 +920,17 @@ huxerui::View PetContent() {
             controller->dragging = false;
         });
 
-    // MenuHandle 必须在 Theme 的子作用域内获取：Theme 包在本函数的返回值
-    // 上，函数体顶层 UseMenu() 捕获的是默认环境（右键菜单落回框架默认浅色
-    // 样式）——与 app.cpp 的 DialogHandle 同款坑（AGENTS.md UI 视觉硬约束）。
-    // Scope 的工厂在组合期执行，Use* 合法（app.cpp windowBehavior 同款）。
-    return huxerui::Theme(
-        PetThemeDefinition(dark, true),
-        huxerui::Scope([controller, activation, application, nav, appTasks,
-                        content = std::move(content)]() mutable -> huxerui::View {
-            const auto menu = huxerui::UseMenu();
-            return std::move(content).On<huxerui::ViewEvents::ContextMenuRequested>(
-                [controller, activation, application, nav, menu,
-                 appTasks](huxerui::Point position) {
-                    // 框架的 Menu 是**窗口内浮层**（LayerAnchorMode::
-                    // FixedWindowPoint），会被窗口边界裁剪，宽度也受视口
-                    // （= 本窗口 200pt）夹取：胶囊（44pt 高）装不下任何菜单，
-                    // 右键直接展开信息卡（真窗口，有空间）；球形态用紧凑行
-                    // 高放 6 项无分隔短标签菜单（30pt 行高，总高 ≈188pt）。
-                    // 长标签仍会被截断；隐藏桌宠走托盘的「AI 桌宠」勾选项，
-                    // 完成提醒点击即消解，都不进这里。
-                    if (controller->compact.Get() && controller->skin.Get() == PetSkin::lotus) {
-                        controller->ToggleCard(application);
-                        return;
+    return huxerui::Theme(PetThemeDefinition(dark),
+        std::move(content).On<huxerui::ViewEvents::ContextMenuRequested>(
+            [controller, application, appTasks, toast](huxerui::Point position) {
+                appTasks.Post([controller, application, position, toast] {
+                    try {
+                        controller->ShowContextMenu(application, position);
+                    } catch (const std::exception& error) {
+                        toast.Show(error.what());
                     }
-                    menu.ShowAt(position, {
-                        huxerui::MenuItem(
-                            "信息卡",
-                            [controller, application] {
-                                controller->ToggleCard(application);
-                            })
-                            .Checked(controller->card.has_value()),
-                        huxerui::MenuItem(
-                            "胶囊模式",
-                            [controller, application, appTasks] {
-                                const bool next = !controller->compact.Get();
-                                // 切换会退役本窗口（点击正在派发中），推迟执行。
-                                appTasks.Post([controller, application, next] {
-                                    try {
-                                        providerStore().setPetCompact(next);
-                                        controller->SetCompact(next, application);
-                                    } catch (const std::exception&) {
-                                    }
-                                });
-                            })
-                            .Checked(controller->compact.Get()),
-                        huxerui::MenuItem(
-                            "置顶",
-                            [controller] {
-                                const bool next = !controller->topmost.Get();
-                                providerStore().setPetTopmost(next);
-                                controller->SetTopmost(next);
-                            })
-                            .Checked(controller->topmost.Get()),
-                        huxerui::MenuItem(
-                            "本地路由",
-                            [nav] {
-                                try {
-                                    if (routerInstance().running()) {
-                                        routerInstance().stop();
-                                        providerStore().setRouterEnabled(false);
-                                    } else {
-                                        routerInstance().start(
-                                            providerStore().config().routerPort);
-                                        providerStore().setRouterEnabled(true);
-                                    }
-                                } catch (const std::exception&) {
-                                }
-                                // 主窗口 / 信息卡里的路由页以 revision 驱动重读；
-                                // 主窗口未打开时没有绑定，跳过。
-                                if (const auto revision = nav->RevisionState()) {
-                                    *revision = revision->Get() + 1;
-                                }
-                            })
-                            .Checked(routerInstance().running()),
-                        huxerui::MenuItem("打开主窗口",
-                                          [activation] { activation->Activate(); }),
-                        huxerui::MenuItem("退出",
-                                          [application] { application.Quit(); }),
-                    });
                 });
-        }));
+            }));
 }
 
 // ---- 信息卡 -------------------------------------------------------------------
@@ -1300,7 +1215,7 @@ huxerui::View PetCardContent() {
            huxerui::Background(spec.colors.background),
            huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))
         .Key("pet-card-surface");
-    return huxerui::Theme(PetThemeDefinition(dark, false), std::move(content));
+    return huxerui::Theme(PetThemeDefinition(dark), std::move(content));
 }
 
 } // namespace llmswitch::ui

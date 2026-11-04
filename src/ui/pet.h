@@ -10,7 +10,7 @@
 //     todayRequests（今日请求数，底部角标）；
 //   * 交互：点击与桌宠互动（一次性小动画，不打开任何窗口），拖拽移动，
 //     右键菜单（信息卡 / 胶囊 / 置顶 / 本地路由 / 主窗口 / 退出），
-//     菜单经 PetThemeDefinition 套主应用同款主题。
+//     菜单由独立无边框窗口承载，使用主应用同款主题。
 // 控制器由 InstallApplication 注册为应用级服务，设置页与托盘共用同一实例。
 #pragma once
 
@@ -68,6 +68,28 @@ inline huxerui::WindowOptions PetOptions(bool topmost, bool compact,
         .show_without_activation = true,
         .topmost = topmost,
     };
+}
+
+// 右键菜单有自己的 Utility 窗口，不再受球、胶囊或模型窗口尺寸限制。
+inline huxerui::WindowOptions PetContextMenuOptions(
+    std::optional<huxerui::Point> petPosition, huxerui::Point anchor,
+    std::optional<huxerui::Rect> workArea) {
+    huxerui::WindowOptions options{
+        .title = "llm-switch 桌宠菜单",
+        .initial_size = {256.0F, 264.0F},
+        .presentation = huxerui::WindowPresentation::Utility,
+    };
+    if (petPosition) {
+        huxerui::Point position{petPosition->x + anchor.x, petPosition->y + anchor.y};
+        if (workArea) {
+            position.x = std::clamp(position.x, workArea->x,
+                workArea->x + std::max(0.0F, workArea->width - options.initial_size.width));
+            position.y = std::clamp(position.y, workArea->y,
+                workArea->y + std::max(0.0F, workArea->height - options.initial_size.height));
+        }
+        options.initial_position = position;
+    }
+    return options;
 }
 
 // 信息卡的每 Agent 今日行（Poll 聚合，进 State 需 operator==）。
@@ -236,6 +258,10 @@ struct PetController {
 
     std::optional<huxerui::WindowHandle> card;
     std::uint64_t cardGeneration = 0;
+    std::optional<huxerui::WindowHandle> contextMenu;
+    std::uint64_t contextMenuGeneration = 0;
+    void ShowContextMenu(const huxerui::ApplicationHandle& application, huxerui::Point anchor);
+    void CloseContextMenu();
 
     void Show(const huxerui::ApplicationHandle& application);
     void Close();
@@ -253,6 +279,8 @@ struct PetController {
 
 // 信息卡窗口内容组合（owner 锚定在桌宠旁的小窗）。
 [[huxerui::composable]] huxerui::View PetCardContent();
+
+[[huxerui::composable]] huxerui::View PetContextMenuContent();
 
 bool PetLive2DAvailable();
 [[huxerui::composable]] huxerui::View PetLive2DBody(

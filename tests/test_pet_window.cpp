@@ -35,6 +35,20 @@ int main() {
         std::fprintf(stderr, "%s\n", message);
         ++failures;
     };
+    const auto menu = PetContextMenuOptions(
+        huxerui::Point{-5.0F, 950.0F}, {20.0F, 20.0F}, huxerui::Rect{-1920.0F, -100.0F, 1920.0F, 1080.0F});
+    check(menu.presentation == huxerui::WindowPresentation::Utility &&
+              !menu.show_without_activation && !menu.transparent_surface,
+          "Pet menu must be an independent focusable utility window");
+    check(menu.initial_size.width > 200.0F && menu.initial_size.height > 200.0F,
+          "Pet menu dimensions must not inherit the pet/capsule viewport");
+    check(menu.initial_position == huxerui::Point{-256.0F, 716.0F},
+          "Pet menu must fit the work area including negative display coordinates");
+    const auto beside = PetContextMenuOptions(huxerui::Point{100.0F, 200.0F}, {30.0F, 40.0F}, std::nullopt);
+    check(beside.initial_position == huxerui::Point{130.0F, 240.0F},
+          "Pet menu must convert the context-menu anchor to screen coordinates");
+    check(!PetContextMenuOptions(std::nullopt, {20.0F, 30.0F}, std::nullopt).initial_position,
+          "Compositor-controlled placement must not invent a screen position");
     for (int kind = 0; kind < 3; ++kind) {
         for (const float p : {-1.0F, 0.0F, 1.0F, 2.0F}) {
             const auto visual = SamplePetSpriteReaction(kind, p);
