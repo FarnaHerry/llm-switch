@@ -26,7 +26,7 @@ bool IsWithin(const fs::path& root, const fs::path& candidate) {
     // 根内时结果非空且不以 ".." 开头，候选等于根时为 "." 同样视为在内。
     const fs::path relative = candidate.lexically_relative(root);
     return !relative.empty() && relative != ".." &&
-           !relative.string().starts_with("../");
+           !relative.generic_string().starts_with("../");
 }
 
 ParameterCue ParseParameter(const nlohmann::json& value) {
