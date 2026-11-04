@@ -2,6 +2,7 @@
 // 卡片（二级岛）/ 弹窗卡片等跨页通用部件，以及全局 ProviderStore 持有点。
 #include <huxerui/huxerui.h>
 
+#include <algorithm>
 #include <cmath>
 #include <string>
 #include <string_view>
@@ -205,6 +206,23 @@ private:
         button = std::move(button).With(huxerui::Background(theme.colors.primary));
     }
     button = std::move(button).With(InteractionSink{interaction});
+    return huxerui::Theme(std::move(definition), std::move(button));
+}
+
+// 品牌栅格图标不参与反色：固定主题表面，外框表示选中，内圈表达交互。
+[[huxerui::composable]] huxerui::View BrandIconAction(huxerui::View action, bool selected) {
+    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    huxerui::IconButtonStyle style = huxerui::UseEnvironment<huxerui::IconButtonStyle>();
+    style.corner_radius = 6.0F;
+    style.state_layer_size = std::max(0.0F, style.minimum_interactive_size - 8.0F);
+    style.indication = MonochromeIndication(theme.colors.outline);
+    huxerui::ThemeDefinition definition;
+    definition.Set(style);
+    huxerui::View button = huxerui::Stack {action}.With(
+        huxerui::Padding(4.0F), huxerui::Background(theme.colors.surface), huxerui::CornerRadius(10.0F));
+    if (selected) {
+        button = std::move(button).With(huxerui::Border(theme.colors.outline, 1.0F));
+    }
     return huxerui::Theme(std::move(definition), std::move(button));
 }
 

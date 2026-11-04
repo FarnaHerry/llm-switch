@@ -190,8 +190,11 @@ huxerui::View DialogCard(huxerui::View content);
 // 次要操作：为已绑定事件的原生按钮添加描边，主要操作仍使用 PrimaryAction。
 huxerui::View OutlinedAction(huxerui::View action);
 
-// 图标按钮的悬停、按压与键盘焦点使用纯反色底与反色图标。
+// 功能图标按钮的悬停、按压与键盘焦点使用主题强调底色与配对前景色。
 huxerui::View InvertingIconAction(huxerui::View action);
+
+// Agent 品牌图标固定主题底色，选中用外框，交互用内圈描边，保留品牌原色。
+huxerui::View BrandIconAction(huxerui::View action, bool selected = false);
 
 // 提交、创建、保存、应用等主要操作使用黑白反色实心按钮。
 huxerui::View PrimaryAction(huxerui::View action);

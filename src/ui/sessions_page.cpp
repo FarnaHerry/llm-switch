@@ -524,7 +524,6 @@ std::string FormatSize(std::uintmax_t bytes) {
     bool pageActive) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     const bool dark = theme.brightness == huxerui::ThemeBrightness::Dark;
-    const IslandTheme islands = ResolveIslandTheme(theme);
     const auto& registry = models::toolRegistry();
     auto selectedAgent = huxerui::UseState<std::size_t>(0);
 
@@ -540,17 +539,11 @@ std::string FormatSize(std::uintmax_t bytes) {
         const std::string id(spec.id);
         const std::string label(spec.displayName);
         huxerui::View button =
-            InvertingIconAction(huxerui::IconButton(ToolIcon(spec.iconName, dark), label)
+            BrandIconAction(huxerui::IconButton(ToolIcon(spec.iconName, dark), label)
                 .OnClick([selectedAgent, position] {
                     selectedAgent = position;
                 })
-                .With(huxerui::Tooltip(label)));
-        if (selectedAgent.Get() == position) {
-            button = std::move(button).With(
-                huxerui::Background(islands.raised),
-                huxerui::CornerRadius(islands.nested_radius),
-                huxerui::Border(islands.outline_soft, 1.0F));
-        }
+                .With(huxerui::Tooltip(label)), selectedAgent.Get() == position);
         agentButtons.push_back(button);
         agentPages.push_back(
             AgentSessionsPanel(id, selectedSession, selectedAgent, position,

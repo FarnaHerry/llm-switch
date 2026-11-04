@@ -392,7 +392,7 @@ std::size_t CloseBehaviorIndex(std::string_view behavior) {
         managedAgentIcons.push_back(
             huxerui::Theme(
                 enabled ? agentIconOnTheme : agentIconOffTheme,
-                InvertingIconAction(huxerui::IconButton(ToolIcon(spec.iconName, dark), label)
+                BrandIconAction(huxerui::IconButton(ToolIcon(spec.iconName, dark), label)
                     .OnClick([disabledTools, revision, toast, id] {
                         const bool turnOn =
                             std::ranges::find(disabledTools.Get(), id) !=

@@ -437,11 +437,21 @@ bool InvolvesTool(const skills::SkillInfo& skill, std::string_view toolId) {
         }
     }
 
+    // 品牌图标不反色；选中用加粗外框，hover/按压沿用主题描边。
+    auto filterStyle = huxerui::UseEnvironment<huxerui::SegmentedButtonStyle>();
+    filterStyle.selected_background = theme.colors.surface;
+    filterStyle.selected_label = theme.colors.on_surface;
+    filterStyle.selected_border = huxerui::Border{theme.colors.outline, 2.0F};
+    filterStyle.selected_indication = filterStyle.indication;
+    huxerui::ThemeDefinition filterTheme;
+    filterTheme.Set(filterStyle);
+
     // Agent 过滤行只留图标组：不再给「Agent」文字标签，图标本身已经说清楚
     // 是哪几个 Agent（无障碍名称仍在 SegmentedButtonItem 的语义标签里）。
     const huxerui::View filterRow = huxerui::Row {
-        huxerui::SegmentedButton(std::move(filterItems), agentFilter)
-            .OnChanged([agentFilter](std::size_t index) { agentFilter = index; }),
+        huxerui::Theme(std::move(filterTheme),
+            huxerui::SegmentedButton(std::move(filterItems), agentFilter)
+                .OnChanged([agentFilter](std::size_t index) { agentFilter = index; })),
         huxerui::Spacer(),
     }.With(huxerui::Spacing(10.0F),
            huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));

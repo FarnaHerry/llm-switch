@@ -30,24 +30,14 @@ import llmswitch.store;
 namespace llmswitch::ui {
 
 // Agent 图标按钮（Agent 页工具栏与新增供应商页的「目标 Agent」选择器共用同一
-// 控件）：点击把 selectedIndex 写成 index，选中态由承载底块表达。选中下标在
+// 控件）：点击把 selectedIndex 写成 index，选中态由外围描边表达。选中下标在
 // 按钮自己的组合体里读取，外层缓存 View 声明也能跟随选择变化重组。
 [[huxerui::composable]] huxerui::View AgentToolButton(
     huxerui::ImageResource icon, std::string label,
     huxerui::State<std::size_t> selectedIndex, std::size_t index) {
-    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
-    const IslandTheme islands = ResolveIslandTheme(theme);
-    huxerui::View toolButton =
-        InvertingIconAction(huxerui::IconButton(icon, label)
+    return BrandIconAction(huxerui::IconButton(icon, label)
             .OnClick([selectedIndex, index] { selectedIndex = index; })
-            .With(huxerui::Tooltip(label)));
-    if (selectedIndex.Get() == index) {
-        toolButton = std::move(toolButton).With(
-            huxerui::Background(islands.overlay),
-            huxerui::CornerRadius(islands.nested_radius),
-            huxerui::Border(islands.outline_soft, 1.0F));
-    }
-    return toolButton;
+            .With(huxerui::Tooltip(label)), selectedIndex.Get() == index);
 }
 
 // 工具栏岛：一排图标按钮 + raised 表面 / 6pt 圆角 / 内边距。Agent 页工具栏与
