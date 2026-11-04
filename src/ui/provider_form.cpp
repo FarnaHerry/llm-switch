@@ -175,12 +175,12 @@ std::vector<std::string> ParseCustomReasoning(std::string_view text) {
                           : "新增供应商 — " + std::string(ToolName(tool)))
               : "编辑供应商 — " + initial.name;
     huxerui::View backAction = huxerui::Row {
-        huxerui::Button("返回").OnClick([goBack] { goBack(); }),
+        OutlinedAction(huxerui::Button("返回").OnClick([goBack] { goBack(); })),
     };
     huxerui::View body = huxerui::Column {
         huxerui::ScrollView(std::move(fields)).With(huxerui::Grow(1.0F)),
         huxerui::Row {
-            huxerui::Button("取消").OnClick([goBack] { goBack(); }),
+            OutlinedAction(huxerui::Button("取消").OnClick([goBack] { goBack(); })),
             PrimaryAction(huxerui::Button(isNew ? "添加" : "保存")
                 .OnClick([=] {
                     const std::string name = fs.name.Get().text;

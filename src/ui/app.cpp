@@ -51,19 +51,15 @@ huxerui::ThemeDefinition AppThemeDefinition(const huxerui::ThemeSpec& spec) {
     };
 
     huxerui::ButtonStyle buttons; // Default()：corner_radius=8、padding Symmetric(14,8)
-    // 普通按钮为文字按钮：纯色表面下透明底 + 纯色文字 + 悬停/按压反馈。
+    // 次要按钮使用透明底 + 纯色文字；OutlinedAction 统一添加 1pt 描边。
     // 只有 PrimaryAction 包裹的主要操作使用反色纯色底。
     buttons.background = huxerui::Color::Transparent();
     buttons.label_style = huxerui::TextStyle{huxerui::Font::System(font_size::kBody),
                                              spec.colors.on_surface};
-    buttons.disabled_background =
-        withAlpha(spec.colors.on_surface, 0.10F);
+    buttons.disabled_background = huxerui::Color::Transparent();
     buttons.disabled_label =
         withAlpha(spec.colors.on_surface, 0.38F);
-    buttons.indication = huxerui::Indication{
-        .hover = huxerui::IndicationLayer{.fill = withAlpha(spec.colors.on_surface, 0.08F)},
-        .press = huxerui::IndicationLayer{.fill = withAlpha(spec.colors.on_surface, 0.12F)},
-    };
+    buttons.indication = MonochromeIndication(spec.colors.on_surface);
     definition.Set(buttons);
 
     // 功能图标资源只保存白色 alpha-mask；这里是唯一的主题着色入口。
@@ -71,10 +67,7 @@ huxerui::ThemeDefinition AppThemeDefinition(const huxerui::ThemeSpec& spec) {
     huxerui::IconButtonStyle iconButtons = huxerui::IconButtonStyle::Default();
     iconButtons.foreground = spec.colors.on_surface;
     iconButtons.disabled_foreground = withAlpha(spec.colors.on_surface_variant, 0.38F);
-    iconButtons.indication = huxerui::Indication{
-        .hover = huxerui::IndicationLayer{.fill = withAlpha(spec.colors.on_surface, 0.08F)},
-        .press = huxerui::IndicationLayer{.fill = withAlpha(spec.colors.on_surface, 0.12F)},
-    };
+    iconButtons.indication = MonochromeIndication(spec.colors.on_surface);
     definition.Set(iconButtons);
 
     huxerui::SegmentedButtonStyle segments; // Default()：corner_radius=8
@@ -86,16 +79,14 @@ huxerui::ThemeDefinition AppThemeDefinition(const huxerui::ThemeSpec& spec) {
     segments.border = huxerui::Border{spec.colors.outline, 1.0F};
     segments.selected_border = huxerui::Border{spec.colors.primary, 1.0F};
     segments.indication = buttons.indication;
-    segments.selected_indication = huxerui::Indication{
-        .hover = huxerui::IndicationLayer{.fill = withAlpha(spec.colors.on_primary, 0.08F)},
-        .press = huxerui::IndicationLayer{.fill = withAlpha(spec.colors.on_primary, 0.12F)},
-    };
+    segments.selected_indication = MonochromeIndication(spec.colors.on_primary);
     definition.Set(segments);
 
     // 内置确认框跟随主题（DialogStyle 是 Environment 值，经 ThemeDefinition::Set
     // 全局覆盖）；Default() 基线是白底浅色配色，逐字段换色。底色取
     // surface_container_highest——与 DialogCard 的 overlay 同源，两套弹窗底色一致。
     huxerui::DialogStyle dialogs = huxerui::DialogStyle::Default();
+    dialogs.scrim = spec.colors.scrim;
     dialogs.background = spec.colors.surface_container_highest;
     dialogs.title_style = huxerui::TextStyle{
         huxerui::Font::System(font_size::kTitle).WithWeight(huxerui::FontWeight::Bold),
@@ -105,16 +96,10 @@ huxerui::ThemeDefinition AppThemeDefinition(const huxerui::ThemeSpec& spec) {
     dialogs.positive_action_style = huxerui::TextStyle{
         huxerui::Font::System(font_size::kBody), spec.colors.on_primary};
     dialogs.positive_action_background = spec.colors.primary;
-    dialogs.positive_action_indication = huxerui::Indication{
-        .hover = huxerui::IndicationLayer{.fill = withAlpha(spec.colors.on_primary, 0.10F)},
-        .press = huxerui::IndicationLayer{.fill = withAlpha(spec.colors.on_primary, 0.18F)},
-    };
+    dialogs.positive_action_indication = MonochromeIndication(spec.colors.on_primary);
     dialogs.negative_action_style = huxerui::TextStyle{
         huxerui::Font::System(font_size::kBody), spec.colors.on_surface};
-    dialogs.negative_action_indication = huxerui::Indication{
-        .hover = huxerui::IndicationLayer{.fill = withAlpha(spec.colors.on_surface, 0.06F)},
-        .press = huxerui::IndicationLayer{.fill = withAlpha(spec.colors.on_surface, 0.12F)},
-    };
+    dialogs.negative_action_indication = MonochromeIndication(spec.colors.on_surface);
     dialogs.action_separator_color = spec.colors.outline;
     dialogs.shadow = FloatingOutline(spec);
     definition.Set(dialogs);
@@ -127,10 +112,7 @@ huxerui::ThemeDefinition AppThemeDefinition(const huxerui::ThemeSpec& spec) {
     menus.separator_color = spec.colors.outline;
     menus.shadow = FloatingOutline(spec);
     menus.corner_radii = huxerui::CornerRadii{spec.shapes.small};
-    menus.item_indication = huxerui::Indication{
-        .hover = huxerui::IndicationLayer{.fill = withAlpha(spec.colors.on_surface, 0.08F)},
-        .press = huxerui::IndicationLayer{.fill = withAlpha(spec.colors.on_surface, 0.12F)},
-    };
+    menus.item_indication = MonochromeIndication(spec.colors.on_surface);
     definition.Set(menus);
 
     // 输入框统一 M3 outlined：透明底、1px outline 描边、4px 圆角、聚焦
@@ -199,8 +181,8 @@ huxerui::ThemeDefinition AppThemeDefinition(const huxerui::ThemeSpec& spec) {
     selects.popup_shadow = FloatingOutline(spec);
     selects.indication = buttons.indication;
     selects.item_indication = buttons.indication;
-    selects.active_item_background = withAlpha(spec.colors.on_surface, 0.06F);
-    selects.selected_item_background = withAlpha(spec.colors.on_surface, 0.10F);
+    selects.active_item_background = huxerui::Color::Transparent();
+    selects.selected_item_background = huxerui::Color::Transparent();
     selects.validation_error = spec.colors.error;
     selects.validation_text_style = huxerui::TextStyle{
         huxerui::Font::System(font_size::kChip), spec.colors.error};
@@ -388,8 +370,8 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(
         trayHint,
         huxerui::Row {
             huxerui::Spacer(),
-            huxerui::Button("取消").OnClick([context] { context.Dismiss(); }),
-            huxerui::Button("最小化到托盘")
+            OutlinedAction(huxerui::Button("取消").OnClick([context] { context.Dismiss(); })),
+            OutlinedAction(huxerui::Button("最小化到托盘")
                 .OnClick([context, tray, window, toast, tasks] {
                     // 托盘宿主可能在弹窗打开后才消失，点击时再次确认最新状态。
                     if (!tray.IsAvailable()) {
@@ -403,8 +385,8 @@ std::vector<huxerui::MenuEntry> BuildTrayMenu(
                         window.Hide();
                     });
                 })
-                .With(huxerui::Enabled(trayAvailable)),
-            huxerui::Button("退出").OnClick([application] { application.Quit(); }),
+                .With(huxerui::Enabled(trayAvailable))),
+            OutlinedAction(huxerui::Button("退出").OnClick([application] { application.Quit(); })),
         }.With(huxerui::Spacing(8.0F),
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
     }.With(huxerui::Spacing(12.0F),
@@ -858,7 +840,7 @@ constexpr double kCollapseSeconds = 0.12;
                              &motion](const Item& item, huxerui::Point position) {
         const std::size_t page = item.page;
         huxerui::View button =
-            huxerui::IconButton(item.icon, item.tooltip)
+            InvertingIconAction(huxerui::IconButton(item.icon, item.tooltip)
                 .OnClick([navPage, navigationOpen, pageReveal, ownerTasks, page] {
                     // 两段式切页：先让选择盘快速回收到中心，再换页并从中心展开
                     // 新页面。收起盘会卸载被点击的图标本身，所以整条时序都要推迟
@@ -896,7 +878,7 @@ constexpr double kCollapseSeconds = 0.12;
                           revealed.Get() ? 1.0F : 0.0F, motion)),
                       huxerui::Scale(huxerui::AnimateTo(
                           revealed.Get() ? 1.0F : 0.72F, motion)))
-                .Key(std::string("radial-nav:") + item.tooltip);
+                ).Key(std::string("radial-nav:") + item.tooltip);
         if (navPage.Get() == page) {
             button = std::move(button).With(
                 huxerui::Background(theme.colors.secondary_container),
@@ -991,7 +973,6 @@ constexpr double kCollapseSeconds = 0.12;
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)));
 
     huxerui::Color radialScrim = theme.colors.scrim;
-    radialScrim.alpha = 0.46F;
     return huxerui::Stack {
         huxerui::Row {}.With(
             huxerui::Grow(1.0F),
@@ -1497,11 +1478,11 @@ void InstallApplication(huxerui::ApplicationContext& context) {
                         huxerui::Font::System(font_size::kChip)
                             .WithWeight(huxerui::FontWeight::Bold),
                         rootSpec.colors.on_surface}),
-                huxerui::Button("工作台")
+                OutlinedAction(huxerui::Button("工作台")
                     .OnClick([navPage, workspacePage] {
                         navPage = pages::kWorkspace;
                         workspacePage = workspace_pages::kHome;
-                    }),
+                    })),
                 huxerui::Spacer(),
             }
                 .With(huxerui::Padding(

@@ -187,8 +187,13 @@ huxerui::View SpinningRefreshIcon(float size, huxerui::Color tint, bool active);
 // overlay 表面 + 阴影 + 描边 + 16pt 圆角 + 内边距。
 huxerui::View DialogCard(huxerui::View content);
 
-// 主要操作按钮：把按钮子树切到主题蓝的 ButtonStyle。普通按钮全局保持中性
-// 表面；提交/创建/保存/应用等主操作才包这一层。
+// 次要操作：为已绑定事件的原生按钮添加描边，主要操作仍使用 PrimaryAction。
+huxerui::View OutlinedAction(huxerui::View action);
+
+// 图标按钮的悬停、按压与键盘焦点使用纯反色底与反色图标。
+huxerui::View InvertingIconAction(huxerui::View action);
+
+// 提交、创建、保存、应用等主要操作使用黑白反色实心按钮。
 huxerui::View PrimaryAction(huxerui::View action);
 
 // ---- 路由/统计页面（router_page.cpp / stats_page.cpp）----

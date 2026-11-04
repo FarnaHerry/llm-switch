@@ -130,27 +130,82 @@ huxerui::Shadow FloatingOutline(const huxerui::ThemeSpec& theme) {
     return huxerui::Shadow{theme.colors.outline, {}, 0.0F, 1.0F};
 }
 
-[[huxerui::composable]] huxerui::View PrimaryAction(huxerui::View action) {
-    // 普通 Button 全局走中性表面；只有提交/创建/应用类主要操作在这里换成
-    // 反色纯色。只替换完整的 ButtonStyle，避免继承 Material 默认的蓝色底。
+namespace {
+
+// 观察原生控件的完整交互态，不替换点击/悬停回调，也不自行识别按压手势。
+struct InteractionSink {
+    class Extension;
+    huxerui::State<huxerui::InteractionState> target;
+};
+
+class InteractionSink::Extension final : public huxerui::NodeExtension {
+public:
+    Extension(huxerui::ViewNode&, const InteractionSink& spec) : target_(spec.target) {}
+
+    void Update(huxerui::ViewNode&, const InteractionSink& spec) {
+        target_ = spec.target;
+    }
+
+    void OnInteraction(huxerui::ViewNode&, const huxerui::InteractionState& state,
+                       const std::optional<huxerui::InteractionEvent>&) override {
+        target_ = state;
+    }
+
+private:
+    huxerui::State<huxerui::InteractionState> target_;
+};
+
+[[huxerui::composable]] huxerui::View ButtonAction(huxerui::View action, bool primary) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
-    const auto withAlpha = [](huxerui::Color c, float a) {
-        c.alpha = a;
-        return c;
-    };
-    huxerui::ButtonStyle buttons = huxerui::ButtonStyle::Default();
-    buttons.background = theme.colors.primary;
-    buttons.label_style = huxerui::TextStyle{
-        huxerui::Font::System(theme.typography.label_large),
-        theme.colors.on_primary};
-    buttons.disabled_background =
-        withAlpha(theme.colors.on_surface, 0.10F);
-    buttons.disabled_label =
-        withAlpha(theme.colors.on_surface, 0.38F);
-    buttons.corner_radii = huxerui::CornerRadii{8.0F};
+    auto interaction = huxerui::UseState(huxerui::InteractionState{});
+    const auto current = interaction.Get();
+    const bool invert = current.enabled &&
+        (current.hovered || current.pressed || current.focus_visible);
+    const auto background = primary ? theme.colors.primary : theme.colors.surface;
+    const auto foreground = primary ? theme.colors.on_primary : theme.colors.on_surface;
+    huxerui::ButtonStyle style = huxerui::UseEnvironment<huxerui::ButtonStyle>();
+    style.background = invert ? huxerui::VisualFill{foreground}
+        : primary ? huxerui::VisualFill{background}
+                  : huxerui::VisualFill{huxerui::Color::Transparent()};
+    style.label_style.foreground = invert ? background : foreground;
+    style.indication = MonochromeIndication(theme.colors.outline);
     huxerui::ThemeDefinition definition;
-    definition.Set(buttons);
-    return huxerui::Theme(std::move(definition), std::move(action));
+    definition.Set(style);
+    huxerui::View button = action;
+    button = std::move(button).With(
+        huxerui::CornerRadius(style.corner_radii),
+        huxerui::Border(theme.colors.outline, 1.0F),
+        InteractionSink{interaction});
+    return huxerui::Theme(std::move(definition), std::move(button));
+}
+
+} // namespace
+
+[[huxerui::composable]] huxerui::View OutlinedAction(huxerui::View action) {
+    return ButtonAction(action, false);
+}
+
+[[huxerui::composable]] huxerui::View PrimaryAction(huxerui::View action) {
+    return ButtonAction(action, true);
+}
+
+[[huxerui::composable]] huxerui::View InvertingIconAction(huxerui::View action) {
+    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    auto interaction = huxerui::UseState(huxerui::InteractionState{});
+    const auto current = interaction.Get();
+    const bool invert = current.enabled &&
+        (current.hovered || current.pressed || current.focus_visible);
+    huxerui::IconButtonStyle style = huxerui::UseEnvironment<huxerui::IconButtonStyle>();
+    style.indication = MonochromeIndication(theme.colors.outline);
+    if (invert) style.foreground = theme.colors.surface;
+    huxerui::ThemeDefinition definition;
+    definition.Set(style);
+    huxerui::View button = action;
+    if (invert) {
+        button = std::move(button).With(huxerui::Background(theme.colors.on_surface));
+    }
+    button = std::move(button).With(InteractionSink{interaction});
+    return huxerui::Theme(std::move(definition), std::move(button));
 }
 
 [[huxerui::composable]] huxerui::View PageScaffoldWithHeader(huxerui::View header,

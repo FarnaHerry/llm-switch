@@ -87,7 +87,7 @@ int UsageIntervalIndex(int minutes) {
                 usageUrl = v;
             })
             .With(huxerui::Grow(1.0F)),
-        huxerui::Button("自动填充")
+        OutlinedAction(huxerui::Button("自动填充")
             .OnClick([usageUrl, usagePath, usageLabel, usageTemplates, toast,
                       initial] {
                 // 用户覆盖表（dataDir()/usage_templates.json）优先；没有则用
@@ -112,7 +112,7 @@ int UsageIntervalIndex(int minutes) {
                 }
             })
             .With(huxerui::Tooltip(
-                "按 Base URL 匹配用量模板表（官方默认 + 用户覆盖）")),
+                "按 Base URL 匹配用量模板表（官方默认 + 用户覆盖）"))),
     }.With(huxerui::Spacing(8.0F),
            huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)));
     fields.push_back(huxerui::TextField(usagePath.Get())
@@ -138,7 +138,7 @@ int UsageIntervalIndex(int minutes) {
     return PageScaffold(
         "用量查询 — " + initial.name,
         huxerui::Row {
-            huxerui::Button("返回").OnClick([goBack] { goBack(); }),
+            OutlinedAction(huxerui::Button("返回").OnClick([goBack] { goBack(); })),
         },
         huxerui::Column {
             huxerui::ScrollView(
@@ -148,7 +148,7 @@ int UsageIntervalIndex(int minutes) {
                               huxerui::CrossAxisAlignment::Stretch)))
                 .With(huxerui::Grow(1.0F)),
             huxerui::Row {
-                huxerui::Button("取消").OnClick([goBack] { goBack(); }),
+                OutlinedAction(huxerui::Button("取消").OnClick([goBack] { goBack(); })),
                 PrimaryAction(huxerui::Button("保存")
                     .OnClick([=] {
                         const std::string url = usageUrl.Get().text;

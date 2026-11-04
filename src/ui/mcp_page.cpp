@@ -203,7 +203,7 @@ void FillMcpForm(const McpFormStates& fs, const mcp::McpServer& srv) {
             .OnChanged([fs](const huxerui::TextEditingValue& v) { fs.headers = v; }));
     }
     fields.push_back(huxerui::Row {
-        huxerui::Button("取消").OnClick([ctx] { ctx.Dismiss(); }),
+        OutlinedAction(huxerui::Button("取消").OnClick([ctx] { ctx.Dismiss(); })),
         PrimaryAction(huxerui::Button(editingName.empty() ? "添加" : "保存")
             .OnClick([=] {
                 const std::string name = fs.name.Get().text;
@@ -359,14 +359,14 @@ void ShowMcpForm(huxerui::DialogHandle dialog, huxerui::ToastHandle toast,
             .With(huxerui::Spacing(16.0F),
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
         huxerui::Row {
-            huxerui::Button("编辑").OnClick([showEdit] { showEdit(); }),
-            huxerui::Button("删除").OnClick([tasks, showDeleteConfirm] {
+            OutlinedAction(huxerui::Button("编辑").OnClick([showEdit] { showEdit(); })),
+            OutlinedAction(huxerui::Button("删除").OnClick([tasks, showDeleteConfirm] {
                 // 弹窗会卸载点击路径上的节点：经事件队列推迟，不走帧调度。
                 tasks.Launch([=]() -> huxerui::Task<void> {
                     showDeleteConfirm();
                     co_return;
                 });
-            }),
+            })),
         }.With(huxerui::Spacing(8.0F)),
     }.With(huxerui::Spacing(6.0F),
            huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)))
@@ -412,7 +412,7 @@ void ShowMcpForm(huxerui::DialogHandle dialog, huxerui::ToastHandle toast,
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)),
         huxerui::Row {
             huxerui::Spacer(),
-            huxerui::Button("取消").OnClick([ctx] { ctx.Dismiss(); }),
+            OutlinedAction(huxerui::Button("取消").OnClick([ctx] { ctx.Dismiss(); })),
         },
     }.With(huxerui::Spacing(12.0F),
            huxerui::Frame{.width = 380.0F},
@@ -471,9 +471,9 @@ void ShowMcpForm(huxerui::DialogHandle dialog, huxerui::ToastHandle toast,
     return PageScaffold(
         "MCP 服务器",
         huxerui::Row {
-            huxerui::Button("从工具收编").OnClick([showImportDialog] {
+            OutlinedAction(huxerui::Button("从工具收编").OnClick([showImportDialog] {
                 showImportDialog();
-            }),
+            })),
             PrimaryAction(huxerui::Button("新增 MCP 服务器")
                               .OnClick([showCreateDialog] {
                                   showCreateDialog();

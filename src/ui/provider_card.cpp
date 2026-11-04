@@ -126,7 +126,7 @@ huxerui::View StatusText(const StatusPreview& preview, const std::string& full,
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Start)),
         // 操作组右对齐：图标 + Tooltip（active 时禁用）。
         huxerui::Row {
-            huxerui::IconButton(app::images::swap, "切换")
+            InvertingIconAction(huxerui::IconButton(app::images::swap, "切换")
                 .OnClick([toast, tool, revision] {
                     try {
                         SwitchOfficial(tool);
@@ -139,7 +139,7 @@ huxerui::View StatusText(const StatusPreview& preview, const std::string& full,
                 })
                 .With(huxerui::Enabled(!active),
                       huxerui::Tooltip(active ? "当前使用"
-                                              : "切换到官方原生状态")),
+                                              : "切换到官方原生状态"))),
         }.With(huxerui::Spacing(4.0F),
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
     }.With(huxerui::Spacing(8.0F),
@@ -358,7 +358,7 @@ huxerui::View StatusText(const StatusPreview& preview, const std::string& full,
         }.With(huxerui::Spacing(8.0F),
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
         huxerui::Row {
-            huxerui::IconButton(app::images::swap,
+            InvertingIconAction(huxerui::IconButton(app::images::swap,
                                 action == ProviderCardAction::RouteTo
                                     ? "路由到此"
                                     : "切换")
@@ -387,10 +387,10 @@ huxerui::View StatusText(const StatusPreview& preview, const std::string& full,
                                      ? "路由到此（不重启本地路由）"
                                      : (action == ProviderCardAction::Aggregate
                                             ? "切换到此聚合供应商（自动启用本地路由）"
-                                            : "切换到此供应商")))),
+                                            : "切换到此供应商"))))),
             // 联通检测：HuxerUI HttpClient 等待响应头，最长 10s，完成后回 UI
             // 线程写卡片 State。URL 空（codex 可留空）时禁用。
-            huxerui::IconButton(app::images::activity, "联通检测")
+            InvertingIconAction(huxerui::IconButton(app::images::activity, "联通检测")
                 .OnClick([tasks, checking, latency, http,
                           url = accessUrl] {
                     checking = true;
@@ -414,17 +414,17 @@ huxerui::View StatusText(const StatusPreview& preview, const std::string& full,
                               ? "聚合供应商没有单一探测 URL；请求经本地路由转发"
                               : (accessUrl.empty()
                                      ? "该供应商未设置 URL"
-                                     : "检测实际访问 URL 的连通性与延迟"))),
-            huxerui::IconButton(app::images::edit, "编辑")
+                                     : "检测实际访问 URL 的连通性与延迟")))),
+            InvertingIconAction(huxerui::IconButton(app::images::edit, "编辑")
                 .OnClick([showEdit] { showEdit(); })
-                .With(huxerui::Tooltip("编辑")),
-            huxerui::IconButton(app::images::gauge, "用量查询配置")
+                .With(huxerui::Tooltip("编辑"))),
+            InvertingIconAction(huxerui::IconButton(app::images::gauge, "用量查询配置")
                 .OnClick([showUsage] { showUsage(); })
                 .With(huxerui::Enabled(!aggregate),
                       huxerui::Tooltip(aggregate
                                            ? "聚合供应商没有单一用量端点"
-                                           : "用量查询配置")),
-            huxerui::IconButton(app::images::copy, "复制")
+                                           : "用量查询配置"))),
+            InvertingIconAction(huxerui::IconButton(app::images::copy, "复制")
                 .OnClick([toast, tool, id, bump] {
                     try {
                         const auto copy = providerStore().duplicateProvider(tool, id);
@@ -434,8 +434,8 @@ huxerui::View StatusText(const StatusPreview& preview, const std::string& full,
                     }
                     bump();
                 })
-                .With(huxerui::Tooltip("复制")),
-            huxerui::IconButton(app::images::trash, "删除")
+                .With(huxerui::Tooltip("复制"))),
+            InvertingIconAction(huxerui::IconButton(app::images::trash, "删除")
                 .OnClick([tasks, showDeleteConfirm] {
                     // 弹窗会卸载点击路径上的节点：推迟出指针事件路径。
                     tasks.Launch([=]() -> huxerui::Task<void> {
@@ -443,7 +443,7 @@ huxerui::View StatusText(const StatusPreview& preview, const std::string& full,
                         co_return;
                     });
                 })
-                .With(huxerui::Tooltip("删除")),
+                .With(huxerui::Tooltip("删除"))),
         }.With(huxerui::Spacing(4.0F),
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
     }.With(huxerui::Spacing(8.0F),

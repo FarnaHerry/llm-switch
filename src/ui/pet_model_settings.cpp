@@ -171,7 +171,7 @@ huxerui::View PetModelSettings() {
     }
 
     children.push_back(huxerui::Row {
-        huxerui::Button(busy.Get() ? "导入中…" : "导入目录")
+        OutlinedAction(huxerui::Button(busy.Get() ? "导入中…" : "导入目录")
             .OnClick([kind, pet, application, picker, tasks, revision, busy, status] {
                 if (busy.Get()) return;
                 busy = true;
@@ -208,11 +208,11 @@ huxerui::View PetModelSettings() {
                     busy = false;
                 });
             })
-            .With(huxerui::Enabled(!busy.Get() && picker->CanOpenDirectories(false))),
-        huxerui::Button("刷新").OnClick([revision] {
+            .With(huxerui::Enabled(!busy.Get() && picker->CanOpenDirectories(false)))),
+        OutlinedAction(huxerui::Button("刷新").OnClick([revision] {
             revision = revision.Get() + 1;
-        }),
-        huxerui::Button("删除当前模型")
+        })),
+        OutlinedAction(huxerui::Button("删除当前模型")
             .OnClick([kind, pet, application, dialog, tasks, revision, status,
                       selectedId, selectedName = currentOptions.empty()
                           ? selectedId
@@ -241,7 +241,7 @@ huxerui::View PetModelSettings() {
                         });
                     });
             })
-            .With(huxerui::Enabled(!busy.Get() && !selectedId.empty())),
+            .With(huxerui::Enabled(!busy.Get() && !selectedId.empty()))),
     }.With(huxerui::Spacing(8.0F)));
     if (!status.Get().empty()) {
         children.push_back(huxerui::Text(status.Get())

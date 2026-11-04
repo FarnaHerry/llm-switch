@@ -38,9 +38,9 @@ namespace llmswitch::ui {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     const IslandTheme islands = ResolveIslandTheme(theme);
     huxerui::View toolButton =
-        huxerui::IconButton(icon, label)
+        InvertingIconAction(huxerui::IconButton(icon, label)
             .OnClick([selectedIndex, index] { selectedIndex = index; })
-            .With(huxerui::Tooltip(label));
+            .With(huxerui::Tooltip(label)));
     if (selectedIndex.Get() == index) {
         toolButton = std::move(toolButton).With(
             huxerui::Background(islands.overlay),
@@ -295,10 +295,10 @@ namespace llmswitch::ui {
     std::vector<huxerui::View> pageActions;
     if (inWorkspace) {
         pageActions.push_back(
-            huxerui::Button("工作台首页")
+            OutlinedAction(huxerui::Button("工作台首页")
                 .OnClick([workspacePage] {
                     workspacePage = workspace_pages::kHome;
-                }));
+                })));
     }
     huxerui::View actionGroup =
         huxerui::Row(std::move(pageActions))
@@ -364,15 +364,15 @@ namespace llmswitch::ui {
         auto goBack = [formTarget] { formTarget = ""; };
         if (!formReady) {
             std::vector<huxerui::View> actions{
-                huxerui::Button("返回")
-                    .OnClick([goBack] { goBack(); })};
+                OutlinedAction(huxerui::Button("返回")
+                    .OnClick([goBack] { goBack(); }))};
             if (inWorkspace) {
                 actions.push_back(
-                    huxerui::Button("工作台首页")
+                    OutlinedAction(huxerui::Button("工作台首页")
                         .OnClick([workspacePage, formTarget] {
                             formTarget = "";
                             workspacePage = workspace_pages::kHome;
-                        }));
+                        })));
             }
             agentForm = PageScaffold(
                             target.starts_with("usage:") ? "用量查询"

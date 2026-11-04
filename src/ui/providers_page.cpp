@@ -224,14 +224,14 @@ using provider_detail::WriteUsageCache;
                 modeTab = std::min<std::size_t>(index, 2);
             });
     huxerui::View addButton =
-        huxerui::IconButton(app::images::add,
+        InvertingIconAction(huxerui::IconButton(app::images::add,
                             view == 2 ? "新增聚合供应商" : "新增供应商")
             .OnClick([view, tool, formToolIndex, formTarget] {
                 formToolIndex = ToolRegistryIndex(tool);
                 formTarget = view == 2 ? "aggregate:new" : "new";
             })
             .With(huxerui::Tooltip(view == 2 ? "新增聚合供应商"
-                                             : "新增供应商"));
+                                             : "新增供应商")));
 
     huxerui::View modeHeader =
         huxerui::Column {
@@ -273,8 +273,8 @@ using provider_detail::WriteUsageCache;
                             huxerui::Font::System(font_size::kCaption),
                             theme.colors.on_surface_variant}),
                     std::move(failoverSwitch),
-                    huxerui::Button("回到直连")
-                        .OnClick([backToDirect] { backToDirect(); }),
+                    OutlinedAction(huxerui::Button("回到直连")
+                        .OnClick([backToDirect] { backToDirect(); })),
                 }.With(huxerui::Spacing(8.0F),
                        huxerui::CrossAlign(
                            huxerui::CrossAxisAlignment::Center));
@@ -291,7 +291,7 @@ using provider_detail::WriteUsageCache;
                               huxerui::Font::System(font_size::kCaption),
                               theme.colors.on_surface_variant})}
                     : huxerui::View{
-                          huxerui::Button(
+                          OutlinedAction(huxerui::Button(
                               std::format("开始路由到「{}」",
                                           nameOf(startTarget)))
                               .OnClick([toast, tool, startTarget, modeTab,
@@ -304,7 +304,7 @@ using provider_detail::WriteUsageCache;
                                   } catch (const std::exception& e) {
                                       toast.Show(e.what());
                                   }
-                              })};
+                              }))};
             routeBanner =
                 huxerui::Column {
                     huxerui::Text("当前未路由。开始后 Agent 的 base URL "
@@ -335,8 +335,8 @@ using provider_detail::WriteUsageCache;
                               huxerui::Font::System(font_size::kBody),
                               theme.colors.on_surface}),
                       huxerui::Spacer(),
-                      huxerui::Button("回到直连")
-                          .OnClick([backToDirect] { backToDirect(); }),
+                      OutlinedAction(huxerui::Button("回到直连")
+                          .OnClick([backToDirect] { backToDirect(); })),
                   }.With(huxerui::Spacing(8.0F),
                          huxerui::CrossAlign(
                              huxerui::CrossAxisAlignment::Center))

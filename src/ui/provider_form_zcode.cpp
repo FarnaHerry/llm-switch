@@ -70,7 +70,7 @@ const AgentFormPolicy& ZcodeFormPolicy() {
             ? huxerui::View{huxerui::Row{}}
             : ModelSelect(fetchedModels, fs.modelSearch, newModel),
         huxerui::Row {
-            huxerui::Button("取消").OnClick([ctx] { ctx.Dismiss(); }),
+            OutlinedAction(huxerui::Button("取消").OnClick([ctx] { ctx.Dismiss(); })),
             PrimaryAction(
                 huxerui::Button("添加").OnClick([add] { add(); })),
         }.With(huxerui::MainAlign(huxerui::MainAxisAlignment::SpaceBetween)),
@@ -141,7 +141,7 @@ const AgentFormPolicy& ZcodeFormPolicy() {
                               }));
         const bool expanded = expandedMeta.Get() == static_cast<int>(i);
         row.push_back(
-            huxerui::IconButton(app::images::edit, "模型参数")
+            InvertingIconAction(huxerui::IconButton(app::images::edit, "模型参数")
                 .OnClick([expandedMeta, i] {
                     if (expandedMeta.Get() == static_cast<int>(i)) {
                         expandedMeta = -1;
@@ -149,13 +149,13 @@ const AgentFormPolicy& ZcodeFormPolicy() {
                     }
                     expandedMeta = static_cast<int>(i);
                 })
-                .With(huxerui::Tooltip("编辑模型参数")));
+                .With(huxerui::Tooltip("编辑模型参数"))));
         row.push_back(
-            huxerui::IconButton(app::images::trash, "移除")
+            InvertingIconAction(huxerui::IconButton(app::images::trash, "移除")
                 .OnClick([modelList, expandedMeta, i] {
                     modelList.Erase(i);
                     expandedMeta = -1;
-                }));
+                })));
         items.push_back(
             huxerui::Row(std::move(row))
                 .With(huxerui::Spacing(8.0F),
@@ -255,9 +255,9 @@ const AgentFormPolicy& ZcodeFormPolicy() {
                        huxerui::EdgeInsets::Symmetric(16.0F, 0.0F))));
     }
     items.push_back(
-        huxerui::Row {huxerui::Button("添加").OnClick([showAddDialog] {
+        huxerui::Row {OutlinedAction(huxerui::Button("添加").OnClick([showAddDialog] {
             showAddDialog();
-        })}.With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)));
+        }))}.With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)));
 
     return huxerui::Column {
         toggle,

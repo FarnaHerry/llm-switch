@@ -114,7 +114,7 @@ bool InvolvesTool(const skills::SkillInfo& skill, std::string_view toolId) {
             .LineLimits(huxerui::TextFieldLineLimits::MultiLine(8, 16))
             .OnChanged([body](const huxerui::TextEditingValue& v) { body = v; }),
         huxerui::Row {
-            huxerui::Button("取消").OnClick([ctx] { ctx.Dismiss(); }),
+            OutlinedAction(huxerui::Button("取消").OnClick([ctx] { ctx.Dismiss(); })),
             PrimaryAction(huxerui::Button("保存").OnClick([=] {
                 try {
                     // State::Get() 只给 const 引用；变更操作走 load() 出的
@@ -163,7 +163,7 @@ bool InvolvesTool(const skills::SkillInfo& skill, std::string_view toolId) {
             .LineLimits(huxerui::TextFieldLineLimits::MultiLine(6, 14))
             .OnChanged([body](const huxerui::TextEditingValue& v) { body = v; }),
         huxerui::Row {
-            huxerui::Button("取消").OnClick([ctx] { ctx.Dismiss(); }),
+            OutlinedAction(huxerui::Button("取消").OnClick([ctx] { ctx.Dismiss(); })),
             PrimaryAction(huxerui::Button("创建").OnClick([=] {
                 if (name.Get().text.empty()) {
                     toast.Show("名称不能为空");
@@ -262,18 +262,18 @@ bool InvolvesTool(const skills::SkillInfo& skill, std::string_view toolId) {
                                       theme.colors.on_surface_variant}),
         SkillAgentIcons(skill),
         huxerui::Row {
-            huxerui::Button("编辑")
+            OutlinedAction(huxerui::Button("编辑")
                 .OnClick([showEdit] { showEdit(); })
                 .With(huxerui::Enabled(skill.inStore),
                       huxerui::Tooltip(skill.inStore ? "编辑描述与正文"
-                                                     : "仅中央库中的 Skill 可编辑")),
-            huxerui::Button("删除").OnClick([tasks, showDeleteConfirm] {
+                                                     : "仅中央库中的 Skill 可编辑"))),
+            OutlinedAction(huxerui::Button("删除").OnClick([tasks, showDeleteConfirm] {
                 // 弹窗会卸载点击路径上的节点：经事件队列推迟，不走帧调度。
                 tasks.Launch([=]() -> huxerui::Task<void> {
                     showDeleteConfirm();
                     co_return;
                 });
-            }),
+            })),
             // 操作组靠卡片右缘；卡片内容按 Stretch 排布，主轴靠 MainAlign 收尾。
         }.With(huxerui::Spacing(8.0F),
                huxerui::MainAlign(huxerui::MainAxisAlignment::End)),
@@ -352,7 +352,7 @@ bool InvolvesTool(const skills::SkillInfo& skill, std::string_view toolId) {
         huxerui::View{itemsView}.With(huxerui::Frame{.height = 320.0F}),
         huxerui::Row {
             huxerui::Spacer(),
-            huxerui::Button("取消").OnClick([ctx] { ctx.Dismiss(); }),
+            OutlinedAction(huxerui::Button("取消").OnClick([ctx] { ctx.Dismiss(); })),
         },
     }.With(huxerui::Spacing(12.0F),
            huxerui::Frame{.width = 380.0F},
@@ -470,9 +470,9 @@ bool InvolvesTool(const skills::SkillInfo& skill, std::string_view toolId) {
     return PageScaffold(
         "Skills",
         huxerui::Row {
-            huxerui::Button("收编工具已有 Skill").OnClick([showImportDialog] {
+            OutlinedAction(huxerui::Button("收编工具已有 Skill").OnClick([showImportDialog] {
                 showImportDialog();
-            }),
+            })),
             PrimaryAction(huxerui::Button("新建 Skill")
                               .OnClick([showCreateDialog] {
                                   showCreateDialog();

@@ -328,10 +328,6 @@ huxerui::ThemeDefinition PetThemeDefinition(bool dark, bool compact_menu) {
     const huxerui::ThemeSpec spec = dark ? AppDarkThemeSpec() : AppLightThemeSpec();
     huxerui::ThemeDefinition definition = AppThemeDefinition(spec);
     if (!compact_menu) return definition;
-    const auto withAlpha = [](Color color, float alpha) {
-        color.alpha = alpha;
-        return color;
-    };
     huxerui::MenuStyle menus = huxerui::MenuStyle::Default();
     menus.minimum_item_height = 30.0F;
     menus.item_padding = huxerui::EdgeInsets::Symmetric(12.0F, 4.0F);
@@ -341,10 +337,7 @@ huxerui::ThemeDefinition PetThemeDefinition(bool dark, bool compact_menu) {
     menus.separator_color = spec.colors.outline;
     menus.shadow = FloatingOutline(spec);
     menus.corner_radii = huxerui::CornerRadii{spec.shapes.small};
-    menus.item_indication = huxerui::Indication{
-        .hover = huxerui::IndicationLayer{.fill = withAlpha(spec.colors.on_surface, 0.08F)},
-        .press = huxerui::IndicationLayer{.fill = withAlpha(spec.colors.on_surface, 0.12F)},
-    };
+    menus.item_indication = MonochromeIndication(spec.colors.on_surface);
     definition.Set(menus);
     return definition;
 }

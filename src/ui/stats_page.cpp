@@ -580,23 +580,23 @@ void ApplySnapshot(const router::StatsSnapshot& snapshot,
 
     huxerui::View backToWorkspace;
     if (inWorkspace) {
-        backToWorkspace = huxerui::Button("返回工作台")
+        backToWorkspace = OutlinedAction(huxerui::Button("返回工作台")
             .OnClick([workspacePage] {
                 workspacePage = workspace_pages::kHome;
-            });
+            }));
     }
 
     return PageScaffold(
         "使用统计",
         huxerui::Row {
-            huxerui::Button("刷新").OnClick([=] {
+            OutlinedAction(huxerui::Button("刷新").OnClick([=] {
                 ApplySnapshot(routerInstance().snapshot(), summary,
                               providerStats);
                 refreshUsage();
-            }),
-            huxerui::Button("同步会话用量").OnClick([syncUsage] { syncUsage(); })
-                .With(huxerui::Enabled(!usageSyncing.Get())),
-            huxerui::Button("清空统计").OnClick([=] { confirmClear(); }),
+            })),
+            OutlinedAction(huxerui::Button("同步会话用量").OnClick([syncUsage] { syncUsage(); })
+                .With(huxerui::Enabled(!usageSyncing.Get()))),
+            OutlinedAction(huxerui::Button("清空统计").OnClick([=] { confirmClear(); })),
             backToWorkspace,
         }.With(huxerui::Spacing(8.0F)),
         huxerui::ScrollView(

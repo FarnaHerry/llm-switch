@@ -82,6 +82,7 @@ ThemeDefinition InstallerThemeDefinition(const ThemeSpec& spec) {
   definition.Set(buttons);
 
   DialogStyle dialogs = DialogStyle::Default();
+  dialogs.scrim = spec.colors.scrim;
   dialogs.background = spec.colors.surface_container_high;
   dialogs.title_style = TextStyle{Font::System(spec.typography.title_large).WithWeight(FontWeight::Bold),
                                   spec.colors.on_surface};
@@ -202,16 +203,14 @@ View CompletionMark(const ThemeSpec& theme) {
 }
 
 View SecondaryAction(View action, const ThemeSpec& theme) {
-  Color disabled_background = theme.colors.on_surface;
-  disabled_background.alpha = 0.08F;
   Color disabled_label = theme.colors.on_surface;
   disabled_label.alpha = 0.38F;
   ThemeDefinition definition;
   definition.Set(ButtonStyle{
-      .background = theme.colors.surface_container_highest,
+      .background = Color::Transparent(),
       .label_style =
           TextStyle{Font::System(theme.typography.label_large).WithWeight(FontWeight::Medium), theme.colors.on_surface},
-      .disabled_background = disabled_background,
+      .disabled_background = Color::Transparent(),
       .disabled_label = disabled_label,
       .padding = EdgeInsets::Symmetric(20.0F, 8.0F),
       .minimum_width = 72.0F,
@@ -219,7 +218,8 @@ View SecondaryAction(View action, const ThemeSpec& theme) {
       .corner_radii = CornerRadii{8.0F},
       .indication = theme.interactions.indication,
   });
-  return Theme {std::move(definition), std::move(action)};
+  View outlined = std::move(action).With(CornerRadius(8.0F), Border{theme.colors.outline, 1.0F});
+  return Theme {std::move(definition), std::move(outlined)};
 }
 
 std::vector<View> PromptActions(const InstallerHandle& installer, const InstallerPrompt& prompt,

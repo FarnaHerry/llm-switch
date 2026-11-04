@@ -90,9 +90,9 @@ std::size_t CloseBehaviorIndex(std::string_view behavior) {
                             std::string_view label) {
         const bool selected = mode == value;
         huxerui::View button =
-            huxerui::IconButton(std::move(resource), std::string(label))
+            InvertingIconAction(huxerui::IconButton(std::move(resource), std::string(label))
                 .OnClick([select, value] { select(value); })
-                .With(huxerui::Tooltip(std::string(label)));
+                .With(huxerui::Tooltip(std::string(label))));
         // 背景必须加在 Theme 内部的按钮上；Theme 是 Environment 节点，
         // 不能给 Environment 节点声明 Background 等视图行为。
         if (selected) {
@@ -164,7 +164,7 @@ std::size_t CloseBehaviorIndex(std::string_view behavior) {
         (installed || command.empty())
             ? huxerui::View{huxerui::Row{}}
             : huxerui::View{
-                  huxerui::Button("复制安装命令")
+                  OutlinedAction(huxerui::Button("复制安装命令")
                       .OnClick([clipboard, toast, command] {
                           if (!clipboard || !clipboard->IsAvailable()) {
                               toast.Show(std::format("剪贴板不可用，请手动执行：{}",
@@ -177,7 +177,7 @@ std::size_t CloseBehaviorIndex(std::string_view behavior) {
                               toast.Show(std::format("复制失败，请手动执行：{}",
                                                      command));
                           }
-                      })},
+                      }))},
     }.With(huxerui::Spacing(10.0F),
            huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
 }
@@ -392,7 +392,7 @@ std::size_t CloseBehaviorIndex(std::string_view behavior) {
         managedAgentIcons.push_back(
             huxerui::Theme(
                 enabled ? agentIconOnTheme : agentIconOffTheme,
-                huxerui::IconButton(ToolIcon(spec.iconName, dark), label)
+                InvertingIconAction(huxerui::IconButton(ToolIcon(spec.iconName, dark), label)
                     .OnClick([disabledTools, revision, toast, id] {
                         const bool turnOn =
                             std::ranges::find(disabledTools.Get(), id) !=
@@ -413,7 +413,7 @@ std::size_t CloseBehaviorIndex(std::string_view behavior) {
                         }
                     })
                     .With(huxerui::Tooltip(tip),
-                          huxerui::Opacity(enabled ? 1.0F : 0.38F)))
+                          huxerui::Opacity(enabled ? 1.0F : 0.38F))))
                 .Key("managed-agent:" + id));
     }
     huxerui::View managedAgents = huxerui::Column {
@@ -790,9 +790,9 @@ std::size_t CloseBehaviorIndex(std::string_view behavior) {
                                 huxerui::Font::System(font_size::kCaption),
                                 theme.colors.on_surface_variant})
                             .With(huxerui::Grow(1.0F)),
-                        huxerui::Button("重新检查").OnClick([configRefresh] {
+                        OutlinedAction(huxerui::Button("重新检查").OnClick([configRefresh] {
                             configRefresh = configRefresh.Get() + 1;
-                        }),
+                        })),
                     }.With(huxerui::Spacing(8.0F),
                            huxerui::CrossAlign(
                                huxerui::CrossAxisAlignment::Center)),
@@ -838,14 +838,14 @@ std::size_t CloseBehaviorIndex(std::string_view behavior) {
                             huxerui::Font::System(font_size::kCaption),
                             theme.colors.on_surface_variant}),
                     huxerui::Row {
-                        huxerui::Button("导出配置").OnClick([doExport] {
+                        OutlinedAction(huxerui::Button("导出配置").OnClick([doExport] {
                             doExport();
-                        }),
+                        })),
                         canOpen
-                            ? huxerui::View{huxerui::Button("导入配置")
+                            ? huxerui::View{OutlinedAction(huxerui::Button("导入配置")
                                                 .OnClick([doImportPicked] {
                                                     doImportPicked();
-                                                })}
+                                                }))}
                             : huxerui::View{huxerui::Row{}},
                     }.With(huxerui::Spacing(8.0F)),
                     // 无文件对话框平台：手动路径导入。
@@ -862,9 +862,9 @@ std::size_t CloseBehaviorIndex(std::string_view behavior) {
                                               importPath = v;
                                           })
                                       .With(huxerui::Grow(1.0F)),
-                                  huxerui::Button("导入").OnClick([doImportPath] {
+                                  OutlinedAction(huxerui::Button("导入").OnClick([doImportPath] {
                                       doImportPath();
-                                  }),
+                                  })),
                               }.With(huxerui::Spacing(8.0F))},
                     lastExport.Get().empty()
                         ? huxerui::View{huxerui::Row{}}

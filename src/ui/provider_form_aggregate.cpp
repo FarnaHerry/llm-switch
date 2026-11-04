@@ -529,7 +529,7 @@ void MoveEntry(huxerui::State<std::vector<ModelEntry>> entries,
                         huxerui::Font::System(font_size::kChip),
                         theme.colors.on_surface_variant}),
             }.With(huxerui::Spacing(2.0F), huxerui::Grow(1.0F)),
-            huxerui::Button("移除")
+            OutlinedAction(huxerui::Button("移除")
                 .OnClick([ordered, index] {
                     auto list = ordered.Get();
                     if (index < list.size()) {
@@ -538,15 +538,15 @@ void MoveEntry(huxerui::State<std::vector<ModelEntry>> entries,
                         ordered = std::move(list);
                     }
                 })
-                .With(huxerui::Tooltip("从聚合中移除这个模型")),
-            huxerui::Button("上移")
+                .With(huxerui::Tooltip("从聚合中移除这个模型"))),
+            OutlinedAction(huxerui::Button("上移")
                 .OnClick([ordered, index] { MoveEntry(ordered, index, -1); })
                 .With(huxerui::Enabled(index > 0),
-                      huxerui::Tooltip("向前移动，提高兜底优先级")),
-            huxerui::Button("下移")
+                      huxerui::Tooltip("向前移动，提高兜底优先级"))),
+            OutlinedAction(huxerui::Button("下移")
                 .OnClick([ordered, index] { MoveEntry(ordered, index, 1); })
                 .With(huxerui::Enabled(index + 1 < entries.size()),
-                      huxerui::Tooltip("向后移动，降低兜底优先级")),
+                      huxerui::Tooltip("向后移动，降低兜底优先级"))),
         }.With(huxerui::Spacing(8.0F),
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
                huxerui::Padding(
@@ -712,7 +712,7 @@ void MoveEntry(huxerui::State<std::vector<ModelEntry>> entries,
                             huxerui::Font::System(font_size::kBody)
                                 .WithWeight(huxerui::FontWeight::SemiBold),
                             theme.colors.on_surface}),
-                    huxerui::Button(fetching.Get() ? "获取中…"
+                    OutlinedAction(huxerui::Button(fetching.Get() ? "获取中…"
                                                    : "获取全量模型")
                         .OnClick([=] {
                             if (fetching.Get() || candidates.empty()) return;
@@ -801,7 +801,7 @@ void MoveEntry(huxerui::State<std::vector<ModelEntry>> entries,
                         .With(huxerui::Enabled(!fetching.Get() &&
                                                !candidates.empty()),
                               huxerui::Tooltip(
-                                  "按各供应商的地址与密钥拉取完整模型列表")),
+                                  "按各供应商的地址与密钥拉取完整模型列表"))),
                 }.With(huxerui::Spacing(12.0F),
                        huxerui::MainAlign(
                            huxerui::MainAxisAlignment::Start),
@@ -869,7 +869,7 @@ void MoveEntry(huxerui::State<std::vector<ModelEntry>> entries,
                                       manualModel = v;
                                   })
                                   .With(huxerui::Grow(1.0F)),
-                              huxerui::Button("添加")
+                              OutlinedAction(huxerui::Button("添加")
                                   .OnClick([candidates, ordered, manualProvider,
                                             manualModel, memberProtocols,
                                             toast] {
@@ -905,7 +905,7 @@ void MoveEntry(huxerui::State<std::vector<ModelEntry>> entries,
                                       ordered = std::move(list);
                                       manualModel =
                                           huxerui::TextEditingValue{};
-                                  }),
+                                  })),
                           }.With(huxerui::Spacing(8.0F),
                                  huxerui::CrossAlign(
                                      huxerui::CrossAxisAlignment::Center))},
@@ -923,7 +923,7 @@ void MoveEntry(huxerui::State<std::vector<ModelEntry>> entries,
                    huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)))
                 .With(huxerui::Grow(1.0F)),
         huxerui::Row {
-            huxerui::Button("取消").OnClick([formTarget] { formTarget = ""; }),
+            OutlinedAction(huxerui::Button("取消").OnClick([formTarget] { formTarget = ""; })),
             PrimaryAction(huxerui::Button(isNew ? "添加" : "保存").OnClick(
                 [=] {
                     const std::string formName = name.Get().text;
@@ -1010,7 +1010,7 @@ void MoveEntry(huxerui::State<std::vector<ModelEntry>> entries,
     return PageScaffold(
         title,
         huxerui::Row {
-            huxerui::Button("返回").OnClick([formTarget] { formTarget = ""; }),
+            OutlinedAction(huxerui::Button("返回").OnClick([formTarget] { formTarget = ""; })),
         },
         std::move(body));
 }

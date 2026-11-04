@@ -163,7 +163,7 @@ bool ModelHasReasoning(const nlohmann::json& meta, const std::string& id) {
     const IslandTheme islands = ResolveIslandTheme(theme);
     const auto popup = huxerui::UsePopup();
 
-    return huxerui::IconButton(app::images::search, "选择模型")
+    return InvertingIconAction(huxerui::IconButton(app::images::search, "选择模型")
         .OnClick([popup, fetched, search, target, displayTarget, islands,
                   onPicked = std::move(onPicked)] {
             popup.Show(
@@ -177,8 +177,7 @@ bool ModelHasReasoning(const nlohmann::json& meta, const std::string& id) {
                                         suggestions,
                                         [context, search, target,
                                          displayTarget, onPicked](const std::string& model) {
-                                            return huxerui::Button(model)
-                                                .Key(model)
+                                            return OutlinedAction(huxerui::Button(model)
                                                 .OnClick([context, model, search,
                                                           target, displayTarget,
                                                           onPicked] {
@@ -193,7 +192,7 @@ bool ModelHasReasoning(const nlohmann::json& meta, const std::string& id) {
                                                     if (onPicked) {
                                                         onPicked(model);
                                                     }
-                                                });
+                                                })).Key(model);
                                         })
                                         .EstimatedItemExtent(40.0F)
                                         .CacheExtent(120.0F)
@@ -224,7 +223,7 @@ bool ModelHasReasoning(const nlohmann::json& meta, const std::string& id) {
                     .placement = {huxerui::AnchorSide::Below,
                                   huxerui::AnchorAlignment::End}});
         })
-        .With(popup.Anchor(), huxerui::Tooltip("选择模型"));
+        .With(popup.Anchor(), huxerui::Tooltip("选择模型")));
 }
 
 } // namespace llmswitch::ui

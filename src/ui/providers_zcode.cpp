@@ -139,19 +139,19 @@ void RemoveZcodeLocal(huxerui::ToastHandle toast, const std::string& name,
             .Style(hint),
         huxerui::Row {
             huxerui::Spacer(),
-            huxerui::Button("取消").OnClick([context] { context.Dismiss(); }),
-            huxerui::Button("只删本应用")
+            OutlinedAction(huxerui::Button("取消").OnClick([context] { context.Dismiss(); })),
+            OutlinedAction(huxerui::Button("只删本应用")
                 .OnClick([context, toast, name, id, revision] {
                     context.Dismiss();
                     RemoveZcodeLocal(toast, name, id, revision,
                                      /*eraseLive=*/false);
-                }),
-            huxerui::Button("连同 ZCode 一起删")
+                })),
+            OutlinedAction(huxerui::Button("连同 ZCode 一起删")
                 .OnClick([context, toast, name, id, revision] {
                     context.Dismiss();
                     RemoveZcodeLocal(toast, name, id, revision,
                                      /*eraseLive=*/true);
-                }),
+                })),
         }.With(huxerui::Spacing(8.0F),
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
     }.With(huxerui::Spacing(12.0F),
@@ -297,7 +297,7 @@ void ShowZcodeDeleteConfirm(huxerui::DialogHandle dialog,
         ZcodeMetaLine({live.key, modelText, live.baseUrl},
                       theme.colors.on_surface_variant),
         huxerui::Row {
-            huxerui::IconButton(app::images::swap, "在 ZCode 中启用")
+            InvertingIconAction(huxerui::IconButton(app::images::swap, "在 ZCode 中启用")
                 .OnClick([enable] { enable(); })
                 .With(huxerui::Enabled(canEnable),
                       huxerui::Tooltip(
@@ -306,15 +306,15 @@ void ShowZcodeDeleteConfirm(huxerui::DialogHandle dialog,
                               : (live.builtin
                                      ? "ZCode 官方套餐条目的启停由 ZCode 自己管"
                                      : "翻 config.json 里这一条的 enabled"
-                                       "（其余字段一字不动）"))),
-            huxerui::IconButton(app::images::import, "收编到本应用")
+                                       "（其余字段一字不动）")))),
+            InvertingIconAction(huxerui::IconButton(app::images::import, "收编到本应用")
                 .OnClick([adopt] { adopt(); })
                 .With(huxerui::Enabled(adoptable),
                       huxerui::Tooltip(
                           adoptable
                               ? "收编成本应用供应商（ZCode 里的条目原样保留）"
-                              : "该条目已在应用中、是 ZCode 内置，或没有密钥")),
-            huxerui::IconButton(app::images::trash, "从 ZCode 删除")
+                              : "该条目已在应用中、是 ZCode 内置，或没有密钥"))),
+            InvertingIconAction(huxerui::IconButton(app::images::trash, "从 ZCode 删除")
                 .OnClick([tasks, showDeleteConfirm] {
                     tasks.Launch([=]() -> huxerui::Task<void> {
                         showDeleteConfirm();
@@ -324,7 +324,7 @@ void ShowZcodeDeleteConfirm(huxerui::DialogHandle dialog,
                 .With(huxerui::Enabled(!live.builtin),
                       huxerui::Tooltip(live.builtin
                                            ? "ZCode 官方套餐条目不能删除"
-                                           : "只从 config.json 删除这一条")),
+                                           : "只从 config.json 删除这一条"))),
         }.With(huxerui::Spacing(4.0F),
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
     }.With(huxerui::Spacing(6.0F),
@@ -454,7 +454,7 @@ void ShowZcodeDeleteConfirm(huxerui::DialogHandle dialog,
                                 ? theme.colors.error
                                 : theme.colors.on_surface_variant),
             std::move(usageView),
-            huxerui::IconButton(app::images::write,
+            InvertingIconAction(huxerui::IconButton(app::images::write,
                                 aggregate ? "启用聚合（写入 ZCode）"
                                           : "写入 / 更新 ZCode")
                 .OnClick([toast, name, id, bump, aggregate] {
@@ -480,8 +480,8 @@ void ShowZcodeDeleteConfirm(huxerui::DialogHandle dialog,
                                      : "写入本地路由条目并在 ZCode 中启用")
                               : (present && same
                                      ? "ZCode 里已是最新"
-                                     : "只把这一条写进 config.json"))),
-            huxerui::IconButton(app::images::activity, "联通检测")
+                                     : "只把这一条写进 config.json")))),
+            InvertingIconAction(huxerui::IconButton(app::images::activity, "联通检测")
                 .OnClick([tasks, checking, latency, http, url = testUrl] {
                     checking = true;
                     latency = std::string{};
@@ -501,17 +501,17 @@ void ShowZcodeDeleteConfirm(huxerui::DialogHandle dialog,
                       huxerui::Tooltip(
                           aggregate
                               ? "聚合项没有单一探测 URL；请求经本地路由转发"
-                              : "检测实际访问 URL 的连通性与延迟")),
-            huxerui::IconButton(app::images::edit, "编辑")
+                              : "检测实际访问 URL 的连通性与延迟"))),
+            InvertingIconAction(huxerui::IconButton(app::images::edit, "编辑")
                 .OnClick([showEdit] { showEdit(); })
-                .With(huxerui::Tooltip("编辑")),
-            huxerui::IconButton(app::images::gauge, "用量查询配置")
+                .With(huxerui::Tooltip("编辑"))),
+            InvertingIconAction(huxerui::IconButton(app::images::gauge, "用量查询配置")
                 .OnClick([showUsage] { showUsage(); })
                 .With(huxerui::Enabled(!aggregate),
                       huxerui::Tooltip(
                           aggregate ? "聚合供应商没有单一用量端点"
-                                    : "用量查询配置")),
-            huxerui::IconButton(app::images::copy, "复制")
+                                    : "用量查询配置"))),
+            InvertingIconAction(huxerui::IconButton(app::images::copy, "复制")
                 .OnClick([toast, id, bump] {
                     try {
                         const auto copy =
@@ -522,15 +522,15 @@ void ShowZcodeDeleteConfirm(huxerui::DialogHandle dialog,
                     }
                     bump();
                 })
-                .With(huxerui::Tooltip("复制")),
-            huxerui::IconButton(app::images::trash, "删除")
+                .With(huxerui::Tooltip("复制"))),
+            InvertingIconAction(huxerui::IconButton(app::images::trash, "删除")
                 .OnClick([tasks, showDeleteConfirm] {
                     tasks.Launch([=]() -> huxerui::Task<void> {
                         showDeleteConfirm();
                         co_return;
                     });
                 })
-                .With(huxerui::Tooltip("删除（先问只删本应用还是连同 ZCode 一起删）")),
+                .With(huxerui::Tooltip("删除（先问只删本应用还是连同 ZCode 一起删）"))),
         }.With(huxerui::Spacing(4.0F),
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
     }.With(huxerui::Spacing(6.0F),
@@ -589,7 +589,7 @@ void ShowZcodeDeleteConfirm(huxerui::DialogHandle dialog,
             .Style(huxerui::TextStyle{huxerui::Font::System(font_size::kCaption),
                                       theme.colors.on_surface_variant})
             .With(huxerui::Grow(1.0F)),
-        huxerui::Button("全部写入 ZCode").OnClick([toast, revision] {
+        OutlinedAction(huxerui::Button("全部写入 ZCode").OnClick([toast, revision] {
             try {
                 providerStore().syncZcodeProviders();
                 toast.Show("已把本应用全部供应商写入 ZCode（并清理孤儿条目）");
@@ -597,8 +597,8 @@ void ShowZcodeDeleteConfirm(huxerui::DialogHandle dialog,
                 toast.Show(e.what());
             }
             revision = revision.Get() + 1;
-        }),
-        huxerui::Button("全部收编").OnClick([toast, revision] {
+        })),
+        OutlinedAction(huxerui::Button("全部收编").OnClick([toast, revision] {
             std::size_t adopted = 0;
             try {
                 for (const auto& entry :
@@ -617,7 +617,7 @@ void ShowZcodeDeleteConfirm(huxerui::DialogHandle dialog,
                 toast.Show(e.what());
             }
             revision = revision.Get() + 1;
-        }),
+        })),
     }.With(huxerui::Spacing(theme.spacing.small),
            huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
 

@@ -22,6 +22,22 @@ inline constexpr float kBody = 14.0F;     // 正文/按钮/输入框（SDK 默�
 inline constexpr float kTitle = 20.0F;    // 页面/弹窗标题
 } // namespace font_size
 
+// 普通控件只用纯色描边反馈，不叠加半透明灰层；按钮的底色与文字成对反转。
+inline huxerui::Indication MonochromeIndication(huxerui::Color foreground) {
+    const auto layer = [foreground](float width) {
+        return huxerui::IndicationLayer{
+            .border = huxerui::Border{foreground, width},
+            .enter = huxerui::SnapSpec{},
+            .exit = huxerui::SnapSpec{},
+        };
+    };
+    return huxerui::Indication{
+        .focus = layer(2.0F),
+        .hover = layer(1.0F),
+        .press = layer(2.0F),
+    };
+}
+
 // 纯色面板：深色模式纯黑底 + 纯白字 + 纯白描边；浅色模式纯白底 + 纯黑字 +
 // 纯黑描边。区域区分全部靠线条（outline）完成，不再有明度分层。主要操作
 // （primary）与选中/焦点使用反色纯色：深色下白底黑字，浅色下黑底白字。
@@ -57,12 +73,9 @@ inline huxerui::ThemeSpec AppDarkThemeSpec() {
     spec.colors.outline = huxerui::Color::Rgb(255, 255, 255);         // 线条纯白
     spec.colors.inverse_surface = huxerui::Color::Rgb(255, 255, 255);
     spec.colors.inverse_on_surface = huxerui::Color::Rgb(0, 0, 0);
-    spec.colors.scrim = huxerui::Color::Rgb(0, 0, 0, 0.66F);
+    spec.colors.scrim = spec.colors.background;
     spec.colors.error = spec.colors.on_surface;
-    spec.interactions.indication = huxerui::Indication{
-        .hover = huxerui::IndicationLayer{.fill = huxerui::Color::Rgb(255, 255, 255, 0.08F)},
-        .press = huxerui::IndicationLayer{.fill = huxerui::Color::Rgb(255, 255, 255, 0.12F)},
-    };
+    spec.interactions.indication = MonochromeIndication(spec.colors.on_surface);
     spec.interactions.focus_ring.color = spec.colors.primary;
     return spec;
 }
@@ -98,12 +111,9 @@ inline huxerui::ThemeSpec AppLightThemeSpec() {
     spec.colors.outline = huxerui::Color::Rgb(0, 0, 0);               // 线条纯黑
     spec.colors.inverse_surface = huxerui::Color::Rgb(0, 0, 0);
     spec.colors.inverse_on_surface = huxerui::Color::Rgb(255, 255, 255);
-    spec.colors.scrim = huxerui::Color::Rgb(0, 0, 0, 0.34F);
+    spec.colors.scrim = spec.colors.background;
     spec.colors.error = spec.colors.on_surface;
-    spec.interactions.indication = huxerui::Indication{
-        .hover = huxerui::IndicationLayer{.fill = huxerui::Color::Rgb(0, 0, 0, 0.08F)},
-        .press = huxerui::IndicationLayer{.fill = huxerui::Color::Rgb(0, 0, 0, 0.12F)},
-    };
+    spec.interactions.indication = MonochromeIndication(spec.colors.on_surface);
     spec.interactions.focus_ring.color = spec.colors.primary;
     return spec;
 }

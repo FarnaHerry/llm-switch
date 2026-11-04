@@ -183,7 +183,7 @@ std::string FormatSize(std::uintmax_t bytes) {
             .Style(huxerui::TextStyle{huxerui::Font::System(font_size::kCaption),
                                       theme.colors.on_surface_variant}),
         huxerui::Row {
-            huxerui::Button("导出").OnClick([tasks, toast, path] {
+            OutlinedAction(huxerui::Button("导出").OnClick([tasks, toast, path] {
                 tasks.Launch([toast, path]() -> huxerui::Task<void> {
                     try {
                         const auto dest = co_await huxerui::RunWorker(
@@ -198,14 +198,14 @@ std::string FormatSize(std::uintmax_t bytes) {
                         toast.Show(e.what());
                     }
                 });
-            }),
-            huxerui::Button("删除").OnClick([tasks, showDeleteConfirm] {
+            })),
+            OutlinedAction(huxerui::Button("删除").OnClick([tasks, showDeleteConfirm] {
                 // 弹窗会卸载点击路径上的节点：经事件队列推迟，不走帧调度。
                 tasks.Launch([showDeleteConfirm]() -> huxerui::Task<void> {
                     showDeleteConfirm();
                     co_return;
                 });
-            }),
+            })),
         }.With(huxerui::Spacing(8.0F)),
     }.With(huxerui::Spacing(4.0F),
            huxerui::Padding(huxerui::EdgeInsets::Symmetric(10.0F, 8.0F)),
@@ -236,7 +236,7 @@ std::string FormatSize(std::uintmax_t bytes) {
             hovered = true;
         }
     };
-    const auto copy = huxerui::IconButton(app::images::copy, "复制消息")
+    const auto copy = InvertingIconAction(huxerui::IconButton(app::images::copy, "复制消息")
                           .OnClick([clipboard, toast, copiedText] {
                               if (!clipboard->IsAvailable() ||
                                   !clipboard->WriteText(copiedText)) {
@@ -246,7 +246,7 @@ std::string FormatSize(std::uintmax_t bytes) {
                               toast.Show("已复制当前消息");
                           })
                           .With(huxerui::Opacity(hovered.Get()),
-                                huxerui::Tooltip("复制消息"));
+                                huxerui::Tooltip("复制消息")));
 
     const std::string messageKey = std::format(
         "message:{}:{}", message.sourceOffset, message.role);
@@ -540,11 +540,11 @@ std::string FormatSize(std::uintmax_t bytes) {
         const std::string id(spec.id);
         const std::string label(spec.displayName);
         huxerui::View button =
-            huxerui::IconButton(ToolIcon(spec.iconName, dark), label)
+            InvertingIconAction(huxerui::IconButton(ToolIcon(spec.iconName, dark), label)
                 .OnClick([selectedAgent, position] {
                     selectedAgent = position;
                 })
-                .With(huxerui::Tooltip(label));
+                .With(huxerui::Tooltip(label)));
         if (selectedAgent.Get() == position) {
             button = std::move(button).With(
                 huxerui::Background(islands.raised),
@@ -579,11 +579,11 @@ std::string FormatSize(std::uintmax_t bytes) {
     if (inWorkspace) {
         actions = huxerui::Row {
             std::move(actions),
-            huxerui::Button("返回工作台")
+            OutlinedAction(huxerui::Button("返回工作台")
                 .OnClick([selectedSession, workspacePage] {
                     selectedSession = sessions::SessionInfo{};
                     workspacePage = workspace_pages::kHome;
-                }),
+                })),
         }.With(huxerui::Spacing(8.0F),
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
     }
@@ -691,7 +691,7 @@ std::string FormatSize(std::uintmax_t bytes) {
             huxerui::Text("加载会话失败：" + loadError.Get()).Style(
                 huxerui::TextStyle{huxerui::Font::System(font_size::kBody),
                                    theme.colors.on_surface_variant}),
-            huxerui::Button("重试").OnClick(retry),
+            OutlinedAction(huxerui::Button("重试").OnClick(retry)),
         }.With(huxerui::Spacing(12.0F), huxerui::Grow(1.0F),
                huxerui::MainAlign(huxerui::MainAxisAlignment::Center),
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
@@ -717,15 +717,15 @@ std::string FormatSize(std::uintmax_t bytes) {
     const huxerui::View navigation =
         SessionMessageNavigation(snapshot, navigationSearch, scroll);
 
-    huxerui::View actions = huxerui::Button("返回").OnClick(goBack);
+    huxerui::View actions = OutlinedAction(huxerui::Button("返回").OnClick(goBack));
     if (inWorkspace) {
         actions = huxerui::Row {
             std::move(actions),
-            huxerui::Button("返回工作台")
+            OutlinedAction(huxerui::Button("返回工作台")
                 .OnClick([selectedSession, workspacePage] {
                     selectedSession = sessions::SessionInfo{};
                     workspacePage = workspace_pages::kHome;
-                }),
+                })),
         }.With(huxerui::Spacing(8.0F));
     }
 

@@ -152,19 +152,19 @@ void RemoveDshLocal(huxerui::ToastHandle toast, const std::string& name,
             .Style(hint),
         huxerui::Row {
             huxerui::Spacer(),
-            huxerui::Button("取消").OnClick([context] { context.Dismiss(); }),
-            huxerui::Button("只删本应用").OnClick(
+            OutlinedAction(huxerui::Button("取消").OnClick([context] { context.Dismiss(); })),
+            OutlinedAction(huxerui::Button("只删本应用").OnClick(
                 [context, toast, name, id, revision] {
                     context.Dismiss();
                     RemoveDshLocal(toast, name, id, revision,
                                    /*eraseLive=*/false);
-                }),
-            huxerui::Button("连同 dsh 一起删").OnClick(
+                })),
+            OutlinedAction(huxerui::Button("连同 dsh 一起删").OnClick(
                 [context, toast, name, id, revision] {
                     context.Dismiss();
                     RemoveDshLocal(toast, name, id, revision,
                                    /*eraseLive=*/true);
-                }),
+                })),
         }.With(huxerui::Spacing(8.0F),
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
     }.With(huxerui::Spacing(12.0F),
@@ -307,7 +307,7 @@ void ShowDshDeleteConfirm(huxerui::DialogHandle dialog,
         DshMetaLine({live.key, live.model, live.baseUrl},
                     theme.colors.on_surface_variant),
         huxerui::Row {
-            huxerui::IconButton(app::images::swap, "设为 dsh 默认")
+            InvertingIconAction(huxerui::IconButton(app::images::swap, "设为 dsh 默认")
                 .OnClick([setDefault] { setDefault(); })
                 .With(huxerui::Enabled(canSetDefault),
                       huxerui::Tooltip(
@@ -316,16 +316,16 @@ void ShowDshDeleteConfirm(huxerui::DialogHandle dialog,
                                                  : "已是 dsh 默认路由")
                               : (builtinOfficial
                                      ? "清掉 agent-default-model，回到内置官方路由"
-                                     : "改 agent-default-model 指向这一条"))),
-            huxerui::IconButton(app::images::import, "收编到本应用")
+                                     : "改 agent-default-model 指向这一条")))),
+            InvertingIconAction(huxerui::IconButton(app::images::import, "收编到本应用")
                 .OnClick([adopt] { adopt(); })
                 .With(huxerui::Enabled(adoptable),
                       huxerui::Tooltip(adoptable
                                            ? "记进本应用列表（settings.yaml "
                                              "一字不动，条目保留它自己的键）"
                                            : "该条目已在应用中，或为 dsh 合成"
-                                             "内置行")),
-            huxerui::IconButton(app::images::trash, "从 dsh 删除")
+                                             "内置行"))),
+            InvertingIconAction(huxerui::IconButton(app::images::trash, "从 dsh 删除")
                 .OnClick([tasks, showDeleteConfirm] {
                     tasks.Launch([=]() -> huxerui::Task<void> {
                         showDeleteConfirm();
@@ -336,7 +336,7 @@ void ShowDshDeleteConfirm(huxerui::DialogHandle dialog,
                       huxerui::Tooltip(
                           live.builtin
                               ? "dsh 内置路由不在 settings.yaml 里，无法删除"
-                              : "只从 dsh 配置删除这一条")),
+                              : "只从 dsh 配置删除这一条"))),
         }.With(huxerui::Spacing(4.0F),
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
     }.With(huxerui::Spacing(6.0F),
@@ -463,7 +463,7 @@ void ShowDshDeleteConfirm(huxerui::DialogHandle dialog,
                               ? theme.colors.error
                               : theme.colors.on_surface_variant),
             std::move(usageView),
-            huxerui::IconButton(app::images::write,
+            InvertingIconAction(huxerui::IconButton(app::images::write,
                                 aggregate ? "使用聚合（写入并设为默认）"
                                           : "写入 / 更新 dsh")
                 .OnClick([toast, name, id, bump, aggregate] {
@@ -488,8 +488,8 @@ void ShowDshDeleteConfirm(huxerui::DialogHandle dialog,
                                      ? "已是当前聚合供应商"
                                      : "写入本地路由条目并设为 dsh 默认路由")
                               : (present && same ? "dsh 里已是最新"
-                                                 : "只把这一条写进 settings.yaml"))),
-            huxerui::IconButton(app::images::activity, "联通检测")
+                                                 : "只把这一条写进 settings.yaml")))),
+            InvertingIconAction(huxerui::IconButton(app::images::activity, "联通检测")
                 .OnClick([tasks, checking, latency, http, url = testUrl] {
                     checking = true;
                     latency = std::string{};
@@ -509,17 +509,17 @@ void ShowDshDeleteConfirm(huxerui::DialogHandle dialog,
                       huxerui::Tooltip(
                           aggregate
                               ? "聚合项没有单一探测 URL；请求经本地路由转发"
-                              : "检测实际访问 URL 的连通性与延迟")),
-            huxerui::IconButton(app::images::edit, "编辑")
+                              : "检测实际访问 URL 的连通性与延迟"))),
+            InvertingIconAction(huxerui::IconButton(app::images::edit, "编辑")
                 .OnClick([showEdit] { showEdit(); })
-                .With(huxerui::Tooltip("编辑")),
-            huxerui::IconButton(app::images::gauge, "用量查询配置")
+                .With(huxerui::Tooltip("编辑"))),
+            InvertingIconAction(huxerui::IconButton(app::images::gauge, "用量查询配置")
                 .OnClick([showUsage] { showUsage(); })
                 .With(huxerui::Enabled(!aggregate),
                       huxerui::Tooltip(
                           aggregate ? "聚合供应商没有单一用量端点"
-                                    : "用量查询配置")),
-            huxerui::IconButton(app::images::copy, "复制")
+                                    : "用量查询配置"))),
+            InvertingIconAction(huxerui::IconButton(app::images::copy, "复制")
                 .OnClick([toast, id, bump] {
                     try {
                         const auto copy =
@@ -530,15 +530,15 @@ void ShowDshDeleteConfirm(huxerui::DialogHandle dialog,
                     }
                     bump();
                 })
-                .With(huxerui::Tooltip("复制")),
-            huxerui::IconButton(app::images::trash, "删除")
+                .With(huxerui::Tooltip("复制"))),
+            InvertingIconAction(huxerui::IconButton(app::images::trash, "删除")
                 .OnClick([tasks, showDeleteConfirm] {
                     tasks.Launch([=]() -> huxerui::Task<void> {
                         showDeleteConfirm();
                         co_return;
                     });
                 })
-                .With(huxerui::Tooltip("删除（先问只删本应用还是连同 dsh 一起删）")),
+                .With(huxerui::Tooltip("删除（先问只删本应用还是连同 dsh 一起删）"))),
         }.With(huxerui::Spacing(4.0F),
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
     }.With(huxerui::Spacing(6.0F),
@@ -595,7 +595,7 @@ void ShowDshDeleteConfirm(huxerui::DialogHandle dialog,
             .Style(huxerui::TextStyle{huxerui::Font::System(font_size::kCaption),
                                       theme.colors.on_surface_variant})
             .With(huxerui::Grow(1.0F)),
-        huxerui::Button("全部写入 dsh").OnClick([toast, revision] {
+        OutlinedAction(huxerui::Button("全部写入 dsh").OnClick([toast, revision] {
             try {
                 providerStore().syncDshProviders({});
                 toast.Show("已把本应用全部供应商写入 dsh（并清理孤儿条目）");
@@ -603,8 +603,8 @@ void ShowDshDeleteConfirm(huxerui::DialogHandle dialog,
                 toast.Show(e.what());
             }
             revision = revision.Get() + 1;
-        }),
-        huxerui::Button("全部收编").OnClick([toast, revision] {
+        })),
+        OutlinedAction(huxerui::Button("全部收编").OnClick([toast, revision] {
             std::size_t adopted = 0;
             try {
                 for (const auto& entry :
@@ -622,7 +622,7 @@ void ShowDshDeleteConfirm(huxerui::DialogHandle dialog,
                 toast.Show(e.what());
             }
             revision = revision.Get() + 1;
-        }),
+        })),
     }.With(huxerui::Spacing(theme.spacing.small),
            huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
 

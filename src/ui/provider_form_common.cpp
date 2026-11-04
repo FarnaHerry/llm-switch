@@ -271,7 +271,7 @@ const AgentFormPolicy& AgentPolicyFor(std::string_view tool) {
     const bool canFetch = !fetching.Get() && !fs.baseUrl.Get().text.empty() &&
                           !fs.apiKey.Get().text.empty();
     huxerui::View fetchButton =
-        huxerui::Button(fetching.Get() ? "获取中…" : "获取模型列表")
+        OutlinedAction(huxerui::Button(fetching.Get() ? "获取中…" : "获取模型列表")
             .OnClick([=] {
                 const std::string fetchBase = models::effectiveBaseUrl(
                     fs.baseUrl.Get().text,
@@ -304,7 +304,7 @@ const AgentFormPolicy& AgentPolicyFor(std::string_view tool) {
             .With(huxerui::Enabled(canFetch),
                   huxerui::Tooltip(canFetch
                                        ? "按模型获取 URL + API Key 拉取模型列表"
-                                       : "请先填写 Base URL 与 API Key"));
+                                       : "请先填写 Base URL 与 API Key")));
     return huxerui::Row{fetchButton}
         .With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
 }
