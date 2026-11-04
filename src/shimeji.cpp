@@ -49,12 +49,12 @@ Vec2 ParseVec2(std::string_view value) {
 }
 
 bool IsWithin(const fs::path& root, const fs::path& candidate) {
-    auto rootIt = root.begin();
-    auto candidateIt = candidate.begin();
-    for (; rootIt != root.end(); ++rootIt, ++candidateIt) {
-        if (candidateIt == candidate.end() || *rootIt != *candidateIt) return false;
-    }
-    return true;
+    // path::iterator 的相等比较在 clang/libc++ 的 import std 下不可见（隐藏
+    // 友元定义未随 std 模块导出），逐组件比较改走 lexically_relative：候选在
+    // 根内时结果非空且不以 ".." 开头，候选等于根时为 "." 同样视为在内。
+    const fs::path relative = candidate.lexically_relative(root);
+    return !relative.empty() && relative != ".." &&
+           !relative.string().starts_with("../");
 }
 
 fs::path SafeImagePath(const Pack& pack, std::string_view image) {
