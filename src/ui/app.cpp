@@ -39,13 +39,10 @@ import llmswitch.agents.hook_manager;
 
 namespace llmswitch::ui {
 
-namespace {
-
 // 主题边界：MaterialThemeDefinition(spec) 之上用 typed style 覆盖组件样式——
 // 按钮/分段按钮/菜单圆角统一 8px（M3 默认全圆胶囊），叠加层用 on_surface
 // 半透明（深色下黑叠黑、浅色黑底上白叠加不可见，故不用 M3 ripple）。
-huxerui::View AppThemed(bool dark, huxerui::View content) {
-    const huxerui::ThemeSpec spec = dark ? AppDarkThemeSpec() : AppLightThemeSpec();
+huxerui::ThemeDefinition AppThemeDefinition(const huxerui::ThemeSpec& spec) {
     huxerui::ThemeDefinition definition = huxerui::MaterialThemeDefinition(spec);
 
     const auto withAlpha = [](huxerui::Color c, float a) {
@@ -215,7 +212,14 @@ huxerui::View AppThemed(bool dark, huxerui::View content) {
     selects.minimum_item_height = 40.0F;
     definition.Set(selects);
 
-    return huxerui::Theme(std::move(definition), content);
+    return definition;
+}
+
+namespace {
+
+huxerui::View AppThemed(bool dark, huxerui::View content) {
+    const huxerui::ThemeSpec spec = dark ? AppDarkThemeSpec() : AppLightThemeSpec();
+    return huxerui::Theme(AppThemeDefinition(spec), content);
 }
 
 // 托盘菜单：每个工具一个顶层条目（工具图标 + 「显示名 — 当前生效项」），

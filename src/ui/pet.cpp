@@ -319,24 +319,22 @@ huxerui::View PetSkinFallback(
 
 // ---- 主题（右键菜单与主应用同款）--------------------------------------------
 
-// 桌宠窗口唯一的主题化 UI 是右键菜单：套与主应用 AppThemed 同源的 spec +
-// 同一款菜单覆盖（同表面、8px 圆角、同阴影同悬浮态），弹出的菜单与主窗口
-// 右键菜单观感一致。深浅由共享 themeMode 与当前窗口的系统外观共同决定。
+// 桌宠与信息卡复用主应用的完整控件主题；球窗仅覆盖紧凑菜单尺寸。
+// 深浅由共享 themeMode 与当前窗口的系统外观共同决定。
 // compact_menu：球窗只有 200pt 高，默认行高（36pt + 8pt 行内边距）只能放
 // 5 项；桌宠球窗菜单改用紧凑行高（30pt 行 + 4pt 行内边距，6 项 ≈188pt）。
 // 信息卡窗口复用同一主题定义但传 false，保持默认行高。
 huxerui::ThemeDefinition PetThemeDefinition(bool dark, bool compact_menu) {
     const huxerui::ThemeSpec spec = dark ? AppDarkThemeSpec() : AppLightThemeSpec();
-    huxerui::ThemeDefinition definition = huxerui::MaterialThemeDefinition(spec);
+    huxerui::ThemeDefinition definition = AppThemeDefinition(spec);
+    if (!compact_menu) return definition;
     const auto withAlpha = [](Color color, float alpha) {
         color.alpha = alpha;
         return color;
     };
     huxerui::MenuStyle menus = huxerui::MenuStyle::Default();
-    if (compact_menu) {
-        menus.minimum_item_height = 30.0F;
-        menus.item_padding = huxerui::EdgeInsets::Symmetric(12.0F, 4.0F);
-    }
+    menus.minimum_item_height = 30.0F;
+    menus.item_padding = huxerui::EdgeInsets::Symmetric(12.0F, 4.0F);
     menus.background = spec.colors.surface_container;
     menus.foreground = spec.colors.on_surface;
     menus.icon_tint = spec.colors.on_surface_variant;
@@ -1306,7 +1304,9 @@ huxerui::View PetCardContent() {
                          themeMode, startupMode, trayEnabled)
             .With(huxerui::Grow(1.0F)),
     }.With(huxerui::Grow(1.0F),
-           huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
+           huxerui::Background(spec.colors.background),
+           huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))
+        .Key("pet-card-surface");
     return huxerui::Theme(PetThemeDefinition(dark, false), std::move(content));
 }
 

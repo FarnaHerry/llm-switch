@@ -43,6 +43,9 @@ inline constexpr std::size_t kSettings = 7;
 inline constexpr std::size_t kAbout = 8;
 } // namespace workspace_pages
 
+// 所有应用窗口共用的完整控件主题，避免信息卡与控制中心各自继承默认样式。
+huxerui::ThemeDefinition AppThemeDefinition(const huxerui::ThemeSpec& spec);
+
 // 标题栏内容统一高度（= AppOptions.window.title_bar_height）。
 inline constexpr float kTitleBarContentHeight = 24.0F;
 
