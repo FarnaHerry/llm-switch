@@ -40,8 +40,8 @@ import llmswitch.agents.hook_manager;
 namespace llmswitch::ui {
 
 // 主题边界：MaterialThemeDefinition(spec) 之上用 typed style 覆盖组件样式——
-// 按钮/分段按钮/菜单圆角统一 8px（M3 默认全圆胶囊），叠加层用 on_surface
-// 半透明（深色下黑叠黑、浅色黑底上白叠加不可见，故不用 M3 ripple）。
+// 按钮/分段按钮/菜单圆角统一 8px（M3 默认全圆胶囊），交互使用纯色描边，
+// 按钮填充和文字统一趋向当前主题的 primary/on_primary，不叠加半透明层。
 huxerui::ThemeDefinition AppThemeDefinition(const huxerui::ThemeSpec& spec) {
     huxerui::ThemeDefinition definition = huxerui::MaterialThemeDefinition(spec);
 

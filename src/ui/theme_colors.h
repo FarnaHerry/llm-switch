@@ -22,7 +22,7 @@ inline constexpr float kBody = 14.0F;     // 正文/按钮/输入框（SDK 默�
 inline constexpr float kTitle = 20.0F;    // 页面/弹窗标题
 } // namespace font_size
 
-// 普通控件只用纯色描边反馈，不叠加半透明灰层；按钮的底色与文字成对反转。
+// 普通控件只用纯色描边反馈，不叠加半透明灰层；按钮交互态统一用 primary/on_primary。
 inline huxerui::Indication MonochromeIndication(huxerui::Color foreground) {
     const auto layer = [foreground](float width) {
         return huxerui::IndicationLayer{

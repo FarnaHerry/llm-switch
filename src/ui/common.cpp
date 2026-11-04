@@ -159,16 +159,16 @@ private:
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto interaction = huxerui::UseState(huxerui::InteractionState{});
     const auto current = interaction.Get();
-    const bool invert = current.enabled &&
+    const bool active = current.enabled &&
         (current.hovered || current.pressed || current.focus_visible);
-    const auto background = primary ? theme.colors.primary : theme.colors.surface;
-    const auto foreground = primary ? theme.colors.on_primary : theme.colors.on_surface;
+    // 交互态统一趋向主题强调色，已填充的主按钮保持底色，不再次反转。
+    const bool filled = primary || active;
     huxerui::ButtonStyle style = huxerui::UseEnvironment<huxerui::ButtonStyle>();
-    style.background = invert ? huxerui::VisualFill{foreground}
-        : primary ? huxerui::VisualFill{background}
-                  : huxerui::VisualFill{huxerui::Color::Transparent()};
-    style.label_style.foreground = invert ? background : foreground;
-    style.indication = MonochromeIndication(theme.colors.outline);
+    style.background = filled ? huxerui::VisualFill{theme.colors.primary}
+                              : huxerui::VisualFill{huxerui::Color::Transparent()};
+    style.label_style.foreground = filled ? theme.colors.on_primary : theme.colors.on_surface;
+    // 实心按钮的描边与文字同色，hover/按压/焦点在保持底色时仍有反馈。
+    style.indication = MonochromeIndication(style.label_style.foreground);
     huxerui::ThemeDefinition definition;
     definition.Set(style);
     huxerui::View button = action;
@@ -193,16 +193,16 @@ private:
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto interaction = huxerui::UseState(huxerui::InteractionState{});
     const auto current = interaction.Get();
-    const bool invert = current.enabled &&
+    const bool active = current.enabled &&
         (current.hovered || current.pressed || current.focus_visible);
     huxerui::IconButtonStyle style = huxerui::UseEnvironment<huxerui::IconButtonStyle>();
-    style.indication = MonochromeIndication(theme.colors.outline);
-    if (invert) style.foreground = theme.colors.surface;
+    if (active) style.foreground = theme.colors.on_primary;
+    style.indication = MonochromeIndication(style.foreground);
     huxerui::ThemeDefinition definition;
     definition.Set(style);
     huxerui::View button = action;
-    if (invert) {
-        button = std::move(button).With(huxerui::Background(theme.colors.on_surface));
+    if (active) {
+        button = std::move(button).With(huxerui::Background(theme.colors.primary));
     }
     button = std::move(button).With(InteractionSink{interaction});
     return huxerui::Theme(std::move(definition), std::move(button));
