@@ -9,8 +9,9 @@ Linux 源码构建还需 `pangoft2`、`fontconfig` 开发包。应用窗口显�
 内容工厂，按窗口订阅系统深浅色；释放窗口统一走 `Close()`，并以
 `quit_on_last_window_closed=false` 保持托盘常驻。Linux runtime 部署要求 patchelf ≥0.19.0。构建
 离线、可复现；清单与姊妹项目 Clash-Flux 对齐（无 IXWebSocket）；SQLite 只经由
-下游 fork `FarnaHerry/Lib-SQLite`（`farna/main` 钉 `88f610fe66c57260b1ac38e676fc36b23c900fc2`）
-引入（见顶层 CMakeLists 的 huxerui_use_library），不额外 vendor。
+下游 fork `FarnaHerry/Lib-SQLite`（`farna/main` 钉
+`3b286a2d7e64f205eeb935a52b0706067886abd0`，见顶层 CMakeLists 的
+huxerui_use_library），不额外 vendor。
 网络（模型列表/用量/连通检测/本地路由出站）统一走 HuxerUI 平台 HttpClient
 （Linux libsoup / Windows WinHTTP / macOS NSURLSession，TLS 由平台栈负责），
 不 vendor curl/OpenSSL。

@@ -324,7 +324,7 @@ huxerui_add_app(llm-switch
 huxerui_use_library(llm-switch
     TARGET HuxerUI::SQLite
     URL "https://github.com/FarnaHerry/Lib-SQLite.git"
-    COMMIT "88f610fe66c57260b1ac38e676fc36b23c900fc2"
+    COMMIT "3b286a2d7e64f205eeb935a52b0706067886abd0"
 )
 
 # Live2D 皮肤的库接入与 SDK 检查（源选择见上方 huxerui_add_app 之前）。
