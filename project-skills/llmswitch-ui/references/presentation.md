@@ -78,6 +78,9 @@
   DialogStyle 由 AppThemed 主题化；dsh/ZCode live 删除采用对应三键确认。
 - 关于页头部莲花、版本、简介直接平铺，链接/技术栈/许可用 PageSection 分段，
   不重新外裹通用 Card。品牌托盘保持单一盛放莲花，不恢复旧含苞状态。
+- 品牌标志保留原有盛放莲花轮廓，唯一源文件为 `resources/images/lotus_bloom.svg`。
+  首页、托盘、Linux/Windows 应用图标与安装器图案均由资源生成工具同步，
+  应用内用主题黑白 tint，系统图标用纯黑底与纯白标志，不另外程序化绘制旧图案。
 
 ## UI 资源约束
 

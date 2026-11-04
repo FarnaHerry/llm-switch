@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
-  <rect width="256" height="256" rx="56" fill="#14202E"/>
-  <g transform="translate(32 224) scale(0.192 -0.192)" fill="#E8F0F8" stroke="none">
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 24 24">
+  <rect width="24" height="24" rx="5" fill="#000000"/>
+  <g transform="translate(1.92 1.92) scale(0.2016)"><g transform="translate(0.000000,100.000000) scale(0.100000,-0.100000)" fill="#FFFFFF" stroke="none">
     <path d="M447 823 c-25 -38 -54 -88 -67 -112 l-21 -43 -22 20 c-24 22 -93 62
 -106 62 -11 0 -20 -54 -22 -125 -2 -61 -6 -68 -28 -56 -10 6 -41 13 -69 17
 -63 8 -63 7 -27 -106 18 -54 38 -92 65 -123 22 -25 40 -48 40 -51 0 -3 -18
@@ -25,5 +25,5 @@
 39 5 73 -16z m677 17 c3 -5 -4 -35 -16 -66 -23 -61 -80 -127 -139 -159 l-35
 -20 49 -7 c68 -11 77 -24 30 -45 -45 -20 -177 -25 -194 -8 -8 8 6 21 50 48 70
 44 112 95 136 169 20 62 25 68 67 84 41 15 45 15 52 4z"/>
-  </g>
+  </g></g>
 </svg>

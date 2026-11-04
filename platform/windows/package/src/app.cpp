@@ -3,7 +3,7 @@
 // （可取消回滚）→ 完成/失败；embedded/quiet 无窗执行由框架
 // windows_installer.cpp 承担）。视觉沿用 llm-switch 黑白双色主题：深浅两态配色
 // 与字号取自共享的 src/ui/theme_colors.h（与主应用单一入口，不再手工同步两份），
-// 品牌面板为海面渐变 + 莲花标志；llm-switch 特有的卸载前「删数据/留数据」
+// 品牌面板为纯色表面 + 莲花标志；llm-switch 特有的卸载前「删数据/留数据」
 // 确认框保留。
 #include <algorithm>
 #include <cstdlib>
@@ -146,28 +146,18 @@ void RemoveUserData() {
 
 } // namespace
 
-// 莲花标志：双弧对环 + 上下圆点，与主应用图标同源的程序化绘制（安装器资源
-// 包不带位图，颜色随主题深浅态）。
-View InstallerMark(Color foreground, Color detail) {
-  return Canvas([foreground, detail](PaintContext& paint, Size size) {
-    const float extent = std::min(size.width, size.height);
-    Color tile = foreground;
-    tile.alpha = 0.10F;
-    paint.DrawCircle({extent * 0.5F, extent * 0.5F}, extent * 0.44F, tile);
-    paint.DrawArc({extent * 0.5F, extent * 0.5F}, extent * 0.34F, 0.0F, 3.14159F,
-                  foreground, StrokeStyle{.width = 3.0F, .cap = StrokeCap::Round});
-    paint.DrawArc({extent * 0.5F, extent * 0.5F}, extent * 0.34F, 3.14159F, 3.14159F,
-                  detail, StrokeStyle{.width = 3.0F, .cap = StrokeCap::Round});
-    paint.DrawCircle({extent * 0.5F, extent * 0.5F - extent * 0.18F}, extent * 0.045F, detail);
-    paint.DrawCircle({extent * 0.5F, extent * 0.5F + extent * 0.18F}, extent * 0.045F, foreground);
-  }).With(Frame{.width = 64.0F, .height = 64.0F});
+// 与主应用同源的纯色矢量标志，颜色随主题变化。
+View InstallerMark(Color foreground) {
+  return Image(installer::images::lotus)
+      .Tint(foreground)
+      .With(Frame{.width = 64.0F, .height = 64.0F});
 }
 
 View BrandPanel(const ThemeSpec& theme) {
   const Color secondary_text = WithAlpha(theme.colors.on_surface_variant, 0.92F);
 
   return Column {
-    InstallerMark(theme.colors.primary, theme.colors.error),
+    InstallerMark(theme.colors.on_surface),
     Column {
       Text(installer_strings::application_setup)
           .Style(TextStyle{Font::System(12.0F).WithWeight(FontWeight::SemiBold), secondary_text}),

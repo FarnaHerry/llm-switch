@@ -50,7 +50,7 @@ blend 为 `override` 或 `add`）。状态键为 `idle/working/waiting/completed
 
 - 语义轮廓必须在 16–20px 视觉范围内清楚可辨，水墨化不能牺牲功能识别；
 - 资源统一只使用白色 `#FFFFFF` 与透明度描述墨量，不写死浅色／深色；运行时
-  tint 根据主题映射成冷白或深石板蓝（见 `src/ui/app.cpp` 两套 ThemeSpec）；
+  tint 根据主题映射成纯白或纯黑（见 `src/ui/theme_colors.h` 两套 ThemeSpec）；
 - 主笔画使用圆头、圆角连接，允许轻微不对称；避免整齐、等宽、完全闭合的
   Material 几何感；
 - 每个语义图标只保留一个 SVG，禁止新增 `_selected.svg`、`_dark.svg`、
@@ -107,7 +107,7 @@ SVG 代码，mark 仍是各厂商商标，仅用于标识对应 Agent。
 | `pi.svg` | pi-mono 官方 logo，[pi.dev](https://pi.dev) `logo-auto.svg`（等比缩到 24×24，官方轮廓不变） | MIT（[pi-mono 仓库](https://github.com/badlogic/pi-mono)） |
 | `hermes.svg` | Hermes Agent 官方标志 [NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent) `assets/nous-girl-black.svg` 的「Nous Girl」头像。官方原稿是 2000+ 段的单路径（115 KB），直接缩到 24×24 时头发排线会糊成灰块，故按官方应用图标的取景重新矢量化：从 1024px 栅格 `potrace -b svg --turdsize 3 --alphamax 1.0 --opttolerance 0.3` 描摹，只取头部方形窗口、墨迹齐底边（与 claude/codex/qwen/deepseek 等满幅图标一致），24×24 下重绘为白色 alpha-mask | 上游仓库许可（Nous Research 商标，仅用于标识对应 Agent） |
 | `packycode/aicodemirror/code88/duckcoding/volcengine/tencent/glm/stepfun/doubao/siliconflow/antgroup/ppio/aihubmix/shengsuanyun/qiniu/aicoding/subrouter/cherryin.svg` | 对应默认供应商模板的本仓库自绘缩写标记（未复刻厂商商标），主题 tint 用白色 alpha-mask | 同本仓库 |
-| `home/home_active/agents/models/router/skills/mcp/sessions/stats/settings.svg` | 用户提供的 **llm-switch Icon Set v1.0** 参考图中的核心导航图标（首页未选中／选中、Agent 管理、模型、本地路由、Skills、MCP、会话、用量、设置；`home_active.svg` 为实心莲花，当前未接入运行时，选中态仍由承载底块表达） | 本仓库转换稿 |
+| `agents/models/router/skills/mcp/sessions/stats/settings.svg` | 用户提供的 **llm-switch Icon Set v1.0** 参考图中的核心导航图标（Agent 管理、模型、本地路由、Skills、MCP、会话、用量、设置） | 本仓库转换稿 |
 | `trash/download/upload/search/refresh/edit/import/export/backup/restore.svg` | Icon Set v1.0 中的常用操作图标（删除、下载、上传、搜索、刷新、编辑、导入、导出、备份、恢复） | 本仓库转换稿 |
 | `add.svg` | 本仓库自绘的简单通用加号（圆头十字，墨迹 14/24）。Icon Set v1.0 的「卷宗 + 加号」在 16px 下已经认不出是新增，按产品要求换成通用 add 造型 | 同本仓库 |
 | `write.svg` | 本仓库自绘的「写入这一条」标记（文件方框 + 从左边界跨进去的一条墨块）。用于 dsh/zcode 左右双列页右列每行的**单条**增量写入按钮——Icon Set v1.0 的 `upload.svg` 是「底座 + 竖箭头」，24px 下认不出语义，也与整组写入的批量动作混同（`upload.svg` 作为图标集留档保留，运行时已无引用）；`hrc` 只接受 0/1 的元素级 `opacity`，淡化笔画要用 `stroke-opacity` | 同本仓库 |
@@ -115,16 +115,29 @@ SVG 代码，mark 仍是各厂商商标，仅用于标识对应 Agent。
 | `success/error/warning/info/loading/more/disabled/processing.svg` | Icon Set v1.0 中的状态提示图标 | 本仓库转换稿 |
 | `user/api_key/link/options/logout.svg` | Icon Set v1.0 中的辅助图标 | 本仓库转换稿 |
 | `about.svg` | 本仓库自绘圆圈 i（顶级「关于」入口） | 同本仓库 |
-| `lotus_bloom.svg` | 品牌莲花·盛开，直接采用 Icon Set v1.0 的莲花轮廓（与 `images/home.svg` 同一造型，仅 viewBox 表达不同）；用于标题栏、导航中心、托盘与关于页。含苞态（`lotus_bud.svg`）已整体废弃——托盘与导航盘都不再用"闭合"形态表达状态 | 本仓库转换稿 |
-| `lotus_tray_bloom*.png` | 由盛放图稿生成的托盘多倍率栅格版本（深色圆底 `#14202E` + 冷白莲花，1x/2x/3x/4x/8x） | 同本仓库 |
-| `lotus_bloom_raster*.png` | 由盛放图稿生成的透明底多倍率栅格版本（冷白莲花 `#E8F0F8`，1x/2x/3x/4x/8x）；保留的旧栅格资源，当前桌宠通过 `UseVectorImage(lotus_bloom)` 读取矢量并按黑白主题着色 | 同本仓库 |
-| `platform/{linux,windows}` 应用图标 | 由盛放莲花图稿生成的 Linux SVG 与 Windows ICO（品牌底色 `#14202E` / 莲花 `#E8F0F8` 保持不变，仅换莲花造型） | 同本仓库 |
+| `lotus_bloom.svg`、`home.svg` | 保留 Icon Set v1.0 的盛放莲花轮廓，白色 alpha-mask；前者是品牌唯一源文件，后者为同源导出。用于标题栏、导航、关于页与桌宠，深浅主题由 tint 着色 | 本仓库转换稿 |
+| `lotus_tray_bloom*.png` | 由品牌源图生成，纯黑圆底 + 纯白莲花，1x/2x/3x/4x/8x | 同本仓库 |
+| `lotus_bloom_raster*.png` | 由品牌源图生成，透明底纯白莲花，1x/2x/3x/4x/8x；桌宠运行时使用同源矢量 | 同本仓库 |
+| `platform/{linux,windows}` 应用图标 | 同源导出的 Linux SVG 与 Windows ICO，纯黑圆角方底 + 纯白莲花；ICO 包含 16/24/32/48/64/128/256px | 同本仓库 |
+| `platform/windows/package/resources/images/lotus.svg` | 品牌源图的安装器资源副本，通过生成脚本同步，使用主题 tint | 同本仓库 |
 | `back/forward.svg` | 本仓库自绘（墨韵图标库·基础操作） | 同本仓库 |
 | `file/folder/image/video/audio.svg` | 本仓库自绘（墨韵图标库·内容相关） | 同本仓库 |
 | `group/message/bell/star/heart.svg` | 本仓库自绘（墨韵图标库·用户相关） | 同本仓库 |
 | `help/lock/unlock.svg` | 本仓库自绘（墨韵图标库·状态提示） | 同本仓库 |
 | `calendar/clock/location/filter/sort/menu.svg` | 本仓库自绘（墨韵图标库·其他常用） | 同本仓库 |
 | `radial_navigation_artwork.svg` | 本仓库自绘的径向导航装饰插画，作为可 tint 的静态矢量资源 | 同本仓库 |
+
+## 品牌资源生成
+
+只编辑 `images/lotus_bloom.svg`；使用开发工具 CairoSVG 和 Pillow 导出其余品牌资源：
+
+```bash
+python3 resources/tools/generate_brand_icons.py
+python3 resources/tools/generate_brand_icons.py --check
+```
+
+生成工具不参与应用构建，不增加运行时依赖。矢量只使用纯色填充，栅格边缘保留抗锯齿。
+仓库根 `icon-set/` 和 `old/` 是历史参考，不参与品牌资源生成。
 
 ## 换图标后的生效范围（任务栏／托盘为什么不跟着变）
 

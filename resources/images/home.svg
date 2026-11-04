@@ -1,13 +1,7 @@
-<?xml version="1.0" standalone="no"?>
-<svg version="1.0" xmlns="http://www.w3.org/2000/svg"
- width="24" height="24" viewBox="0 0 100.000000 100.000000"
- preserveAspectRatio="xMidYMid meet">
-<metadata>
-Created by potrace 1.16, written by Peter Selinger 2001-2019
-</metadata>
-<g transform="translate(0.000000,100.000000) scale(0.100000,-0.100000)"
-fill="#FFFFFF" stroke="none">
-<path d="M447 823 c-25 -38 -54 -88 -67 -112 l-21 -43 -22 20 c-24 22 -93 62
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 100.000000 100.000000">
+  <!-- llm-switch 品牌莲花·盛开：Icon Set v1.0 的莲花轮廓（与主页图标同一造型） -->
+  <g transform="translate(0.000000,100.000000) scale(0.100000,-0.100000)" fill="#FFFFFF" stroke="none">
+    <path d="M447 823 c-25 -38 -54 -88 -67 -112 l-21 -43 -22 20 c-24 22 -93 62
 -106 62 -11 0 -20 -54 -22 -125 -2 -61 -6 -68 -28 -56 -10 6 -41 13 -69 17
 -63 8 -63 7 -27 -106 18 -54 38 -92 65 -123 22 -25 40 -48 40 -51 0 -3 -18
 -11 -40 -17 -22 -7 -40 -16 -40 -20 0 -12 94 -66 144 -83 58 -20 106 -20 152
@@ -31,5 +25,5 @@ fill="#FFFFFF" stroke="none">
 39 5 73 -16z m677 17 c3 -5 -4 -35 -16 -66 -23 -61 -80 -127 -139 -159 l-35
 -20 49 -7 c68 -11 77 -24 30 -45 -45 -20 -177 -25 -194 -8 -8 8 6 21 50 48 70
 44 112 95 136 169 20 62 25 68 67 84 41 15 45 15 52 4z"/>
-</g>
+  </g>
 </svg>
