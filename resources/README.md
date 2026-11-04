@@ -116,7 +116,7 @@ SVG 代码，mark 仍是各厂商商标，仅用于标识对应 Agent。
 | `user/api_key/link/options/logout.svg` | Icon Set v1.0 中的辅助图标 | 本仓库转换稿 |
 | `about.svg` | 本仓库自绘圆圈 i（顶级「关于」入口） | 同本仓库 |
 | `lotus_bloom.svg`、`home.svg` | 保留 Icon Set v1.0 的盛放莲花轮廓，白色 alpha-mask；前者是品牌唯一源文件，后者为同源导出。用于标题栏、导航、关于页与桌宠，深浅主题由 tint 着色 | 本仓库转换稿 |
-| `lotus_tray_bloom*.png` | 由品牌源图生成，纯黑圆底 + 纯白莲花，1x/2x/3x/4x/8x | 同本仓库 |
+| `lotus_tray_bloom*.png` | 由原有完整莲花生成，纯黑圆底 + 纯白莲花，1x/2x/3x/4x/8x。Linux 通过资源 API 至少提交 4x（96px），保留 24 DIP 逻辑尺寸 | 同本仓库 |
 | `lotus_bloom_raster*.png` | 由品牌源图生成，透明底纯白莲花，1x/2x/3x/4x/8x；桌宠运行时使用同源矢量 | 同本仓库 |
 | `platform/{linux,windows}` 应用图标 | 同源导出的 Linux SVG 与 Windows ICO，纯黑圆角方底 + 纯白莲花；ICO 包含 16/24/32/48/64/128/256px | 同本仓库 |
 | `platform/windows/package/resources/images/lotus.svg` | 品牌源图的安装器资源副本，通过生成脚本同步，使用主题 tint | 同本仓库 |
@@ -140,6 +140,17 @@ python3 resources/tools/generate_brand_icons.py --check
 仓库根 `icon-set/` 和 `old/` 是历史参考，不参与品牌资源生成。
 
 ## 换图标后的生效范围（任务栏／托盘为什么不跟着变）
+
+本地开发时，运行以下命令把当前用户的菜单、任务栏、命令行及已有桌面/自启动
+快捷方式统一到本仓库 `run.sh` 和最新黑白图标：
+
+```bash
+python3 tools/register_linux_desktop.py
+```
+
+此入口按 `run.sh` 规则使用最新构建及其资源包，不需要管理员权限；同名用户桌面
+条目覆盖系统条目，系统 RPM/DEB 文件保持不变。替换已有用户文件前会备份，
+重复运行会刷新图标和应用菜单缓存。入口依赖当前仓库位置，移动仓库后需重新注册。
 
 仓库里的 `resources/images/` 只决定**构建目录**里跑的应用（`./run.sh`）。装了包之后，
 另外两处来源各自独立，改图标必须重新发布到它们才会生效：

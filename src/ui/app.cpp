@@ -1176,8 +1176,17 @@ void TrayPresentationController::Refresh() {
         tray_.Hide();
         return;
     }
+    huxerui::ImageVariant trayIcon = app::images::lotus_tray_bloom;
+#if defined(__linux__)
+    // Linux 托盘没有面板 DPI 信息；至少提交 96px，避免把 24px 位图放大。
+    // 仍由资源系统选择密度变体，ImageAsset 保留原有的 24 DIP 逻辑尺寸。
+    const auto resources = huxerui::UseService<huxerui::Resources>();
+    auto configuration = resources->Configuration();
+    configuration.display_scale = std::max(configuration.display_scale, 4.0F);
+    trayIcon = resources->GetImage(app::images::lotus_tray_bloom, configuration);
+#endif
     tray_.Show(
-        app::images::lotus_tray_bloom,
+        std::move(trayIcon),
         huxerui::SystemTrayOptions{
             .tooltip = "llm-switch",
             .menu = BuildTrayMenu(application_, mainWindow_, pet_,
