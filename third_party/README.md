@@ -4,7 +4,7 @@ nlohmann::json 以 single header 直接提交在 `json/`；cpp-httplib 以 singl
 header 提交在 `httplib/`；HuxerUI 0.2.0 的 Linux 离线 SDK 包提交在
 `tarballs/` 兜底。日常源码构建跟随下游 fork `FarnaHerry/HuxerUI` 的
 `farna/main` 集成分支（官方 `main` 只作上游基线镜像），CI 固定到
-commit `9e67114e759a2b617cada6687c3d50b2bce8dc79`，支持自定义字体和主题字体族。
+commit `03b438c61f6599e3f59e59be9fff6992852e7287`，支持自定义字体和主题字体族。
 Linux 源码构建还需 `pangoft2`、`fontconfig` 开发包。应用窗口显式提供各自
 内容工厂，按窗口订阅系统深浅色；释放窗口统一走 `Close()`，并以
 `quit_on_last_window_closed=false` 保持托盘常驻。Linux runtime 部署要求 patchelf ≥0.19.0。构建
