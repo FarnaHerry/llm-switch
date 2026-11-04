@@ -110,9 +110,14 @@ jobs:
           # （系统依赖，应用运行环境自带）提供，CI 只需开发头
           apt-get install -y --no-install-recommends \
             clang-21 libc++-21-dev g++ ninja-build pkg-config file gzip \
-            dpkg-dev fakeroot rpm \
-            python3 python3-pip patchelf \
+            dpkg-dev fakeroot rpm curl xz-utils \
+            python3 python3-pip \
             libgtk-4-dev libepoxy-dev libsoup-3.0-dev libpango1.0-dev libfontconfig-dev
+          # 26.04 的 apt patchelf 是 0.18.0，HuxerUI 0.4.0 的 runtime 部署
+          # 要求 ≥0.19.0（旧版改 RUNPATH 会破坏 ELF 初始化），用官方发行包
+          curl -fsSL https://github.com/NixOS/patchelf/releases/download/0.19.3/patchelf-0.19.3-x86_64.tar.gz \
+            | tar -xz -C /usr/local --strip-components=1
+          patchelf --version
           # 26.04 的 apt cmake 是 3.31（GNU import-std 发现不行），固定 pip 4.4.2
           python3 -m pip install --break-system-packages -q cmake==4.4.2
           cmake --version | head -1

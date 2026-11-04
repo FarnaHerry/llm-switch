@@ -50,8 +50,13 @@ bool Throws(F&& function) {
 
 } // namespace
 
-int main() {
+// Windows CI 曾在无任何输出的情况下以 0xc0000409 终止：阶段标记定位崩溃点，
+// try/catch 把逃逸异常变成可读的失败而不是 terminate 静默 abort。
+#define STAGE(name) std::println(stderr, "stage: {}", name)
+
+int Run() {
     namespace fs = std::filesystem;
+    STAGE("setup");
     TempDirectory temp{fs::temp_directory_path() /
                        std::format("llmswitch-test-pet-packages-{}", std::chrono::steady_clock::now()
                            .time_since_epoch().count())};
@@ -63,26 +68,32 @@ int main() {
               R"json({"states":{"working":{"motion":"Work","loop":true}}})json");
 
     const fs::path shimejiRoot = temp.path / "data" / "shimeji";
+    STAGE("import shimeji");
     const std::string shimejiId = pet_packages::Import(
         pet_packages::Kind::shimeji, shimejiSource, shimejiRoot);
     CHECK(shimejiId == "chibi");
     CHECK(fs::is_regular_file(shimejiRoot / "chibi" / "conf" / "actions.xml"));
+    STAGE("import shimeji duplicate");
     CHECK(Throws([&] {
         static_cast<void>(pet_packages::Import(
             pet_packages::Kind::shimeji, shimejiSource, shimejiRoot));
     }));
+    STAGE("delete shimeji guards");
     CHECK(Throws([&] { pet_packages::Delete(shimejiRoot, "../chibi"); }));
     pet_packages::Delete(shimejiRoot, shimejiId);
     CHECK(!fs::exists(shimejiRoot / "chibi"));
 
     const fs::path live2dRoot = temp.path / "data" / "live2d";
+    STAGE("import live2d");
     CHECK(pet_packages::Import(pet_packages::Kind::live2d,
                                live2dSource, live2dRoot) == "hero");
     CHECK(fs::is_regular_file(live2dRoot / "hero" / "pet.json"));
+    STAGE("delete live2d");
     pet_packages::Delete(live2dRoot, "hero");
     CHECK(!fs::exists(live2dRoot / "hero"));
 
     const fs::path invalid = temp.path / "source" / "invalid";
+    STAGE("import invalid");
     WriteFile(invalid / "readme.txt", "not a model");
     CHECK(Throws([&] {
         static_cast<void>(pet_packages::Import(
@@ -92,4 +103,13 @@ int main() {
 
     if (g_failures == 0) std::println("test_pet_packages: all assertions passed");
     return g_failures == 0 ? 0 : 1;
+}
+
+int main() {
+    try {
+        return Run();
+    } catch (const std::exception& error) {
+        std::println(stderr, "test_pet_packages: uncaught exception: {}", error.what());
+        return 1;
+    }
 }
